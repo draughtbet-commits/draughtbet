@@ -1,0 +1,167 @@
+# 02 — Database Schema (canonical)
+
+This is the single source of truth for every table and field in Draught Bet (contracted under the working title "Draughts Arena" — see `00_MASTER_PROMPT.md` §1 for the naming note). If any other document implies a field not listed here, this file wins — update the other document, not this one.
+
+ORM: Prisma. Database: PostgreSQL 15+.
+
+```prisma
+model User {
+  id                String   @id @default(uuid())
+  email             String   @unique
+  passwordHash      String
+  displayName       String?
+  tier              Tier     @default(AMATEUR)
+  ageVerified       Boolean  @default(false)
+  kycStatus         KycStatus @default(NONE)
+  countryCode       String?
+  fcmToken          String?  // Firebase Cloud Messaging token for push notifications
+  isBanned          Boolean  @default(false)
+  isAdmin           Boolean  @default(false)
+  createdAt         DateTime @default(now())
+  wallet            Wallet?
+  devices           DeviceFingerprint[]
+  notifications     Notification[]
+}
+
+enum Tier { AMATEUR MASTER PRO }
+enum KycStatus { NONE PENDING VERIFIED }
+
+model Wallet {
+  id                String   @id @default(uuid())
+  userId            String   @unique
+  user              User     @relation(fields: [userId], references: [id])
+  balanceMinorUnits BigInt   @default(0)   // kobo for NGN (Phase 1); pence if a GBP wallet is added in Phase 2 — always an integer, never a float
+  currency          Currency @default(NGN)
+  updatedAt         DateTime @updatedAt
+  transactions      WalletTransaction[]
+}
+enum Currency { NGN GBP }
+
+model WalletTransaction {
+  id                String   @id @default(uuid())
+  walletId          String
+  wallet            Wallet   @relation(fields: [walletId], references: [id])
+  type              TxType
+  amountMinorUnits  BigInt   // signed — negative for outflow, same unit as the parent Wallet's currency
+  relatedMatchId    String?
+  gateway           Gateway?
+  gatewayReference  String?  // Paystack/Flutterwave transaction reference (or Stripe, in a future Phase 2 GBP wallet)
+  status            TxStatus @default(COMPLETED)
+  createdAt         DateTime @default(now())
+}
+enum TxType { DEPOSIT WITHDRAWAL STAKE PAYOUT COMMISSION REFUND }
+enum TxStatus { PENDING COMPLETED FAILED REVERSED }
+enum Gateway { PAYSTACK FLUTTERWAVE STRIPE }
+
+model WithdrawalRequest {
+  id                String   @id @default(uuid())
+  userId            String
+  amountMinorUnits  BigInt
+  status            WithdrawalStatus @default(PENDING)
+  reviewedBy        String?  // admin User.id
+  reviewedAt        DateTime?
+  createdAt         DateTime @default(now())
+}
+enum WithdrawalStatus { PENDING APPROVED REJECTED }
+
+model Match {
+  id                String   @id @default(uuid())
+  playerLightId     String
+  playerDarkId      String
+  tier              Tier
+  stakeMinorUnits   BigInt   // same minor-unit convention as Wallet — kobo for NGN (Phase 1)
+  status            MatchStatus @default(ACTIVE)
+  winnerId          String?
+  endReason         String?  // e.g. "capture_win" | "draw_threefold" | "draw_king_moves" | "forfeit_disconnect" | "admin_decision"
+  createdAt         DateTime @default(now())
+  endedAt           DateTime?
+  moves             MatchMove[]
+}
+enum MatchStatus { PENDING ACTIVE COMPLETED FORFEITED DISPUTED }
+
+model MatchMove {
+  id                String   @id @default(uuid())
+  matchId           String
+  match             Match    @relation(fields: [matchId], references: [id])
+  moveNumber        Int
+  playerId          String
+  fromSquare        Int      // standard 1-50 notation
+  toSquare          Int
+  capturedSquares   Int[]
+  isKingMove        Boolean  @default(false)
+  boardStateAfter   Json     // full board snapshot — enables fast reconnect and future replay features
+  createdAt         DateTime @default(now())
+}
+
+model Callout {
+  id                String   @id @default(uuid())
+  challengerId      String
+  stakeMinorUnits   BigInt   // validated against the tier's calloutMax*, NOT the tier's normal stakeMax* — see PlatformSettings below
+  tier              Tier
+  status            CalloutStatus @default(OPEN)
+  acceptedBy        String?
+  createdAt         DateTime @default(now())
+  expiresAt         DateTime
+}
+enum CalloutStatus { OPEN ACCEPTED EXPIRED CANCELLED }
+
+model DeviceFingerprint {
+  id              String   @id @default(uuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id])
+  fingerprintHash String
+  firstSeen       DateTime @default(now())
+  lastSeen        DateTime @default(now())
+}
+
+model AdminAuditLog {
+  id          String   @id @default(uuid())
+  adminId     String
+  action      String
+  targetId    String?
+  metadata    Json?
+  createdAt   DateTime @default(now())
+}
+
+model PlatformSettings {
+  id                 String @id @default("singleton")
+  commissionPercent  Int    @default(10)
+  // Values below are placeholder NGN kobo amounts — confirm real Nigeria-market stake bounds
+  // with the client before launch; these are proportional estimates from the original GBP
+  // wireframe figures (~₦600/£1), not a client-confirmed pricing decision.
+  amateurStakeMinP   BigInt @default(50000)    // ₦500
+  amateurStakeMaxP   BigInt @default(1500000)  // ₦15,000
+  masterStakeMinP    BigInt @default(1000000)  // ₦10,000
+  masterStakeMaxP    BigInt @default(3000000)  // ₦30,000
+  proStakeMinP       BigInt @default(3000000)  // ₦30,000
+  proStakeMaxP       BigInt @default(6000000)  // ₦60,000
+
+  // Call-out ceilings are DELIBERATELY separate from and higher than the normal stake bounds above.
+  // Per the client's original wireframe: a Master player's normal match stake tops out at ₦30,000,
+  // but that same player is eligible to call out (challenge) for up to a much higher amount.
+  // Do not validate call-out amounts against *StakeMaxP above — use these fields instead.
+  amateurCalloutMaxP BigInt @default(0)         // ₦0 — Amateur is not call-out eligible at all, per wireframe
+  masterCalloutMaxP  BigInt @default(15000000)  // ₦150,000 (placeholder, proportional to original £250 ceiling)
+  proCalloutMaxP     BigInt @default(30000000)  // ₦300,000 (placeholder, proportional to original £500 ceiling)
+}
+
+model Notification {
+  id          String   @id @default(uuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  type        String   // see 03_BACKEND_SPEC.md §Notifications for the full enum of values in use
+  title       String
+  message     String
+  link        String?
+  isRead      Boolean  @default(false)
+  createdAt   DateTime @default(now())
+}
+```
+
+## Rules for working with this schema
+
+- **Money is always `BigInt` in the wallet's minor unit** — kobo for NGN wallets (Phase 1), pence for any future GBP wallet (Phase 2). Never store currency as `Float` or `Decimal` cast from a float. ₦1.00 = `100` kobo. Convert to `₦`/`£` display formatting only at the Flutter presentation layer, and always render using the `Wallet.currency` field — never hardcode a currency symbol.
+- **Every `WalletTransaction` insert happens in the same Prisma `$transaction` as the `Wallet.balanceMinorUnits` update it corresponds to.** No exceptions — see `00_MASTER_PROMPT.md` §3.
+- **`MatchMove.boardStateAfter` is a full snapshot, not a diff.** This trades storage efficiency for reconnect/resync simplicity — worth it at MVP scale.
+- **Migrations:** run `npx prisma migrate dev --name <description>` for every schema change, and commit the generated migration file in the same commit as any code that depends on it. Never hand-edit a migration file after it's been applied to any shared environment.
+- **`PlatformSettings` is a singleton row** (`id = "singleton"`) — the admin dashboard reads/writes this one row rather than a settings table with multiple rows. Simpler for MVP scale; revisit only if genuinely needed later.
