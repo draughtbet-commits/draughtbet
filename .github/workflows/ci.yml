@@ -16,24 +16,25 @@ jobs:
         working-directory: ./backend
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
 
-    - name: Use Node.js 18.x
-      uses: actions/setup-node@v3
+    - name: Install pnpm
+      uses: pnpm/action-setup@v3
       with:
-        node-version: '18.x'
-        cache: 'npm'
-        cache-dependency-path: './backend/package-lock.json'
+        version: 9
+
+    - name: Use Node.js 24.x
+      uses: actions/setup-node@v4
+      with:
+        node-version: '24.x'
+        cache: 'pnpm'
+        cache-dependency-path: './backend/pnpm-lock.yaml'
 
     - name: Install dependencies
-      run: npm ci
+      run: pnpm install --frozen-lockfile --ignore-scripts
 
     - name: Generate Prisma Client
-      run: npx prisma generate
-
-    - name: Run Linter
-      run: npm run lint
-      continue-on-error: true # Optional: allow failing lint for now
+      run: pnpm dlx prisma generate
 
     - name: Run Tests
-      run: npm test
+      run: pnpm test
