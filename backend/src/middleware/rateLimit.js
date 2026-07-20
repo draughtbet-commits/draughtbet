@@ -20,7 +20,7 @@ const store = redisClient
 export const globalRateLimiter = rateLimit({
   store,
   windowMs: 60 * 1000, // 1 minute
-  max: 100, // Limit each IP to 100 requests per `window`
+  max: process.env.NODE_ENV === 'test' ? 1000 : 100, // Limit each IP to 100 requests per `window`
   message: 'Too many requests from this IP, please try again after a minute',
   standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
   legacyHeaders: false, // Disable the `X-RateLimit-*` headers
@@ -29,7 +29,7 @@ export const globalRateLimiter = rateLimit({
 export const authRateLimiter = rateLimit({
   store,
   windowMs: 60 * 1000, // 1 minute
-  max: 5, // Limit each IP to 5 auth requests per `window`
+  max: process.env.NODE_ENV === 'test' ? 1000 : 5, // Limit each IP to 5 auth requests per `window`
   message: 'Too many authentication attempts from this IP, please try again after a minute',
   standardHeaders: true,
   legacyHeaders: false,

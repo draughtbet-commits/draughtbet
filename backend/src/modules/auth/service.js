@@ -2,20 +2,33 @@ import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import { v4 as uuidv4 } from 'uuid';
 import { PrismaClient } from '@prisma/client';
+import pg from 'pg';
+import { PrismaPg } from '@prisma/adapter-pg';
 import Redis from 'ioredis';
 import logger from '../../utils/logger.js';
 import dotenv from 'dotenv';
 
 dotenv.config();
 
-const prisma = new PrismaClient();
-const redis = process.env.REDIS_URL ? new Redis(process.env.REDIS_URL) : null;
+const connectionString = process.env.DATABASE_URL || 'postgresql://localhost:5432/dummy';
+const pool = new pg.Pool({ connectionString });
+const adapter = new PrismaPg(pool);
+let prisma = new PrismaClient({ adapter });
+let redis = process.env.REDIS_URL ? new Redis(process.env.REDIS_URL) : null;
 
 const JWT_SECRET = process.env.JWT_SECRET || 'fallback_secret';
 const ACCESS_TOKEN_EXPIRY = '15m';
 const REFRESH_TOKEN_TTL_SECONDS = 7 * 24 * 60 * 60; // 7 days
 
 export class AuthService {
+  static __setPrisma(mockPrisma) {
+    prisma = mockPrisma;
+  }
+
+  static __setRedis(mockRedis) {
+    redis = mockRedis;
+  }
+
   static async register(email, password, dateOfBirth, fingerprintHash) {
     // Note: Zod validation already confirmed 18+ in the controller before calling this
     try {

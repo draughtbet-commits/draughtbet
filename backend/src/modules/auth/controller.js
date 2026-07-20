@@ -42,8 +42,8 @@ authRouter.post('/register', async (req, res, next) => {
     await AuthService.register(data.email, data.password, data.dateOfBirth, data.fingerprintHash);
     res.status(201).json({ message: 'User registered successfully' });
   } catch (err) {
-    if (err instanceof z.ZodError) {
-      return res.status(400).json({ errors: err.errors });
+    if (err && err.name === 'ZodError') {
+      return res.status(400).json({ errors: err.errors || err.issues });
     }
     // Let global error handler log unexpected errors securely
     next(err);
@@ -56,8 +56,8 @@ authRouter.post('/login', async (req, res, next) => {
     const tokens = await AuthService.login(data.email, data.password, data.fingerprintHash);
     res.json(tokens);
   } catch (err) {
-    if (err instanceof z.ZodError) {
-      return res.status(400).json({ errors: err.errors });
+    if (err && err.name === 'ZodError') {
+      return res.status(400).json({ errors: err.errors || err.issues });
     }
     // Return a generic 401 for bad credentials / banned users
     if (err.message === 'Invalid credentials' || err.message === 'Account suspended') {

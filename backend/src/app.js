@@ -4,12 +4,17 @@ import cors from 'cors';
 import { pinoHttp } from 'pino-http';
 import logger from './utils/logger.js';
 import { PrismaClient } from '@prisma/client';
+import pg from 'pg';
+import { PrismaPg } from '@prisma/adapter-pg';
 import Redis from 'ioredis';
 import { globalRateLimiter } from './middleware/rateLimit.js';
 import { authRouter } from './modules/auth/controller.js';
 
 const app = express();
-const prisma = new PrismaClient();
+const connectionString = process.env.DATABASE_URL || 'postgresql://localhost:5432/dummy';
+const pool = new pg.Pool({ connectionString });
+const adapter = new PrismaPg(pool);
+const prisma = new PrismaClient({ adapter });
 
 // Setup Redis correctly
 let redis;

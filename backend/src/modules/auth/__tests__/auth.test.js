@@ -1,18 +1,17 @@
 import { jest } from '@jest/globals';
 import request from 'supertest';
+
+// Clear env vars to prevent real connections via dotenv
+process.env.DATABASE_URL = '';
+process.env.REDIS_URL = '';
+
 import app from '../../../app.js';
 import { AuthService } from '../service.js';
-import { PrismaClient } from '@prisma/client';
-import Redis from 'ioredis';
+import logger from '../../../utils/logger.js';
 import bcrypt from 'bcrypt';
 
-// Mock dependencies
-jest.mock('@prisma/client');
-jest.mock('ioredis');
-jest.mock('../../utils/logger.js', () => ({
-  __esModule: true,
-  default: { error: jest.fn(), info: jest.fn() }
-}));
+jest.spyOn(logger, 'error').mockImplementation(() => {});
+jest.spyOn(logger, 'info').mockImplementation(() => {});
 
 const mockPrisma = {
   $transaction: jest.fn(),
@@ -25,14 +24,12 @@ const mockPrisma = {
     update: jest.fn()
   }
 };
-PrismaClient.mockImplementation(() => mockPrisma);
 
 const mockRedis = {
   set: jest.fn(),
   get: jest.fn(),
   del: jest.fn(),
 };
-Redis.mockImplementation(() => mockRedis);
 
 // Override the module variables for testing
 AuthService.__setPrisma(mockPrisma);
@@ -54,6 +51,7 @@ describe('Auth System', () => {
           dateOfBirth: new Date().toISOString() // today, so 0 years old
         });
       expect(res.status).toBe(400);
+      console.log('text:', res.text);
       expect(res.body.errors[0].message).toMatch(/18 years old/);
     });
 
@@ -66,6 +64,7 @@ describe('Auth System', () => {
           dateOfBirth: '2000-01-01'
         });
       expect(res.status).toBe(400);
+      console.log('text:', res.text);
       expect(JSON.stringify(res.body.errors)).toMatch(/uppercase|lowercase|digit|8/);
     });
 
