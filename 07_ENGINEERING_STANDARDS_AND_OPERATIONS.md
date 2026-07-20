@@ -38,7 +38,7 @@ The app collects genuinely sensitive data: email, KYC verification data, device 
 
 ## 5. Backup & disaster recovery
 
-- **PostgreSQL:** automated daily backups with point-in-time recovery enabled — this is where the money ledger lives; losing it is not an acceptable failure mode under any circumstance.
+- **PostgreSQL (VPS-hosted):** Automated daily backups via `pg_dump` cron jobs shipped to cold storage (e.g., S3). We are using a dedicated local Postgres 15 instance to eliminate network hops and absolutely guarantee sub-100ms latency for `MatchMove` inserts. This is where the money ledger lives; losing it is not an acceptable failure mode under any circumstance.
 - **Redis — the actual gap:** live match board state and the matchmaking queue live in Redis. If Redis restarts mid-match, what happens right now is undefined, and that's a real problem given there's money staked on that match. Fix:
   - Enable Redis AOF (append-only file) persistence, not just RDB snapshots, so a restart loses at most the last few operations rather than everything since the last snapshot.
   - **More importantly:** build the recovery path explicitly — since every move is also written to Postgres's `MatchMove` table (per `02_DATABASE_SCHEMA.md`), a lost Redis board state should be reconstructible by replaying `MatchMove` rows for that match, not just accepted as data loss. Add this as an explicit function (`rebuildBoardFromMoveLog(matchId)`) and test it deliberately — this is exactly the kind of thing that's easy to leave unbuilt because it only matters during an incident, which is precisely why it needs to be built before one happens.

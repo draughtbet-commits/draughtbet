@@ -11,8 +11,11 @@ import { globalRateLimiter } from './middleware/rateLimit.js';
 import { authRouter } from './modules/auth/controller.js';
 
 const app = express();
-const connectionString = process.env.DATABASE_URL || 'postgresql://localhost:5432/dummy';
-const pool = new pg.Pool({ connectionString });
+const connectionString = process.env.DATABASE_URL;
+if (!connectionString && process.env.NODE_ENV !== 'test') {
+  throw new Error('FATAL: DATABASE_URL is missing.');
+}
+const pool = new pg.Pool({ connectionString: connectionString || 'postgresql://localhost:5432/dummy' });
 const adapter = new PrismaPg(pool);
 const prisma = new PrismaClient({ adapter });
 
@@ -24,7 +27,11 @@ if (process.env.REDIS_URL) {
 
 // Global middlewares
 app.use(helmet());
-app.use(cors({ origin: process.env.ADMIN_CORS_ORIGIN || '*' })); // Restrict CORS in production
+const corsOrigin = process.env.ADMIN_CORS_ORIGIN;
+if (!corsOrigin) {
+  throw new Error('FATAL: ADMIN_CORS_ORIGIN is missing. Refusing to start with open CORS.');
+}
+app.use(cors({ origin: corsOrigin })); // Restrict CORS in production
 app.use(express.json());
 app.use(pinoHttp({ logger }));
 app.use(globalRateLimiter);

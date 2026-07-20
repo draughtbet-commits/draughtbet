@@ -46,7 +46,7 @@
   - Explicit token rotation and active Redis deletion on logout/refresh.
   - Sentry/Structured logging wired on transaction failures without leaking raw passwords.
   - Strict Rate Limiting: 100/min global, 5/min on Auth endpoints via Redis.
-- **Testing:** Added full Jest test coverage for Zod validation, token rotation, logout invalidation, and secure logging.
+- **Testing:** Added exhaustive Jest test coverage (8/8 Auth tests passing, 15/15 total suite passing) for Zod validation, token rotation, logout invalidation, and secure logging.
 
 ### 5. Session: Environment, Spec Updates & CI Pipeline (July 20, 2026)
 - **`.env` Cleanup:**
