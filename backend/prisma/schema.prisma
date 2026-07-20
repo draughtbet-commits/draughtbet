@@ -7,7 +7,6 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
 }
 
 model User {
@@ -28,8 +27,17 @@ model User {
   notifications     Notification[]
 }
 
-enum Tier { AMATEUR MASTER PRO }
-enum KycStatus { NONE PENDING VERIFIED }
+enum Tier {
+  AMATEUR
+  MASTER
+  PRO
+}
+
+enum KycStatus {
+  NONE
+  PENDING
+  VERIFIED
+}
 
 model Wallet {
   id                  String   @id @default(uuid())
@@ -40,7 +48,10 @@ model Wallet {
   updatedAt           DateTime @updatedAt
   transactions        WalletTransaction[]
 }
-enum Currency { NGN GBP }
+enum Currency {
+  NGN
+  GBP
+}
 
 model WalletTransaction {
   id                String   @id @default(uuid())
@@ -54,9 +65,27 @@ model WalletTransaction {
   status            TxStatus @default(COMPLETED)
   createdAt         DateTime @default(now())
 }
-enum TxType { DEPOSIT WITHDRAWAL STAKE PAYOUT COMMISSION REFUND }
-enum TxStatus { PENDING COMPLETED FAILED REVERSED }
-enum Gateway { PAYSTACK FLUTTERWAVE STRIPE }
+enum TxType {
+  DEPOSIT
+  WITHDRAWAL
+  STAKE
+  PAYOUT
+  COMMISSION
+  REFUND
+}
+
+enum TxStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  REVERSED
+}
+
+enum Gateway {
+  PAYSTACK
+  FLUTTERWAVE
+  STRIPE
+}
 
 model WithdrawalRequest {
   id                String   @id @default(uuid())
@@ -67,7 +96,11 @@ model WithdrawalRequest {
   reviewedAt        DateTime?
   createdAt         DateTime @default(now())
 }
-enum WithdrawalStatus { PENDING APPROVED REJECTED }
+enum WithdrawalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
 
 model Match {
   id                String   @id @default(uuid())
@@ -82,7 +115,13 @@ model Match {
   endedAt           DateTime?
   moves             MatchMove[]
 }
-enum MatchStatus { PENDING ACTIVE COMPLETED FORFEITED DISPUTED }
+enum MatchStatus {
+  PENDING
+  ACTIVE
+  COMPLETED
+  FORFEITED
+  DISPUTED
+}
 
 model MatchMove {
   id                String   @id @default(uuid())
@@ -108,7 +147,12 @@ model Callout {
   createdAt         DateTime @default(now())
   expiresAt         DateTime
 }
-enum CalloutStatus { OPEN ACCEPTED EXPIRED CANCELLED }
+enum CalloutStatus {
+  OPEN
+  ACCEPTED
+  EXPIRED
+  CANCELLED
+}
 
 model DeviceFingerprint {
   id              String   @id @default(uuid())
