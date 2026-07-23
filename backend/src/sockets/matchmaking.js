@@ -1,6 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
-import redis from '../../utils/redis.js';
-import logger from '../../utils/logger.js';
+import redis from '../utils/redis.js';
+import logger from '../utils/logger.js';
 import { getIO } from './index.js';
 import { initializeGame } from './gameManager.js';
 

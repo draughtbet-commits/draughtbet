@@ -23,10 +23,14 @@ if (process.env.REDIS_URL) {
 // Global middlewares
 app.use(helmet());
 const corsOrigin = process.env.ADMIN_CORS_ORIGIN;
-if (!corsOrigin) {
+if (!corsOrigin && process.env.NODE_ENV === 'production') {
   throw new Error('FATAL: ADMIN_CORS_ORIGIN is missing. Refusing to start with open CORS.');
 }
-app.use(cors({ origin: corsOrigin })); // Restrict CORS in production
+// Allow open CORS in tests (so imports/startup don't fail) and use a sensible default in dev
+const corsOptions = corsOrigin
+  ? { origin: corsOrigin }
+  : (process.env.NODE_ENV === 'test' ? { origin: true } : { origin: 'http://localhost:3000' });
+app.use(cors(corsOptions));
 app.use(express.json());
 app.use(pinoHttp({ logger }));
 app.use(globalRateLimiter);

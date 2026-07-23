@@ -1,8 +1,11 @@
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import { v4 as uuidv4 } from 'uuid';
-import prisma from '../../utils/db.js';
-import redis from '../../utils/redis.js';
+import _prisma from '../../utils/db.js';
+import _redis from '../../utils/redis.js';
+
+let prisma = _prisma;
+let redis = _redis;
 import logger from '../../utils/logger.js';
 import dotenv from 'dotenv';
 

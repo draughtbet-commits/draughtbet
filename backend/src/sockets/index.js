@@ -1,5 +1,5 @@
 import { Server } from 'socket.io';
-import logger from '../../utils/logger.js';
+import logger from '../utils/logger.js';
 import { socketAuthMiddleware } from './middleware.js';
 import { joinQueue, leaveQueue } from './matchmaking.js';
 import { handleDisconnect, handleJoinMatch } from './disconnectHandler.js';
@@ -9,13 +9,16 @@ let io;
 
 export const initSocketServer = (httpServer) => {
   const corsOrigin = process.env.ADMIN_CORS_ORIGIN;
-  if (!corsOrigin) {
+  if (!corsOrigin && process.env.NODE_ENV === 'production') {
     throw new Error('FATAL: ADMIN_CORS_ORIGIN is missing. Refusing to start Socket.IO with open CORS.');
   }
 
+  const socketCorsOrigin = corsOrigin
+    || (process.env.NODE_ENV === 'test' ? true : 'http://localhost:3000');
+
   io = new Server(httpServer, {
     cors: {
-      origin: corsOrigin,
+      origin: socketCorsOrigin,
       methods: ['GET', 'POST']
     }
   });
