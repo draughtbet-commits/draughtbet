@@ -10,16 +10,17 @@ export const REASON_DRAW_25_KING_MOVES = 'DRAW_25_KING_MOVES';
  * Checks if the game has ended based on current board state and history.
  * @param {Array} board - The 1D board array
  * @param {String} colorToMove - 'WHITE' or 'BLACK'
- * @param {Array} history - Array of { board, colorToMove, move }
+ * @param {Object} positionCounts - Map of position hash to count
+ * @param {Number} consecutiveKingMoves - Counter for consecutive king moves
  * @returns {Object} { ended: boolean, reason: string | null, winner: string | null }
  */
-export function checkGameEnd(board, colorToMove, history) {
+export function checkGameEnd(board, colorToMove, positionCounts, consecutiveKingMoves) {
   // 1. Draw checks
-  if (isThreefoldRepetition(history)) {
+  if (isThreefoldRepetition(positionCounts)) {
     return { ended: true, reason: REASON_DRAW_THREEFOLD, winner: null };
   }
   
-  if (isTwentyFiveKingMoveDraw(history)) {
+  if (isTwentyFiveKingMoveDraw(consecutiveKingMoves)) {
     return { ended: true, reason: REASON_DRAW_25_KING_MOVES, winner: null };
   }
   

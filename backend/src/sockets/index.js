@@ -2,6 +2,8 @@ import { Server } from 'socket.io';
 import logger from '../../utils/logger.js';
 import { socketAuthMiddleware } from './middleware.js';
 import { joinQueue, leaveQueue } from './matchmaking.js';
+import { handleDisconnect, handleJoinMatch } from './disconnectHandler.js';
+import { handleMoveAttempt, handleResign } from './gameManager.js';
 
 let io;
 
@@ -26,8 +28,7 @@ export const initSocketServer = (httpServer) => {
 
     socket.on('disconnect', () => {
       logger.info({ userId: socket.user.userId, socketId: socket.id }, 'User disconnected from Socket.IO');
-      // TODO: Handle disconnection (e.g. 60s reconnect timer)
-      // Note: We might want to remove them from matchmaking queues here if they were waiting
+      handleDisconnect(socket);
     });
 
     socket.on('join_queue', async ({ stakeTier }) => {
@@ -44,7 +45,17 @@ export const initSocketServer = (httpServer) => {
       }
     });
 
-    // TODO: Register game logic handlers (make_move, resign) here
+    socket.on('move_attempt', async (payload) => {
+      await handleMoveAttempt(socket, payload);
+    });
+
+    socket.on('resign', async (payload) => {
+      await handleResign(socket, payload);
+    });
+
+    socket.on('join_match', async (payload) => {
+      await handleJoinMatch(socket, payload);
+    });
   });
 
   return io;

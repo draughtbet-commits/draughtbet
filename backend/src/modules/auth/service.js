@@ -1,22 +1,14 @@
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import { v4 as uuidv4 } from 'uuid';
-import { PrismaClient } from '@prisma/client';
-import pg from 'pg';
-import { PrismaPg } from '@prisma/adapter-pg';
+import prisma from '../../utils/db.js';
 import redis from '../../utils/redis.js';
 import logger from '../../utils/logger.js';
 import dotenv from 'dotenv';
 
 dotenv.config();
 
-const connectionString = process.env.DATABASE_URL;
-if (!connectionString && process.env.NODE_ENV !== 'test') {
-  throw new Error('FATAL: DATABASE_URL is missing.');
-}
-const pool = new pg.Pool({ connectionString: connectionString || 'postgresql://localhost:5432/dummy' });
-const adapter = new PrismaPg(pool);
-let prisma = new PrismaClient({ adapter });
+// Prisma initialized in utils/db.js
 
 const JWT_SECRET = process.env.JWT_SECRET;
 if (!JWT_SECRET && process.env.NODE_ENV !== 'test') {

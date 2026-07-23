@@ -52,6 +52,15 @@ Stated numbers, not vibes — these should be the explicit targets validated in 
 - Matchmaking queue pop-to-pair latency: **under 5 seconds** once two compatible players are queued (the `node-cron` worker interval in `03_BACKEND_SPEC.md` is 3s specifically to support this).
 - If Week 12 load testing shows any of these missed under the 50–100 concurrent match target, that's a blocking finding for Week 13, not a "nice to fix later."
 
+## 6.1 Database environment split — operational rule
+
+**Neon Serverless is for development and CI only. Staging and production run VPS-hosted Postgres 15 on Contabo.** The full environment table and binding constraints are in `06_BUILD_SEQUENCE.md § Database environment split`. The operational implications restated here for enforcement:
+
+- **Version parity:** both Neon and the VPS must run Postgres 15.x. If Neon upgrades to 16 and the VPS stays on 15, either downgrade the Neon project or upgrade the VPS — they must match.
+- **Load/perf testing (Week 12):** the `k6` test suite's `DATABASE_URL` must point at a VPS-hosted Postgres instance (staging or a dedicated perf box), never Neon. Results measured against Neon are invalid for validating the 100ms move-latency budget.
+- **No vendor lock-in at the code level:** the application imports Prisma and nothing else for database access. No `@neondatabase/*` packages, no Neon branching API calls, no Neon-specific SQL extensions. The only difference between environments is the `DATABASE_URL` value in `.env`.
+- **Cutover verification:** when VPS Postgres is first provisioned, run `prisma migrate deploy`, then re-run the full auth + wallet integration test suite against it. "It passed on Neon" is not evidence it will pass on the VPS — treat the cutover as a testable event, not a config swap.
+
 ## 7. Concurrency & race-condition audit checklist
 
 Beyond the call-out double-accept lock already specified in `03_BACKEND_SPEC.md`, explicitly check:

@@ -2,6 +2,23 @@
 
 Week-by-week build order, Jul 10 – Oct 31 2026. Each week references `02_DATABASE_SCHEMA.md`, `03_BACKEND_SPEC.md`, and `04_FRONTEND_SPEC.md` rather than repeating their content — this file is the checklist and the order, not the spec itself.
 
+## Database environment split — binding rule
+
+| Environment | Database provider | Purpose |
+|---|---|---|
+| **Local dev** | Neon Serverless (free tier) | Fast iteration, zero admin overhead. Cold-start latency is irrelevant here. |
+| **CI / automated tests** | Neon Serverless (free tier) | Same rationale — Jest and integration tests don't have a latency budget. |
+| **Staging** | VPS-hosted Postgres 15 (Contabo) | Must mirror production topology so load/perf testing produces real numbers. |
+| **Production** | VPS-hosted Postgres 15 (Contabo) | Mandatory. Eliminates network hops and cold starts to guarantee the sub-100ms `MatchMove` insert budget. |
+
+**Constraints that follow from this split:**
+
+1. **Match Postgres major versions.** Neon must run the same Postgres 15.x branch as the VPS instance. A version mismatch between dev and production is a silent source of behavior differences that only surface late.
+2. **Load testing (Week 12) targets the VPS, never Neon.** The `k6` concurrent-match test exists to validate the 100ms move-latency budget. Running it against Neon measures a database we are not shipping on — those numbers are meaningless for production validation.
+3. **Migrations stay vendor-neutral.** Use only plain Prisma migrations. No Neon-specific features (branching, Neon SQL extensions, `@neondatabase/*` packages). The production cutover must be exactly `prisma migrate deploy` against the VPS connection string — a swap, not a re-engineering effort.
+4. **Cutover is a verified step, not an assumption.** "Worked on Neon" ≠ "will work on VPS." Once VPS Postgres is provisioned, run the full migration set against it and re-verify at least auth + wallet flows before marking infrastructure as done.
+5. **No Neon-specific code anywhere in the application.** If a dependency, import, or config value is Neon-only, it does not enter the codebase. The application must be database-provider-agnostic at the code level; the only difference between environments is the `DATABASE_URL` connection string in `.env`.
+
 ## Week 1 (Jul 10–16) — Infrastructure & database foundation
 - [x] Research + document Google Play real-money skill-game policy specifically for the Nigeria market
 - [x] Confirm with Paystack and Flutterwave directly that their merchant terms permit real-money skill-gaming payouts (both, since Flutterwave is the redundancy gateway — a rejection on either changes the wallet design)

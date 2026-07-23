@@ -41,7 +41,7 @@ export const joinQueue = async (socket, userId, stakeTier) => {
         // Find the sockets for both users and make them join the game room
         // In Socket.IO, we can find sockets by iterating or keeping a map.
         // A common pattern is having sockets join a room matching their userId upon connection.
-        const roomName = `game:${gameId}`;
+        const roomName = `match:${gameId}`;
         
         const sockets = await io.fetchSockets();
         sockets.forEach((s) => {

@@ -3,21 +3,16 @@ import helmet from 'helmet';
 import cors from 'cors';
 import { pinoHttp } from 'pino-http';
 import logger from './utils/logger.js';
-import { PrismaClient } from '@prisma/client';
-import pg from 'pg';
-import { PrismaPg } from '@prisma/adapter-pg';
+import prisma from './utils/db.js';
 import Redis from 'ioredis';
 import { globalRateLimiter } from './middleware/rateLimit.js';
 import { authRouter } from './modules/auth/controller.js';
+import { matchRouter } from './modules/match/controller.js';
+import { startDisconnectSweep } from './jobs/disconnectSweep.js';
+import { startReconciliationSweep } from './jobs/reconciliationSweep.js';
 
 const app = express();
-const connectionString = process.env.DATABASE_URL;
-if (!connectionString && process.env.NODE_ENV !== 'test') {
-  throw new Error('FATAL: DATABASE_URL is missing.');
-}
-const pool = new pg.Pool({ connectionString: connectionString || 'postgresql://localhost:5432/dummy' });
-const adapter = new PrismaPg(pool);
-const prisma = new PrismaClient({ adapter });
+// Prisma initialized in utils/db.js
 
 // Setup Redis correctly
 let redis;
@@ -38,6 +33,7 @@ app.use(globalRateLimiter);
 
 // Routes
 app.use('/auth', authRouter);
+app.use('/matches', matchRouter);
 
 // Health Check Endpoint
 app.get('/health', async (req, res) => {
@@ -76,5 +72,11 @@ app.use((err, req, res, next) => {
   logger.error({ err }, 'Unhandled exception');
   res.status(500).json({ error: 'Internal Server Error' });
 });
+
+// Start Cron Jobs
+if (process.env.NODE_ENV !== 'test') {
+  startDisconnectSweep();
+  startReconciliationSweep();
+}
 
 export default app;

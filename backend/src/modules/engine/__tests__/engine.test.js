@@ -110,40 +110,31 @@ describe('Draughts Engine', () => {
     board[0] = WHITE_KING;
     board[49] = BLACK_KING;
     
-    // Create a history oscillating between two states
-    const history = [];
-    for (let i = 0; i < 5; i++) {
-      const b = [...board];
-      if (i % 2 === 0) {
-        b[0] = WHITE_KING; b[5] = EMPTY;
-      } else {
-        b[0] = EMPTY; b[5] = WHITE_KING;
-      }
-      history.push({ board: b, colorToMove: COLOR_WHITE, move: {} });
-    }
+    const b1 = [...board]; b1[0] = WHITE_KING; b1[5] = EMPTY;
+    const b2 = [...board]; b2[0] = EMPTY; b2[5] = WHITE_KING;
     
-    expect(isThreefoldRepetition(history)).toBe(true);
+    const hash1 = JSON.stringify([b1, COLOR_WHITE]);
+    const hash2 = JSON.stringify([b2, COLOR_WHITE]);
+    
+    const positionCounts = {
+      [hash1]: 3,
+      [hash2]: 2
+    };
+    
+    expect(isThreefoldRepetition(positionCounts)).toBe(true);
   });
 
   test('25-consecutive-king-move draw', () => {
     const board = createEmptyBoard();
     board[0] = WHITE_KING;
     
-    const history = [];
-    for (let i = 0; i < 50; i++) { // 50 plies = 25 moves
-      history.push({ 
-        board: [...board], 
-        colorToMove: i % 2 === 0 ? COLOR_WHITE : COLOR_BLACK, 
-        move: { from: 1, to: 6, capturedSquares: [] } 
-      });
-      // To avoid threefold repetition:
-      board[10] = i; 
-    }
+    const consecutiveKingMoves = 50; // 50 plies = 25 moves
     
-    expect(isTwentyFiveKingMoveDraw(history)).toBe(true);
+    expect(isTwentyFiveKingMoveDraw(consecutiveKingMoves)).toBe(true);
     
     // Check Game End
-    const result = checkGameEnd(board, COLOR_WHITE, history);
+    const positionCounts = {};
+    const result = checkGameEnd(board, COLOR_WHITE, positionCounts, consecutiveKingMoves);
     expect(result.ended).toBe(true);
     expect(result.reason).toBe(REASON_DRAW_25_KING_MOVES);
   });
@@ -158,7 +149,7 @@ describe('Draughts Engine', () => {
     // There shouldn't be any, as forward is blocked, and backward has no pieces.
     expect(moves.length).toBe(0);
 
-    const result = checkGameEnd(board, COLOR_WHITE, []);
+    const result = checkGameEnd(board, COLOR_WHITE, {}, 0);
     expect(result.ended).toBe(true);
     expect(result.reason).toBe(REASON_NO_LEGAL_MOVES);
     expect(result.winner).toBe(COLOR_BLACK);
