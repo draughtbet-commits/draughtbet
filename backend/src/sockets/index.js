@@ -1,7 +1,6 @@
 import { Server } from 'socket.io';
 import logger from '../utils/logger.js';
 import { socketAuthMiddleware } from './middleware.js';
-import { joinQueue, leaveQueue } from './matchmaking.js';
 import { handleDisconnect, handleJoinMatch } from './disconnectHandler.js';
 import { handleMoveAttempt, handleResign } from './gameManager.js';
 
@@ -29,23 +28,14 @@ export const initSocketServer = (httpServer) => {
   io.on('connection', (socket) => {
     logger.info({ userId: socket.user.userId, socketId: socket.id }, 'User connected to Socket.IO');
 
+    // Every authenticated socket joins a personal room so server-side code
+    // (e.g. settlement.js wallet_updated) can target a specific user
+    // regardless of which match room they're in.
+    socket.join(`user:${socket.user.userId}`);
+
     socket.on('disconnect', () => {
       logger.info({ userId: socket.user.userId, socketId: socket.id }, 'User disconnected from Socket.IO');
       handleDisconnect(socket);
-    });
-
-    socket.on('join_queue', async ({ stakeTier }) => {
-      // Input validation
-      if (!stakeTier || typeof stakeTier !== 'string') {
-        return socket.emit('error', { message: 'Invalid stakeTier' });
-      }
-      await joinQueue(socket, socket.user.userId, stakeTier);
-    });
-
-    socket.on('leave_queue', async ({ stakeTier }) => {
-      if (stakeTier) {
-        await leaveQueue(socket.user.userId, stakeTier);
-      }
     });
 
     socket.on('move_attempt', async (payload) => {

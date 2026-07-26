@@ -42,24 +42,22 @@ export function getStakeForTier(settings, tier) {
 /**
  * Debits stakes from both players and creates a Match row.
  */
-export const debitStakes = async (player1Id, player2Id, stakeTier) => {
+export const debitStakes = async (player1Id, player2Id, stakeMinorUnits, stakeTier) => {
   return await prisma.$transaction(async (tx) => {
     // 1. Lock both wallets (ordered by ascending userId to prevent deadlocks)
     const [w1, w2] = await lockWalletsInOrder(tx, player1Id, player2Id);
 
-    // 2. Look up stake amount from PlatformSettings
-    const settings = await tx.platformSettings.findUniqueOrThrow({ where: { id: 'singleton' } });
-    const stakeAmount = getStakeForTier(settings, stakeTier);
+    const stakeAmount = BigInt(stakeMinorUnits);
 
-    // 3. Verify BOTH players can afford the stake
+    // 2. Verify BOTH players can afford the stake
     if (BigInt(w1.balanceMinorUnits) < stakeAmount || BigInt(w2.balanceMinorUnits) < stakeAmount) {
       throw new InsufficientFundsError('Insufficient funds for stake');
     }
 
-    // 4. Generate match ID upfront so WalletTransactions can reference it
+    // 3. Generate match ID upfront so WalletTransactions can reference it
     const matchId = crypto.randomUUID();
 
-    // 5. Debit both wallets (debit-before-credit ordering)
+    // 4. Debit both wallets (debit-before-credit ordering)
     for (const w of [w1, w2]) {
       await tx.wallet.update({ 
         where: { id: w.id }, 
@@ -73,7 +71,7 @@ export const debitStakes = async (player1Id, player2Id, stakeTier) => {
       }});
     }
 
-    // 6. Create Match row (status: ACTIVE)
+    // 5. Create Match row (status: ACTIVE)
     const match = await tx.match.create({ data: {
       id: matchId,
       playerLightId: player1Id, 

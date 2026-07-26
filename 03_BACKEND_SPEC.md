@@ -54,7 +54,10 @@ Pure module — no DB, no Socket.IO imports. See `00_MASTER_PROMPT.md` §3 for w
 
 ## Real-time (Socket.IO)
 
-JWT verified on handshake (`socket.handshake.auth.token`). Room per match: `match:{matchId}`.
+JWT verified on handshake (`socket.handshake.auth.token`). Two room conventions:
+
+- **Match room:** `match:{matchId}` — both players join on match start; used for `move_applied`, `move_rejected`, `match_ended`, `opponent_disconnected`, `opponent_reconnected`.
+- **Personal room:** `user:{userId}` — every authenticated socket joins at connection time (`socket.join(\`user:${socket.user.userId}\`)`). Used for user-targeted events that aren't scoped to a specific match: `wallet_updated`, `notification`, `callout_created` (for eligible users). This ensures server-side code can emit to a specific user regardless of which match room they're in.
 
 | Event | Direction | Payload |
 |---|---|---|
@@ -68,19 +71,23 @@ JWT verified on handshake (`socket.handshake.auth.token`). Room per match: `matc
 | `notification` | server → user | fired whenever `NotificationService.create()` runs and the user is online |
 | `wallet_updated` | server → user | fired after any wallet balance change |
 
-- Server holds authoritative board state in Redis (`match:{id}:board`); every move also writes a `MatchMove` row in Postgres for audit/reconnect. **Enable Redis AOF persistence** — live match state and money-staked matches living only in memory is not acceptable; see `07_ENGINEERING_STANDARDS_AND_OPERATIONS.md` §5 for the full recovery-path requirement (`rebuildBoardFromMoveLog(matchId)`).
+- **Server holds authoritative board state in a Redis Hash** (`match:{id}`). The hash schema includes: `board`, `turn`, `version` (for optimistic concurrency), `history`, `positionCounts` (serialized JSON for tracking threefold repetition), and `winnerId` (to track if the game is already won). Every applied move also writes a `MatchMove` row in Postgres for audit/reconnect.
+- **Lua CAS Script**: Move application uses a custom Lua script to enforce Compare-And-Swap (CAS) on the `version` field. This guarantees atomic, race-free state transitions when two players submit a move simultaneously.
+- **Enable Redis AOF persistence** — live match state and money-staked matches living only in memory is not acceptable; see `07_ENGINEERING_STANDARDS_AND_OPERATIONS.md` §5 for the full recovery-path requirement (`rebuildBoardFromMoveLog(matchId)`).
 - **Performance target: move round-trip (client `move_attempt` → both clients receive `move_applied`) under 100ms** under normal load — validated in Week 12 load testing per `06_BUILD_SEQUENCE.md`.
 - `GET /matches/:id/state` — REST fallback for reconnect, returns current board state + move history (never rely on socket event buffer alone for resync).
-- Disconnect handling: on disconnect, set `match:{id}:disconnect:{userId}` in Redis with 60s TTL. A `node-cron` job every 10s sweeps expired keys and triggers auto-forfeit + payout if the player hasn't reconnected.
+- **Disconnect handling**: On disconnect, the server adds the player to a global Redis sorted set `disconnects` (`ZADD disconnects <expireTimestamp> matchId:userId`). A `node-cron` reconciliation sweep runs every 10s, using `ZRANGEBYSCORE` to find expired grace periods. It triggers auto-forfeit and payout via the fault-isolated settlement retry wrapper if the player hasn't reconnected in time.
 
 ## Matchmaking & call-outs
 
-- Redis sorted sets, keyed `queue:{tier}:{stakeBucket}`, scored by join timestamp.
-- `node-cron` worker every 3s pops compatible pairs, creates a `Match` row, emits `match_found`.
-- `POST /callouts` — creates `Callout` (status `OPEN`), broadcasts `callout_created` to eligible online users per that tier's rules (see `01_PRODUCT_CONTEXT.md` — Amateur cannot call out or be called out).
-- `POST /callouts/:id/accept` — wrapped in `SELECT ... FOR UPDATE` row lock to prevent a double-accept race; on success creates a `Match`, sets `Callout.status = ACCEPTED`.
+- **Stake Buckets (Fixed Presets)**: Matchmaking uses fixed preset stakes (Option A strategy). E.g., AMATEUR uses ₦500, ₦1,000, ₦5,000. Redis sorted sets are keyed exactly `queue:{tier}:{stakeMinorUnits}`, scored by join timestamp.
+- **REST-Based Queue**: Players join via `POST /matchmaking/join` and leave via `POST /matchmaking/leave` (no persistent socket required for the queue phase). The undocumented `join_queue` / `leave_queue` socket events were removed.
+- **Matchmaking Worker**: `node-cron` worker every 3s continuously attempts to atomic-pop compatible pairs using a custom **Lua script (`popMatchmakingPair.lua`)**. The script performs `ZRANGE` and `ZREM` atomically to prevent overlapping cron ticks from popping the same pair.
+- **Shared Settlement**: When the worker matches a pair, it calls the fault-isolated `debitStakes` to debit wallets and create the `Match` DB row atomically. It then broadcasts `match_found` to both players via their `user:{userId}` personal socket room.
+- `POST /callouts` — creates `Callout` (status `OPEN`), broadcasts `callout_created` to eligible online users via `getIO().emit`.
+- `POST /callouts/:id/accept` — Uses a strict conditional DB update (`UPDATE "Callout" SET status = 'ACCEPTED' WHERE id = $id AND status = 'OPEN'`) to prevent double-accept races. If successful (rows > 0), it routes through the exact same `debitStakes` logic as regular matchmaking, and broadcasts `match_found`.
 - `GET /callouts/open` — open call-outs the requesting user is tier-eligible to accept.
-- Tier/stake enforcement middleware (`tierEnforcement.js`) runs on every matchmaking and call-out endpoint. **Two different bounds, not one** — reads `PlatformSettings.{tier}StakeMinP/MaxP` for matchmaking/regular-play stakes, but reads the separate, higher `PlatformSettings.{tier}CalloutMaxP` when validating a call-out's stake amount (see `01_PRODUCT_CONTEXT.md` and `02_DATABASE_SCHEMA.md` for why these are intentionally different numbers — a call-out ceiling is meant to exceed the tier's normal stake range). Never trust a client-supplied stake without this server-side re-validation, and never validate a call-out against the matchmaking bounds by mistake.
+- Tier/stake enforcement middleware (`tierEnforcement.js`) runs on every matchmaking and call-out endpoint. **Two different bounds**: standard play validates against explicitly allowed presets and `PlatformSettings.{tier}StakeMinP/MaxP`; call-outs validate against the much higher `PlatformSettings.{tier}CalloutMaxP`.
 - Call-out expiry — `node-cron` every minute sets `status = EXPIRED` where `expiresAt < now()` and still `OPEN`.
 
 ## Wallet & payments (Paystack primary, Flutterwave secondary — NGN, Phase 1)

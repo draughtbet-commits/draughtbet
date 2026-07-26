@@ -8,8 +8,12 @@ import Redis from 'ioredis';
 import { globalRateLimiter } from './middleware/rateLimit.js';
 import { authRouter } from './modules/auth/controller.js';
 import { matchRouter } from './modules/match/controller.js';
+import { calloutRouter } from './modules/callout/controller.js';
+import { matchmakingRouter } from './modules/matchmaking/controller.js';
 import { startDisconnectSweep } from './jobs/disconnectSweep.js';
 import { startReconciliationSweep } from './jobs/reconciliationSweep.js';
+import { startMatchmakingWorker } from './jobs/matchmakingWorker.js';
+import { startCalloutExpirySweep } from './jobs/calloutExpiry.js';
 
 const app = express();
 // Prisma initialized in utils/db.js
@@ -38,6 +42,8 @@ app.use(globalRateLimiter);
 // Routes
 app.use('/auth', authRouter);
 app.use('/matches', matchRouter);
+app.use('/callouts', calloutRouter);
+app.use('/matchmaking', matchmakingRouter);
 
 // Health Check Endpoint
 app.get('/health', async (req, res) => {
@@ -81,6 +87,8 @@ app.use((err, req, res, next) => {
 if (process.env.NODE_ENV !== 'test') {
   startDisconnectSweep();
   startReconciliationSweep();
+  startMatchmakingWorker();
+  startCalloutExpirySweep();
 }
 
 export default app;
