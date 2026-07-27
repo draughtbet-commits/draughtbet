@@ -61,7 +61,7 @@ model WalletTransaction {
   amountMinorUnits  BigInt   // signed — negative for outflow, same unit as the parent Wallet's currency
   relatedMatchId    String?
   gateway           Gateway?
-  gatewayReference  String?  // Paystack/Flutterwave transaction reference (or Stripe, in a future Phase 2 GBP wallet)
+  gatewayReference  String?  @unique // Paystack/Flutterwave transaction reference (or Stripe, in a future Phase 2 GBP wallet)
   status            TxStatus @default(COMPLETED)
   createdAt         DateTime @default(now())
 }

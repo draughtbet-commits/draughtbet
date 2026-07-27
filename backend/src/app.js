@@ -10,6 +10,8 @@ import { authRouter } from './modules/auth/controller.js';
 import { matchRouter } from './modules/match/controller.js';
 import { calloutRouter } from './modules/callout/controller.js';
 import { matchmakingRouter } from './modules/matchmaking/controller.js';
+import { walletRouter } from './modules/wallet/controller.js';
+import { webhookRouter } from './modules/payment/webhookController.js';
 import { startDisconnectSweep } from './jobs/disconnectSweep.js';
 import { startReconciliationSweep } from './jobs/reconciliationSweep.js';
 import { startMatchmakingWorker } from './jobs/matchmakingWorker.js';
@@ -35,6 +37,10 @@ const corsOptions = corsOrigin
   ? { origin: corsOrigin }
   : (process.env.NODE_ENV === 'test' ? { origin: true } : { origin: 'http://localhost:3000' });
 app.use(cors(corsOptions));
+
+// Mount webhooks BEFORE express.json() so they get raw Buffer bodies for HMAC verification
+app.use('/webhooks', webhookRouter);
+
 app.use(express.json());
 app.use(pinoHttp({ logger }));
 app.use(globalRateLimiter);
@@ -44,6 +50,7 @@ app.use('/auth', authRouter);
 app.use('/matches', matchRouter);
 app.use('/callouts', calloutRouter);
 app.use('/matchmaking', matchmakingRouter);
+app.use('/wallet', walletRouter);
 
 // Health Check Endpoint
 app.get('/health', async (req, res) => {
