@@ -25,6 +25,8 @@ model User {
   wallet            Wallet?
   devices           DeviceFingerprint[]
   notifications     Notification[]
+  calloutsCreated   Callout[] @relation("CalloutChallenger")
+  calloutsAccepted  Callout[] @relation("CalloutAcceptedBy")
 }
 
 enum Tier {
@@ -140,12 +142,16 @@ model MatchMove {
 model Callout {
   id                String   @id @default(uuid())
   challengerId      String
+  challenger        User     @relation("CalloutChallenger", fields: [challengerId], references: [id])
   stakeMinorUnits   BigInt   // validated against the tier's calloutMax*, NOT the tier's normal stakeMax* — see PlatformSettings below
   tier              Tier
   status            CalloutStatus @default(OPEN)
   acceptedBy        String?
+  acceptedUser      User?    @relation("CalloutAcceptedBy", fields: [acceptedBy], references: [id])
   createdAt         DateTime @default(now())
   expiresAt         DateTime
+
+  @@index([tier, status])
 }
 enum CalloutStatus {
   OPEN

@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { getGameState } from '../../sockets/gameManager.js';
 import prisma from '../../utils/db.js';
 import { requireAuth } from '../../middleware/auth.js';
-import { createInitialBoard, applyMove } from '../engine/index.js';
+import { createInitialBoard, applyMove, getLegalMoves } from '../engine/index.js';
 import logger from '../../utils/logger.js';
 
 export const matchRouter = Router();
@@ -29,13 +29,16 @@ matchRouter.get('/:id/state', requireAuth, async (req, res) => {
     // 2. Try Redis first
     const redisState = await getGameState(matchId);
     if (redisState) {
+      const board = JSON.parse(redisState.board);
+      const currentTurn = redisState.currentTurn;
       return res.json({
-        board: JSON.parse(redisState.board),
-        currentTurn: redisState.currentTurn,
+        board,
+        currentTurn,
         moveCount: parseInt(redisState.moveCount, 10),
         status: redisState.status,
         players: { light: match.playerLightId, dark: match.playerDarkId },
-        winnerId: redisState.winnerId || null
+        winnerId: redisState.winnerId || null,
+        legalMoves: getLegalMoves(board, currentTurn)
       });
     }
 
@@ -46,7 +49,7 @@ matchRouter.get('/:id/state', requireAuth, async (req, res) => {
     });
 
     let board = createInitialBoard();
-    let currentTurn = 'WHITE'; // Starting turn
+    let currentTurnStr = 'WHITE'; // Starting turn
     let moveCount = 0;
 
     for (const m of moves) {
@@ -58,17 +61,18 @@ matchRouter.get('/:id/state', requireAuth, async (req, res) => {
       };
       
       board = applyMove(board, moveObj);
-      currentTurn = currentTurn === 'WHITE' ? 'BLACK' : 'WHITE';
+      currentTurnStr = currentTurnStr === 'WHITE' ? 'BLACK' : 'WHITE';
       moveCount = m.moveNumber;
     }
-
+    
     return res.json({
       board,
-      currentTurn,
+      currentTurn: currentTurnStr,
       moveCount,
       status: match.status.toLowerCase(),
       players: { light: match.playerLightId, dark: match.playerDarkId },
-      winnerId: match.winnerId
+      winnerId: match.winnerId,
+      legalMoves: getLegalMoves(board, currentTurnStr)
     });
 
   } catch (err) {

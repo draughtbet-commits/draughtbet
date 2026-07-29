@@ -25,7 +25,7 @@ class DraughtsArenaApp extends ConsumerWidget {
     final router = ref.watch(appRouterProvider);
 
     return MaterialApp.router(
-      title: 'Draughts Arena',
+      title: 'Draught Bet',
       themeMode: ThemeMode.dark, // Enforce Dark Mode First
       darkTheme: ThemeData(
         brightness: Brightness.dark,

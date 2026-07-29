@@ -1,6 +1,7 @@
 import redis from '../utils/redis.js';
 import { getIO } from './index.js';
 import { getActiveGameForUser, getGameState } from './gameManager.js';
+import { getLegalMoves } from '../modules/engine/index.js';
 import logger from '../utils/logger.js';
 
 export async function handleDisconnect(socket) {
@@ -37,7 +38,14 @@ export async function handleJoinMatch(socket, { matchId }) {
     // 3. Send current game state
     const state = await getGameState(matchId);
     if (state) {
-      socket.emit('game_state', state);
+      const board = JSON.parse(state.board);
+      const currentTurn = state.currentTurn;
+      const legalMoves = getLegalMoves(board, currentTurn);
+      
+      socket.emit('game_state', {
+        ...state,
+        legalMoves
+      });
     } else {
       socket.emit('error', { message: 'Game not found' });
       return;

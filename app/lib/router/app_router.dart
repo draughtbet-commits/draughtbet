@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import '../screens/tier_select_screen.dart';
+import '../screens/match_screen.dart';
 
 final appRouterProvider = Provider<GoRouter>((ref) {
   return GoRouter(
@@ -26,17 +28,13 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(
         path: '/tier-select',
-        builder: (context, state) => const Scaffold(
-          body: Center(child: Text('Tier Selection Stub')),
-        ),
+        builder: (context, state) => const TierSelectScreen(),
       ),
       GoRoute(
         path: '/match/:id',
         builder: (context, state) {
           final matchId = state.pathParameters['id']!;
-          return Scaffold(
-            body: Center(child: Text('Match Screen Stub: $matchId')),
-          );
+          return MatchScreen(matchId: matchId);
         },
       ),
       GoRoute(

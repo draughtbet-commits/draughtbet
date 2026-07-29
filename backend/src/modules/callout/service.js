@@ -15,13 +15,22 @@ export const createCallout = async (challengerId, tier, stakeMinorUnits) => {
       stakeMinorUnits: BigInt(stakeMinorUnits),
       status: 'OPEN',
       expiresAt
+    },
+    include: {
+      challenger: { select: { displayName: true } }
     }
   });
 
-  // Convert BigInt to string for JSON serialization
+  // Explicitly select fields for JSON-safe payload (avoids BigInt serialization crashes)
   const payload = {
-    ...callout,
-    stakeMinorUnits: callout.stakeMinorUnits.toString()
+    id: callout.id,
+    challengerId: callout.challengerId,
+    challenger: callout.challenger,
+    stakeMinorUnits: callout.stakeMinorUnits.toString(),
+    tier: callout.tier,
+    status: callout.status,
+    expiresAt: callout.expiresAt,
+    createdAt: callout.createdAt,
   };
 
   logger.info({ calloutId: callout.id, challengerId, tier }, 'Callout created');
@@ -50,13 +59,22 @@ export const getOpenCallouts = async (userId) => {
       expiresAt: { gt: new Date() },
       challengerId: { not: userId }
     },
-    orderBy: { createdAt: 'desc' }
+    orderBy: { createdAt: 'desc' },
+    include: {
+      challenger: { select: { displayName: true } }
+    }
   });
 
-  // Convert BigInts
+  // Explicitly select fields to avoid BigInt serialization issues
   return callouts.map(c => ({
-    ...c,
-    stakeMinorUnits: c.stakeMinorUnits.toString()
+    id: c.id,
+    challengerId: c.challengerId,
+    challenger: c.challenger,
+    stakeMinorUnits: c.stakeMinorUnits.toString(),
+    tier: c.tier,
+    status: c.status,
+    expiresAt: c.expiresAt,
+    createdAt: c.createdAt,
   }));
 };
 

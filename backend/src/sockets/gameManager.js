@@ -108,7 +108,8 @@ export const initializeGame = async (matchId, player1Id, player2Id, stakeTier) =
     return {
       ...initialState,
       board: initialBoard,
-      positionCounts: { [boardHash]: 1 }
+      positionCounts: { [boardHash]: 1 },
+      legalMoves: getLegalMoves(initialBoard, COLOR_WHITE)
     };
   } catch (err) {
     logger.error({ err, matchId }, 'Failed to initialize game state in Redis');
@@ -120,49 +121,119 @@ export const handleResign = async (socket, { matchId }) => {
   const userId = socket.user?.userId;
   if (!userId) return;
 
-  const state = await getGameState(matchId);
-  if (!state) {
-    socket.emit('error', { message: 'Game not found' });
-    return;
-  }
-  
-  if (state.player1 !== userId && state.player2 !== userId) {
-    socket.emit('error', { message: 'Not authorized' });
-    return;
-  }
+  let retries = 2;
+  let success = false;
 
-  const opponentId = state.player1 === userId ? state.player2 : state.player1;
+  while (retries >= 0 && !success) {
+    try {
+      const state = await getGameState(matchId);
+      if (!state) {
+        socket.emit('error', { message: 'Game not found' });
+        return;
+      }
+      
+      if (state.player1 !== userId && state.player2 !== userId) {
+        socket.emit('error', { message: 'Not authorized' });
+        return;
+      }
+      
+      if (state.status !== 'in_progress') {
+        socket.emit('error', { message: 'Game already ended' });
+        return;
+      }
 
-  try {
-    // We execute the CAS script for resignation, which flips status to completed and sets winner.
-    await redis.eval(
-      casScript,
-      1,
-      `match:${matchId}`,
-      state.version,
-      state.board,
-      state.currentTurn,
-      state.currentTurnUserId,
-      state.moveCount,
-      Date.now().toString(),
-      state.positionCounts,
-      state.consecutiveKingMoves,
-      'completed',
-      opponentId
-    );
+      const opponentId = state.player1 === userId ? state.player2 : state.player1;
 
-    const io = getIO();
-    io.to(`match:${matchId}`).emit('match_ended_resign', { winnerId: opponentId, resignedId: userId });
-    
-    // Call settleGame
-    await settleGameWithRetry(matchId, opponentId, userId, 'resign');
-  } catch (err) {
-    if (err.message && err.message.includes('VERSION_MISMATCH')) {
-      logger.info('Resign VERSION_MISMATCH, retry generally unneeded if resigning again');
-    } else {
-      logger.error({ err, matchId }, 'Error in handleResign');
+      // We execute the CAS script for resignation, which flips status to completed and sets winner.
+      await redis.eval(
+        casScript,
+        1,
+        `match:${matchId}`,
+        state.version,
+        state.board,
+        state.currentTurn,
+        state.currentTurnUserId,
+        state.moveCount,
+        Date.now().toString(),
+        state.positionCounts,
+        state.consecutiveKingMoves,
+        'completed',
+        opponentId
+      );
+
+      success = true;
+
+      const io = getIO();
+      io.to(`match:${matchId}`).emit('match_ended_resign', { winnerId: opponentId, resignedId: userId });
+      
+      // Call settleGame
+      await settleGameWithRetry(matchId, opponentId, userId, 'resign');
+    } catch (err) {
+      if (err.message && err.message.includes('VERSION_MISMATCH')) {
+        retries--;
+        if (retries < 0) {
+          socket.emit('error', { message: 'Server busy, resign failed' });
+        }
+      } else if (err.message && err.message.includes('GAME_NOT_FOUND')) {
+        socket.emit('error', { message: 'Game already ended' });
+        return;
+      } else {
+        logger.error({ err, matchId }, 'Error in handleResign');
+        socket.emit('error', { message: 'Internal server error' });
+        return;
+      }
     }
   }
+};
+
+const validatePreconditions = (state, userId) => {
+  if (!state) return 'game_already_ended';
+  if (state.status !== 'in_progress') return 'game_not_in_progress';
+  if (state.currentTurnUserId !== userId) return 'not_your_turn';
+  return null;
+};
+
+const computeNextState = (state, from, to) => {
+  const board = JSON.parse(state.board);
+  const legalMoves = getLegalMoves(board, state.currentTurn);
+  
+  const move = legalMoves.find(m => m.from === from && m.to === to);
+  if (!move) return { error: 'illegal_move' };
+
+  const newBoard = applyMove(board, move);
+  const nextTurn = state.currentTurn === COLOR_WHITE ? COLOR_BLACK : COLOR_WHITE;
+  const nextTurnUserId = nextTurn === COLOR_WHITE ? state.player1 : state.player2;
+  const moveCount = parseInt(state.moveCount, 10) + 1;
+  
+  let consecutiveKingMoves = parseInt(state.consecutiveKingMoves, 10);
+  const pieceMoved = board[from - 1]; // from is 1-indexed
+  if (isKing(pieceMoved) && (!move.capturedSquares || move.capturedSquares.length === 0)) {
+    consecutiveKingMoves++;
+  } else {
+    consecutiveKingMoves = 0;
+  }
+
+  const positionCounts = JSON.parse(state.positionCounts);
+  const newHash = JSON.stringify([newBoard, nextTurn]);
+  positionCounts[newHash] = (positionCounts[newHash] || 0) + 1;
+
+  const { ended, reason, winner } = checkGameEnd(newBoard, nextTurn, positionCounts, consecutiveKingMoves);
+  let newStatus = 'in_progress';
+  let winnerId = '';
+  
+  if (ended) {
+    if (winner) {
+      newStatus = 'completed';
+      winnerId = winner === COLOR_WHITE ? state.player1 : state.player2;
+    } else {
+      newStatus = 'draw';
+    }
+  }
+
+  return { 
+    newBoard, nextTurn, nextTurnUserId, moveCount, consecutiveKingMoves, 
+    positionCounts, ended, reason, newStatus, winnerId, move 
+  };
 };
 
 export const handleMoveAttempt = async (socket, { matchId, from, to }) => {
@@ -174,66 +245,25 @@ export const handleMoveAttempt = async (socket, { matchId, from, to }) => {
 
   while (retries >= 0 && !success) {
     try {
-      // 1. Read
       const state = await getGameState(matchId);
-      if (!state) {
-        socket.emit('move_rejected', { reason: 'game_already_ended' });
-        return;
-      }
       
-      if (state.status !== 'in_progress') {
-        socket.emit('move_rejected', { reason: 'game_not_in_progress' });
-        return;
-      }
-      
-      if (state.currentTurnUserId !== userId) {
-        socket.emit('move_rejected', { reason: 'not_your_turn' });
+      const preconditionError = validatePreconditions(state, userId);
+      if (preconditionError) {
+        socket.emit('move_rejected', { reason: preconditionError });
         return;
       }
 
-      // 2. Validate
-      const board = JSON.parse(state.board);
-      const legalMoves = getLegalMoves(board, state.currentTurn);
-      
-      const move = legalMoves.find(m => m.from === from && m.to === to);
-      if (!move) {
-        socket.emit('move_rejected', { reason: 'illegal_move' });
+      const nextState = computeNextState(state, from, to);
+      if (nextState.error) {
+        socket.emit('move_rejected', { reason: nextState.error });
         return;
       }
 
-      const newBoard = applyMove(board, move);
-      const nextTurn = state.currentTurn === COLOR_WHITE ? COLOR_BLACK : COLOR_WHITE;
-      const nextTurnUserId = nextTurn === COLOR_WHITE ? state.player1 : state.player2;
-      const moveCount = parseInt(state.moveCount, 10) + 1;
-      
-      // Update counts
-      let consecutiveKingMoves = parseInt(state.consecutiveKingMoves, 10);
-      const pieceMoved = board[from - 1]; // from is 1-indexed
-      if (isKing(pieceMoved) && (!move.capturedSquares || move.capturedSquares.length === 0)) {
-        consecutiveKingMoves++;
-      } else {
-        consecutiveKingMoves = 0;
-      }
+      const {
+        newBoard, nextTurn, nextTurnUserId, moveCount, consecutiveKingMoves,
+        positionCounts, ended, reason, newStatus, winnerId, move
+      } = nextState;
 
-      const positionCounts = JSON.parse(state.positionCounts);
-      const newHash = JSON.stringify([newBoard, nextTurn]);
-      positionCounts[newHash] = (positionCounts[newHash] || 0) + 1;
-
-      // Check game end
-      const { ended, reason, winner } = checkGameEnd(newBoard, nextTurn, positionCounts, consecutiveKingMoves);
-      let newStatus = 'in_progress';
-      let winnerId = '';
-      
-      if (ended) {
-        if (winner) {
-          newStatus = 'completed';
-          winnerId = winner === COLOR_WHITE ? state.player1 : state.player2;
-        } else {
-          newStatus = 'draw';
-        }
-      }
-
-      // 3. CAS Write
       await redis.eval(
         casScript,
         1,
@@ -254,16 +284,20 @@ export const handleMoveAttempt = async (socket, { matchId, from, to }) => {
 
       // Emit to room
       const io = getIO();
+      const nextLegalMoves = ended ? [] : getLegalMoves(newBoard, nextTurn);
       io.to(`match:${matchId}`).emit('move_applied', {
         from, to,
         captured: move.capturedSquares || [],
-        promoted: move.promoted, // Assuming engine sets this
+        promoted: move.promoted,
         nextTurn,
         gameEnded: ended,
-        reason
+        reason,
+        legalMoves: nextLegalMoves,
+        board: newBoard
       });
 
       // Persist move async
+      const pieceMoved = JSON.parse(state.board)[from - 1];
       persistMatchMove({
         matchId,
         moveNumber: moveCount,
@@ -284,7 +318,6 @@ export const handleMoveAttempt = async (socket, { matchId, from, to }) => {
           settleGameDrawWithRetry(matchId, reason);
         }
       }
-
     } catch (err) {
       if (err.message && err.message.includes('VERSION_MISMATCH')) {
         retries--;
