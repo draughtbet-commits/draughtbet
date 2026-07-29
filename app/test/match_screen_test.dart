@@ -32,6 +32,7 @@ void main() {
     when(() => mockSocketService.onGameState).thenAnswer((_) => const Stream.empty());
     when(() => mockSocketService.onMatchFound).thenAnswer((_) => const Stream.empty());
     when(() => mockSocketService.onMoveApplied).thenAnswer((_) => const Stream.empty());
+    when(() => mockSocketService.onCalloutCreated).thenAnswer((_) => const Stream.empty());
     when(() => mockSocketService.attemptMove(any(), any(), any())).thenReturn(null);
 
     final realNotifier = TestMatchNotifier(mockSocketService, mockDio);
