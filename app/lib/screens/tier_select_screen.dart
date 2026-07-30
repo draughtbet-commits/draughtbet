@@ -9,7 +9,7 @@ import '../providers/match_provider.dart';
 import '../theme/colors.dart';
 import '../theme/tier_theme.dart';
 import '../widgets/callout_card.dart';
-import 'package:lucide_icons/lucide_icons.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 class TierSelectScreen extends ConsumerStatefulWidget {
   const TierSelectScreen({Key? key}) : super(key: key);

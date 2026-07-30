@@ -21,7 +21,7 @@
         "google_fonts",
         "intl",
         "json_annotation",
-        "lucide_icons",
+        "lucide_icons_flutter",
         "package_info_plus",
         "socket_io_client",
         "webview_flutter"
@@ -136,8 +136,8 @@
       ]
     },
     {
-      "name": "lucide_icons",
-      "version": "0.257.0",
+      "name": "lucide_icons_flutter",
+      "version": "3.1.15",
       "dependencies": [
         "flutter"
       ]
