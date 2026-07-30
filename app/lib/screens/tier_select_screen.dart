@@ -9,6 +9,7 @@ import '../providers/match_provider.dart';
 import '../theme/colors.dart';
 import '../theme/tier_theme.dart';
 import '../widgets/callout_card.dart';
+import 'package:lucide_icons/lucide_icons.dart';
 
 class TierSelectScreen extends ConsumerStatefulWidget {
   const TierSelectScreen({Key? key}) : super(key: key);
@@ -36,10 +37,6 @@ class _TierSelectScreenState extends ConsumerState<TierSelectScreen> {
   void initState() {
     super.initState();
     _fetchTierLimits();
-    // Fetch open callouts right away
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      ref.read(matchProvider.notifier).fetchOpenCallouts();
-    });
   }
 
   Future<void> _fetchTierLimits() async {
@@ -62,9 +59,13 @@ class _TierSelectScreenState extends ConsumerState<TierSelectScreen> {
           calloutMax = int.tryParse(res.data['calloutMax'].toString()) ?? 0;
           
           selectedMatchStake = stakeMax;
-          selectedCalloutStake = calloutMax;
+          selectedCalloutStake = stakeMin;
           isLoadingLimits = false;
         });
+
+        if (userTier != 'AMATEUR') {
+          ref.read(matchProvider.notifier).fetchOpenCallouts();
+        }
       }
     } catch (e) {
       print('Failed to fetch tier limits: $e');
@@ -122,7 +123,7 @@ class _TierSelectScreenState extends ConsumerState<TierSelectScreen> {
                     ref.read(matchProvider.notifier).createCallout(userTier!, tempStake);
                     Navigator.pop(context);
                   },
-                  child: const Text('Create Call-out', style: TextStyle(color: Colors.white)),
+                  child: const Text('Create Call-out', style: TextStyle(color: AppColors.textMain)),
                 ),
               ],
             );
@@ -145,14 +146,14 @@ class _TierSelectScreenState extends ConsumerState<TierSelectScreen> {
 
     if (matchState.isFindingMatch) {
       return Scaffold(
-        backgroundColor: Colors.black, // From design system
+        backgroundColor: AppColors.voidBg,
         body: Center(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               const CircularProgressIndicator(),
               const SizedBox(height: 20),
-              const Text('Searching for opponent...', style: TextStyle(color: Colors.white)),
+              const Text('Searching for opponent...', style: TextStyle(color: AppColors.textMain)),
               const SizedBox(height: 20),
               ElevatedButton(
                 style: ElevatedButton.styleFrom(backgroundColor: AppColors.surface3),
@@ -171,7 +172,7 @@ class _TierSelectScreenState extends ConsumerState<TierSelectScreen> {
 
     if (isLoadingLimits || userTier == null) {
       return const Scaffold(
-        backgroundColor: Colors.black,
+        backgroundColor: AppColors.voidBg,
         body: Center(child: CircularProgressIndicator()),
       );
     }
@@ -180,8 +181,8 @@ class _TierSelectScreenState extends ConsumerState<TierSelectScreen> {
     final isAmateur = userTier == 'AMATEUR';
 
     return Scaffold(
-      backgroundColor: Colors.black,
-      appBar: AppBar(title: const Text('Lobby'), backgroundColor: Colors.black),
+      backgroundColor: AppColors.voidBg,
+      appBar: AppBar(title: const Text('Lobby'), backgroundColor: AppColors.voidBg),
       body: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
@@ -202,7 +203,19 @@ class _TierSelectScreenState extends ConsumerState<TierSelectScreen> {
                     style: TextStyle(color: theme.primaryColor, fontSize: 24, fontWeight: FontWeight.bold),
                   ),
                   const SizedBox(height: 8),
-                  Text('Stake: ${_formatNaira(selectedMatchStake ?? 0)}', style: const TextStyle(color: AppColors.textMuted)),
+                  Text('Stake: ${_formatNaira(selectedMatchStake ?? stakeMin)}', style: const TextStyle(color: AppColors.textMuted)),
+                  Slider(
+                    value: (selectedMatchStake ?? stakeMin).toDouble(),
+                    min: stakeMin.toDouble(),
+                    max: stakeMax.toDouble(),
+                    divisions: stakeMax > stakeMin ? 10 : 1,
+                    activeColor: theme.primaryColor,
+                    onChanged: (val) {
+                      setState(() {
+                        selectedMatchStake = val.toInt();
+                      });
+                    },
+                  ),
                   const SizedBox(height: 16),
                   ElevatedButton(
                     style: ElevatedButton.styleFrom(
@@ -214,7 +227,7 @@ class _TierSelectScreenState extends ConsumerState<TierSelectScreen> {
                         ref.read(matchProvider.notifier).joinQueue(userTier!, selectedMatchStake!);
                       }
                     },
-                    child: Text('Find ${theme.displayName} Match', style: const TextStyle(color: Colors.white, fontSize: 16)),
+                    child: Text('Find ${theme.displayName} Match', style: const TextStyle(color: AppColors.textMain, fontSize: 16)),
                   ),
                 ],
               ),
@@ -233,7 +246,7 @@ class _TierSelectScreenState extends ConsumerState<TierSelectScreen> {
                   ),
                   TextButton.icon(
                     onPressed: () => _showCalloutDialog(context),
-                    icon: Icon(Icons.add, color: theme.primaryColor),
+                    icon: Icon(LucideIcons.plus, color: theme.primaryColor),
                     label: Text('Create Call-out', style: TextStyle(color: theme.primaryColor)),
                   ),
                 ],

@@ -140,7 +140,7 @@ class _CalloutCardState extends State<CalloutCard> {
                   onPressed: _timeLeft.isNegative ? null : widget.onAccept,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: theme.primaryColor,
-                    foregroundColor: Colors.white,
+                    foregroundColor: AppColors.textMain,
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(8),
                     ),

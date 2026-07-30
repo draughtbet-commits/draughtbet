@@ -105,10 +105,10 @@ class _MatchScreenState extends ConsumerState<MatchScreen> {
     final gameState = matchState.gameState;
 
     return Scaffold(
-      backgroundColor: Colors.black, // Void background
+      backgroundColor: AppColors.voidBg, // Void background
       appBar: AppBar(
         title: const Text('Match'),
-        backgroundColor: Colors.black,
+        backgroundColor: AppColors.voidBg,
         actions: [
           IconButton(
             icon: const Icon(LucideIcons.flag),
@@ -129,7 +129,7 @@ class _MatchScreenState extends ConsumerState<MatchScreen> {
                 // Opponent tray
                 const Padding(
                   padding: EdgeInsets.all(16.0),
-                  child: Text('Opponent', style: TextStyle(color: Colors.white, fontSize: 18)),
+                  child: Text('Opponent', style: TextStyle(color: AppColors.textMain, fontSize: 18)),
                 ),
                 
                 // Board
@@ -178,7 +178,7 @@ class _MatchScreenState extends ConsumerState<MatchScreen> {
                 // Player tray
                 const Padding(
                   padding: EdgeInsets.all(16.0),
-                  child: Text('You', style: TextStyle(color: Colors.white, fontSize: 18)),
+                  child: Text('You', style: TextStyle(color: AppColors.textMain, fontSize: 18)),
                 ),
               ],
             ),
@@ -186,7 +186,7 @@ class _MatchScreenState extends ConsumerState<MatchScreen> {
           // Syncing Overlay
           if (matchState.syncState == MatchSyncState.syncing)
             Container(
-              color: Colors.black54,
+              color: AppColors.voidBg.withOpacity(0.54),
               child: const Center(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
@@ -202,7 +202,7 @@ class _MatchScreenState extends ConsumerState<MatchScreen> {
           // Win/Loss Overlay
           if (gameState != null && gameState.status == 'completed')
             Container(
-              color: Colors.black87,
+              color: AppColors.voidBg.withOpacity(0.87),
               child: Center(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
