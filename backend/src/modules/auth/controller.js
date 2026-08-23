@@ -33,7 +33,8 @@ const registerSchema = z.object({
 const loginSchema = z.object({
   email: z.string().email(),
   password: z.string(),
-  fingerprintHash: z.string().optional()
+  fingerprintHash: z.string().optional(),
+  fcmToken: z.string().optional()
 });
 
 authRouter.post('/register', async (req, res, next) => {
@@ -53,7 +54,7 @@ authRouter.post('/register', async (req, res, next) => {
 authRouter.post('/login', async (req, res, next) => {
   try {
     const data = loginSchema.parse(req.body);
-    const tokens = await AuthService.login(data.email, data.password, data.fingerprintHash);
+    const tokens = await AuthService.login(data.email, data.password, data.fingerprintHash, data.fcmToken);
     res.json(tokens);
   } catch (err) {
     if (err && err.name === 'ZodError') {

@@ -3,6 +3,8 @@ import { processDepositWebhook } from '../wallet/service.js';
 import { PaystackGateway } from './PaystackGateway.js';
 import { FlutterwaveGateway } from './FlutterwaveGateway.js';
 import logger from '../../utils/logger.js';
+import { getIO } from '../../sockets/index.js';
+import { NotificationService } from '../notification/service.js';
 
 export const webhookRouter = express.Router();
 
@@ -37,6 +39,25 @@ webhookRouter.post('/paystack', async (req, res) => {
       }
 
       await processDepositWebhook(reference, amountMinorUnits, 'PAYSTACK', userId);
+
+      // Notify the user's Flutter client in real time
+      try {
+        getIO().to(`user:${userId}`).emit('wallet_updated', {
+          balanceChange: amountMinorUnits.toString(),
+          type: 'DEPOSIT'
+        });
+        
+        // Trigger notification
+        await NotificationService.create(
+          userId,
+          'DEPOSIT_CONFIRMED',
+          'Deposit Successful',
+          `Your deposit of ${amountMinorUnits} has been credited to your wallet.`,
+          '/wallet'
+        );
+      } catch (e) {
+        logger.warn({ e, userId }, 'Failed to emit events after Paystack deposit');
+      }
     }
 
     res.status(200).send('OK');
@@ -76,6 +97,25 @@ webhookRouter.post('/flutterwave', async (req, res) => {
       }
 
       await processDepositWebhook(reference, amountMinorUnits, 'FLUTTERWAVE', userId);
+
+      // Notify the user's Flutter client in real time
+      try {
+        getIO().to(`user:${userId}`).emit('wallet_updated', {
+          balanceChange: amountMinorUnits.toString(),
+          type: 'DEPOSIT'
+        });
+        
+        // Trigger notification
+        await NotificationService.create(
+          userId,
+          'DEPOSIT_CONFIRMED',
+          'Deposit Successful',
+          `Your deposit of ${amountMinorUnits} has been credited to your wallet.`,
+          '/wallet'
+        );
+      } catch (e) {
+        logger.warn({ e, userId }, 'Failed to emit events after Flutterwave deposit');
+      }
     }
 
     res.status(200).send('OK');

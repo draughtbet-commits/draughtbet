@@ -17,6 +17,8 @@ class SocketService {
   final _opponentReconnectedController = StreamController<Map<String, dynamic>>.broadcast();
   final _errorController = StreamController<Map<String, dynamic>>.broadcast();
   final _calloutCreatedController = StreamController<Map<String, dynamic>>.broadcast();
+  final _walletUpdatedController = StreamController<Map<String, dynamic>>.broadcast();
+  final _notificationController = StreamController<Map<String, dynamic>>.broadcast();
 
   Stream<Map<String, dynamic>> get onMatchFound => _matchFoundController.stream;
   Stream<Map<String, dynamic>> get onGameState => _gameStateController.stream;
@@ -27,6 +29,8 @@ class SocketService {
   Stream<Map<String, dynamic>> get onOpponentReconnected => _opponentReconnectedController.stream;
   Stream<Map<String, dynamic>> get onError => _errorController.stream;
   Stream<Map<String, dynamic>> get onCalloutCreated => _calloutCreatedController.stream;
+  Stream<Map<String, dynamic>> get onWalletUpdated => _walletUpdatedController.stream;
+  Stream<Map<String, dynamic>> get onNotification => _notificationController.stream;
 
   Future<void> initSocket() async {
     if (_socket != null && _socket!.connected) return;
@@ -88,6 +92,14 @@ class SocketService {
       if (data is Map) _calloutCreatedController.add(Map<String, dynamic>.from(data));
     });
 
+    _socket!.on('wallet_updated', (data) {
+      if (data is Map) _walletUpdatedController.add(Map<String, dynamic>.from(data));
+    });
+
+    _socket!.on('notification', (data) {
+      if (data is Map) _notificationController.add(Map<String, dynamic>.from(data));
+    });
+
     _socket!.connect();
   }
 
@@ -118,6 +130,8 @@ class SocketService {
     _opponentReconnectedController.close();
     _errorController.close();
     _calloutCreatedController.close();
+    _walletUpdatedController.close();
+    _notificationController.close();
     disconnect();
   }
 }

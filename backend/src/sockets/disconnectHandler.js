@@ -3,6 +3,7 @@ import { getIO } from './index.js';
 import { getActiveGameForUser, getGameState } from './gameManager.js';
 import { getLegalMoves } from '../modules/engine/index.js';
 import logger from '../utils/logger.js';
+import { NotificationService } from '../modules/notification/service.js';
 
 export async function handleDisconnect(socket) {
   const userId = socket.user?.userId;
@@ -18,7 +19,17 @@ export async function handleDisconnect(socket) {
 
     // 3. Notify opponent
     socket.to(`match:${matchId}`).emit('opponent_disconnected', { userId, gracePeriodMs: 60000 });
-    logger.info({ userId, matchId }, 'Player disconnected, started 60s grace period');
+    
+    // 4. Send push notification warning
+    await NotificationService.create(
+      userId,
+      'DISCONNECT_WARNING',
+      'Connection Lost',
+      'You have 60 seconds to reconnect before forfeiting your match.',
+      `/match/${matchId}`
+    );
+    
+    logger.info({ userId, matchId }, 'Player disconnected, started 60s grace period and sent warning');
   } catch (err) {
     logger.error({ err, userId }, 'Error handling disconnect');
   }

@@ -74,7 +74,7 @@ export class AuthService {
     }
   }
 
-  static async login(email, password, fingerprintHash) {
+  static async login(email, password, fingerprintHash, fcmToken = null) {
     const user = await prisma.user.findUnique({ where: { email } });
     if (!user) {
       throw new Error('Invalid credentials');
@@ -89,7 +89,6 @@ export class AuthService {
       throw new Error('Invalid credentials');
     }
 
-    // Upsert the device fingerprint log
     if (fingerprintHash) {
       const existingDevice = await prisma.deviceFingerprint.findFirst({
         where: { userId: user.id, fingerprintHash }
@@ -104,6 +103,12 @@ export class AuthService {
           data: { userId: user.id, fingerprintHash }
         });
       }
+    }
+    if (fcmToken) {
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { fcmToken }
+      });
     }
 
     return this.issueTokens(user.id);

@@ -30,4 +30,14 @@ export class PaymentGateway {
   verifyWebhookSignature(rawBody, signatureHeader) {
     throw new Error('Not implemented');
   }
+
+  /**
+   * Processes a refund through the gateway.
+   * @param {string} reference - The original transaction reference
+   * @param {BigInt} amountMinorUnits - The refund amount in minor units
+   * @returns {Promise<{ success: boolean, refundReference: string }>}
+   */
+  async processRefund(reference, amountMinorUnits) {
+    throw new Error('Not implemented');
+  }
 }

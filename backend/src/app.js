@@ -12,6 +12,7 @@ import { calloutRouter } from './modules/callout/controller.js';
 import { matchmakingRouter } from './modules/matchmaking/controller.js';
 import { walletRouter } from './modules/wallet/controller.js';
 import { webhookRouter } from './modules/payment/webhookController.js';
+import { notificationRouter } from './modules/notification/controller.js';
 import { startDisconnectSweep } from './jobs/disconnectSweep.js';
 import { startReconciliationSweep } from './jobs/reconciliationSweep.js';
 import { startMatchmakingWorker } from './jobs/matchmakingWorker.js';
@@ -51,6 +52,7 @@ app.use('/matches', matchRouter);
 app.use('/callouts', calloutRouter);
 app.use('/matchmaking', matchmakingRouter);
 app.use('/wallet', walletRouter);
+app.use('/notifications', notificationRouter);
 
 // Health Check Endpoint
 app.get('/health', async (req, res) => {

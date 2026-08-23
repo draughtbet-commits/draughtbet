@@ -9,6 +9,7 @@ import '../providers/match_provider.dart';
 import '../theme/colors.dart';
 import '../theme/tier_theme.dart';
 import '../widgets/callout_card.dart';
+import '../widgets/notification_bell.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 class TierSelectScreen extends ConsumerStatefulWidget {
@@ -182,7 +183,14 @@ class _TierSelectScreenState extends ConsumerState<TierSelectScreen> {
 
     return Scaffold(
       backgroundColor: AppColors.voidBg,
-      appBar: AppBar(title: const Text('Lobby'), backgroundColor: AppColors.voidBg),
+      appBar: AppBar(
+        title: const Text('Lobby'), 
+        backgroundColor: AppColors.voidBg,
+        actions: const [
+          NotificationBell(),
+          SizedBox(width: 8),
+        ],
+      ),
       body: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(

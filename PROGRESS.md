@@ -32,7 +32,7 @@
 - **Documentation:**
   - Audited and documented Week 2 progress in `WEEK_2_AUDIT.md`.
 
-## ⏳ Current Status: Week 4 (Real-Time Integration)
+## ⏳ Current Status: Week 7 (Wallet UI)
 
 *Correction: The Game Engine work completed previously was actually Week 3 scope. We paused to correctly implement the Week 2 Auth System.*
 
@@ -69,4 +69,42 @@
   4. **Created `backend/.npmrc`:** Moved `onlyBuiltDependencies` config from `package.json` (ignored by pnpm v11) into `.npmrc` where v11 reads it.
   5. **Cleaned `package.json`:** Removed stale `pnpm` field that v11 was ignoring with warnings.
 
-**Next immediate action:** Resume **Week 4 (Real-Time Integration)**. Integrate the pure Game Engine with Socket.IO (`backend/src/sockets/index.js`) and Redis (`match:{id}:board`). This involves handling socket authentication, matchmaking queues, room creation, and real-time processing of moves now that the JWT Auth foundation is fully in place.
+### 6. Week 6: Wallet & Payment Gateway Backend (Completed — August 20, 2026)
+- **Audit & Verification:**
+  - Full code review of `wallet/service.js`, `wallet/controller.js`, `payment/PaystackGateway.js`, `payment/FlutterwaveGateway.js`, `payment/webhookController.js`, `services/matchService.js`, and `sockets/settlement.js`.
+  - All 9 Week 6 tests passing: wallet service (4), webhook processing (2), payment gateways (3).
+- **Spec Compliance Fixes:**
+  - Added `processRefund(reference, amountMinorUnits)` stub to `PaymentGateway` base class per spec interface definition.
+  - Added `wallet_updated` socket emit to webhook controller — spec requires this event fires "after any wallet balance change." Was missing on deposit; only settlement had it.
+  - Updated `.env.example` — replaced stale Stripe references with correct `PAYSTACK_SECRET_KEY`, `FLUTTERWAVE_SECRET_KEY`, `FLUTTERWAVE_SECRET_HASH`, and added `ADMIN_CORS_ORIGIN`.
+- **Verified Implementations:**
+  - `processDepositWebhook`: Atomic Prisma transaction (find wallet -> create tx -> increment balance), P2002 idempotency for duplicate webhooks.
+  - `requestWithdrawal`: Immediate balance deduction in transaction to prevent double-spend. `InsufficientFundsError` thrown if balance too low.
+  - `rejectWithdrawal`: Conditional `UPDATE WHERE status = 'PENDING'` prevents double-refund. Credits balance back atomically.
+  - `PaystackGateway.verifyWebhookSignature`: HMAC-SHA512 against raw body.
+  - `FlutterwaveGateway.verifyWebhookSignature`: `verif-hash` header comparison.
+  - Both gateways: 5-second timeout + 1-retry with exponential backoff on `initiatePayment`.
+  - `debitStakes`: Ordered wallet locking to prevent deadlocks, atomic debit of both players + `STAKE` transactions + `Match` creation.
+  - `settleGame`: Idempotent (checks `status !== 'ACTIVE'`), reads `commissionPercent` from `PlatformSettings` live, writes `PAYOUT` + `COMMISSION` transactions atomically.
+
+**Next immediate action:** Resume **Week 7 (Wallet UI + Tier Enforcement Checkpoint)**.
+
+### 7. Week 8: Notifications System (Completed — August 23, 2026)
+- **Backend Notifications (Postgres + Socket.IO):**
+  - Created `NotificationService` and `NotificationController` with `fcmToken` storage logic on login.
+  - Plumbed `NotificationService.create` into 8 strategic triggers:
+    1. `DEPOSIT_CONFIRMED`
+    2. `WITHDRAWAL_APPROVED` / `REJECTED` (Stubbed for future Admin module)
+    3. `CALLOUT_RECEIVED`
+    4. `CALLOUT_ACCEPTED`
+    5. `MATCH_FOUND`
+    6. `MATCH_ENDED_WIN` / `LOSS`
+    7. `DISCONNECT_WARNING`
+    8. `ACCOUNT_SUSPENDED` (Stubbed for future Admin module)
+  - Configured graceful fallback to mock FCM push mechanism if the user is offline (or `fcmToken` is valid).
+- **Frontend Integration (Flutter):**
+  - Built `NotificationProvider` with Riverpod for real-time socket ingestion (`onNotification`).
+  - Added REST methods for fetching history, paginating, and marking read/all-read.
+  - Implemented `NotificationBell` with dynamic unread badging, placed in the Lobby App Bar.
+  - Created `_NotificationPanel` for rapid triage, tapping auto-routes to embedded deep links.
+  - Built `FCMService` stub utilizing `flutter_local_notifications` for foreground banners.

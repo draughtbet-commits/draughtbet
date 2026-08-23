@@ -5,6 +5,7 @@ import { getIO } from '../sockets/index.js';
 import { debitStakes, InsufficientFundsError } from '../services/matchService.js';
 import { initializeGame } from '../sockets/gameManager.js';
 import { STAKE_PRESETS } from '../middleware/tierEnforcement.js';
+import { NotificationService } from '../modules/notification/service.js';
 
 // Lua script to atomically pop two players from the queue
 // KEYS[1] = queueKey
@@ -62,6 +63,18 @@ export const processMatchmakingQueues = async () => {
             };
             io.to(`user:${player1Id}`).emit('match_found', payload);
             io.to(`user:${player2Id}`).emit('match_found', payload);
+            
+            // Trigger MATCH_FOUND notifications for both players
+            const notifyMatch = async (uid) => {
+              await NotificationService.create(
+                uid,
+                'MATCH_FOUND',
+                'Match Found!',
+                'An opponent has been found. Your match is starting.',
+                `/match/${match.id}`
+              );
+            };
+            await Promise.all([notifyMatch(player1Id), notifyMatch(player2Id)]);
             
             logger.info({ p1: player1Id, p2: player2Id, matchId: match.id, tier, stakeMinorUnits: stakeMinorUnits.toString() }, 'Matchmaking pair found and game started');
             

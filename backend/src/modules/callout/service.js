@@ -3,6 +3,7 @@ import logger from '../../utils/logger.js';
 import { getIO } from '../../sockets/index.js';
 import { debitStakes } from '../../services/matchService.js';
 import { initializeGame } from '../../sockets/gameManager.js';
+import { NotificationService } from '../notification/service.js';
 
 export const createCallout = async (challengerId, tier, stakeMinorUnits) => {
   // Expiry is 15 minutes by default, per typical realtime app lifecycles (can be tuned)
@@ -40,6 +41,22 @@ export const createCallout = async (challengerId, tier, stakeMinorUnits) => {
   // For now, we broadcast to everyone, and the client ignores if tier doesn't match.
   const io = getIO();
   io.emit('callout_created', payload);
+
+  // Send notifications to eligible users asynchronously
+  prisma.user.findMany({
+    where: { tier, id: { not: challengerId } },
+    select: { id: true }
+  }).then(users => {
+    return Promise.all(users.map(u => 
+      NotificationService.create(
+        u.id, 
+        'CALLOUT_RECEIVED', 
+        'New Challenge Available', 
+        `A new callout is available in the ${tier} tier.`, 
+        '/tier-select'
+      )
+    ));
+  }).catch(err => logger.error({ err }, 'Failed to send CALLOUT_RECEIVED notifications'));
 
   return payload;
 };
@@ -141,6 +158,15 @@ export const acceptCallout = async (userId, calloutId) => {
   const io = getIO();
   io.to(`user:${callout.challengerId}`).emit('match_found', matchPayload);
   io.to(`user:${userId}`).emit('match_found', matchPayload);
+
+  // Trigger CALLOUT_ACCEPTED notification to challenger
+  await NotificationService.create(
+    callout.challengerId,
+    'CALLOUT_ACCEPTED',
+    'Challenge Accepted!',
+    'Your callout has been accepted. The match is starting.',
+    `/match/${match.id}`
+  );
 
   logger.info({ calloutId, matchId: match.id, p1: callout.challengerId, p2: userId }, 'Callout accepted, match created');
 

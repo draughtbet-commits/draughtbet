@@ -4,6 +4,7 @@ import { lockWalletsInOrder } from '../services/matchService.js';
 import redis from '../utils/redis.js';
 import { getIO } from './index.js';
 import * as Sentry from '@sentry/node';
+import { NotificationService } from '../modules/notification/service.js';
 
 // Utility sleep function
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -37,6 +38,25 @@ async function notifyAndCleanupWin(matchId, winnerId, playerLightId, playerDarkI
       balanceChange: payout.toString(),
       matchId
     });
+
+    const loserId = winnerId === playerLightId ? playerDarkId : playerLightId;
+
+    // Trigger WIN/LOSS notifications
+    await NotificationService.create(
+      winnerId,
+      'MATCH_ENDED_WIN',
+      'You Won!',
+      `You won match ${matchId.slice(0, 8)}. Payout: ${payout} credited.`,
+      `/results`
+    );
+
+    await NotificationService.create(
+      loserId,
+      'MATCH_ENDED_LOSS',
+      'You Lost',
+      `You lost match ${matchId.slice(0, 8)}. Better luck next time!`,
+      `/results`
+    );
   } catch (e) {
     logger.warn({ e, matchId }, 'Socket emit after settlement failed');
   }
