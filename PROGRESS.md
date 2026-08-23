@@ -32,7 +32,7 @@
 - **Documentation:**
   - Audited and documented Week 2 progress in `WEEK_2_AUDIT.md`.
 
-## ⏳ Current Status: Week 7 (Wallet UI)
+## ⏳ Current Status: Week 9 (Security & Anti-cheat)
 
 *Correction: The Game Engine work completed previously was actually Week 3 scope. We paused to correctly implement the Week 2 Auth System.*
 
@@ -87,9 +87,16 @@
   - `debitStakes`: Ordered wallet locking to prevent deadlocks, atomic debit of both players + `STAKE` transactions + `Match` creation.
   - `settleGame`: Idempotent (checks `status !== 'ACTIVE'`), reads `commissionPercent` from `PlatformSettings` live, writes `PAYOUT` + `COMMISSION` transactions atomically.
 
-**Next immediate action:** Resume **Week 7 (Wallet UI + Tier Enforcement Checkpoint)**.
+### 7. Week 7: Wallet UI + Tier Enforcement Checkpoint (Completed — August 23, 2026)
+- **Flutter Wallet Screen:** Built complete wallet UI featuring NGN balance, deposit modal (Paystack/Flutterwave gateway selection), and paginated transaction history list.
+- **Webview Checkout:** Integrated `webview_flutter` for the `authorizationUrl` checkout flow.
+- **Live Sync:** Wired the `wallet_updated` socket event directly into the Riverpod state for instant, webhook-driven balance updates without relying on client-side polling.
+- **Tier Clamping (Lobby):** Connected `GET /wallet/tier-limits` to the `TierSelectScreen`, dynamically bounding matchmaking and call-out sliders to the strict `stakeMin` and `stakeMax` constraints for the user's tier.
+- **Navigation Shell:** Implemented `go_router` `ShellRoute` providing a persistent `BottomNavigationBar` bridging the Lobby, Wallet, Results, and Settings.
 
-### 7. Week 8: Notifications System (Completed — August 23, 2026)
+**Next immediate action:** Begin **Week 9 (Security & Anti-cheat)** or proceed with the Milestone 2 Demo.
+
+### 8. Week 8: Notifications System (Completed — August 23, 2026)
 - **Backend Notifications (Postgres + Socket.IO):**
   - Created `NotificationService` and `NotificationController` with `fcmToken` storage logic on login.
   - Plumbed `NotificationService.create` into 8 strategic triggers:

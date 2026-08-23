@@ -5,6 +5,7 @@ import '../screens/tier_select_screen.dart';
 import '../screens/match_screen.dart';
 import '../screens/wallet_screen.dart';
 import '../screens/checkout_webview_screen.dart';
+import '../widgets/main_layout.dart';
 
 final appRouterProvider = Provider<GoRouter>((ref) {
   return GoRouter(
@@ -22,15 +23,32 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           body: Center(child: Text('Register Screen Stub')),
         ),
       ),
-      GoRoute(
-        path: '/home',
-        builder: (context, state) => const Scaffold(
-          body: Center(child: Text('Home Screen Stub')),
-        ),
-      ),
-      GoRoute(
-        path: '/tier-select',
-        builder: (context, state) => const TierSelectScreen(),
+      ShellRoute(
+        builder: (context, state, child) {
+          return MainLayout(child: child);
+        },
+        routes: [
+          GoRoute(
+            path: '/home',
+            builder: (context, state) => const TierSelectScreen(),
+          ),
+          GoRoute(
+            path: '/wallet',
+            builder: (context, state) => const WalletScreen(),
+          ),
+          GoRoute(
+            path: '/results',
+            builder: (context, state) => const Scaffold(
+              body: Center(child: Text('Results Stub')),
+            ),
+          ),
+          GoRoute(
+            path: '/settings',
+            builder: (context, state) => const Scaffold(
+              body: Center(child: Text('Settings Stub')),
+            ),
+          ),
+        ],
       ),
       GoRoute(
         path: '/match/:id',
@@ -40,27 +58,11 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         },
       ),
       GoRoute(
-        path: '/wallet',
-        builder: (context, state) => const WalletScreen(),
-      ),
-      GoRoute(
         path: '/checkout',
         builder: (context, state) {
           final url = state.extra as String;
           return CheckoutWebviewScreen(authorizationUrl: url);
         },
-      ),
-      GoRoute(
-        path: '/results',
-        builder: (context, state) => const Scaffold(
-          body: Center(child: Text('Results Stub')),
-        ),
-      ),
-      GoRoute(
-        path: '/settings',
-        builder: (context, state) => const Scaffold(
-          body: Center(child: Text('Settings Stub')),
-        ),
       ),
     ],
   );
