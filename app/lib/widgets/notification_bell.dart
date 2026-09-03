@@ -39,7 +39,7 @@ class NotificationBell extends ConsumerWidget {
             child: Container(
               padding: const EdgeInsets.all(2),
               decoration: BoxDecoration(
-                color: Colors.red,
+                color: AppColors.danger,
                 borderRadius: BorderRadius.circular(10),
               ),
               constraints: const BoxConstraints(
@@ -49,7 +49,7 @@ class NotificationBell extends ConsumerWidget {
               child: Text(
                 '${state.unreadCount > 9 ? '9+' : state.unreadCount}',
                 style: const TextStyle(
-                  color: Colors.white,
+                  color: AppColors.textPrimary,
                   fontSize: 10,
                   fontWeight: FontWeight.bold,
                 ),
