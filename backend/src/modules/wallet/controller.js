@@ -16,7 +16,7 @@ const flutterwaveGateway = new FlutterwaveGateway();
 
 walletRouter.get('/balance', requireAuth, async (req, res, next) => {
   try {
-    const { userId } = req.user;
+    const { id: userId } = req.user;
     const balance = await getWalletBalance(userId);
     if (!balance) {
       return res.status(404).json({ error: 'Wallet not found' });
@@ -29,7 +29,7 @@ walletRouter.get('/balance', requireAuth, async (req, res, next) => {
 
 walletRouter.get('/transactions', requireAuth, async (req, res, next) => {
   try {
-    const { userId } = req.user;
+    const { id: userId } = req.user;
     const page = parseInt(req.query.page, 10) || 1;
     const limit = parseInt(req.query.limit, 10) || 20;
     
@@ -84,7 +84,7 @@ walletRouter.get('/tier-limits', requireAuth, async (req, res, next) => {
 
 walletRouter.post('/deposit-intent', requireAuth, async (req, res, next) => {
   try {
-    const { userId, email } = req.user; // We expect requireAuth to populate email as well
+    const { id: userId, email } = req.user; // requireAuth populates id and email from DB
     const { amountMinorUnits, gateway } = req.body;
     
     if (!amountMinorUnits || isNaN(amountMinorUnits) || amountMinorUnits <= 0) {
@@ -118,7 +118,7 @@ walletRouter.post('/deposit-intent', requireAuth, async (req, res, next) => {
 
 walletRouter.post('/withdrawal-request', requireAuth, async (req, res, next) => {
   try {
-    const { userId } = req.user;
+    const { id: userId } = req.user;
     const { amountMinorUnits } = req.body;
     
     if (!amountMinorUnits || isNaN(amountMinorUnits) || amountMinorUnits <= 0) {

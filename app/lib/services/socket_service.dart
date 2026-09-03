@@ -1,11 +1,11 @@
 import 'dart:async';
 import 'package:socket_io_client/socket_io_client.dart' as IO;
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'secure_storage.dart';
 
 class SocketService {
   IO.Socket? _socket;
-  final _storage = const FlutterSecureStorage();
+  final _storage = SecureStorageService();
   
   // Stream controllers for different events
   final _matchFoundController = StreamController<Map<String, dynamic>>.broadcast();
@@ -35,7 +35,7 @@ class SocketService {
   Future<void> initSocket() async {
     if (_socket != null && _socket!.connected) return;
 
-    final token = await _storage.read(key: 'jwt');
+    final token = await _storage.accessToken;
     if (token == null) {
       throw Exception('Cannot initialize socket without JWT token');
     }

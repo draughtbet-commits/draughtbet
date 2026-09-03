@@ -39,4 +39,5 @@ class AppColors {
   // Aliases (used by callout_card and tier_select_screen)
   static const Color textMain = textPrimary;
   static const Color proGold = gold500;
+  static const Color borderDim = hairline;
 }

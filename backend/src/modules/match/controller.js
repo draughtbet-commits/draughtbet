@@ -9,7 +9,7 @@ export const matchRouter = Router();
 
 matchRouter.get('/:id/state', requireAuth, async (req, res) => {
   const matchId = req.params.id;
-  const userId = req.user.userId;
+  const userId = req.user.id;
 
   try {
     // 1. Verify user is in this match

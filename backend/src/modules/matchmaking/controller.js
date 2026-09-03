@@ -9,7 +9,7 @@ export const matchmakingRouter = express.Router();
 // Join the matchmaking queue
 matchmakingRouter.post('/join', requireAuth, requireValidStake(false), async (req, res, next) => {
   try {
-    const { userId, tier } = req.user;
+    const { id: userId, tier } = req.user;
     const { stakeMinorUnits } = req.body;
     
     // We bucket users strictly by tier and exact stake preset amount.
@@ -30,7 +30,7 @@ matchmakingRouter.post('/join', requireAuth, requireValidStake(false), async (re
 // Leave the matchmaking queue
 matchmakingRouter.post('/leave', requireAuth, async (req, res, next) => {
   try {
-    const { userId, tier } = req.user;
+    const { id: userId, tier } = req.user;
     const { stakeMinorUnits } = req.body;
 
     if (!stakeMinorUnits) {

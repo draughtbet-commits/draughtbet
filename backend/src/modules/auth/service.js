@@ -36,30 +36,32 @@ export class AuthService {
     try {
       const passwordHash = await bcrypt.hash(password, 12);
       
-      const user = await prisma.$transaction(async (tx) => {
-        const newUser = await tx.user.create({
-          data: {
-            email,
-            passwordHash,
-            isBanned: false, // Explicit requirement
-            wallet: {
-              create: {
-                balanceMinorUnits: 0n,
-                currency: 'NGN' // Phase 1 default
-              }
-            },
-            devices: {
-              create: {
-                fingerprintHash
-              }
+const user = await prisma.$transaction(async (tx) => {
+      const newUser = await tx.user.create({
+        data: {
+          email,
+          passwordHash,
+          isBanned: false, // Explicit requirement
+          wallet: {
+            create: {
+              balanceMinorUnits: 0n,
+              currency: 'NGN' // Phase 1 default
             }
           },
-          include: {
-            wallet: true
-          }
-        });
-        return newUser;
+          devices: fingerprintHash
+            ? {
+                create: {
+                  fingerprintHash
+                }
+              }
+            : undefined
+        },
+        include: {
+          wallet: true
+        }
       });
+      return newUser;
+    });
 
       return user;
     } catch (err) {

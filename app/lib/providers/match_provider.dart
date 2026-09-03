@@ -1,10 +1,9 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:dio/dio.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
 import '../models/game_state.dart';
 import '../models/callout.dart';
+import '../services/api_client.dart';
 import '../services/socket_service.dart';
 
 enum MatchSyncState { synced, syncing, offline }
@@ -133,14 +132,7 @@ class MatchNotifier extends StateNotifier<MatchState> {
   Future<void> fetchGameState(String matchId) async {
     try {
       state = state.copyWith(syncState: MatchSyncState.syncing);
-      final storage = const FlutterSecureStorage();
-      final token = await storage.read(key: 'jwt');
-      final backendUrl = dotenv.env['BACKEND_URL'] ?? 'http://localhost:3000';
-      
-      final response = await _dio.get(
-        '$backendUrl/matches/$matchId/state',
-        options: Options(headers: {'Authorization': 'Bearer $token'}),
-      );
+      final response = await _dio.get('/matches/$matchId/state');
       
       if (response.statusCode == 200) {
         final gameState = GameState.fromJson(response.data);
@@ -155,14 +147,9 @@ class MatchNotifier extends StateNotifier<MatchState> {
   Future<void> joinQueue(String tier, int stakeMinorUnits) async {
     state = state.copyWith(isFindingMatch: true);
     try {
-      final storage = const FlutterSecureStorage();
-      final token = await storage.read(key: 'jwt');
-      final backendUrl = dotenv.env['BACKEND_URL'] ?? 'http://localhost:3000';
-      
       await _dio.post(
-        '$backendUrl/matchmaking/join',
+        '/matchmaking/join',
         data: {'stakeMinorUnits': stakeMinorUnits},
-        options: Options(headers: {'Authorization': 'Bearer $token'}),
       );
     } catch (e) {
       state = state.copyWith(isFindingMatch: false);
@@ -172,14 +159,9 @@ class MatchNotifier extends StateNotifier<MatchState> {
 
   Future<void> leaveQueue(String tier, int stakeMinorUnits) async {
     try {
-      final storage = const FlutterSecureStorage();
-      final token = await storage.read(key: 'jwt');
-      final backendUrl = dotenv.env['BACKEND_URL'] ?? 'http://localhost:3000';
-      
       await _dio.post(
-        '$backendUrl/matchmaking/leave',
+        '/matchmaking/leave',
         data: {'stakeMinorUnits': stakeMinorUnits},
-        options: Options(headers: {'Authorization': 'Bearer $token'}),
       );
       state = state.copyWith(isFindingMatch: false);
     } catch (e) {
@@ -189,14 +171,7 @@ class MatchNotifier extends StateNotifier<MatchState> {
 
   Future<void> fetchOpenCallouts() async {
     try {
-      final storage = const FlutterSecureStorage();
-      final token = await storage.read(key: 'jwt');
-      final backendUrl = dotenv.env['BACKEND_URL'] ?? 'http://localhost:3000';
-      
-      final response = await _dio.get(
-        '$backendUrl/callouts/open',
-        options: Options(headers: {'Authorization': 'Bearer $token'}),
-      );
+      final response = await _dio.get('/callouts/open');
       
       if (response.statusCode == 200) {
         final List<dynamic> data = response.data['callouts'] ?? [];
@@ -210,14 +185,9 @@ class MatchNotifier extends StateNotifier<MatchState> {
 
   Future<void> createCallout(String tier, int stakeMinorUnits) async {
     try {
-      final storage = const FlutterSecureStorage();
-      final token = await storage.read(key: 'jwt');
-      final backendUrl = dotenv.env['BACKEND_URL'] ?? 'http://localhost:3000';
-      
       await _dio.post(
-        '$backendUrl/callouts',
+        '/callouts',
         data: {'stakeMinorUnits': stakeMinorUnits},
-        options: Options(headers: {'Authorization': 'Bearer $token'}),
       );
       // The socket event will trigger prepending to the list.
     } catch (e) {
@@ -228,13 +198,8 @@ class MatchNotifier extends StateNotifier<MatchState> {
 
   Future<void> acceptCallout(String calloutId) async {
     try {
-      final storage = const FlutterSecureStorage();
-      final token = await storage.read(key: 'jwt');
-      final backendUrl = dotenv.env['BACKEND_URL'] ?? 'http://localhost:3000';
-      
       await _dio.post(
-        '$backendUrl/callouts/$calloutId/accept',
-        options: Options(headers: {'Authorization': 'Bearer $token'}),
+        '/callouts/$calloutId/accept',
       );
       // The server will emit match_found socket event which joins the match.
     } catch (e) {
@@ -259,6 +224,5 @@ class MatchNotifier extends StateNotifier<MatchState> {
 }
 
 final matchProvider = StateNotifierProvider<MatchNotifier, MatchState>((ref) {
-  final dio = Dio();
-  return MatchNotifier(socketService, dio);
+  return MatchNotifier(socketService, ref.watch(apiClientProvider));
 });

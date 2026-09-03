@@ -1,7 +1,7 @@
+import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:dio/dio.dart';
+import '../services/api_client.dart';
 import '../services/socket_service.dart';
 
 // Very simple notification model to handle JSON from backend
@@ -89,14 +89,7 @@ class NotificationNotifier extends StateNotifier<NotificationState> {
 
   Future<void> _fetchNotifications() async {
     try {
-      final storage = const FlutterSecureStorage();
-      final token = await storage.read(key: 'jwt');
-      final backendUrl = dotenv.env['BACKEND_URL'] ?? 'http://localhost:3000';
-
-      final response = await _dio.get(
-        '$backendUrl/notifications?limit=20',
-        options: Options(headers: {'Authorization': 'Bearer $token'}),
-      );
+      final response = await _dio.get('/notifications?limit=20');
       
       final items = (response.data['items'] as List)
           .map((item) => AppNotification.fromJson(item))
@@ -117,14 +110,7 @@ class NotificationNotifier extends StateNotifier<NotificationState> {
 
   Future<void> markAsRead(String id) async {
     try {
-      final storage = const FlutterSecureStorage();
-      final token = await storage.read(key: 'jwt');
-      final backendUrl = dotenv.env['BACKEND_URL'] ?? 'http://localhost:3000';
-
-      await _dio.patch(
-        '$backendUrl/notifications/$id/read',
-        options: Options(headers: {'Authorization': 'Bearer $token'}),
-      );
+      await _dio.patch('/notifications/$id/read');
       
       final updatedNotifications = state.notifications.map((n) {
         if (n.id == id && !n.isRead) {
@@ -152,14 +138,7 @@ class NotificationNotifier extends StateNotifier<NotificationState> {
 
   Future<void> markAllAsRead() async {
     try {
-      final storage = const FlutterSecureStorage();
-      final token = await storage.read(key: 'jwt');
-      final backendUrl = dotenv.env['BACKEND_URL'] ?? 'http://localhost:3000';
-
-      await _dio.patch(
-        '$backendUrl/notifications/read-all',
-        options: Options(headers: {'Authorization': 'Bearer $token'}),
-      );
+      await _dio.patch('/notifications/read-all');
       
       final updatedNotifications = state.notifications.map((n) {
         return AppNotification(
@@ -191,6 +170,8 @@ class NotificationNotifier extends StateNotifier<NotificationState> {
 
 final notificationProvider =
     StateNotifierProvider<NotificationNotifier, NotificationState>((ref) {
-  final dio = Dio();
-  return NotificationNotifier(dio, socketService);
+  return NotificationNotifier(
+    ref.watch(apiClientProvider),
+    socketService,
+  );
 });

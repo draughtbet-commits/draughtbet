@@ -4,12 +4,12 @@
   "description": "",
   "main": "index.js",
   "scripts": {
+    "dev": "node --watch src/server.js",
     "test": "REDIS_URL= DATABASE_URL= node --experimental-vm-modules node_modules/jest/bin/jest.js"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
-
   "type": "module",
   "dependencies": {
     "@prisma/adapter-pg": "^7.8.0",
@@ -37,6 +37,7 @@
     "@jest/globals": "^30.4.1",
     "jest": "^30.4.2",
     "jest-mock-extended": "^4.0.1",
+    "prisma": "7.9.0",
     "socket.io-client": "^4.8.3",
     "supertest": "^7.2.2"
   }

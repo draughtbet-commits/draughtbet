@@ -5,3 +5,5 @@ dist/
 build/
 coverage/
 *.log
+.idea/
+flutter/

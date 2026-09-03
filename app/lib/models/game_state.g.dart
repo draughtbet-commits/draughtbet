@@ -6,25 +6,25 @@ part of 'game_state.dart';
 // JsonSerializableGenerator
 // **************************************************************************
 
-_$GameStateImpl _$$GameStateImplFromJson(Map<String, dynamic> json) =>
-    _$GameStateImpl(
-      board: (json['board'] as List<dynamic>)
-          .map((e) => (e as num).toInt())
-          .toList(),
-      currentTurn: json['currentTurn'] as String,
-      player1: json['player1'] as String,
-      player2: json['player2'] as String,
-      status: json['status'] as String,
-      moveCount: (json['moveCount'] as num).toInt(),
-      consecutiveKingMoves: (json['consecutiveKingMoves'] as num).toInt(),
-      legalMoves: (json['legalMoves'] as List<dynamic>?)
-              ?.map((e) => LegalMove.fromJson(e as Map<String, dynamic>))
-              .toList() ??
-          const [],
-      winnerId: json['winnerId'] as String?,
-    );
+_GameState _$GameStateFromJson(Map<String, dynamic> json) => _GameState(
+  board: (json['board'] as List<dynamic>)
+      .map((e) => (e as num).toInt())
+      .toList(),
+  currentTurn: json['currentTurn'] as String,
+  player1: json['player1'] as String,
+  player2: json['player2'] as String,
+  status: json['status'] as String,
+  moveCount: (json['moveCount'] as num).toInt(),
+  consecutiveKingMoves: (json['consecutiveKingMoves'] as num).toInt(),
+  legalMoves:
+      (json['legalMoves'] as List<dynamic>?)
+          ?.map((e) => LegalMove.fromJson(e as Map<String, dynamic>))
+          .toList() ??
+      const [],
+  winnerId: json['winnerId'] as String?,
+);
 
-Map<String, dynamic> _$$GameStateImplToJson(_$GameStateImpl instance) =>
+Map<String, dynamic> _$GameStateToJson(_GameState instance) =>
     <String, dynamic>{
       'board': instance.board,
       'currentTurn': instance.currentTurn,
@@ -37,18 +37,18 @@ Map<String, dynamic> _$$GameStateImplToJson(_$GameStateImpl instance) =>
       'winnerId': instance.winnerId,
     };
 
-_$LegalMoveImpl _$$LegalMoveImplFromJson(Map<String, dynamic> json) =>
-    _$LegalMoveImpl(
-      from: (json['from'] as num).toInt(),
-      to: (json['to'] as num).toInt(),
-      capturedSquares: (json['capturedSquares'] as List<dynamic>?)
-              ?.map((e) => (e as num).toInt())
-              .toList() ??
-          const [],
-      promoted: json['promoted'] as bool? ?? false,
-    );
+_LegalMove _$LegalMoveFromJson(Map<String, dynamic> json) => _LegalMove(
+  from: (json['from'] as num).toInt(),
+  to: (json['to'] as num).toInt(),
+  capturedSquares:
+      (json['capturedSquares'] as List<dynamic>?)
+          ?.map((e) => (e as num).toInt())
+          .toList() ??
+      const [],
+  promoted: json['promoted'] as bool? ?? false,
+);
 
-Map<String, dynamic> _$$LegalMoveImplToJson(_$LegalMoveImpl instance) =>
+Map<String, dynamic> _$LegalMoveToJson(_LegalMove instance) =>
     <String, dynamic>{
       'from': instance.from,
       'to': instance.to,
@@ -56,15 +56,15 @@ Map<String, dynamic> _$$LegalMoveImplToJson(_$LegalMoveImpl instance) =>
       'promoted': instance.promoted,
     };
 
-_$MoveAppliedEventImpl _$$MoveAppliedEventImplFromJson(
-        Map<String, dynamic> json) =>
-    _$MoveAppliedEventImpl(
+_MoveAppliedEvent _$MoveAppliedEventFromJson(Map<String, dynamic> json) =>
+    _MoveAppliedEvent(
       from: (json['from'] as num).toInt(),
       to: (json['to'] as num).toInt(),
       board: (json['board'] as List<dynamic>)
           .map((e) => (e as num).toInt())
           .toList(),
-      captured: (json['captured'] as List<dynamic>?)
+      captured:
+          (json['captured'] as List<dynamic>?)
               ?.map((e) => (e as num).toInt())
               .toList() ??
           const [],
@@ -72,14 +72,14 @@ _$MoveAppliedEventImpl _$$MoveAppliedEventImplFromJson(
       nextTurn: json['nextTurn'] as String,
       gameEnded: json['gameEnded'] as bool,
       reason: json['reason'] as String?,
-      legalMoves: (json['legalMoves'] as List<dynamic>?)
+      legalMoves:
+          (json['legalMoves'] as List<dynamic>?)
               ?.map((e) => LegalMove.fromJson(e as Map<String, dynamic>))
               .toList() ??
           const [],
     );
 
-Map<String, dynamic> _$$MoveAppliedEventImplToJson(
-        _$MoveAppliedEventImpl instance) =>
+Map<String, dynamic> _$MoveAppliedEventToJson(_MoveAppliedEvent instance) =>
     <String, dynamic>{
       'from': instance.from,
       'to': instance.to,

@@ -4,7 +4,7 @@ part 'game_state.freezed.dart';
 part 'game_state.g.dart';
 
 @freezed
-class GameState with _$GameState {
+abstract class GameState with _$GameState {
   const factory GameState({
     required List<int> board,
     required String currentTurn,
@@ -21,7 +21,7 @@ class GameState with _$GameState {
 }
 
 @freezed
-class LegalMove with _$LegalMove {
+abstract class LegalMove with _$LegalMove {
   const factory LegalMove({
     required int from,
     required int to,
@@ -33,7 +33,7 @@ class LegalMove with _$LegalMove {
 }
 
 @freezed
-class MoveAppliedEvent with _$MoveAppliedEvent {
+abstract class MoveAppliedEvent with _$MoveAppliedEvent {
   const factory MoveAppliedEvent({
     required int from,
     required int to,

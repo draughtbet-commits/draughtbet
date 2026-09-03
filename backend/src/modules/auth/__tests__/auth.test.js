@@ -1,17 +1,8 @@
 import { jest } from '@jest/globals';
-import request from 'supertest';
 
 // Clear env vars to prevent real connections via dotenv
 process.env.DATABASE_URL = '';
 process.env.REDIS_URL = '';
-
-import app from '../../../app.js';
-import { AuthService } from '../service.js';
-import logger from '../../../utils/logger.js';
-import bcrypt from 'bcrypt';
-
-jest.spyOn(logger, 'error').mockImplementation(() => {});
-jest.spyOn(logger, 'info').mockImplementation(() => {});
 
 const mockPrisma = {
   $transaction: jest.fn(),
@@ -25,21 +16,44 @@ const mockPrisma = {
   }
 };
 
+jest.unstable_mockModule('../../../utils/db.js', () => ({
+  default: mockPrisma
+}));
+
+const { default: app } = await import('../../../app.js');
+const { default: request } = await import('supertest');
+const { AuthService } = await import('../service.js');
+const { default: bcrypt } = await import('bcrypt');
+
 const mockRedis = {
   set: jest.fn(),
   get: jest.fn(),
   del: jest.fn(),
 };
 
+const logger = (await import('../../../utils/logger.js')).default;
+jest.spyOn(logger, 'error').mockImplementation(() => {});
+jest.spyOn(logger, 'info').mockImplementation(() => {});
+
 // Override the module variables for testing
 AuthService.__setPrisma(mockPrisma);
 AuthService.__setRedis(mockRedis);
 
-describe('Auth System', () => {
+// A valid, non-banned user returned by requireAuth's DB lookup.
+const authedUser = {
+  id: 'user-id',
+  email: 'test@example.com',
+  tier: 'AMATEUR',
+  isBanned: false
+};
 
-  beforeEach(() => {
-    jest.clearAllMocks();
-  });
+beforeEach(() => {
+  jest.clearAllMocks();
+  // requireAuth looks up the user by id for every protected request.
+  mockPrisma.user.findUnique.mockResolvedValue(authedUser);
+});
+
+describe('Auth System', () => {
 
   describe('POST /auth/register', () => {
     it('should reject under 18 users via Zod', async () => {
@@ -51,7 +65,6 @@ describe('Auth System', () => {
           dateOfBirth: new Date().toISOString() // today, so 0 years old
         });
       expect(res.status).toBe(400);
-      console.log('text:', res.text);
       expect(res.body.errors[0].message).toMatch(/18 years old/);
     });
 
@@ -64,14 +77,12 @@ describe('Auth System', () => {
           dateOfBirth: '2000-01-01'
         });
       expect(res.status).toBe(400);
-      console.log('text:', res.text);
       expect(JSON.stringify(res.body.errors)).toMatch(/uppercase|lowercase|digit|8/);
     });
 
     it('should securely log registration failures without raw body', async () => {
       mockPrisma.$transaction.mockRejectedValueOnce(new Error('DB connection failed'));
-      const logger = (await import('../../../utils/logger.js')).default;
-      
+
       const res = await request(app)
         .post('/auth/register')
         .send({
@@ -82,7 +93,6 @@ describe('Auth System', () => {
         });
 
       expect(res.status).toBe(500); // generic error surfaced by express error handler
-      // Ensure logger didn't receive the password
       expect(logger.error).toHaveBeenCalled();
       const logCall = logger.error.mock.calls[0][0];
       expect(logCall.email).toBe('test@example.com');
@@ -91,7 +101,7 @@ describe('Auth System', () => {
 
     it('should successfully register user in atomic transaction', async () => {
       mockPrisma.$transaction.mockResolvedValueOnce({ id: 'user-id' });
-      
+
       const res = await request(app)
         .post('/auth/register')
         .send({
@@ -120,7 +130,7 @@ describe('Auth System', () => {
           email: 'banned@example.com',
           password: 'StrongPassword1'
         });
-      
+
       expect(res.status).toBe(401);
       expect(res.body.error).toBe('Account suspended');
     });
@@ -140,11 +150,11 @@ describe('Auth System', () => {
           email: 'test@example.com',
           password: 'StrongPassword1'
         });
-      
+
       expect(res.status).toBe(200);
       expect(res.body).toHaveProperty('accessToken');
       expect(res.body).toHaveProperty('refreshToken');
-      
+
       // Redis should have stored the refresh token
       expect(mockRedis.set).toHaveBeenCalledWith(
         expect.stringContaining('refresh:user-id:'),
@@ -158,19 +168,19 @@ describe('Auth System', () => {
   describe('POST /auth/refresh', () => {
     it('should rotate refresh token and invalidate old one', async () => {
       mockRedis.get.mockResolvedValueOnce('valid');
-      
+
       const res = await request(app)
         .post('/auth/refresh')
         .send({
           userId: 'user-id',
           refreshToken: 'old-token'
         });
-      
+
       expect(res.status).toBe(200);
       expect(res.body).toHaveProperty('accessToken');
       expect(res.body).toHaveProperty('refreshToken');
       expect(res.body.refreshToken).not.toBe('old-token');
-      
+
       // Verify the old token was actively deleted (invalidated)
       expect(mockRedis.del).toHaveBeenCalledWith('refresh:user-id:old-token');
     });
@@ -178,16 +188,16 @@ describe('Auth System', () => {
 
   describe('POST /auth/logout', () => {
     it('should invalidate token on logout', async () => {
-      // Need a valid access token to access the route (mocking auth middleware is another way)
+      // Need a valid access token to access the route (requireAuth will look up the user)
       const token = (await AuthService.issueTokens('user-id')).accessToken;
-      
+
       const res = await request(app)
         .post('/auth/logout')
         .set('Authorization', `Bearer ${token}`)
         .send({
           refreshToken: 'token-to-delete'
         });
-      
+
       expect(res.status).toBe(200);
       // Verify token deleted from Redis
       expect(mockRedis.del).toHaveBeenCalledWith('refresh:user-id:token-to-delete');

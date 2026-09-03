@@ -17,7 +17,7 @@ export const requireValidStake = (isCallout = false) => {
   return async (req, res, next) => {
     try {
       const { stakeMinorUnits } = req.body;
-      const { userId } = req.user;
+      const { id: userId } = req.user;
 
       if (stakeMinorUnits === undefined) {
         return res.status(400).json({ error: 'stakeMinorUnits is required' });
@@ -86,7 +86,7 @@ export const requireValidStake = (isCallout = false) => {
         // BigInt parsing error
         return res.status(400).json({ error: 'Invalid stakeMinorUnits format' });
       }
-      logger.error({ err, userId: req.user?.userId }, 'Error in tierEnforcement middleware');
+      logger.error({ err, userId: req.user?.id }, 'Error in tierEnforcement middleware');
       res.status(500).json({ error: 'Internal Server Error' });
     }
   };
