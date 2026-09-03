@@ -1,9 +1,8 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:dio/dio.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
 import '../models/wallet.dart';
 import '../models/wallet_transaction.dart';
+import '../services/api_client.dart';
 import '../services/socket_service.dart';
 
 class WalletState {
@@ -59,14 +58,7 @@ class WalletNotifier extends StateNotifier<WalletState> {
   Future<void> fetchBalance() async {
     try {
       state = state.copyWith(isLoading: true, error: null);
-      final storage = const FlutterSecureStorage();
-      final token = await storage.read(key: 'jwt');
-      final backendUrl = dotenv.env['BACKEND_URL'] ?? 'http://localhost:3000';
-
-      final response = await _dio.get(
-        '$backendUrl/wallet/balance',
-        options: Options(headers: {'Authorization': 'Bearer $token'}),
-      );
+      final response = await _dio.get('/wallet/balance');
 
       if (response.statusCode == 200) {
         final balance = response.data['balance']?.toString();
@@ -79,14 +71,7 @@ class WalletNotifier extends StateNotifier<WalletState> {
 
   Future<void> fetchTierLimits() async {
     try {
-      final storage = const FlutterSecureStorage();
-      final token = await storage.read(key: 'jwt');
-      final backendUrl = dotenv.env['BACKEND_URL'] ?? 'http://localhost:3000';
-
-      final response = await _dio.get(
-        '$backendUrl/wallet/tier-limits',
-        options: Options(headers: {'Authorization': 'Bearer $token'}),
-      );
+      final response = await _dio.get('/wallet/tier-limits');
 
       if (response.statusCode == 200) {
         final tierLimits = TierLimits.fromJson(response.data);
@@ -99,14 +84,7 @@ class WalletNotifier extends StateNotifier<WalletState> {
 
   Future<void> fetchTransactions({int page = 1, int limit = 20}) async {
     try {
-      final storage = const FlutterSecureStorage();
-      final token = await storage.read(key: 'jwt');
-      final backendUrl = dotenv.env['BACKEND_URL'] ?? 'http://localhost:3000';
-
-      final response = await _dio.get(
-        '$backendUrl/wallet/transactions?page=$page&limit=$limit',
-        options: Options(headers: {'Authorization': 'Bearer $token'}),
-      );
+      final response = await _dio.get('/wallet/transactions?page=$page&limit=$limit');
 
       if (response.statusCode == 200) {
         final List<dynamic> data = response.data['transactions'] ?? [];
@@ -121,14 +99,9 @@ class WalletNotifier extends StateNotifier<WalletState> {
   Future<Map<String, dynamic>?> initiateDeposit(int amountMinorUnits, String gateway) async {
     try {
       state = state.copyWith(isLoading: true, error: null);
-      final storage = const FlutterSecureStorage();
-      final token = await storage.read(key: 'jwt');
-      final backendUrl = dotenv.env['BACKEND_URL'] ?? 'http://localhost:3000';
-
       final response = await _dio.post(
-        '$backendUrl/wallet/deposit-intent',
+        '/wallet/deposit-intent',
         data: {'amountMinorUnits': amountMinorUnits, 'gateway': gateway},
-        options: Options(headers: {'Authorization': 'Bearer $token'}),
       );
 
       state = state.copyWith(isLoading: false);
@@ -150,14 +123,9 @@ class WalletNotifier extends StateNotifier<WalletState> {
   Future<bool> requestWithdrawal(int amountMinorUnits) async {
     try {
       state = state.copyWith(isLoading: true, error: null);
-      final storage = const FlutterSecureStorage();
-      final token = await storage.read(key: 'jwt');
-      final backendUrl = dotenv.env['BACKEND_URL'] ?? 'http://localhost:3000';
-
       final response = await _dio.post(
-        '$backendUrl/wallet/withdrawal-request',
+        '/wallet/withdrawal-request',
         data: {'amountMinorUnits': amountMinorUnits},
-        options: Options(headers: {'Authorization': 'Bearer $token'}),
       );
 
       state = state.copyWith(isLoading: false);
@@ -181,6 +149,5 @@ class WalletNotifier extends StateNotifier<WalletState> {
 }
 
 final walletProvider = StateNotifierProvider<WalletNotifier, WalletState>((ref) {
-  final dio = Dio();
-  return WalletNotifier(socketService, dio);
+  return WalletNotifier(socketService, ref.watch(apiClientProvider));
 });

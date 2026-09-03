@@ -1,12 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:dio/dio.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:intl/intl.dart';
 import '../providers/match_provider.dart';
+import '../services/api_client.dart';
 import '../theme/colors.dart';
+import '../theme/typography.dart';
 import '../theme/tier_theme.dart';
 import '../widgets/callout_card.dart';
 import '../widgets/notification_bell.dart';
@@ -24,6 +23,7 @@ class _TierSelectScreenState extends ConsumerState<TierSelectScreen> {
   int stakeMin = 0;
   int stakeMax = 0;
   int calloutMax = 0;
+  String? tierError;
   
   int? selectedMatchStake;
   int? selectedCalloutStake;
@@ -42,15 +42,8 @@ class _TierSelectScreenState extends ConsumerState<TierSelectScreen> {
 
   Future<void> _fetchTierLimits() async {
     try {
-      final storage = const FlutterSecureStorage();
-      final token = await storage.read(key: 'jwt');
-      final backendUrl = dotenv.env['BACKEND_URL'] ?? 'http://localhost:3000';
-      final dio = Dio();
-      
-      final res = await dio.get(
-        '$backendUrl/wallet/tier-limits',
-        options: Options(headers: {'Authorization': 'Bearer $token'}),
-      );
+      final dio = ref.read(apiClientProvider);
+      final res = await dio.get('/wallet/tier-limits');
       
       if (res.statusCode == 200) {
         setState(() {
@@ -58,9 +51,7 @@ class _TierSelectScreenState extends ConsumerState<TierSelectScreen> {
           stakeMin = int.tryParse(res.data['stakeMin'].toString()) ?? 0;
           stakeMax = int.tryParse(res.data['stakeMax'].toString()) ?? 0;
           calloutMax = int.tryParse(res.data['calloutMax'].toString()) ?? 0;
-          
-          selectedMatchStake = stakeMax;
-          selectedCalloutStake = stakeMin;
+          tierError = null;
           isLoadingLimits = false;
         });
 
@@ -69,8 +60,10 @@ class _TierSelectScreenState extends ConsumerState<TierSelectScreen> {
         }
       }
     } catch (e) {
-      print('Failed to fetch tier limits: $e');
-      setState(() => isLoadingLimits = false);
+      setState(() {
+        tierError = 'Failed to load lobby. Tap to retry.';
+        isLoadingLimits = false;
+      });
     }
   }
 
@@ -171,10 +164,35 @@ class _TierSelectScreenState extends ConsumerState<TierSelectScreen> {
       );
     }
 
-    if (isLoadingLimits || userTier == null) {
+    if (isLoadingLimits || (userTier == null && tierError == null)) {
       return const Scaffold(
         backgroundColor: AppColors.voidBg,
         body: Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    if (tierError != null) {
+      return Scaffold(
+        backgroundColor: AppColors.voidBg,
+        body: Center(
+          child: GestureDetector(
+            onTap: () {
+              setState(() {
+                tierError = null;
+                isLoadingLimits = true;
+              });
+              _fetchTierLimits();
+            },
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(LucideIcons.alertTriangle, color: AppColors.danger, size: 48),
+                const SizedBox(height: 16),
+                Text(tierError!, style: AppTypography.bodyLarge),
+              ],
+            ),
+          ),
+        ),
       );
     }
 

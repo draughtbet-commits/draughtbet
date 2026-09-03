@@ -1,27 +1,39 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import '../providers/auth_provider.dart';
+import '../screens/login_screen.dart';
+import '../screens/register_screen.dart';
 import '../screens/tier_select_screen.dart';
 import '../screens/match_screen.dart';
 import '../screens/wallet_screen.dart';
 import '../screens/checkout_webview_screen.dart';
+import '../screens/settings_screen.dart';
 import '../widgets/main_layout.dart';
 
 final appRouterProvider = Provider<GoRouter>((ref) {
+  ref.watch(authProvider);
+
   return GoRouter(
     initialLocation: '/login',
+    redirect: (context, state) {
+      final authState = ref.read(authProvider);
+      final isLoggedIn = authState.isAuthenticated;
+      final location = state.matchedLocation;
+      final isAuthRoute = location == '/login' || location == '/register';
+
+      if (!isLoggedIn && !isAuthRoute) return '/login';
+      if (isLoggedIn && isAuthRoute) return '/home';
+      return null;
+    },
     routes: [
       GoRoute(
         path: '/login',
-        builder: (context, state) => const Scaffold(
-          body: Center(child: Text('Login Screen Stub')),
-        ),
+        builder: (context, state) => const LoginScreen(),
       ),
       GoRoute(
         path: '/register',
-        builder: (context, state) => const Scaffold(
-          body: Center(child: Text('Register Screen Stub')),
-        ),
+        builder: (context, state) => const RegisterScreen(),
       ),
       ShellRoute(
         builder: (context, state, child) {
@@ -44,9 +56,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           ),
           GoRoute(
             path: '/settings',
-            builder: (context, state) => const Scaffold(
-              body: Center(child: Text('Settings Stub')),
-            ),
+            builder: (context, state) => const SettingsScreen(),
           ),
         ],
       ),
