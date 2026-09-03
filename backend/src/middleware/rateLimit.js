@@ -11,14 +11,14 @@ if (process.env.REDIS_URL) {
 }
 
 // Fallback to memory store if Redis is not configured (e.g. tests)
-const store = redisClient 
+const createStore = () => redisClient
   ? new RedisStore({
       sendCommand: (...args) => redisClient.call(...args),
     })
-  : undefined; 
+  : undefined;
 
 export const globalRateLimiter = rateLimit({
-  store,
+  store: createStore(),
   windowMs: 60 * 1000, // 1 minute
   max: process.env.NODE_ENV === 'test' ? 1000 : 100, // Limit each IP to 100 requests per `window`
   message: 'Too many requests from this IP, please try again after a minute',
@@ -27,7 +27,7 @@ export const globalRateLimiter = rateLimit({
 });
 
 export const authRateLimiter = rateLimit({
-  store,
+  store: createStore(),
   windowMs: 60 * 1000, // 1 minute
   max: process.env.NODE_ENV === 'test' ? 1000 : 5, // Limit each IP to 5 auth requests per `window`
   message: 'Too many authentication attempts from this IP, please try again after a minute',

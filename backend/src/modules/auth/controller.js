@@ -91,8 +91,8 @@ authRouter.post('/logout', requireAuth, async (req, res, next) => {
     if (!refreshToken) {
       return res.status(400).json({ error: 'refreshToken required' });
     }
-    // req.user.userId is populated by requireAuth middleware
-    await AuthService.logout(req.user.userId, refreshToken);
+    // req.user.id is populated by requireAuth middleware
+    await AuthService.logout(req.user.id, refreshToken);
     res.json({ message: 'Logged out successfully' });
   } catch (err) {
     next(err);
@@ -101,7 +101,7 @@ authRouter.post('/logout', requireAuth, async (req, res, next) => {
 
 authRouter.get('/me', requireAuth, async (req, res, next) => {
   try {
-    const profile = await AuthService.getProfile(req.user.userId);
+    const profile = await AuthService.getProfile(req.user.id);
     res.json(profile);
   } catch (err) {
     next(err);

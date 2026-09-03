@@ -12,7 +12,7 @@ export const calloutRouter = express.Router();
 // Fetch open callouts that the user is tier-eligible to accept
 calloutRouter.get('/open', requireAuth, async (req, res, next) => {
   try {
-    const { userId } = req.user;
+    const { id: userId } = req.user;
     const callouts = await getOpenCallouts(userId);
     res.status(200).json({ callouts });
   } catch (err) {
@@ -23,7 +23,7 @@ calloutRouter.get('/open', requireAuth, async (req, res, next) => {
 // Create a new callout
 calloutRouter.post('/', requireAuth, requireValidStake(true), async (req, res, next) => {
   try {
-    const { userId, tier } = req.user;
+    const { id: userId, tier } = req.user;
     const { stakeMinorUnits } = req.body;
     
     const callout = await createCallout(userId, tier, stakeMinorUnits);
@@ -36,7 +36,7 @@ calloutRouter.post('/', requireAuth, requireValidStake(true), async (req, res, n
 // Accept an existing callout
 calloutRouter.post('/:id/accept', requireAuth, async (req, res, next) => {
   try {
-    const { userId } = req.user;
+    const { id: userId } = req.user;
     const calloutId = req.params.id;
     
     const match = await acceptCallout(userId, calloutId);

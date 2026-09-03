@@ -7,7 +7,7 @@ export const notificationRouter = express.Router();
 // Get paginated notifications
 notificationRouter.get('/', requireAuth, async (req, res, next) => {
   try {
-    const { userId } = req.user;
+    const { id: userId } = req.user;
     const page = parseInt(req.query.page, 10) || 1;
     const limit = parseInt(req.query.limit, 10) || 20;
     const skip = (page - 1) * limit;
@@ -37,7 +37,7 @@ notificationRouter.get('/', requireAuth, async (req, res, next) => {
 // Mark single notification as read
 notificationRouter.patch('/:id/read', requireAuth, async (req, res, next) => {
   try {
-    const { userId } = req.user;
+    const { id: userId } = req.user;
     const { id } = req.params;
 
     // Use updateMany to ensure we only update if it belongs to this user
@@ -59,7 +59,7 @@ notificationRouter.patch('/:id/read', requireAuth, async (req, res, next) => {
 // Mark all as read
 notificationRouter.patch('/read-all', requireAuth, async (req, res, next) => {
   try {
-    const { userId } = req.user;
+    const { id: userId } = req.user;
 
     await prisma.notification.updateMany({
       where: { userId, isRead: false },
