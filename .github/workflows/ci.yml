@@ -34,7 +34,7 @@ jobs:
       run: pnpm install --frozen-lockfile --ignore-scripts
 
     - name: Generate Prisma Client
-      run: pnpm dlx prisma generate
+      run: pnpm exec prisma generate
 
     - name: Run Tests
       run: pnpm test
