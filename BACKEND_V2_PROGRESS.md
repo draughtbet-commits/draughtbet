@@ -44,6 +44,17 @@ Protect existing working behaviour before starting financial architecture change
 - [ ] CI still passes
 - [ ] PR 0 review completed
 
+
+
+## V1 Baseline Test Results
+
+Date: 2026-09-04
+
+Command:
+
+```bash
+cd backend
+npm test
 ## Current Blockers
 None
 
