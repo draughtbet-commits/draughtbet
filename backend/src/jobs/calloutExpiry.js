@@ -9,15 +9,19 @@ export const processCalloutExpiry = async () => {
   isSweeping = true;
 
   try {
-    // Atomic update to expire callouts
-    const result = await prisma.$executeRaw`
-      UPDATE "Callout"
-      SET status = 'EXPIRED'
-      WHERE status = 'OPEN' AND "expiresAt" < NOW()
-    `;
+    // Atomic update to expire callouts using Prisma ORM
+    const result = await prisma.callout.updateMany({
+      where: {
+        status: 'OPEN',
+        expiresAt: { lt: new Date() },
+      },
+      data: {
+        status: 'EXPIRED',
+      },
+    });
     
-    if (result > 0) {
-      logger.info({ expiredCount: result }, 'Expired stale callouts');
+    if (result.count > 0) {
+      logger.info({ expiredCount: result.count }, 'Expired stale callouts');
     }
   } catch (err) {
     logger.error({ err }, 'Error during callout expiry sweep');

@@ -7,11 +7,19 @@ dotenv.config();
 
 let redisClient;
 if (process.env.REDIS_URL) {
-  redisClient = new Redis(process.env.REDIS_URL);
+  redisClient = new Redis(process.env.REDIS_URL, {
+    maxRetriesPerRequest: 1,
+    enableOfflineQueue: false,
+    retryStrategy(times) {
+      if (times > 3) return null;
+      return Math.min(times * 200, 2000);
+    }
+  });
+  redisClient.on('error', () => {}); // Handled gracefully
 }
 
-// Fallback to memory store if Redis is not configured (e.g. tests)
-const createStore = () => redisClient
+// Fallback to memory store if Redis is not connected/ready
+const createStore = () => (redisClient && redisClient.status === 'ready')
   ? new RedisStore({
       sendCommand: (...args) => redisClient.call(...args),
     })

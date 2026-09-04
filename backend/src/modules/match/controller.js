@@ -7,6 +7,31 @@ import logger from '../../utils/logger.js';
 
 export const matchRouter = Router();
 
+matchRouter.get('/history', requireAuth, async (req, res) => {
+  const userId = req.user.id;
+  try {
+    const matches = await prisma.match.findMany({
+      where: {
+        AND: [
+          { OR: [{ playerLightId: userId }, { playerDarkId: userId }] },
+          { status: 'COMPLETED' }
+        ]
+      },
+      include: {
+        playerLight: { select: { id: true, email: true } },
+        playerDark: { select: { id: true, email: true } },
+      },
+      orderBy: { endedAt: 'desc' },
+      take: 50,
+    });
+
+    return res.json({ matches });
+  } catch (err) {
+    logger.error({ err, userId }, 'Error fetching match history');
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 matchRouter.get('/:id/state', requireAuth, async (req, res) => {
   const matchId = req.params.id;
   const userId = req.user.id;

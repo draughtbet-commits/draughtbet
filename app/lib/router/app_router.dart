@@ -1,4 +1,3 @@
-import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../providers/auth_provider.dart';
@@ -9,6 +8,7 @@ import '../screens/match_screen.dart';
 import '../screens/wallet_screen.dart';
 import '../screens/checkout_webview_screen.dart';
 import '../screens/settings_screen.dart';
+import '../screens/results_screen.dart';
 import '../widgets/main_layout.dart';
 
 final appRouterProvider = Provider<GoRouter>((ref) {
@@ -50,9 +50,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           ),
           GoRoute(
             path: '/results',
-            builder: (context, state) => const Scaffold(
-              body: Center(child: Text('Results Stub')),
-            ),
+            builder: (context, state) => const ResultsScreen(),
           ),
           GoRoute(
             path: '/settings',
