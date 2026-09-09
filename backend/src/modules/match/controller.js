@@ -17,15 +17,37 @@ matchRouter.get('/history', requireAuth, async (req, res) => {
           { status: 'COMPLETED' }
         ]
       },
-      include: {
-        playerLight: { select: { id: true, email: true } },
-        playerDark: { select: { id: true, email: true } },
-      },
       orderBy: { endedAt: 'desc' },
       take: 50,
     });
 
-    return res.json({ matches });
+    const playerIds = new Set();
+    for (const m of matches) {
+      playerIds.add(m.playerLightId);
+      playerIds.add(m.playerDarkId);
+    }
+    const users = await prisma.user.findMany({
+      where: { id: { in: [...playerIds] } },
+      select: { id: true, email: true },
+    });
+    const emailById = new Map(users.map((u) => [u.id, u.email]));
+
+    const sanitized = matches.map((m) => ({
+      id: m.id,
+      playerLightId: m.playerLightId,
+      playerDarkId: m.playerDarkId,
+      playerLight: { id: m.playerLightId, email: emailById.get(m.playerLightId) ?? null },
+      playerDark: { id: m.playerDarkId, email: emailById.get(m.playerDarkId) ?? null },
+      tier: m.tier,
+      stakeMinorUnits: m.stakeMinorUnits.toString(),
+      status: m.status,
+      winnerId: m.winnerId,
+      endReason: m.endReason,
+      createdAt: m.createdAt,
+      endedAt: m.endedAt,
+    }));
+
+    return res.json({ matches: sanitized });
   } catch (err) {
     logger.error({ err, userId }, 'Error fetching match history');
     return res.status(500).json({ error: 'Internal server error' });
