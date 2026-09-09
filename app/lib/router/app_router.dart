@@ -3,8 +3,11 @@ import 'package:go_router/go_router.dart';
 import '../providers/auth_provider.dart';
 import '../screens/login_screen.dart';
 import '../screens/register_screen.dart';
+import '../screens/landing_page.dart';
 import '../screens/tier_select_screen.dart';
 import '../screens/match_screen.dart';
+import '../screens/arena_screen.dart';
+import '../screens/crown_screen.dart';
 import '../screens/wallet_screen.dart';
 import '../screens/checkout_webview_screen.dart';
 import '../screens/settings_screen.dart';
@@ -12,21 +15,30 @@ import '../screens/results_screen.dart';
 import '../widgets/main_layout.dart';
 
 final appRouterProvider = Provider<GoRouter>((ref) {
-  ref.watch(authProvider);
+  final refresh = ValueNotifier<bool>(false);
+  ref.listen<AuthState>(authProvider, (_, __) => refresh.value = !refresh.value);
+  ref.onDispose(refresh.dispose);
 
   return GoRouter(
-    initialLocation: '/login',
+    initialLocation: LandingPage.route,
+    refreshListenable: refresh,
     redirect: (context, state) {
-      final authState = ref.read(authProvider);
-      final isLoggedIn = authState.isAuthenticated;
+      final isLoggedIn = ref.read(authProvider).isAuthenticated;
       final location = state.matchedLocation;
       final isAuthRoute = location == '/login' || location == '/register';
+      final isPublicRoute = location == LandingPage.route;
 
-      if (!isLoggedIn && !isAuthRoute) return '/login';
-      if (isLoggedIn && isAuthRoute) return '/home';
+      // Authenticated users never see onboarding or the auth forms.
+      if (isLoggedIn) return (isAuthRoute || isPublicRoute) ? '/home' : null;
+      if (isPublicRoute) return null; // logged-out users start on the landing
+      if (!isAuthRoute) return '/login';
       return null;
     },
     routes: [
+      GoRoute(
+        path: LandingPage.route,
+        builder: (context, state) => const LandingPage(),
+      ),
       GoRoute(
         path: '/login',
         builder: (context, state) => const LoginScreen(),
@@ -45,15 +57,23 @@ final appRouterProvider = Provider<GoRouter>((ref) {
             builder: (context, state) => const TierSelectScreen(),
           ),
           GoRoute(
+            path: '/crown',
+            builder: (context, state) => const CrownScreen(),
+          ),
+          GoRoute(
             path: '/wallet',
             builder: (context, state) => const WalletScreen(),
+          ),
+          GoRoute(
+            path: '/arena',
+            builder: (context, state) => const ArenaScreen(),
           ),
           GoRoute(
             path: '/results',
             builder: (context, state) => const ResultsScreen(),
           ),
           GoRoute(
-            path: '/settings',
+            path: '/profile',
             builder: (context, state) => const SettingsScreen(),
           ),
         ],

@@ -7,3 +7,9 @@ coverage/
 *.log
 .idea/
 flutter/
+
+# External reference packages and stray files (not project code)
+/New Folder/
+/Draughtbet images/
+/IMG-*.jpg
+/backend/typescript

@@ -90,7 +90,6 @@ class _CalloutCardState extends State<CalloutCard> {
             padding: const EdgeInsets.all(16.0),
             child: Row(
               children: [
-                // Initials Circle
                 Container(
                   width: 36,
                   height: 36,
@@ -110,7 +109,6 @@ class _CalloutCardState extends State<CalloutCard> {
                   ),
                 ),
                 const SizedBox(width: 16),
-                // Stake & Expiry
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -135,7 +133,7 @@ class _CalloutCardState extends State<CalloutCard> {
                     ],
                   ),
                 ),
-                // Accept Button
+                // Accept button.
                 ElevatedButton(
                   onPressed: _timeLeft.isNegative ? null : widget.onAccept,
                   style: ElevatedButton.styleFrom(

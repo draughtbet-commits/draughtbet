@@ -30,16 +30,16 @@ class DraughtsArenaApp extends ConsumerWidget {
       darkTheme: ThemeData(
         brightness: Brightness.dark,
         scaffoldBackgroundColor: const Color(0xFF0B0D10), // 'void' background
-        primaryColor: const Color(0xFFE7B24A), // Gold motif
+        primaryColor: const Color(0xFF26E6A4), // Brand Arena Green
         colorScheme: const ColorScheme.dark(
-          primary: Color(0xFFE7B24A),
+          primary: Color(0xFF26E6A4),
           surface: Color(0xFF161920),
           background: Color(0xFF0B0D10),
         ),
         textTheme: TextTheme(
-          displayLarge: GoogleFonts.fraunces(fontSize: 32, fontWeight: FontWeight.bold),
-          bodyLarge: GoogleFonts.manrope(fontSize: 16),
-          bodyMedium: GoogleFonts.manrope(fontSize: 14),
+          displayLarge: GoogleFonts.sora(fontSize: 32, fontWeight: FontWeight.bold),
+          bodyLarge: GoogleFonts.inter(fontSize: 16),
+          bodyMedium: GoogleFonts.inter(fontSize: 14),
         ),
       ),
       routerConfig: router,

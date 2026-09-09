@@ -12,8 +12,13 @@ datasource db {
 model User {
   id                String   @id @default(uuid())
   email             String   @unique
+  phone             String?  @unique
+  username          String?  @unique
+  fullName          String?
+  address           String?
   passwordHash      String
   displayName       String?
+  avatar            String?  // Predesigned avatar id (no uploads) e.g. avatar_01
   tier              Tier     @default(AMATEUR)
   ageVerified       Boolean  @default(false)
   kycStatus         KycStatus @default(NONE)

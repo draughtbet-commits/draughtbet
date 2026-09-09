@@ -59,13 +59,15 @@ class AuthNotifier extends StateNotifier<AuthState> {
     }
   }
 
-  Future<bool> login(String email, String password, {String? fcmToken}) async {
+  Future<bool> login(String identifier, String password, {String? fcmToken}) async {
     try {
       state = state.copyWith(isLoading: true, error: null);
+      final isEmail = identifier.contains('@');
       final response = await _dio.post(
         '/auth/login',
         data: {
-          'email': email,
+          if (isEmail) 'email': identifier.trim(),
+          if (!isEmail) 'phone': identifier.trim(),
           'password': password,
           if (fcmToken != null && fcmToken.isNotEmpty) 'fcmToken': fcmToken,
         },
@@ -96,24 +98,48 @@ class AuthNotifier extends StateNotifier<AuthState> {
   }
 
   Future<bool> register({
-    required String email,
+    String? email,
+    String? phone,
+    String? username,
+    String? fullName,
+    String? address,
     required String password,
     required DateTime dateOfBirth,
+    String? countryCode,
   }) async {
     try {
       state = state.copyWith(isLoading: true, error: null);
       final response = await _dio.post(
         '/auth/register',
         data: {
-          'email': email,
+          if (email != null && email.trim().isNotEmpty) 'email': email.trim(),
+          if (phone != null && phone.trim().isNotEmpty) 'phone': phone.trim(),
+          if (username != null && username.trim().isNotEmpty) 'username': username.trim(),
+          if (fullName != null && fullName.trim().isNotEmpty) 'fullName': fullName.trim(),
+          if (address != null && address.trim().isNotEmpty) 'address': address.trim(),
           'password': password,
           'dateOfBirth': dateOfBirth.toIso8601String(),
+          if (countryCode != null && countryCode.isNotEmpty) 'countryCode': countryCode,
           'fingerprintHash': 'dev_device',
         },
       );
 
-      state = state.copyWith(isLoading: false);
-      return response.statusCode == 201;
+      state = state.copyWith(isLoading: false, error: null);
+      if (response.statusCode == 201) {
+        // Auto-login: the backend issues tokens alongside account creation,
+        // so the new user skips the separate sign-in step.
+        final accessToken = response.data['accessToken'] as String?;
+        final refreshToken = response.data['refreshToken'] as String?;
+        if (accessToken != null && refreshToken != null) {
+          await _storage.setAccessToken(accessToken);
+          await _storage.setRefreshToken(refreshToken);
+          final userId = _extractUserId(accessToken);
+          if (userId != null) await _storage.setUserId(userId);
+          state = state.copyWith(isAuthenticated: true);
+        }
+        return true;
+      }
+      return false;
     } on DioException catch (e) {
       state = state.copyWith(
         isLoading: false,

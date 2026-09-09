@@ -6,6 +6,7 @@ import logger from './utils/logger.js';
 import prisma from './utils/db.js';
 import Redis from 'ioredis';
 import { globalRateLimiter } from './middleware/rateLimit.js';
+import { requestIdMiddleware, finalErrorHandler } from './middleware/requestId.js';
 import { authRouter } from './modules/auth/controller.js';
 import { matchRouter } from './modules/match/controller.js';
 import { calloutRouter } from './modules/callout/controller.js';
@@ -40,10 +41,18 @@ const corsOptions = corsOrigin
 app.use(cors(corsOptions));
 
 // Mount webhooks BEFORE express.json() so they get raw Buffer bodies for HMAC verification
+app.use(requestIdMiddleware);
 app.use('/webhooks', webhookRouter);
 
 app.use(express.json());
-app.use(pinoHttp({ logger }));
+app.use(pinoHttp({
+  logger,
+  genReqId: (req) => req.id,
+  customProps: (req) => ({
+    userId: req.user?.id,
+    route: `${req.method} ${req.originalUrl}`
+  })
+}));
 app.use(globalRateLimiter);
 
 // Routes
@@ -87,10 +96,7 @@ app.get('/health', async (req, res) => {
 });
 
 // Basic Error Handler (Never leaks stack traces to the client)
-app.use((err, req, res, next) => {
-  logger.error({ err }, 'Unhandled exception');
-  res.status(500).json({ error: 'Internal Server Error' });
-});
+app.use(finalErrorHandler);
 
 // Start Cron Jobs
 if (process.env.NODE_ENV !== 'test') {
