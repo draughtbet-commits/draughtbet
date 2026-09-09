@@ -215,7 +215,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     onPressed: authState.isLoading ? null : _submit,
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppColors.brand,
-                      foregroundColor: Colors.white,
+                      foregroundColor: AppColors.textPrimary,
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12),
                       ),
@@ -226,7 +226,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                             height: 20,
                             child: CircularProgressIndicator(
                               strokeWidth: 2,
-                              color: Colors.white,
+                              color: AppColors.textPrimary,
                             ),
                           )
                         : Text(
@@ -263,9 +263,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   child: OutlinedButton(
                     onPressed: () {},
                     style: OutlinedButton.styleFrom(
-                      backgroundColor: Colors.black,
+                      backgroundColor: AppColors.voidBg,
                       foregroundColor: AppColors.textPrimary,
-                      side: const BorderSide(color: Colors.white24, width: 1.5),
+                      side: const BorderSide(color: AppColors.hairline, width: 1.5),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12),
                       ),

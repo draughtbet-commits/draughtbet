@@ -653,7 +653,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                         : _submit,
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppColors.brand,
-                      foregroundColor: Colors.white,
+                      foregroundColor: AppColors.textPrimary,
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12),
                       ),
@@ -664,7 +664,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                             height: 20,
                             child: CircularProgressIndicator(
                               strokeWidth: 2,
-                              color: Colors.white,
+                              color: AppColors.textPrimary,
                             ),
                           )
                         : Text(

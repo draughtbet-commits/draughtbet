@@ -262,7 +262,7 @@ class _TierSelectScreenState extends ConsumerState<TierSelectScreen> {
                                           fontSize: 18,
                                           fontWeight: FontWeight.w700,
                                           letterSpacing: 1.2,
-                                          color: Colors.white,
+                                          color: AppColors.textPrimary,
                                         ),
                                       ),
                                       const SizedBox(height: 2),
@@ -271,7 +271,7 @@ class _TierSelectScreenState extends ConsumerState<TierSelectScreen> {
                                         style: GoogleFonts.sora(
                                           fontSize: 14,
                                           fontWeight: FontWeight.w500,
-                                          color: Colors.white70,
+                                          color: AppColors.textSecondary,
                                         ),
                                       ),
                                     ],
@@ -386,7 +386,7 @@ class _TierSelectScreenState extends ConsumerState<TierSelectScreen> {
                                     style: GoogleFonts.inter(
                                       fontSize: 14,
                                       fontWeight: FontWeight.w600,
-                                      color: Colors.white,
+                                      color: AppColors.textPrimary,
                                     ),
                                   ),
                                 ),
@@ -510,11 +510,11 @@ class _StakeCard extends StatelessWidget {
   final bool selected;
   final VoidCallback onTap;
 
-  static const Color _black = Colors.black;
+  static const Color _black = AppColors.voidBg;
 
   @override
   Widget build(BuildContext context) {
-    final color = selected ? _black : Colors.white;
+    final color = selected ? _black : AppColors.textPrimary;
     return GestureDetector(
       onTap: onTap,
       child: AnimatedContainer(

@@ -298,7 +298,7 @@ class OnboardingSlide extends StatelessWidget {
                 onPressed: onFinish,
                 style: ElevatedButton.styleFrom(
                   backgroundColor: AppColors.brand,
-                  foregroundColor: Colors.white,
+                  foregroundColor: AppColors.textPrimary,
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),
                   ),
@@ -479,7 +479,7 @@ class WelcomeView extends StatelessWidget {
                       onPressed: () => context.go('/register'),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: AppColors.brand,
-                        foregroundColor: Colors.white,
+                        foregroundColor: AppColors.textPrimary,
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(12),
                         ),
@@ -502,7 +502,7 @@ class WelcomeView extends StatelessWidget {
                       style: OutlinedButton.styleFrom(
                         backgroundColor: AppColors.voidBg,
                         foregroundColor: AppColors.textPrimary,
-                        side: const BorderSide(color: Colors.white24, width: 1.5),
+                        side: const BorderSide(color: AppColors.hairline, width: 1.5),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(12),
                         ),

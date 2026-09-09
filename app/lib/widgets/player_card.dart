@@ -99,7 +99,7 @@ class PlayerCard extends ConsumerWidget {
                           border: Border.all(
                             color: selected
                                 ? AppColors.brand
-                                : Colors.transparent,
+                                : const Color(0x00000000),
                             width: 3,
                           ),
                         ),
@@ -135,7 +135,7 @@ class PlayerCard extends ConsumerWidget {
       decoration: BoxDecoration(
         color: AppColors.surface1,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.white10),
+        border: Border.all(color: AppColors.hairline),
       ),
       child: Row(
         children: [
@@ -168,7 +168,7 @@ class PlayerCard extends ConsumerWidget {
                     child: const Icon(
                       LucideIcons.pencil,
                       size: 12,
-                      color: Colors.black,
+                      color: AppColors.voidBg,
                     ),
                   ),
                 ),

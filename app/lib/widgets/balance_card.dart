@@ -34,7 +34,7 @@ class _BalanceCardState extends ConsumerState<BalanceCard> {
       decoration: BoxDecoration(
         color: AppColors.surface1,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.white10),
+        border: Border.all(color: AppColors.hairline),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -124,7 +124,7 @@ class _BalanceCardState extends ConsumerState<BalanceCard> {
                   padding:
                       const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                   decoration: BoxDecoration(
-                    color: Colors.black,
+                    color: AppColors.voidBg,
                     borderRadius: BorderRadius.circular(10),
                     border: Border.all(color: AppColors.brand, width: 1.5),
                   ),

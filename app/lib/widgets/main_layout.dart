@@ -100,7 +100,7 @@ class _CrownIcon extends StatelessWidget {
       height: 64,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
-        color: Colors.black,
+        color: AppColors.voidBg,
         border: Border.all(color: AppColors.brand, width: 3),
         boxShadow: [
           BoxShadow(
@@ -109,7 +109,7 @@ class _CrownIcon extends StatelessWidget {
           ),
         ],
       ),
-      child: const Icon(LucideIcons.crown, size: 36, color: Colors.white),
+      child: const Icon(LucideIcons.crown, size: 36, color: AppColors.textPrimary),
     );
   }
 }

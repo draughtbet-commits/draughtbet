@@ -22,13 +22,13 @@ class CrownScreen extends StatelessWidget {
                   height: 72,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    color: Colors.black,
+                    color: AppColors.voidBg,
                     border: Border.all(color: AppColors.brand, width: 3),
                   ),
                   child: const Icon(
                     LucideIcons.crown,
                     size: 32,
-                    color: Colors.white,
+                    color: AppColors.textPrimary,
                   ),
                 ),
                 const SizedBox(height: 20),
