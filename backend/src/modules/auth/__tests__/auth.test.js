@@ -7,7 +7,8 @@ process.env.REDIS_URL = '';
 const mockPrisma = {
   $transaction: jest.fn(),
   user: {
-    findUnique: jest.fn()
+    findUnique: jest.fn(),
+    update: jest.fn()
   },
   deviceFingerprint: {
     findFirst: jest.fn(),
@@ -113,6 +114,130 @@ describe('Auth System', () => {
       expect(res.status).toBe(201);
       expect(mockPrisma.$transaction).toHaveBeenCalled();
     });
+
+    it('should register with username/fullName/address/phone/countryCode and normalize phone', async () => {
+      mockPrisma.$transaction.mockResolvedValueOnce({ id: 'user-id' });
+
+      const res = await request(app)
+        .post('/auth/register')
+        .send({
+          phone: '08031234567',
+          username: 'skilled_player',
+          fullName: 'Jane Doe',
+          address: '14 Marina Road, Lagos',
+          password: 'StrongPassword1',
+          dateOfBirth: '1995-05-10',
+          countryCode: 'NG'
+        });
+
+      expect(res.status).toBe(201);
+      expect(mockPrisma.$transaction).toHaveBeenCalled();
+    });
+
+    it('should reject registration from a blocked country', async () => {
+      const res = await request(app)
+        .post('/auth/register')
+        .send({
+          email: 'test@example.com',
+          password: 'StrongPassword1',
+          dateOfBirth: '2000-01-01',
+          countryCode: 'US'
+        });
+
+      expect(res.status).toBe(403);
+      expect(res.body.error).toBe('This app is not available in your country');
+    });
+
+    it('should reject registration with neither email nor phone via Zod', async () => {
+      const res = await request(app)
+        .post('/auth/register')
+        .send({
+          password: 'StrongPassword1',
+          dateOfBirth: '2000-01-01'
+        });
+
+      expect(res.status).toBe(400);
+      expect(JSON.stringify(res.body.errors)).toMatch(/Email or phone is required/);
+    });
+  });
+
+  describe('POST /auth/check-availability', () => {
+    it('should report an email as unavailable when it already exists', async () => {
+      mockPrisma.user.findUnique.mockResolvedValueOnce({ id: 'existing-user' });
+
+      const res = await request(app)
+        .post('/auth/check-availability')
+        .send({ type: 'email', value: 'taken@example.com' });
+
+      expect(res.status).toBe(200);
+      expect(res.body.available).toBe(false);
+      expect(mockPrisma.user.findUnique).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { email: 'taken@example.com' } })
+      );
+    });
+
+    it('should report a phone as available when it is free', async () => {
+      mockPrisma.user.findUnique.mockResolvedValueOnce(null);
+
+      const res = await request(app)
+        .post('/auth/check-availability')
+        .send({ type: 'phone', value: '08031234567' });
+
+      expect(res.status).toBe(200);
+      expect(res.body.available).toBe(true);
+      expect(mockPrisma.user.findUnique).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { phone: '+08031234567' } })
+      );
+    });
+  });
+
+  describe('POST /auth/geo-locate', () => {
+    beforeEach(() => {
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({
+          address: { country_code: 'ng', country: 'Nigeria' }
+        })
+      });
+    });
+
+    afterEach(() => {
+      delete global.fetch;
+    });
+
+    it('should return allowed country from coordinates', async () => {
+      const res = await request(app)
+        .post('/auth/geo-locate')
+        .send({ lat: 6.5244, lng: 3.3792 });
+
+      expect(res.status).toBe(200);
+      expect(res.body.countryCode).toBe('ng');
+      expect(res.body.allowed).toBe(true);
+    });
+
+    it('should flag restricted countries as blocked', async () => {
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({
+          address: { country_code: 'us', country: 'United States' }
+        })
+      });
+
+      const res = await request(app)
+        .post('/auth/geo-locate')
+        .send({ lat: 40.7128, lng: -74.0060 });
+
+      expect(res.status).toBe(200);
+      expect(res.body.allowed).toBe(false);
+    });
+
+    it('should validate coordinate ranges via Zod', async () => {
+      const res = await request(app)
+        .post('/auth/geo-locate')
+        .send({ lat: 999, lng: 0 });
+
+      expect(res.status).toBe(400);
+    });
   });
 
   describe('POST /auth/login', () => {
@@ -163,6 +288,28 @@ describe('Auth System', () => {
         expect.any(Number)
       );
     });
+
+    it('should log in with a phone number (non-email identifier)', async () => {
+      const hash = await bcrypt.hash('StrongPassword1', 1);
+      mockPrisma.user.findUnique.mockResolvedValueOnce({
+        id: 'user-id',
+        phone: '+08123456789',
+        isBanned: false,
+        passwordHash: hash
+      });
+
+      const res = await request(app)
+        .post('/auth/login')
+        .send({
+          phone: '08123456789',
+          password: 'StrongPassword1'
+        });
+
+      expect(res.status).toBe(200);
+      expect(mockPrisma.user.findUnique).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { phone: '+08123456789' } })
+      );
+    });
   });
 
   describe('POST /auth/refresh', () => {
@@ -201,6 +348,71 @@ describe('Auth System', () => {
       expect(res.status).toBe(200);
       // Verify token deleted from Redis
       expect(mockRedis.del).toHaveBeenCalledWith('refresh:user-id:token-to-delete');
+    });
+  });
+
+  describe('GET /auth/me', () => {
+    it('returns profile including the predesigned avatar', async () => {
+      const token = (await AuthService.issueTokens('user-id')).accessToken;
+      // Both requireAuth's lookup and getProfile hit findUnique, so mock the
+      // full profile as the persistent return value.
+      mockPrisma.user.findUnique.mockResolvedValue({
+        id: 'user-id',
+        email: 'test@example.com',
+        username: 'skilled_player',
+        fullName: 'Jane Doe',
+        avatar: 'avatar_03',
+        tier: 'AMATEUR',
+        isBanned: false,
+        wallet: { balanceMinorUnits: 1000n },
+        _count: { notifications: 2 }
+      });
+
+      const res = await request(app)
+        .get('/auth/me')
+        .set('Authorization', `Bearer ${token}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.avatar).toBe('avatar_03');
+      expect(res.body.username).toBe('skilled_player');
+      expect(res.body.walletBalanceMinorUnits).toBe('1000');
+    });
+  });
+
+  describe('PATCH /auth/me', () => {
+    it('updates the avatar', async () => {
+      const token = (await AuthService.issueTokens('user-id')).accessToken;
+      mockPrisma.user.update.mockResolvedValueOnce({
+        id: 'user-id',
+        email: 'test@example.com',
+        username: 'skilled_player',
+        fullName: 'Jane Doe',
+        avatar: 'avatar_07',
+        tier: 'AMATEUR'
+      });
+
+      const res = await request(app)
+        .patch('/auth/me')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ avatar: 'avatar_07' });
+
+      expect(res.status).toBe(200);
+      expect(res.body.avatar).toBe('avatar_07');
+      expect(mockPrisma.user.update).toHaveBeenCalledWith({
+        where: { id: 'user-id' },
+        data: { avatar: 'avatar_07' }
+      });
+    });
+
+    it('rejects an empty avatar id', async () => {
+      const token = (await AuthService.issueTokens('user-id')).accessToken;
+
+      const res = await request(app)
+        .patch('/auth/me')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ avatar: '' });
+
+      expect(res.status).toBe(400);
     });
   });
 

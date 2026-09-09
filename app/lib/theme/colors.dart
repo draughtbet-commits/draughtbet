@@ -25,6 +25,10 @@ class AppColors {
   static const Color gold700 = Color(0xFFB8862E);
   static const Color gold100 = Color(0xFF3A2E17);
 
+  // Brand primary (new design) — DRAUGHT BET accent
+  static const Color brand = Color(0xFF26E6A4);
+  // Deep green used for filled cards so white text keeps contrast.
+  static const Color brandDeep = Color(0xFF0E7C52);
   // Semantic states
   static const Color success = Color(0xFF2FAE72);
   static const Color danger = Color(0xFFE5484D);

@@ -220,7 +220,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     return Scaffold(
       backgroundColor: AppColors.voidBg,
       appBar: AppBar(
-        title: const Text('Settings'),
+        title: const Text('Profile'),
         backgroundColor: AppColors.voidBg,
         elevation: 0,
       ),

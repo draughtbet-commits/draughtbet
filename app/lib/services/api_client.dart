@@ -64,6 +64,8 @@ class AuthInterceptor extends QueuedInterceptor {
     '/auth/register',
     '/auth/refresh',
     '/auth/logout',
+    '/auth/geo-locate',
+    '/auth/check-availability',
   };
 
   bool _isAuthPath(String path) => _authPaths.contains(path);
@@ -100,6 +102,19 @@ class AuthInterceptor extends QueuedInterceptor {
       return;
     }
 
+    final current = await storage.accessToken;
+    final failedAuth = err.requestOptions.headers['Authorization'];
+
+    // A burst of parallel 401s all see the same stale token. The first one
+    // refreshes and updates storage; the rest can just retry with the new
+    // token instead of each firing another refresh.
+    if (failedAuth != null && current != null && failedAuth != 'Bearer $current') {
+      err.requestOptions.headers['Authorization'] = 'Bearer $current';
+      final cloned = await dio.fetch<void>(err.requestOptions);
+      handler.resolve(cloned);
+      return;
+    }
+
     final refreshToken = await storage.refreshToken;
     if (refreshToken == null || refreshToken.isEmpty) {
       handler.next(err);
@@ -125,7 +140,7 @@ class AuthInterceptor extends QueuedInterceptor {
             );
             final json = jsonDecode(payload) as Map<String, dynamic>;
             userId = json['userId']?.toString();
-            if (userId != null) await storage.setUserId(userId!);
+            if (userId != null) await storage.setUserId(userId);
           }
         }
       } catch (_) {}
@@ -143,14 +158,34 @@ class AuthInterceptor extends QueuedInterceptor {
       err.requestOptions.headers['Authorization'] = 'Bearer ${tokens.accessToken}';
       final cloned = await dio.fetch<void>(err.requestOptions);
       handler.resolve(cloned);
-    } catch (refreshError) {
+    } on DioException catch (refreshError) {
+      final refreshStatus = refreshError.response?.statusCode;
+      // A rate-limited refresh is not a dead session; let the request fail so
+      // the UI shows an error instead of logging the user out.
+      if (refreshStatus == 429) {
+        handler.next(err);
+        return;
+      }
       await storage.clearCredentials();
       onSessionExpired();
       handler.next(err);
     }
   }
 
-  Future<_RefreshResult> _refresh(String userId, String refreshToken) async {
+  Future<_RefreshResult>? _refreshInFlight;
+
+  Future<_RefreshResult> _refresh(String userId, String refreshToken) {
+    // Dedupe concurrent refreshes to a single in-flight call.
+    final inFlight = _refreshInFlight;
+    if (inFlight != null) return inFlight;
+    final future = _doRefresh(userId, refreshToken).whenComplete(() {
+      _refreshInFlight = null;
+    });
+    _refreshInFlight = future;
+    return future;
+  }
+
+  Future<_RefreshResult> _doRefresh(String userId, String refreshToken) async {
     final res = await dio.post(
       '/auth/refresh',
       data: {'userId': userId, 'refreshToken': refreshToken},

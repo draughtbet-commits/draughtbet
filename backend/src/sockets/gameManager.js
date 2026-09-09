@@ -200,7 +200,9 @@ const computeNextState = (state, from, to) => {
   const move = legalMoves.find(m => m.from === from && m.to === to);
   if (!move) return { error: 'illegal_move' };
 
-  const newBoard = applyMove(board, move);
+  // applyMove returns { newBoard, captured, promoted } — never the bare array.
+  const applyResult = applyMove(board, move);
+  const newBoard = applyResult.newBoard;
   const nextTurn = state.currentTurn === COLOR_WHITE ? COLOR_BLACK : COLOR_WHITE;
   const nextTurnUserId = nextTurn === COLOR_WHITE ? state.player1 : state.player2;
   const moveCount = parseInt(state.moveCount, 10) + 1;
@@ -232,7 +234,7 @@ const computeNextState = (state, from, to) => {
 
   return { 
     newBoard, nextTurn, nextTurnUserId, moveCount, consecutiveKingMoves, 
-    positionCounts, ended, reason, newStatus, winnerId, move 
+    positionCounts, ended, reason, newStatus, winnerId, move, promoted: applyResult.promoted
   };
 };
 
@@ -261,7 +263,7 @@ export const handleMoveAttempt = async (socket, { matchId, from, to }) => {
 
       const {
         newBoard, nextTurn, nextTurnUserId, moveCount, consecutiveKingMoves,
-        positionCounts, ended, reason, newStatus, winnerId, move
+        positionCounts, ended, reason, newStatus, winnerId, move, promoted
       } = nextState;
 
       await redis.eval(
@@ -288,7 +290,7 @@ export const handleMoveAttempt = async (socket, { matchId, from, to }) => {
       io.to(`match:${matchId}`).emit('move_applied', {
         from, to,
         captured: move.capturedSquares || [],
-        promoted: move.promoted,
+        promoted,
         nextTurn,
         gameEnded: ended,
         reason,

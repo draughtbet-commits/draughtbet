@@ -3,6 +3,7 @@ import jwt from 'jsonwebtoken';
 import { v4 as uuidv4 } from 'uuid';
 import _prisma from '../../utils/db.js';
 import _redis from '../../utils/redis.js';
+import { GeoService } from '../../services/geoService.js';
 
 let prisma = _prisma;
 let redis = _redis;
@@ -22,6 +23,13 @@ const jwtSecret = JWT_SECRET || 'test_secret';
 const ACCESS_TOKEN_EXPIRY = '15m';
 const REFRESH_TOKEN_TTL_SECONDS = 7 * 24 * 60 * 60; // 7 days
 
+function normalizePhone(phone) {
+  if (!phone) return phone;
+  const digits = phone.replace(/\D/g, '');
+  if (digits.length < 6) return phone; // not a plausible phone, keep as-is
+  return `+${digits}`;
+}
+
 export class AuthService {
   static __setPrisma(mockPrisma) {
     prisma = mockPrisma;
@@ -31,17 +39,27 @@ export class AuthService {
     redis = mockRedis;
   }
 
-  static async register(email, password, dateOfBirth, fingerprintHash) {
-    // Note: Zod validation already confirmed 18+ in the controller before calling this
+  static async register({ email, phone, username, fullName, address, password, dateOfBirth, fingerprintHash, countryCode }) {
+    // Geolocation gate: reject signups from restricted countries before any
+    // other work happens. countryCode is produced by POST /auth/geo-locate.
+    if (countryCode && !GeoService.isCountryAllowed(countryCode)) {
+      throw new Error('Country not allowed');
+    }
     try {
       const passwordHash = await bcrypt.hash(password, 12);
-      
+
 const user = await prisma.$transaction(async (tx) => {
       const newUser = await tx.user.create({
         data: {
           email,
+          phone: normalizePhone(phone),
+          username,
+          fullName,
+          address,
           passwordHash,
           isBanned: false, // Explicit requirement
+          ageVerified: true, // Zod in the controller already confirmed 18+
+          countryCode: countryCode ? countryCode.toUpperCase() : null,
           wallet: {
             create: {
               balanceMinorUnits: 0n,
@@ -65,19 +83,26 @@ const user = await prisma.$transaction(async (tx) => {
 
       return user;
     } catch (err) {
+      if (err && err.code === 'P2002') {
+        // A unique constraint (email/phone/username) was violated.
+        throw new Error('Account already exists');
+      }
       // CRITICAL: Log securely without exposing passwords or raw bodies
-      logger.error({ 
-        err: err.message, 
-        email, 
-        fingerprintHash, 
-        event: 'register_failed' 
+      logger.error({
+        err: err.message,
+        email,
+        fingerprintHash,
+        event: 'register_failed'
       }, 'Atomic registration transaction failed');
       throw new Error('Registration failed');
     }
   }
 
-  static async login(email, password, fingerprintHash, fcmToken = null) {
-    const user = await prisma.user.findUnique({ where: { email } });
+  static async login(identifier, password, fingerprintHash, fcmToken = null) {
+    const where = identifier.includes('@')
+      ? { email: identifier }
+      : { phone: normalizePhone(identifier) };
+    const user = await prisma.user.findUnique({ where });
     if (!user) {
       throw new Error('Invalid credentials');
     }
@@ -114,6 +139,24 @@ const user = await prisma.$transaction(async (tx) => {
     }
 
     return this.issueTokens(user.id);
+  }
+
+  static async checkAvailability(type, value) {
+    let where;
+    if (type === 'email') {
+      where = { email: value.trim().toLowerCase() };
+    } else if (type === 'phone') {
+      where = { phone: normalizePhone(value) };
+    } else if (type === 'username') {
+      where = { username: value.trim() };
+    } else {
+      throw new Error('Invalid field type');
+    }
+    const existing = await prisma.user.findUnique({
+      where,
+      select: { id: true }
+    });
+    return { available: existing === null };
   }
 
   static async issueTokens(userId) {
@@ -174,9 +217,27 @@ const user = await prisma.$transaction(async (tx) => {
     return {
       id: user.id,
       email: user.email,
+      username: user.username,
+      fullName: user.fullName,
+      avatar: user.avatar,
       tier: user.tier,
       walletBalanceMinorUnits: user.wallet?.balanceMinorUnits.toString() || '0', // BigInt serialization
       unreadNotifications: user._count.notifications
+    };
+  }
+
+  static async updateProfile(userId, { avatar }) {
+    const user = await prisma.user.update({
+      where: { id: userId },
+      data: { ...(avatar !== undefined ? { avatar } : {}) }
+    });
+    return {
+      id: user.id,
+      email: user.email,
+      username: user.username,
+      fullName: user.fullName,
+      avatar: user.avatar,
+      tier: user.tier
     };
   }
 }

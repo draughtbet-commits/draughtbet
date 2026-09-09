@@ -42,3 +42,15 @@ export const authRateLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
 });
+
+// Pre-auth form helpers (realtime uniqueness checks + geo validation) are
+// callable more often than login/register, but still rate limited to prevent
+// abuse of the availability oracle.
+export const checkRateLimiter = rateLimit({
+  store: createStore(),
+  windowMs: 60 * 1000, // 1 minute
+  max: process.env.NODE_ENV === 'test' ? 1000 : 60, // 60 pre-auth checks per IP/`window`
+  message: 'Too many requests from this IP, please try again after a minute',
+  standardHeaders: true,
+  legacyHeaders: false,
+});

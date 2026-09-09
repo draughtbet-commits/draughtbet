@@ -1,13 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
+import 'package:google_fonts/google_fonts.dart';
 import '../providers/match_provider.dart';
+import '../providers/profile_provider.dart';
 import '../services/api_client.dart';
 import '../theme/colors.dart';
 import '../theme/typography.dart';
 import '../theme/tier_theme.dart';
+import '../widgets/balance_card.dart';
 import '../widgets/callout_card.dart';
+import '../widgets/lobby_header.dart';
 import '../widgets/notification_bell.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
@@ -27,6 +32,7 @@ class _TierSelectScreenState extends ConsumerState<TierSelectScreen> {
   
   int? selectedMatchStake;
   int? selectedCalloutStake;
+  String? _selectedStake;
   bool isLoadingLimits = true;
 
   String _formatNaira(int minorUnits) {
@@ -38,6 +44,7 @@ class _TierSelectScreenState extends ConsumerState<TierSelectScreen> {
   void initState() {
     super.initState();
     _fetchTierLimits();
+    ref.read(profileProvider.notifier).load();
   }
 
   Future<void> _fetchTierLimits() async {
@@ -131,7 +138,7 @@ class _TierSelectScreenState extends ConsumerState<TierSelectScreen> {
   Widget build(BuildContext context) {
     final matchState = ref.watch(matchProvider);
 
-    // Watch for match found and redirect
+    // Hop to the active match once one is found.
     ref.listen(matchProvider, (previous, next) {
       if (previous?.currentMatchId == null && next.currentMatchId != null) {
         context.go('/match/${next.currentMatchId}');
@@ -202,118 +209,347 @@ class _TierSelectScreenState extends ConsumerState<TierSelectScreen> {
     return Scaffold(
       backgroundColor: AppColors.voidBg,
       appBar: AppBar(
-        title: const Text('Lobby'), 
+        toolbarHeight: 64,
         backgroundColor: AppColors.voidBg,
+        titleSpacing: 16,
+        title: const LobbyHeader(),
         actions: const [
           NotificationBell(),
           SizedBox(width: 8),
         ],
       ),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            // Standard Matchmaking Section
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: AppColors.surface1,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Text(
-                    '${theme.displayName} Tier',
-                    style: TextStyle(color: theme.primaryColor, fontSize: 24, fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 8),
-                  Text('Stake: ${_formatNaira(selectedMatchStake ?? stakeMin)}', style: const TextStyle(color: AppColors.textMuted)),
-                  Slider(
-                    value: (selectedMatchStake ?? stakeMin).toDouble(),
-                    min: stakeMin.toDouble(),
-                    max: stakeMax.toDouble(),
-                    divisions: stakeMax > stakeMin ? 10 : 1,
-                    activeColor: theme.primaryColor,
-                    onChanged: (val) {
-                      setState(() {
-                        selectedMatchStake = val.toInt();
-                      });
-                    },
-                  ),
-                  const SizedBox(height: 16),
-                  ElevatedButton(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: theme.primaryColor,
-                      padding: const EdgeInsets.symmetric(vertical: 16),
+      body: SafeArea(
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final contentMaxWidth =
+                constraints.maxWidth > 640 ? 640.0 : constraints.maxWidth;
+            return Center(
+              child: ConstrainedBox(
+                constraints: BoxConstraints(maxWidth: contentMaxWidth),
+                child: CustomScrollView(
+                  slivers: [
+                    SliverPadding(
+                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                      sliver: SliverList(
+                        delegate: SliverChildListDelegate([
+                          // Balance + Add Money.
+                          const BalanceCard(),
+                          const SizedBox(height: 12),
+                          // Jump-straight-into-a-match card.
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 16, vertical: 12),
+                            decoration: BoxDecoration(
+                              color: AppColors.brandDeep,
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                            child: Row(
+                              children: [
+                                SvgPicture.asset(
+                                  'assets/icons/find_match.svg',
+                                  width: 28,
+                                  height: 28,
+                                ),
+                                const SizedBox(width: 14),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.center,
+                                    children: [
+                                      Text(
+                                        'FIND A MATCH',
+                                        style: GoogleFonts.inter(
+                                          fontSize: 18,
+                                          fontWeight: FontWeight.w700,
+                                          letterSpacing: 1.2,
+                                          color: AppColors.textPrimary,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        'Start a new match',
+                                        style: GoogleFonts.sora(
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.w500,
+                                          color: AppColors.textSecondary,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                SvgPicture.asset(
+                                  'assets/icons/find_match_right.svg',
+                                  width: 24,
+                                  height: 24,
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 24),
+                          Text(
+                            'Quick Match',
+                            style: GoogleFonts.sora(
+                              fontSize: 20,
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.textPrimary,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'Choose your stake',
+                            style: GoogleFonts.inter(
+                              fontSize: 13,
+                              color: AppColors.textMuted,
+                            ),
+                          ),
+                          const SizedBox(height: 14),
+                          Row(
+                            children: [
+                              Expanded(
+                                  child: _StakeCard(
+                                amount: '500',
+                                selected: _selectedStake == '500',
+                                onTap: () => setState(
+                                    () => _selectedStake = '500'),
+                              )),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                  child: _StakeCard(
+                                amount: '1k',
+                                selected: _selectedStake == '1k',
+                                onTap: () =>
+                                    setState(() => _selectedStake = '1k'),
+                              )),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                  child: _StakeCard(
+                                amount: '2k',
+                                selected: _selectedStake == '2k',
+                                onTap: () =>
+                                    setState(() => _selectedStake = '2k'),
+                              )),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                  child: _StakeCard(
+                                amount: '5k',
+                                selected: _selectedStake == '5k',
+                                onTap: () =>
+                                    setState(() => _selectedStake = '5k'),
+                              )),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+                          Row(
+                            mainAxisAlignment:
+                                MainAxisAlignment.spaceBetween,
+                            children: [
+                              Row(
+                                children: [
+                                  Text(
+                                    'or filter',
+                                    style: GoogleFonts.inter(
+                                      fontSize: 13,
+                                      color: AppColors.textPrimary,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    '>',
+                                    style: GoogleFonts.inter(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w700,
+                                      color: AppColors.brand,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 2),
+                                  Text(
+                                    'Classic',
+                                    style: GoogleFonts.inter(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w600,
+                                      color: AppColors.brand,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              GestureDetector(
+                                onTap: () {},
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 16, vertical: 10),
+                                  decoration: BoxDecoration(
+                                    color: AppColors.brandDeep,
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  child: Text(
+                                    'Find Opponent',
+                                    style: GoogleFonts.inter(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w600,
+                                      color: AppColors.textPrimary,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 20),
+                        ]),
+                      ),
                     ),
-                    onPressed: () {
-                      if (selectedMatchStake != null) {
-                        ref.read(matchProvider.notifier).joinQueue(userTier!, selectedMatchStake!);
-                      }
-                    },
-                    child: Text('Find ${theme.displayName} Match', style: const TextStyle(color: AppColors.textMain, fontSize: 16)),
-                  ),
-                ],
+                    const SliverPadding(padding: EdgeInsets.only(top: 24)),
+                    // Call-outs for everyone above Amateur.
+                    if (!isAmateur) ...[
+                      SliverPadding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        sliver: SliverToBoxAdapter(
+                          child: Row(
+                            mainAxisAlignment:
+                                MainAxisAlignment.spaceBetween,
+                            children: [
+                              Flexible(
+                                child: Text(
+                                  'Open Call-outs',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                      color: AppColors.textMain,
+                                      fontSize: 20,
+                                      fontWeight: FontWeight.bold),
+                                ),
+                              ),
+                              TextButton.icon(
+                                onPressed: () =>
+                                    _showCalloutDialog(context),
+                                icon: Icon(LucideIcons.plus,
+                                    color: theme.primaryColor, size: 16),
+                                label: Text('Create Call-out',
+                                    style: TextStyle(
+                                        color: theme.primaryColor)),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SliverPadding(padding: EdgeInsets.only(top: 8)),
+                      SliverPadding(
+                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                        sliver: matchState.openCallouts.isEmpty
+                            ? SliverToBoxAdapter(
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                      vertical: 32),
+                                  child: Center(
+                                    child: Text(
+                                      'No open call-outs in your tier.',
+                                      textAlign: TextAlign.center,
+                                      style: const TextStyle(
+                                          color: AppColors.textMuted),
+                                    ),
+                                  ),
+                                ),
+                              )
+                            : SliverList.builder(
+                                itemCount: matchState.openCallouts.length,
+                                itemBuilder: (context, index) {
+                                  final callout =
+                                      matchState.openCallouts[index];
+                                  // Only show ones that haven't expired yet.
+                                  if (callout.expiresAt
+                                      .isBefore(DateTime.now())) {
+                                    return const SizedBox.shrink();
+                                  }
+                                  return CalloutCard(
+                                    callout: callout,
+                                    tierCalloutMax: calloutMax,
+                                    onAccept: () {
+                                      ref
+                                          .read(matchProvider.notifier)
+                                          .acceptCallout(callout.id);
+                                    },
+                                  );
+                                },
+                              ),
+                      ),
+                    ],
+                    if (isAmateur)
+                      SliverFillRemaining(
+                        hasScrollBody: false,
+                        child: Padding(
+                          padding: const EdgeInsets.all(24),
+                          child: Center(
+                            child: Text(
+                              'Call-outs are only available for Master and Pro tiers.',
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(
+                                  color: AppColors.textMuted),
+                            ),
+                          ),
+                        ),
+                      ),
+                    const SliverPadding(padding: EdgeInsets.only(bottom: 24)),
+                  ],
+                ),
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
+class _StakeCard extends StatelessWidget {
+  const _StakeCard({
+    required this.amount,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String amount;
+  final bool selected;
+  final VoidCallback onTap;
+
+  static const Color _black = AppColors.voidBg;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = selected ? _black : AppColors.textPrimary;
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(vertical: 10),
+        decoration: BoxDecoration(
+          color: selected ? AppColors.brand : _black,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: selected ? AppColors.brand : AppColors.hairline,
+            width: 1,
+          ),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.baseline,
+          textBaseline: TextBaseline.alphabetic,
+          children: [
+            Text(
+              '₦',
+              style: GoogleFonts.inter(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                color: color,
               ),
             ),
-            
-            const SizedBox(height: 24),
-            
-            // Callouts Section
-            if (!isAmateur) ...[
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text(
-                    'Open Call-outs',
-                    style: TextStyle(color: AppColors.textMain, fontSize: 20, fontWeight: FontWeight.bold),
-                  ),
-                  TextButton.icon(
-                    onPressed: () => _showCalloutDialog(context),
-                    icon: Icon(LucideIcons.plus, color: theme.primaryColor),
-                    label: Text('Create Call-out', style: TextStyle(color: theme.primaryColor)),
-                  ),
-                ],
+            const SizedBox(width: 1),
+            Text(
+              amount,
+              style: GoogleFonts.inter(
+                fontSize: 15,
+                fontWeight: FontWeight.w700,
+                color: color,
               ),
-              const SizedBox(height: 12),
-              Expanded(
-                child: matchState.openCallouts.isEmpty
-                    ? const Center(
-                        child: Text(
-                          'No open call-outs in your tier.',
-                          style: TextStyle(color: AppColors.textMuted),
-                        ),
-                      )
-                    : ListView.builder(
-                        itemCount: matchState.openCallouts.length,
-                        itemBuilder: (context, index) {
-                          final callout = matchState.openCallouts[index];
-                          // Do not show callouts that are already expired in the list
-                          if (callout.expiresAt.isBefore(DateTime.now())) {
-                            return const SizedBox.shrink();
-                          }
-                          return CalloutCard(
-                            callout: callout,
-                            tierCalloutMax: calloutMax,
-                            onAccept: () {
-                              ref.read(matchProvider.notifier).acceptCallout(callout.id);
-                            },
-                          );
-                        },
-                      ),
-              ),
-            ],
-            if (isAmateur)
-              const Expanded(
-                child: Center(
-                  child: Text(
-                    'Call-outs are only available for Master and Pro tiers.',
-                    style: TextStyle(color: AppColors.textMuted),
-                  ),
-                ),
-              )
+            ),
           ],
         ),
       ),
