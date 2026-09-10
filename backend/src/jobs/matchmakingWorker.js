@@ -1,5 +1,5 @@
 import cron from 'node-cron';
-import redis from '../utils/redis.js';
+import redis, { isRedisReady } from '../utils/redis.js';
 import logger from '../utils/logger.js';
 import { getIO } from '../sockets/index.js';
 import { debitStakes, InsufficientFundsError } from '../services/matchService.js';
@@ -30,7 +30,7 @@ if (redis) {
 let isSweeping = false;
 
 export const processMatchmakingQueues = async () => {
-  if (isSweeping) return;
+  if (isSweeping || !isRedisReady()) return;
   isSweeping = true;
 
   try {

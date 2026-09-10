@@ -1,4 +1,4 @@
-import redis from '../utils/redis.js';
+import redis, { isRedisReady } from '../utils/redis.js';
 import { getIO } from '../sockets/index.js';
 import logger from '../utils/logger.js';
 import { getOpponentId } from '../sockets/gameManager.js';
@@ -7,6 +7,8 @@ import cron from 'node-cron';
 
 export const startDisconnectSweep = () => {
   cron.schedule('*/10 * * * * *', async () => {
+    if (!isRedisReady()) return;
+
     let expired;
     try {
       // 1. Pop all expired entries (score < now)

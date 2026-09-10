@@ -1,4 +1,4 @@
-import redis from '../utils/redis.js';
+import redis, { isRedisReady } from '../utils/redis.js';
 import prisma from '../utils/db.js';
 import logger from '../utils/logger.js';
 import { settleGameWithRetry, settleGameDrawWithRetry } from '../sockets/settlement.js';
@@ -7,6 +7,8 @@ import cron from 'node-cron';
 export const startReconciliationSweep = () => {
   // Run every 5 minutes
   cron.schedule('*/5 * * * *', async () => {
+    if (!isRedisReady()) return;
+
     try {
       // Find matches that Postgres thinks are still active
       const activeMatches = await prisma.match.findMany({
