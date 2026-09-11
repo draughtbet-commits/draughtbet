@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'router/app_router.dart';
+import 'theme/app_theme.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  
+
   // Load environment variables (will fail if .env is missing, which is expected before setup)
   try {
     await dotenv.load(fileName: ".env");
@@ -27,21 +27,7 @@ class DraughtsArenaApp extends ConsumerWidget {
     return MaterialApp.router(
       title: 'Draught Bet',
       themeMode: ThemeMode.dark, // Enforce Dark Mode First
-      darkTheme: ThemeData(
-        brightness: Brightness.dark,
-        scaffoldBackgroundColor: const Color(0xFF0B0D10), // 'void' background
-        primaryColor: const Color(0xFF26E6A4), // Brand Arena Green
-        colorScheme: const ColorScheme.dark(
-          primary: Color(0xFF26E6A4),
-          surface: Color(0xFF161920),
-          background: Color(0xFF0B0D10),
-        ),
-        textTheme: TextTheme(
-          displayLarge: GoogleFonts.sora(fontSize: 32, fontWeight: FontWeight.bold),
-          bodyLarge: GoogleFonts.inter(fontSize: 16),
-          bodyMedium: GoogleFonts.inter(fontSize: 14),
-        ),
-      ),
+      darkTheme: AppTheme.dark,
       routerConfig: router,
     );
   }

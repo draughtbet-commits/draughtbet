@@ -1,0 +1,110 @@
+{
+  "id": "FLOW-03",
+  "slug": "gameplay-reconnect",
+  "title": "Live gameplay, reconnect and state resynchronization",
+  "nodes": [
+    [
+      "Match state",
+      "Board, clocks, turn, version"
+    ],
+    [
+      "Select move",
+      "Local affordance only"
+    ],
+    [
+      "Submit",
+      "Authenticated event + version"
+    ],
+    [
+      "Validate",
+      "Server rules and turn"
+    ],
+    [
+      "Broadcast",
+      "Persisted authoritative state"
+    ],
+    [
+      "Socket lost",
+      "Disable all moves"
+    ],
+    [
+      "Reconnect",
+      "Re-authenticate membership"
+    ],
+    [
+      "Snapshot",
+      "Fetch latest state/version"
+    ],
+    [
+      "Resume",
+      "Discard stale local state"
+    ],
+    [
+      "Forfeit",
+      "Grace period expired"
+    ]
+  ],
+  "edges": [
+    [
+      0,
+      1,
+      "your turn"
+    ],
+    [
+      1,
+      2,
+      "legal target"
+    ],
+    [
+      2,
+      3,
+      ""
+    ],
+    [
+      3,
+      4,
+      "accepted"
+    ],
+    [
+      3,
+      7,
+      "rejected/resync"
+    ],
+    [
+      4,
+      0,
+      "next turn"
+    ],
+    [
+      0,
+      5,
+      "disconnect"
+    ],
+    [
+      5,
+      6,
+      "network returns"
+    ],
+    [
+      6,
+      7,
+      "authorized"
+    ],
+    [
+      7,
+      8,
+      "verified"
+    ],
+    [
+      8,
+      0,
+      "resume"
+    ],
+    [
+      5,
+      9,
+      "timeout"
+    ]
+  ],
+  "invariant": "Moves remain disabled until board, clocks, turn and state version are resynchronized from the server."
+}

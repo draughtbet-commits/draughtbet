@@ -3,7 +3,7 @@ import 'dart:convert';
 
 import 'package:dio/dio.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
-import 'package:riverpod/riverpod.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'secure_storage.dart';
 
 /// Broadcast bus for "session can no longer be refreshed" events. The auth
@@ -27,20 +27,27 @@ class SessionExpiryBus {
 /// provider).
 final apiClientProvider = Provider<Dio>((ref) {
   final storage = SecureStorageService();
+  final configuredBackendUrl = dotenv.isInitialized
+      ? dotenv.env['BACKEND_URL']?.trim() ?? ''
+      : '';
 
-  final dio = Dio(BaseOptions(
-    baseUrl: dotenv.isInitialized
-        ? dotenv.env['BACKEND_URL']!
-        : 'http://localhost:3000',
-    connectTimeout: const Duration(seconds: 15),
-    receiveTimeout: const Duration(seconds: 15),
-  ));
+  final dio = Dio(
+    BaseOptions(
+      baseUrl: configuredBackendUrl.isNotEmpty
+          ? configuredBackendUrl
+          : 'http://localhost:3000',
+      connectTimeout: const Duration(seconds: 15),
+      receiveTimeout: const Duration(seconds: 15),
+    ),
+  );
 
-  dio.interceptors.add(AuthInterceptor(
-    dio: dio,
-    storage: storage,
-    onSessionExpired: SessionExpiryBus.emit,
-  ));
+  dio.interceptors.add(
+    AuthInterceptor(
+      dio: dio,
+      storage: storage,
+      onSessionExpired: SessionExpiryBus.emit,
+    ),
+  );
 
   return dio;
 });
@@ -108,7 +115,9 @@ class AuthInterceptor extends QueuedInterceptor {
     // A burst of parallel 401s all see the same stale token. The first one
     // refreshes and updates storage; the rest can just retry with the new
     // token instead of each firing another refresh.
-    if (failedAuth != null && current != null && failedAuth != 'Bearer $current') {
+    if (failedAuth != null &&
+        current != null &&
+        failedAuth != 'Bearer $current') {
       err.requestOptions.headers['Authorization'] = 'Bearer $current';
       final cloned = await dio.fetch<void>(err.requestOptions);
       handler.resolve(cloned);
@@ -155,7 +164,8 @@ class AuthInterceptor extends QueuedInterceptor {
       await storage.setAccessToken(tokens.accessToken);
       await storage.setRefreshToken(tokens.refreshToken);
 
-      err.requestOptions.headers['Authorization'] = 'Bearer ${tokens.accessToken}';
+      err.requestOptions.headers['Authorization'] =
+          'Bearer ${tokens.accessToken}';
       final cloned = await dio.fetch<void>(err.requestOptions);
       handler.resolve(cloned);
     } on DioException catch (refreshError) {

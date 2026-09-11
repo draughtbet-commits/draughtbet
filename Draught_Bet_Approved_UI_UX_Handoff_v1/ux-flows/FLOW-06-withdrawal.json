@@ -1,0 +1,110 @@
+{
+  "id": "FLOW-06",
+  "slug": "withdrawal",
+  "title": "Withdrawal quote, reservation, risk review and payout",
+  "nodes": [
+    [
+      "Amount",
+      "Server quote and limits"
+    ],
+    [
+      "KYC",
+      "Verified identity required"
+    ],
+    [
+      "Bank",
+      "Server verifies account name"
+    ],
+    [
+      "Confirm",
+      "Idempotency key"
+    ],
+    [
+      "Reserve",
+      "Atomic pending balance"
+    ],
+    [
+      "Risk review",
+      "Approve or reject"
+    ],
+    [
+      "Provider",
+      "Asynchronous payout"
+    ],
+    [
+      "Confirmed",
+      "Final ledger debit"
+    ],
+    [
+      "Reversed",
+      "Release reservation"
+    ],
+    [
+      "Unknown",
+      "Pending with reference"
+    ]
+  ],
+  "edges": [
+    [
+      0,
+      1,
+      "eligible"
+    ],
+    [
+      1,
+      2,
+      "verified"
+    ],
+    [
+      2,
+      3,
+      "destination valid"
+    ],
+    [
+      3,
+      4,
+      "submit"
+    ],
+    [
+      4,
+      5,
+      "reserved"
+    ],
+    [
+      5,
+      6,
+      "approved"
+    ],
+    [
+      5,
+      8,
+      "rejected"
+    ],
+    [
+      6,
+      7,
+      "provider confirms"
+    ],
+    [
+      6,
+      8,
+      "provider fails"
+    ],
+    [
+      6,
+      9,
+      "timeout"
+    ],
+    [
+      9,
+      7,
+      "later success"
+    ],
+    [
+      9,
+      8,
+      "later failure"
+    ]
+  ],
+  "invariant": "Concurrent withdrawal requests cannot reserve more than the available balance; ambiguous outcomes remain pending."
+}

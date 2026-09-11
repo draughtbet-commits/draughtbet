@@ -1,0 +1,105 @@
+{
+  "id": "FLOW-07",
+  "slug": "kyc",
+  "title": "Identity verification and retry lifecycle",
+  "nodes": [
+    [
+      "Introduction",
+      "Purpose and consent"
+    ],
+    [
+      "Personal details",
+      "Legal identity"
+    ],
+    [
+      "ID type",
+      "Supported document"
+    ],
+    [
+      "Capture",
+      "Front/back quality checks"
+    ],
+    [
+      "Liveness",
+      "Selfie and anti-spoof"
+    ],
+    [
+      "Submit",
+      "Encrypted provider session"
+    ],
+    [
+      "Processing",
+      "Pending review"
+    ],
+    [
+      "Verified",
+      "Server status unlocks actions"
+    ],
+    [
+      "Rejected",
+      "Reason and retry"
+    ],
+    [
+      "Expired",
+      "Renew verification"
+    ]
+  ],
+  "edges": [
+    [
+      0,
+      1,
+      "consent"
+    ],
+    [
+      1,
+      2,
+      "valid"
+    ],
+    [
+      2,
+      3,
+      "selected"
+    ],
+    [
+      3,
+      4,
+      "quality pass"
+    ],
+    [
+      4,
+      5,
+      "liveness pass"
+    ],
+    [
+      5,
+      6,
+      ""
+    ],
+    [
+      6,
+      7,
+      "approved"
+    ],
+    [
+      6,
+      8,
+      "rejected"
+    ],
+    [
+      8,
+      3,
+      "retry"
+    ],
+    [
+      7,
+      9,
+      "expires"
+    ],
+    [
+      9,
+      0,
+      "renew"
+    ]
+  ],
+  "invariant": "The UI never grants verified status locally; only the provider-backed server status unlocks withdrawals."
+}

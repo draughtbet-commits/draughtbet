@@ -5,6 +5,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../services/api_client.dart';
 import '../services/secure_storage.dart';
+import '../services/socket_service.dart';
 
 class AuthState {
   final bool isAuthenticated;
@@ -17,11 +18,7 @@ class AuthState {
     this.error,
   });
 
-  AuthState copyWith({
-    bool? isAuthenticated,
-    bool? isLoading,
-    String? error,
-  }) {
+  AuthState copyWith({bool? isAuthenticated, bool? isLoading, String? error}) {
     return AuthState(
       isAuthenticated: isAuthenticated ?? this.isAuthenticated,
       isLoading: isLoading ?? this.isLoading,
@@ -32,7 +29,7 @@ class AuthState {
 
 class AuthNotifier extends StateNotifier<AuthState> {
   AuthNotifier(this._dio, this._storage)
-      : super(const AuthState(isLoading: true)) {
+    : super(const AuthState(isLoading: true)) {
     _sessionSub = SessionExpiryBus.stream.listen((_) => onSessionExpired());
     _restoreSession();
   }
@@ -54,12 +51,19 @@ class AuthNotifier extends StateNotifier<AuthState> {
         isAuthenticated: token != null && token.isNotEmpty,
         isLoading: false,
       );
+      if (token != null && token.isNotEmpty) {
+        unawaited(socketService.initSocket().catchError((_) {}));
+      }
     } catch (_) {
       state = state.copyWith(isLoading: false);
     }
   }
 
-  Future<bool> login(String identifier, String password, {String? fcmToken}) async {
+  Future<bool> login(
+    String identifier,
+    String password, {
+    String? fcmToken,
+  }) async {
     try {
       state = state.copyWith(isLoading: true, error: null);
       final isEmail = identifier.contains('@');
@@ -80,6 +84,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
         await _storage.setRefreshToken(refreshToken);
         final userId = _extractUserId(accessToken);
         if (userId != null) await _storage.setUserId(userId);
+        unawaited(socketService.initSocket().catchError((_) {}));
         state = state.copyWith(isAuthenticated: true, isLoading: false);
         return true;
       }
@@ -114,12 +119,16 @@ class AuthNotifier extends StateNotifier<AuthState> {
         data: {
           if (email != null && email.trim().isNotEmpty) 'email': email.trim(),
           if (phone != null && phone.trim().isNotEmpty) 'phone': phone.trim(),
-          if (username != null && username.trim().isNotEmpty) 'username': username.trim(),
-          if (fullName != null && fullName.trim().isNotEmpty) 'fullName': fullName.trim(),
-          if (address != null && address.trim().isNotEmpty) 'address': address.trim(),
+          if (username != null && username.trim().isNotEmpty)
+            'username': username.trim(),
+          if (fullName != null && fullName.trim().isNotEmpty)
+            'fullName': fullName.trim(),
+          if (address != null && address.trim().isNotEmpty)
+            'address': address.trim(),
           'password': password,
           'dateOfBirth': dateOfBirth.toIso8601String(),
-          if (countryCode != null && countryCode.isNotEmpty) 'countryCode': countryCode,
+          if (countryCode != null && countryCode.isNotEmpty)
+            'countryCode': countryCode,
           'fingerprintHash': 'dev_device',
         },
       );
@@ -135,6 +144,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
           await _storage.setRefreshToken(refreshToken);
           final userId = _extractUserId(accessToken);
           if (userId != null) await _storage.setUserId(userId);
+          unawaited(socketService.initSocket().catchError((_) {}));
           state = state.copyWith(isAuthenticated: true);
         }
         return true;
@@ -167,6 +177,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
       // Ignore errors on logout; always clear local session.
     }
     await _storage.clearCredentials();
+    socketService.disconnect();
     state = state.copyWith(isAuthenticated: false, error: null);
   }
 
@@ -176,7 +187,9 @@ class AuthNotifier extends StateNotifier<AuthState> {
     try {
       final parts = accessToken.split('.');
       if (parts.length != 3) return null;
-      final payload = utf8.decode(base64Url.decode(base64Url.normalize(parts[1])));
+      final payload = utf8.decode(
+        base64Url.decode(base64Url.normalize(parts[1])),
+      );
       final json = jsonDecode(payload) as Map<String, dynamic>;
       final id = json['userId'];
       return id?.toString();
@@ -211,8 +224,5 @@ class AuthNotifier extends StateNotifier<AuthState> {
 }
 
 final authProvider = StateNotifierProvider<AuthNotifier, AuthState>((ref) {
-  return AuthNotifier(
-    ref.watch(apiClientProvider),
-    SecureStorageService(),
-  );
+  return AuthNotifier(ref.watch(apiClientProvider), SecureStorageService());
 });

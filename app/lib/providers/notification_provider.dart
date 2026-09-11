@@ -66,10 +66,11 @@ class NotificationNotifier extends StateNotifier<NotificationState> {
   final SocketService _socket;
   StreamSubscription? _socketSub;
 
-  NotificationNotifier(this._dio, this._socket)
-      : super(NotificationState(
-            notifications: [], unreadCount: 0, isLoading: true)) {
-    _init();
+  NotificationNotifier(this._dio, this._socket, {bool initialize = true})
+    : super(
+        NotificationState(notifications: [], unreadCount: 0, isLoading: true),
+      ) {
+    if (initialize) _init();
   }
 
   void _init() {
@@ -79,7 +80,7 @@ class NotificationNotifier extends StateNotifier<NotificationState> {
 
   void _onNewNotification(dynamic data) {
     final newNotification = AppNotification.fromJson(data);
-    
+
     // Add to top of list and increment unread count
     state = state.copyWith(
       notifications: [newNotification, ...state.notifications],
@@ -90,11 +91,11 @@ class NotificationNotifier extends StateNotifier<NotificationState> {
   Future<void> _fetchNotifications() async {
     try {
       final response = await _dio.get('/notifications?limit=20');
-      
+
       final items = (response.data['items'] as List)
           .map((item) => AppNotification.fromJson(item))
           .toList();
-          
+
       // Calculate unread from fetched list
       final unread = items.where((n) => !n.isRead).length;
 
@@ -111,7 +112,7 @@ class NotificationNotifier extends StateNotifier<NotificationState> {
   Future<void> markAsRead(String id) async {
     try {
       await _dio.patch('/notifications/$id/read');
-      
+
       final updatedNotifications = state.notifications.map((n) {
         if (n.id == id && !n.isRead) {
           return AppNotification(
@@ -139,7 +140,7 @@ class NotificationNotifier extends StateNotifier<NotificationState> {
   Future<void> markAllAsRead() async {
     try {
       await _dio.patch('/notifications/read-all');
-      
+
       final updatedNotifications = state.notifications.map((n) {
         return AppNotification(
           id: n.id,
@@ -170,8 +171,5 @@ class NotificationNotifier extends StateNotifier<NotificationState> {
 
 final notificationProvider =
     StateNotifierProvider<NotificationNotifier, NotificationState>((ref) {
-  return NotificationNotifier(
-    ref.watch(apiClientProvider),
-    socketService,
-  );
-});
+      return NotificationNotifier(ref.watch(apiClientProvider), socketService);
+    });

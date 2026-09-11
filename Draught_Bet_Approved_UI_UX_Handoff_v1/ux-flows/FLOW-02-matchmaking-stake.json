@@ -1,0 +1,105 @@
+{
+  "id": "FLOW-02",
+  "slug": "matchmaking-stake",
+  "title": "Matchmaking, quote, atomic stake lock and ready check",
+  "nodes": [
+    [
+      "Lobby",
+      "Quick match, Arena or call-out"
+    ],
+    [
+      "Terms",
+      "Stake, tier, rules, time"
+    ],
+    [
+      "Server quote",
+      "Fee and payout snapshot"
+    ],
+    [
+      "Eligibility",
+      "Balance, tier and safer-play"
+    ],
+    [
+      "Lock stake",
+      "Atomic reserve"
+    ],
+    [
+      "Opponent",
+      "Same immutable terms"
+    ],
+    [
+      "Ready",
+      "Both players present"
+    ],
+    [
+      "Game",
+      "Server clock starts"
+    ],
+    [
+      "Unavailable",
+      "Filled or expired"
+    ],
+    [
+      "Release",
+      "Timeout/cancel processing"
+    ]
+  ],
+  "edges": [
+    [
+      0,
+      1,
+      ""
+    ],
+    [
+      1,
+      2,
+      "request"
+    ],
+    [
+      2,
+      3,
+      "accept quote"
+    ],
+    [
+      3,
+      4,
+      "eligible"
+    ],
+    [
+      3,
+      8,
+      "blocked"
+    ],
+    [
+      4,
+      5,
+      "locked"
+    ],
+    [
+      5,
+      6,
+      "both locked"
+    ],
+    [
+      6,
+      7,
+      "both ready"
+    ],
+    [
+      5,
+      9,
+      "opponent timeout"
+    ],
+    [
+      6,
+      9,
+      "ready timeout"
+    ],
+    [
+      8,
+      0,
+      "choose again"
+    ]
+  ],
+  "invariant": "The client never calculates or commits a fee, payout, eligibility decision or wallet reservation."
+}

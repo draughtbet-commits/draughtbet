@@ -1,0 +1,96 @@
+{
+  "id": "FLOW-10",
+  "slug": "operational",
+  "title": "Operational failure and safe retry handling",
+  "nodes": [
+    [
+      "Failure",
+      "Network, timeout or server error"
+    ],
+    [
+      "Classify",
+      "Read or money/game mutation"
+    ],
+    [
+      "Read retry",
+      "Safe exponential backoff"
+    ],
+    [
+      "Lookup",
+      "Idempotency/reference status"
+    ],
+    [
+      "Known",
+      "Render authoritative result"
+    ],
+    [
+      "Unknown",
+      "Pending; disable duplicate"
+    ],
+    [
+      "Resync",
+      "Refresh session/state"
+    ],
+    [
+      "Escalate",
+      "Support reference"
+    ],
+    [
+      "Restricted",
+      "Session/update/maintenance"
+    ]
+  ],
+  "edges": [
+    [
+      0,
+      1,
+      ""
+    ],
+    [
+      1,
+      2,
+      "read"
+    ],
+    [
+      1,
+      3,
+      "mutation"
+    ],
+    [
+      2,
+      6,
+      "success"
+    ],
+    [
+      3,
+      4,
+      "found"
+    ],
+    [
+      3,
+      5,
+      "not resolved"
+    ],
+    [
+      5,
+      3,
+      "poll"
+    ],
+    [
+      5,
+      7,
+      "long delay"
+    ],
+    [
+      0,
+      8,
+      "policy gate"
+    ],
+    [
+      8,
+      6,
+      "resolved"
+    ]
+  ],
+  "invariant": "A retry must never create a second money movement or game action; unknown outcomes stay pending until resolved."
+}

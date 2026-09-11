@@ -1,39 +1,63 @@
 import 'dart:async';
-import 'package:socket_io_client/socket_io_client.dart' as IO;
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:socket_io_client/socket_io_client.dart' as socket_io;
 import 'secure_storage.dart';
 
 class SocketService {
-  IO.Socket? _socket;
+  socket_io.Socket? _socket;
   final _storage = SecureStorageService();
-  
+
   // Stream controllers for different events
-  final _matchFoundController = StreamController<Map<String, dynamic>>.broadcast();
-  final _gameStateController = StreamController<Map<String, dynamic>>.broadcast();
-  final _moveAppliedController = StreamController<Map<String, dynamic>>.broadcast();
-  final _moveRejectedController = StreamController<Map<String, dynamic>>.broadcast();
-  final _matchEndedResignController = StreamController<Map<String, dynamic>>.broadcast();
-  final _opponentDisconnectedController = StreamController<Map<String, dynamic>>.broadcast();
-  final _opponentReconnectedController = StreamController<Map<String, dynamic>>.broadcast();
+  final _matchFoundController =
+      StreamController<Map<String, dynamic>>.broadcast();
+  final _gameStateController =
+      StreamController<Map<String, dynamic>>.broadcast();
+  final _moveAppliedController =
+      StreamController<Map<String, dynamic>>.broadcast();
+  final _moveRejectedController =
+      StreamController<Map<String, dynamic>>.broadcast();
+  final _matchEndedResignController =
+      StreamController<Map<String, dynamic>>.broadcast();
+  final _matchEndedController =
+      StreamController<Map<String, dynamic>>.broadcast();
+  final _opponentDisconnectedController =
+      StreamController<Map<String, dynamic>>.broadcast();
+  final _opponentReconnectedController =
+      StreamController<Map<String, dynamic>>.broadcast();
   final _errorController = StreamController<Map<String, dynamic>>.broadcast();
-  final _calloutCreatedController = StreamController<Map<String, dynamic>>.broadcast();
-  final _walletUpdatedController = StreamController<Map<String, dynamic>>.broadcast();
-  final _notificationController = StreamController<Map<String, dynamic>>.broadcast();
+  final _calloutCreatedController =
+      StreamController<Map<String, dynamic>>.broadcast();
+  final _walletUpdatedController =
+      StreamController<Map<String, dynamic>>.broadcast();
+  final _notificationController =
+      StreamController<Map<String, dynamic>>.broadcast();
 
   Stream<Map<String, dynamic>> get onMatchFound => _matchFoundController.stream;
   Stream<Map<String, dynamic>> get onGameState => _gameStateController.stream;
-  Stream<Map<String, dynamic>> get onMoveApplied => _moveAppliedController.stream;
-  Stream<Map<String, dynamic>> get onMoveRejected => _moveRejectedController.stream;
-  Stream<Map<String, dynamic>> get onMatchEndedResign => _matchEndedResignController.stream;
-  Stream<Map<String, dynamic>> get onOpponentDisconnected => _opponentDisconnectedController.stream;
-  Stream<Map<String, dynamic>> get onOpponentReconnected => _opponentReconnectedController.stream;
+  Stream<Map<String, dynamic>> get onMoveApplied =>
+      _moveAppliedController.stream;
+  Stream<Map<String, dynamic>> get onMoveRejected =>
+      _moveRejectedController.stream;
+  Stream<Map<String, dynamic>> get onMatchEndedResign =>
+      _matchEndedResignController.stream;
+  Stream<Map<String, dynamic>> get onMatchEnded => _matchEndedController.stream;
+  Stream<Map<String, dynamic>> get onOpponentDisconnected =>
+      _opponentDisconnectedController.stream;
+  Stream<Map<String, dynamic>> get onOpponentReconnected =>
+      _opponentReconnectedController.stream;
   Stream<Map<String, dynamic>> get onError => _errorController.stream;
-  Stream<Map<String, dynamic>> get onCalloutCreated => _calloutCreatedController.stream;
-  Stream<Map<String, dynamic>> get onWalletUpdated => _walletUpdatedController.stream;
-  Stream<Map<String, dynamic>> get onNotification => _notificationController.stream;
+  Stream<Map<String, dynamic>> get onCalloutCreated =>
+      _calloutCreatedController.stream;
+  Stream<Map<String, dynamic>> get onWalletUpdated =>
+      _walletUpdatedController.stream;
+  Stream<Map<String, dynamic>> get onNotification =>
+      _notificationController.stream;
 
   Future<void> initSocket() async {
-    if (_socket != null && _socket!.connected) return;
+    if (_socket != null) {
+      if (!_socket!.connected) _socket!.connect();
+      return;
+    }
 
     final token = await _storage.accessToken;
     if (token == null) {
@@ -42,46 +66,61 @@ class SocketService {
 
     final backendUrl = dotenv.env['BACKEND_URL'] ?? 'http://localhost:3000';
 
-    _socket = IO.io(backendUrl, IO.OptionBuilder()
-      .setTransports(['websocket'])
-      .disableAutoConnect()
-      .setAuth({'token': token})
-      .build());
-
-    _socket!.onConnect((_) {
-      print('Socket connected');
-    });
-
-    _socket!.onDisconnect((_) {
-      print('Socket disconnected');
-    });
+    _socket = socket_io.io(
+      backendUrl,
+      socket_io.OptionBuilder()
+          .setTransports(['websocket'])
+          .disableAutoConnect()
+          .setAuth({'token': token})
+          .build(),
+    );
 
     _socket!.on('match_found', (data) {
-      if (data is Map) _matchFoundController.add(Map<String, dynamic>.from(data));
+      if (data is Map) {
+        _matchFoundController.add(Map<String, dynamic>.from(data));
+      }
     });
 
     _socket!.on('game_state', (data) {
-      if (data is Map) _gameStateController.add(Map<String, dynamic>.from(data));
+      if (data is Map) {
+        _gameStateController.add(Map<String, dynamic>.from(data));
+      }
     });
 
     _socket!.on('move_applied', (data) {
-      if (data is Map) _moveAppliedController.add(Map<String, dynamic>.from(data));
+      if (data is Map) {
+        _moveAppliedController.add(Map<String, dynamic>.from(data));
+      }
     });
 
     _socket!.on('move_rejected', (data) {
-      if (data is Map) _moveRejectedController.add(Map<String, dynamic>.from(data));
+      if (data is Map) {
+        _moveRejectedController.add(Map<String, dynamic>.from(data));
+      }
     });
 
     _socket!.on('match_ended_resign', (data) {
-      if (data is Map) _matchEndedResignController.add(Map<String, dynamic>.from(data));
+      if (data is Map) {
+        _matchEndedResignController.add(Map<String, dynamic>.from(data));
+      }
+    });
+
+    _socket!.on('match_ended', (data) {
+      if (data is Map) {
+        _matchEndedController.add(Map<String, dynamic>.from(data));
+      }
     });
 
     _socket!.on('opponent_disconnected', (data) {
-      if (data is Map) _opponentDisconnectedController.add(Map<String, dynamic>.from(data));
+      if (data is Map) {
+        _opponentDisconnectedController.add(Map<String, dynamic>.from(data));
+      }
     });
 
     _socket!.on('opponent_reconnected', (data) {
-      if (data is Map) _opponentReconnectedController.add(Map<String, dynamic>.from(data));
+      if (data is Map) {
+        _opponentReconnectedController.add(Map<String, dynamic>.from(data));
+      }
     });
 
     _socket!.on('error', (data) {
@@ -89,15 +128,21 @@ class SocketService {
     });
 
     _socket!.on('callout_created', (data) {
-      if (data is Map) _calloutCreatedController.add(Map<String, dynamic>.from(data));
+      if (data is Map) {
+        _calloutCreatedController.add(Map<String, dynamic>.from(data));
+      }
     });
 
     _socket!.on('wallet_updated', (data) {
-      if (data is Map) _walletUpdatedController.add(Map<String, dynamic>.from(data));
+      if (data is Map) {
+        _walletUpdatedController.add(Map<String, dynamic>.from(data));
+      }
     });
 
     _socket!.on('notification', (data) {
-      if (data is Map) _notificationController.add(Map<String, dynamic>.from(data));
+      if (data is Map) {
+        _notificationController.add(Map<String, dynamic>.from(data));
+      }
     });
 
     _socket!.connect();
@@ -116,8 +161,9 @@ class SocketService {
   }
 
   void disconnect() {
-    _socket?.disconnect();
+    final socket = _socket;
     _socket = null;
+    socket?.dispose();
   }
 
   void dispose() {
@@ -126,6 +172,7 @@ class SocketService {
     _moveAppliedController.close();
     _moveRejectedController.close();
     _matchEndedResignController.close();
+    _matchEndedController.close();
     _opponentDisconnectedController.close();
     _opponentReconnectedController.close();
     _errorController.close();

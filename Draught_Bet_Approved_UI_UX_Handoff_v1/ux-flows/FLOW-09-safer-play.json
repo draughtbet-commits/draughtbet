@@ -1,0 +1,87 @@
+{
+  "id": "FLOW-09",
+  "slug": "safer-play",
+  "title": "Safer-play limits, breaks and self-exclusion",
+  "nodes": [
+    [
+      "Dashboard",
+      "Choose control"
+    ],
+    [
+      "Configure",
+      "Limit, break or exclusion"
+    ],
+    [
+      "Review",
+      "Explain impact"
+    ],
+    [
+      "Authenticate",
+      "Strong confirmation"
+    ],
+    [
+      "Server applies",
+      "Effective timestamp"
+    ],
+    [
+      "Active",
+      "Block restricted actions"
+    ],
+    [
+      "Cooling period",
+      "Cannot loosen early"
+    ],
+    [
+      "Support",
+      "Help remains available"
+    ]
+  ],
+  "edges": [
+    [
+      0,
+      1,
+      ""
+    ],
+    [
+      1,
+      2,
+      "continue"
+    ],
+    [
+      2,
+      3,
+      "confirm"
+    ],
+    [
+      3,
+      4,
+      "authorized"
+    ],
+    [
+      4,
+      5,
+      "active"
+    ],
+    [
+      5,
+      6,
+      "increase/remove"
+    ],
+    [
+      6,
+      5,
+      "until eligible"
+    ],
+    [
+      0,
+      7,
+      "help"
+    ],
+    [
+      5,
+      7,
+      "support"
+    ]
+  ],
+  "invariant": "The app enforces server-provided safer-play status everywhere, including matchmaking, deposits and withdrawals."
+}

@@ -1,0 +1,65 @@
+{
+  "source": "Client-approved Draught Bet visual boards",
+  "color": {
+    "canvas": "#07111F",
+    "surface": "#0C1B2A",
+    "raised": "#13263A",
+    "border": "#294157",
+    "muted": "#8FA3B7",
+    "white": "#F5F7FA",
+    "green": "#18C986",
+    "green2": "#26E6A4",
+    "gold": "#F5C451",
+    "danger": "#F45A67",
+    "info": "#4DA3FF"
+  },
+  "typography": {
+    "display": "Sora",
+    "body": "Inter",
+    "money_and_timer": "JetBrains Mono or tabular figures"
+  },
+  "frame": {
+    "implementation_platform": "Android",
+    "reference_width_dp": 412,
+    "reference_height_dp": 915,
+    "safe_area": "Flutter SafeArea / system insets",
+    "note": "Phone chrome in concept boards is not an iOS implementation requirement."
+  },
+  "spacing_dp": [
+    4,
+    8,
+    12,
+    16,
+    20,
+    24,
+    32,
+    40,
+    48,
+    64
+  ],
+  "radius_dp": {
+    "small": 8,
+    "control": 10,
+    "card": 14,
+    "dialog": 18,
+    "pill": 999
+  },
+  "touch": {
+    "preferred_dp": 48,
+    "absolute_min_dp": 44
+  },
+  "navigation": [
+    "Home",
+    "Arena",
+    "Play",
+    "Wallet",
+    "Profile"
+  ],
+  "money": {
+    "currency": "NGN",
+    "fee": "server-provided",
+    "tier_limits": "server-provided",
+    "balance": "server-provided",
+    "hardcode_examples": false
+  }
+}
