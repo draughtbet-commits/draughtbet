@@ -38,17 +38,11 @@ export const initSocketServer = (httpServer) => {
       handleDisconnect(socket);
     });
 
-    socket.on('move_attempt', async (payload) => {
-      await handleMoveAttempt(socket, payload);
-    });
+    socket.on('move_attempt', guardSocketHandler(socket, handleMoveAttempt));
 
-    socket.on('resign', async (payload) => {
-      await handleResign(socket, payload);
-    });
+    socket.on('resign', guardSocketHandler(socket, handleResign));
 
-    socket.on('join_match', async (payload) => {
-      await handleJoinMatch(socket, payload);
-    });
+    socket.on('join_match', guardSocketHandler(socket, handleJoinMatch));
   });
 
   return io;
@@ -59,4 +53,18 @@ export const getIO = () => {
     throw new Error('Socket.IO has not been initialized. Call initSocketServer first.');
   }
   return io;
+};
+
+/**
+ * Shared wrapper so a rejected async handler can never become an unhandled
+ * rejection (Node's default behaviour terminates the process). Any error that
+ * escapes a handler's own boundaries produces a controlled error reply instead.
+ */
+export const guardSocketHandler = (socket, handler) => async (payload) => {
+  try {
+    await handler(socket, payload);
+  } catch (err) {
+    logger.error({ err, socketId: socket.id }, 'Socket event handler failed');
+    socket.emit('error', { message: 'Internal server error' });
+  }
 };

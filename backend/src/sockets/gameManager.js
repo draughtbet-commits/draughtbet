@@ -1,5 +1,6 @@
 import redis from '../utils/redis.js';
 import logger from '../utils/logger.js';
+import { validateMatchIdPayload, validateMoveAttempt } from './payloadGuard.js';
 import { createInitialBoard, getLegalMoves, applyMove, checkGameEnd, COLOR_WHITE, COLOR_BLACK, isKing } from '../modules/engine/index.js';
 import { settleGame, settleGameDraw, settleGameWithRetry, settleGameDrawWithRetry } from './settlement.js';
 import { getIO } from './index.js';
@@ -117,9 +118,16 @@ export const initializeGame = async (matchId, player1Id, player2Id, stakeTier) =
   }
 };
 
-export const handleResign = async (socket, { matchId }) => {
+export const handleResign = async (socket, payload) => {
   const userId = socket.user?.userId;
   if (!userId) return;
+
+  const validated = validateMatchIdPayload(payload);
+  if (!validated.ok) {
+    socket.emit('error', { message: 'Invalid payload' });
+    return;
+  }
+  const { matchId } = validated.data;
 
   let retries = 2;
   let success = false;
@@ -238,9 +246,16 @@ const computeNextState = (state, from, to) => {
   };
 };
 
-export const handleMoveAttempt = async (socket, { matchId, from, to }) => {
+export const handleMoveAttempt = async (socket, payload) => {
   const userId = socket.user?.userId;
   if (!userId) return;
+
+  const validated = validateMoveAttempt(payload);
+  if (!validated.ok) {
+    socket.emit('move_rejected', { reason: 'invalid_payload' });
+    return;
+  }
+  const { matchId, from, to } = validated.data;
 
   let retries = 2;
   let success = false;

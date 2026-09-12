@@ -2,6 +2,7 @@ import redis from '../utils/redis.js';
 import { getIO } from './index.js';
 import { getActiveGameForUser, getGameState } from './gameManager.js';
 import { getLegalMoves } from '../modules/engine/index.js';
+import { validateMatchIdPayload } from './payloadGuard.js';
 import logger from '../utils/logger.js';
 import { NotificationService } from '../modules/notification/service.js';
 
@@ -35,9 +36,16 @@ export async function handleDisconnect(socket) {
   }
 }
 
-export async function handleJoinMatch(socket, { matchId }) {
+export async function handleJoinMatch(socket, payload) {
   const userId = socket.user?.userId;
   if (!userId) return;
+
+  const validated = validateMatchIdPayload(payload);
+  if (!validated.ok) {
+    socket.emit('error', { message: 'Invalid payload' });
+    return;
+  }
+  const { matchId } = validated.data;
 
   try {
     // 1. Remove from sorted set

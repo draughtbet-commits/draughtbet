@@ -100,7 +100,7 @@ const settlementMocks = {
 };
 jest.unstable_mockModule('../settlement.js', () => settlementMocks);
 
-const { handleMoveAttempt } = await import('../gameManager.js');
+const { handleMoveAttempt, handleResign } = await import('../gameManager.js');
 const { EMPTY, WHITE_MAN, BLACK_MAN, COLOR_WHITE } = await import('../../modules/engine/board.js');
 
 // Endgame: white man on square 32, black men on 27 and 17. White's only legal
@@ -191,5 +191,58 @@ describe('complete game smoke', () => {
     expect(settlementMocks.settleGameWithRetry).not.toHaveBeenCalled();
     expect(mockTo).not.toHaveBeenCalled();
     expect(fakeRedis.store.get('match:test-match').version).toBe('0');
+  });
+
+  it('rejects a null move payload without touching state', async () => {
+    const board = buildEndgameBoard();
+    seedMatch('test-match', board, 'white-user', 'black-user');
+
+    const socket = { id: 's3', user: { userId: 'white-user' }, emit: jest.fn() };
+    await handleMoveAttempt(socket, null);
+
+    expect(socket.emit).toHaveBeenCalledWith('move_rejected', { reason: 'invalid_payload' });
+    expect(mockTo).not.toHaveBeenCalled();
+    expect(settlementMocks.settleGameWithRetry).not.toHaveBeenCalled();
+    expect(fakeRedis.store.get('match:test-match').version).toBe('0');
+  });
+
+  it('rejects an array move payload without touching state', async () => {
+    const socket = { id: 's4', user: { userId: 'white-user' }, emit: jest.fn() };
+    await handleMoveAttempt(socket, ['test-match', 32, 12]);
+
+    expect(socket.emit).toHaveBeenCalledWith('move_rejected', { reason: 'invalid_payload' });
+    expect(mockTo).not.toHaveBeenCalled();
+    expect(settlementMocks.settleGameWithRetry).not.toHaveBeenCalled();
+  });
+
+  it('rejects wrong-type and out-of-range move payloads', async () => {
+    const socket = { id: 's5', user: { userId: 'white-user' }, emit: jest.fn() };
+    await handleMoveAttempt(socket, { matchId: 'test-match', from: '32', to: 12 });
+    expect(socket.emit).toHaveBeenCalledWith('move_rejected', { reason: 'invalid_payload' });
+    socket.emit.mockClear();
+
+    await handleMoveAttempt(socket, { matchId: 'test-match', from: 51, to: 12 });
+    expect(socket.emit).toHaveBeenCalledWith('move_rejected', { reason: 'invalid_payload' });
+  });
+
+  it('rejects a null resign payload without touching state', async () => {
+    const board = buildEndgameBoard();
+    seedMatch('test-match', board, 'white-user', 'black-user');
+
+    const socket = { id: 's6', user: { userId: 'white-user' }, emit: jest.fn() };
+    await handleResign(socket, null);
+
+    expect(socket.emit).toHaveBeenCalledWith('error', { message: 'Invalid payload' });
+    expect(mockTo).not.toHaveBeenCalled();
+    expect(settlementMocks.settleGameWithRetry).not.toHaveBeenCalled();
+    expect(fakeRedis.store.get('match:test-match').status).toBe('in_progress');
+  });
+
+  it('rejects a malformed resign payload', async () => {
+    const socket = { id: 's7', user: { userId: 'white-user' }, emit: jest.fn() };
+    await handleResign(socket, { matchId: 123 });
+
+    expect(socket.emit).toHaveBeenCalledWith('error', { message: 'Invalid payload' });
+    expect(mockTo).not.toHaveBeenCalled();
   });
 });
