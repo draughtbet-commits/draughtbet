@@ -2,15 +2,16 @@ import { jest } from '@jest/globals';
 
 const mockPrisma = {
   $transaction: jest.fn(),
+  $queryRaw: jest.fn(),
   match: {
     findUnique: jest.fn(),
-    update: jest.fn()
+    updateMany: jest.fn()
   },
   platformSettings: {
-    findUniqueOrThrow: jest.fn()
+    findUniqueOrThrow: jest.fn(),
+    findUnique: jest.fn()
   },
   wallet: {
-    findUniqueOrThrow: jest.fn(),
     update: jest.fn()
   },
   walletTransaction: {
@@ -52,12 +53,25 @@ jest.unstable_mockModule('../index.js', () => ({
 
 describe('settlement logic', () => {
   let settlement;
+  let outsiderError;
+  let invalidSettlementError;
   let originalSleep;
+
+  const activeMatch = (overrides = {}) => ({
+    status: 'ACTIVE',
+    stakeMinorUnits: BigInt(1000),
+    playerLightId: 'p1',
+    playerDarkId: 'p2',
+    settlementCommissionPercent: 25,
+    ...overrides
+  });
 
   beforeAll(async () => {
     originalSleep = setTimeout;
     jest.spyOn(global, 'setTimeout').mockImplementation((cb) => cb());
     settlement = await import('../settlement.js');
+    outsiderError = settlement.OutsiderSettlementError;
+    invalidSettlementError = settlement.InvalidSettlementError;
   });
 
   afterAll(() => {
@@ -68,6 +82,162 @@ describe('settlement logic', () => {
     jest.clearAllMocks();
     mockEmit.mockClear();
     mockTo.mockClear();
+    mockPrisma.$transaction.mockImplementation(async (cb) => cb(mockPrisma));
+  });
+
+  describe('settleGame', () => {
+    it('settles a win using the accepted fee snapshot with a single net PAYOUT entry', async () => {
+      mockPrisma.match.findUnique.mockResolvedValue(activeMatch());
+      mockPrisma.match.updateMany.mockResolvedValue({ count: 1 });
+      mockPrisma.$queryRaw.mockResolvedValue([{ id: 'w-p1', userId: 'p1', balanceMinorUnits: '0' }]);
+
+      const result = await settlement.settleGame('match-1', 'p1', 'p2', 'capture_win');
+
+      // Atomic claim gate
+      expect(mockPrisma.match.updateMany).toHaveBeenCalledWith({
+        where: { id: 'match-1', status: 'ACTIVE' },
+        data: {
+          status: 'COMPLETED',
+          winnerId: 'p1',
+          endReason: 'capture_win',
+          endedAt: expect.any(Date)
+        }
+      });
+
+      // Fee from SNAPSHOT (25% -> pot 2000, commission 500, payout 1500),
+      // NOT live settings
+      expect(mockPrisma.platformSettings.findUnique).not.toHaveBeenCalled();
+      expect(result.payout).toBe(1500n);
+      expect(result.commission).toBe(500n);
+      expect(mockPrisma.wallet.update).toHaveBeenCalledWith({
+        where: { id: 'w-p1' },
+        data: { balanceMinorUnits: { increment: 1500n } }
+      });
+
+      // Exactly one ledger entry: PAYOUT, no COMMISSION row on the player wallet
+      expect(mockPrisma.walletTransaction.create).toHaveBeenCalledTimes(1);
+      expect(mockPrisma.walletTransaction.create).toHaveBeenCalledWith({
+        data: {
+          walletId: 'w-p1',
+          type: 'PAYOUT',
+          amountMinorUnits: 1500n,
+          relatedMatchId: 'match-1'
+        }
+      });
+      expect(mockRedis.del).toHaveBeenCalledWith('match:match-1');
+    });
+
+    it('rejects an outsider winner before any write', async () => {
+      mockPrisma.match.findUnique.mockResolvedValue(activeMatch());
+      mockPrisma.$queryRaw.mockResolvedValue([{ id: 'w-p1' }]);
+
+      await expect(settlement.settleGame('match-1', 'evil-winner', 'p2', 'capture_win'))
+        .rejects.toThrow(outsiderError);
+
+      expect(mockPrisma.match.updateMany).not.toHaveBeenCalled();
+      expect(mockPrisma.wallet.update).not.toHaveBeenCalled();
+      expect(mockPrisma.walletTransaction.create).not.toHaveBeenCalled();
+    });
+
+    it('rejects a mismatched loser before any write', async () => {
+      mockPrisma.match.findUnique.mockResolvedValue(activeMatch());
+      mockPrisma.$queryRaw.mockResolvedValue([{ id: 'w-p1' }]);
+
+      await expect(settlement.settleGame('match-1', 'p1', 'evil-loser', 'capture_win'))
+        .rejects.toThrow(invalidSettlementError);
+
+      expect(mockPrisma.match.updateMany).not.toHaveBeenCalled();
+      expect(mockPrisma.wallet.update).not.toHaveBeenCalled();
+    });
+
+    it('returns null when another settlement already claimed the match', async () => {
+      mockPrisma.match.findUnique.mockResolvedValue(activeMatch());
+      mockPrisma.match.updateMany.mockResolvedValue({ count: 0 });
+      mockPrisma.$queryRaw.mockResolvedValue([{ id: 'w-p1' }]);
+
+      const result = await settlement.settleGame('match-1', 'p1', 'p2', 'capture_win');
+
+      expect(result).toBeNull();
+      expect(mockPrisma.wallet.update).not.toHaveBeenCalled();
+      expect(mockPrisma.walletTransaction.create).not.toHaveBeenCalled();
+      expect(mockRedis.del).not.toHaveBeenCalled();
+    });
+
+    it('returns null for a missing or already-completed match', async () => {
+      mockPrisma.match.findUnique.mockResolvedValue({ status: 'COMPLETED' });
+
+      const result = await settlement.settleGame('match-1', 'p1', 'p2', 'capture_win');
+      expect(result).toBeNull();
+      expect(mockPrisma.match.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('falls back to live settings only for legacy matches without a fee snapshot', async () => {
+      mockPrisma.match.findUnique.mockResolvedValue(
+        activeMatch({ settlementCommissionPercent: null })
+      );
+      mockPrisma.match.updateMany.mockResolvedValue({ count: 1 });
+      mockPrisma.platformSettings.findUnique.mockResolvedValue({ commissionPercent: 10 });
+      mockPrisma.$queryRaw.mockResolvedValue([{ id: 'w-p1', userId: 'p1', balanceMinorUnits: '0' }]);
+
+      const result = await settlement.settleGame('match-legacy', 'p1', 'p2', 'recovery_sweep');
+
+      expect(mockPrisma.platformSettings.findUnique).toHaveBeenCalledWith({
+        where: { id: 'singleton' }
+      });
+      expect(result.payout).toBe(1800n);
+    });
+
+    it('refuses an out-of-bounds fee snapshot without touching the ledger', async () => {
+      mockPrisma.match.findUnique.mockResolvedValue(activeMatch({ settlementCommissionPercent: 150 }));
+      mockPrisma.match.updateMany.mockResolvedValue({ count: 1 });
+      mockPrisma.$queryRaw.mockResolvedValue([{ id: 'w-p1' }]);
+
+      await expect(settlement.settleGame('match-1', 'p1', 'p2', 'capture_win'))
+        .rejects.toThrow(invalidSettlementError);
+
+      expect(mockPrisma.wallet.update).not.toHaveBeenCalled();
+      expect(mockPrisma.walletTransaction.create).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('settleGameDraw', () => {
+    it('claims atomically and issues exactly one REFUND entry per player', async () => {
+      mockPrisma.match.findUnique.mockResolvedValue(activeMatch());
+      mockPrisma.match.updateMany.mockResolvedValue({ count: 1 });
+      mockPrisma.$queryRaw
+        .mockResolvedValueOnce([{ id: 'w-light', userId: 'p1', balanceMinorUnits: '0' }])
+        .mockResolvedValueOnce([{ id: 'w-dark', userId: 'p2', balanceMinorUnits: '0' }]);
+
+      const result = await settlement.settleGameDraw('match-1', 'draw_threefold');
+
+      expect(mockPrisma.match.updateMany).toHaveBeenCalledWith({
+        where: { id: 'match-1', status: 'ACTIVE' },
+        data: expect.objectContaining({ status: 'COMPLETED', endReason: 'draw_threefold' })
+      });
+      expect(result).not.toBeNull();
+      expect(mockPrisma.wallet.update).toHaveBeenCalledTimes(2);
+      expect(mockPrisma.walletTransaction.create).toHaveBeenCalledTimes(2);
+      expect(mockPrisma.walletTransaction.create).toHaveBeenCalledWith({
+        data: {
+          walletId: 'w-light',
+          type: 'REFUND',
+          amountMinorUnits: 1000n,
+          relatedMatchId: 'match-1'
+        }
+      });
+      // Draw emits both wallet_updated events
+      expect(mockRedis.del).toHaveBeenCalledWith('match:match-1');
+    });
+
+    it('returns null when a win claimed the match first', async () => {
+      mockPrisma.match.findUnique.mockResolvedValue(activeMatch());
+      mockPrisma.match.updateMany.mockResolvedValue({ count: 0 });
+
+      const result = await settlement.settleGameDraw('match-1', 'draw_threefold');
+      expect(result).toBeNull();
+      expect(mockPrisma.wallet.update).not.toHaveBeenCalled();
+      expect(mockRedis.del).not.toHaveBeenCalled();
+    });
   });
 
   describe('settleGameWithRetry', () => {

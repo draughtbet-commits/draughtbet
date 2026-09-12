@@ -1,6 +1,6 @@
 import prisma from '../utils/db.js';
 import logger from '../utils/logger.js';
-import { lockWalletsInOrder } from '../services/matchService.js';
+import { lockWalletsInOrder, lockWalletForUpdate } from '../services/matchService.js';
 import redis from '../utils/redis.js';
 import { getIO } from './index.js';
 import * as Sentry from '@sentry/node';
@@ -155,42 +155,124 @@ async function runCleanupFromDbForDraw(matchId) {
 // ─────────────────────────────────────────────────────────────
 
 /**
+ * Thrown when a settlement names a winner who is not one of the two match
+ * participants (S02). Raised before any database write.
+ */
+export class OutsiderSettlementError extends Error {
+  constructor(message = 'Winner is not a participant of this match') {
+    super(message);
+    this.name = 'OutsiderSettlementError';
+  }
+}
+
+/**
+ * Thrown for any other inconsistent settlement request (mismatched loser id,
+ * fee out of bounds, missing fee terms).
+ */
+export class InvalidSettlementError extends Error {
+  constructor(message = 'Invalid settlement request') {
+    super(message);
+    this.name = 'InvalidSettlementError';
+  }
+}
+
+/**
+ * Validates the claimed winner (and optional loser) against the match
+ * participants. Must run before any write touches match or ledger rows.
+ */
+function validateSettlementParticipants(match, winnerId, loserId) {
+  const { playerLightId, playerDarkId } = match;
+  if (winnerId !== playerLightId && winnerId !== playerDarkId) {
+    throw new OutsiderSettlementError();
+  }
+  if (loserId) {
+    const other = winnerId === playerLightId ? playerDarkId : playerLightId;
+    if (loserId !== other) {
+      throw new InvalidSettlementError('Loser is not the non-winning participant');
+    }
+  }
+}
+
+/**
+ * Net-payout ledger convention (S16): the winner's balance moves by exactly one
+ * signed PAYOUT entry (pot minus commission). The retained commission is
+ * implicit platform revenue — it is NOT written as a second entry on the
+ * player wallet, so balance delta always reconciles to the sum of signed
+ * WalletTransaction rows for that wallet.
+ */
+function computeSettlement(match, commissionPercent) {
+  if (!Number.isInteger(commissionPercent) || commissionPercent < 0 || commissionPercent > 100) {
+    const error = new InvalidSettlementError(`Invalid commission percent: ${commissionPercent}`);
+    throw error;
+  }
+  const pot = BigInt(match.stakeMinorUnits) * 2n;
+  const commission = (pot * BigInt(commissionPercent)) / 100n;
+  const payout = pot - commission;
+  return { pot, commission, payout };
+}
+
+/**
  * Idempotent game settlement — DB transaction only.
- * Returns { payout, commission, match } on first successful call,
- * or null if already settled (idempotency gate).
+ * Returns { payout, commission, match } on the first successful claim,
+ * or null if the match was already settled (atomic status gate).
+ *
+ * S02: the match is CLAIMED atomically with an `updateMany WHERE status='ACTIVE'`;
+ * competing settlements (win/win, win/draw, resign vs sweep, ...) serialize on
+ * that conditional update and exactly one of them sees `count === 1`. Winner
+ * membership is validated before any write, and the unique
+ * (relatedMatchId, type, walletId) ledger index rejects duplicate entries.
  */
 export async function settleGame(matchId, winnerId, loserId, reason) {
   const result = await prisma.$transaction(async (tx) => {
     const match = await tx.match.findUnique({
       where: { id: matchId },
-      select: { status: true, stakeMinorUnits: true, playerLightId: true, playerDarkId: true }
+      select: {
+        status: true,
+        stakeMinorUnits: true,
+        playerLightId: true,
+        playerDarkId: true,
+        settlementCommissionPercent: true
+      }
     });
 
     if (!match || match.status !== 'ACTIVE') return null;
 
-    await tx.match.update({ where: { id: matchId }, data: {
-      status: 'COMPLETED', winnerId, endReason: reason, endedAt: new Date()
-    }});
+    // Validate membership BEFORE any write.
+    validateSettlementParticipants(match, winnerId, loserId);
 
-    const settings = await tx.platformSettings.findUniqueOrThrow({ where: { id: 'singleton' } });
+    // Atomic claim: the single settlement gate. Exactly one concurrent caller
+    // wins; every other contender returns null.
+    const claimed = await tx.match.updateMany({
+      where: { id: matchId, status: 'ACTIVE' },
+      data: { status: 'COMPLETED', winnerId, endReason: reason, endedAt: new Date() }
+    });
+    if (claimed.count === 0) return null;
 
-    const pot = BigInt(match.stakeMinorUnits) * 2n;
-    const commission = (pot * BigInt(settings.commissionPercent)) / 100n;
-    const payout = pot - commission;
+    // Fee terms accepted at funding time. Live settings are touched only for
+    // legacy ACTIVE rows funded before the snapshot column existed.
+    const settings =
+      match.settlementCommissionPercent !== null && match.settlementCommissionPercent !== undefined
+        ? null
+        : await tx.platformSettings.findUnique({ where: { id: 'singleton' } });
+    const commissionPercent = match.settlementCommissionPercent ?? settings?.commissionPercent;
+    const { commission, payout } = computeSettlement(match, commissionPercent);
 
-    const winnerWallet = await tx.wallet.findUniqueOrThrow({ where: { userId: winnerId } });
-    await tx.wallet.update({ where: { id: winnerWallet.id }, data: {
-      balanceMinorUnits: { increment: payout }
-    }});
+    // Lock the winner's wallet (serializes with withdrawals/stakes, S01),
+    // then credit the net payout under the lock.
+    const winnerWallet = await lockWalletForUpdate(tx, winnerId);
+    await tx.wallet.update({
+      where: { id: winnerWallet.id },
+      data: { balanceMinorUnits: { increment: payout } }
+    });
 
-    await tx.walletTransaction.create({ data: {
-      walletId: winnerWallet.id, type: 'PAYOUT',
-      amountMinorUnits: payout, relatedMatchId: matchId
-    }});
-    await tx.walletTransaction.create({ data: {
-      walletId: winnerWallet.id, type: 'COMMISSION',
-      amountMinorUnits: -commission, relatedMatchId: matchId
-    }});
+    await tx.walletTransaction.create({
+      data: {
+        walletId: winnerWallet.id,
+        type: 'PAYOUT',
+        amountMinorUnits: payout,
+        relatedMatchId: matchId
+      }
+    });
 
     return { payout, commission, match };
   });
@@ -208,12 +290,24 @@ export async function settleGame(matchId, winnerId, loserId, reason) {
 
 export async function settleGameDraw(matchId, reason) {
   const result = await prisma.$transaction(async (tx) => {
-    const match = await tx.match.findUnique({ where: { id: matchId } });
+    const match = await tx.match.findUnique({
+      where: { id: matchId },
+      select: {
+        status: true,
+        stakeMinorUnits: true,
+        playerLightId: true,
+        playerDarkId: true
+      }
+    });
     if (!match || match.status !== 'ACTIVE') return null;
 
-    await tx.match.update({ where: { id: matchId }, data: {
-      status: 'COMPLETED', endReason: reason, endedAt: new Date()
-    }});
+    // Same atomic claim gate as win settlement — a draw can never race a win
+    // into a double settlement.
+    const claimed = await tx.match.updateMany({
+      where: { id: matchId, status: 'ACTIVE' },
+      data: { status: 'COMPLETED', endReason: reason, endedAt: new Date() }
+    });
+    if (claimed.count === 0) return null;
 
     const [w1, w2] = await lockWalletsInOrder(tx, match.playerLightId, match.playerDarkId);
 

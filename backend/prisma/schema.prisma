@@ -71,6 +71,11 @@ model WalletTransaction {
   gatewayReference  String?  @unique // Paystack/Flutterwave transaction reference (or Stripe, in a future Phase 2 GBP wallet)
   status            TxStatus @default(COMPLETED)
   createdAt         DateTime @default(now())
+
+  // S02: at most one ledger entry per (match, type, wallet) so re-runs can never
+  // write duplicate financial entries. PostgreSQL treats NULLs as distinct, so
+  // deposit webhook rows (which have no relatedMatchId) are unaffected.
+  @@unique([relatedMatchId, type, walletId])
 }
 enum TxType {
   DEPOSIT
@@ -121,6 +126,10 @@ model Match {
   status            MatchStatus @default(ACTIVE)
   winnerId          String?
   endReason         String?  // e.g. "capture_win" | "draw_threefold" | "draw_king_moves" | "forfeit_disconnect" | "admin_decision"
+  // Accepted fee snapshot (PlatformSettings.commissionPercent) at funding time.
+  // Settlement must use this, never live settings (S02/S16). NULL only for
+  // legacy ACTIVE rows funded before this column existed.
+  settlementCommissionPercent Int?
   createdAt         DateTime @default(now())
   endedAt           DateTime?
   moves             MatchMove[]

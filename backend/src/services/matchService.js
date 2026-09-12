@@ -52,6 +52,9 @@ export function getStakeForTier(settings, tier) {
 
 /**
  * Debits stakes from both players and creates a Match row.
+ * Snapshots the accepted fee (PlatformSettings.commissionPercent) onto the
+ * match so settlement uses the terms agreed at funding time, not whatever the
+ * operator changes mid-game (S02/S16).
  */
 export const debitStakes = async (player1Id, player2Id, stakeMinorUnits, stakeTier) => {
   return await prisma.$transaction(async (tx) => {
@@ -65,10 +68,20 @@ export const debitStakes = async (player1Id, player2Id, stakeMinorUnits, stakeTi
       throw new InsufficientFundsError('Insufficient funds for stake');
     }
 
-    // 3. Generate match ID upfront so WalletTransactions can reference it
+    // 3. Snapshot the accepted fee terms before any match exists.
+    const settings = await tx.platformSettings.findUnique({
+      where: { id: 'singleton' }
+    });
+    if (!settings) throw new Error('Platform settings not configured');
+    const commissionPercent = settings.commissionPercent;
+    if (!Number.isInteger(commissionPercent) || commissionPercent < 0 || commissionPercent > 100) {
+      throw new Error(`Invalid commissionPercent snapshot: ${commissionPercent}`);
+    }
+
+    // 4. Generate match ID upfront so WalletTransactions can reference it
     const matchId = crypto.randomUUID();
 
-    // 4. Debit both wallets (debit-before-credit ordering)
+    // 5. Debit both wallets (debit-before-credit ordering)
     for (const w of [w1, w2]) {
       await tx.wallet.update({ 
         where: { id: w.id }, 
@@ -82,13 +95,14 @@ export const debitStakes = async (player1Id, player2Id, stakeMinorUnits, stakeTi
       }});
     }
 
-    // 5. Create Match row (status: ACTIVE)
+    // 6. Create Match row (status: ACTIVE) with the fee snapshot
     const match = await tx.match.create({ data: {
       id: matchId,
       playerLightId: player1Id, 
       playerDarkId: player2Id,
       tier: stakeTier, 
       stakeMinorUnits: stakeAmount, 
+      settlementCommissionPercent: commissionPercent,
       status: 'ACTIVE'
     }});
     
