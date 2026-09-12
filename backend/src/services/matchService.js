@@ -15,6 +15,13 @@ export class InvalidTierError extends Error {
   }
 }
 
+export class IdenticalPlayersError extends Error {
+  constructor(message = 'Players must be distinct') {
+    super(message);
+    this.name = 'IdenticalPlayersError';
+  }
+}
+
 /**
  * Locks one wallet row (by userId) until the transaction ends. Used by money
  * operations that only touch a single wallet, so they serialize against each
@@ -51,61 +58,73 @@ export function getStakeForTier(settings, tier) {
 }
 
 /**
- * Debits stakes from both players and creates a Match row.
- * Snapshots the accepted fee (PlatformSettings.commissionPercent) onto the
- * match so settlement uses the terms agreed at funding time, not whatever the
- * operator changes mid-game (S02/S16).
+ * Core of stake funding, meant to run inside an interactive transaction (`tx`).
+ * Locks both wallets, verifies affordability, snapshots fee terms, debits both
+ * players, and creates a Match row. Shared by `debitStakes` (matchmaking) and
+ * `acceptCallout` so callout claims and reservations commit atomically (S05).
+ */
+export const createMatchWithStakes = async (tx, player1Id, player2Id, stakeMinorUnits, stakeTier) => {
+  if (player1Id === player2Id) {
+    throw new IdenticalPlayersError('A player cannot fund a match against themselves');
+  }
+
+  // 1. Lock both wallets (ordered by ascending userId to prevent deadlocks)
+  const [w1, w2] = await lockWalletsInOrder(tx, player1Id, player2Id);
+
+  const stakeAmount = BigInt(stakeMinorUnits);
+
+  // 2. Verify BOTH players can afford the stake
+  if (BigInt(w1.balanceMinorUnits) < stakeAmount || BigInt(w2.balanceMinorUnits) < stakeAmount) {
+    throw new InsufficientFundsError('Insufficient funds for stake');
+  }
+
+  // 3. Snapshot the accepted fee terms before any match exists.
+  const settings = await tx.platformSettings.findUnique({
+    where: { id: 'singleton' }
+  });
+  if (!settings) throw new Error('Platform settings not configured');
+  const commissionPercent = settings.commissionPercent;
+  if (!Number.isInteger(commissionPercent) || commissionPercent < 0 || commissionPercent > 100) {
+    throw new Error(`Invalid commissionPercent snapshot: ${commissionPercent}`);
+  }
+
+  // 4. Generate match ID upfront so WalletTransactions can reference it
+  const matchId = crypto.randomUUID();
+
+  // 5. Debit both wallets (debit-before-credit ordering)
+  for (const w of [w1, w2]) {
+    await tx.wallet.update({ 
+      where: { id: w.id }, 
+      data: { balanceMinorUnits: { decrement: stakeAmount } } 
+    });
+    await tx.walletTransaction.create({ data: {
+      walletId: w.id, 
+      type: 'STAKE', 
+      amountMinorUnits: -stakeAmount, 
+      relatedMatchId: matchId
+    }});
+  }
+
+  // 6. Create Match row (status: ACTIVE) with the fee snapshot
+  const match = await tx.match.create({ data: {
+    id: matchId,
+    playerLightId: player1Id, 
+    playerDarkId: player2Id,
+    tier: stakeTier, 
+    stakeMinorUnits: stakeAmount, 
+    settlementCommissionPercent: commissionPercent,
+    status: 'ACTIVE'
+  }});
+
+  return match;
+};
+
+/**
+ * Public entry for matchmaking: opens its own transaction around
+ * `createMatchWithStakes`.
  */
 export const debitStakes = async (player1Id, player2Id, stakeMinorUnits, stakeTier) => {
   return await prisma.$transaction(async (tx) => {
-    // 1. Lock both wallets (ordered by ascending userId to prevent deadlocks)
-    const [w1, w2] = await lockWalletsInOrder(tx, player1Id, player2Id);
-
-    const stakeAmount = BigInt(stakeMinorUnits);
-
-    // 2. Verify BOTH players can afford the stake
-    if (BigInt(w1.balanceMinorUnits) < stakeAmount || BigInt(w2.balanceMinorUnits) < stakeAmount) {
-      throw new InsufficientFundsError('Insufficient funds for stake');
-    }
-
-    // 3. Snapshot the accepted fee terms before any match exists.
-    const settings = await tx.platformSettings.findUnique({
-      where: { id: 'singleton' }
-    });
-    if (!settings) throw new Error('Platform settings not configured');
-    const commissionPercent = settings.commissionPercent;
-    if (!Number.isInteger(commissionPercent) || commissionPercent < 0 || commissionPercent > 100) {
-      throw new Error(`Invalid commissionPercent snapshot: ${commissionPercent}`);
-    }
-
-    // 4. Generate match ID upfront so WalletTransactions can reference it
-    const matchId = crypto.randomUUID();
-
-    // 5. Debit both wallets (debit-before-credit ordering)
-    for (const w of [w1, w2]) {
-      await tx.wallet.update({ 
-        where: { id: w.id }, 
-        data: { balanceMinorUnits: { decrement: stakeAmount } } 
-      });
-      await tx.walletTransaction.create({ data: {
-        walletId: w.id, 
-        type: 'STAKE', 
-        amountMinorUnits: -stakeAmount, 
-        relatedMatchId: matchId
-      }});
-    }
-
-    // 6. Create Match row (status: ACTIVE) with the fee snapshot
-    const match = await tx.match.create({ data: {
-      id: matchId,
-      playerLightId: player1Id, 
-      playerDarkId: player2Id,
-      tier: stakeTier, 
-      stakeMinorUnits: stakeAmount, 
-      settlementCommissionPercent: commissionPercent,
-      status: 'ACTIVE'
-    }});
-    
-    return match;
+    return createMatchWithStakes(tx, player1Id, player2Id, stakeMinorUnits, stakeTier);
   });
 };

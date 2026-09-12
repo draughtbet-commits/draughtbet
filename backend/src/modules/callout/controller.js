@@ -40,15 +40,21 @@ calloutRouter.post('/:id/accept', requireAuth, async (req, res, next) => {
     const calloutId = req.params.id;
     
     const match = await acceptCallout(userId, calloutId);
-    if (!match) {
-      return res.status(409).json({ error: 'Callout is no longer available or has expired' });
-    }
-    
     res.status(200).json({ match });
   } catch (err) {
-    if (err.name === 'InsufficientFundsError') {
-      return res.status(402).json({ error: err.message });
+    switch (err.name) {
+      case 'InsufficientFundsError':
+        return res.status(402).json({ error: err.message });
+      case 'CalloutUnavailableError':
+      case 'ActiveMatchError':
+        return res.status(409).json({ error: err.message });
+      case 'SelfAcceptError':
+      case 'TierMismatchError':
+        return res.status(400).json({ error: err.message });
+      case 'NotEligibleError':
+        return res.status(403).json({ error: err.message });
+      default:
+        return next(err);
     }
-    next(err);
   }
 });

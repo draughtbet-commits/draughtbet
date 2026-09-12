@@ -21,7 +21,7 @@ jest.unstable_mockModule('../../utils/db.js', () => ({
   default: mockPrisma
 }));
 
-const { debitStakes } = await import('../matchService.js');
+const { debitStakes, createMatchWithStakes, IdenticalPlayersError } = await import('../matchService.js');
 
 describe('matchService debitStakes', () => {
   beforeEach(() => {
@@ -77,5 +77,29 @@ describe('matchService debitStakes', () => {
       .rejects.toThrow('Invalid commissionPercent');
 
     expect(mockPrisma.match.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects identical light/dark players before touching any wallet (S05)', async () => {
+    await expect(debitStakes('player-a', 'player-a', 5000n, 'AMATEUR'))
+      .rejects.toThrow(IdenticalPlayersError);
+
+    expect(mockPrisma.$queryRaw).not.toHaveBeenCalled();
+    expect(mockPrisma.wallet.update).not.toHaveBeenCalled();
+    expect(mockPrisma.walletTransaction.create).not.toHaveBeenCalled();
+    expect(mockPrisma.match.create).not.toHaveBeenCalled();
+  });
+
+  it('exposes the transaction core for reuse inside another transaction (S05)', async () => {
+    mockPrisma.platformSettings.findUnique.mockResolvedValue({ commissionPercent: 15 });
+    mockPrisma.match.create.mockResolvedValue({ id: 'm-shared' });
+
+    const match = await createMatchWithStakes(mockPrisma, 'player-a', 'player-b', 5000n, 'AMATEUR');
+
+    expect(match).toEqual({ id: 'm-shared' });
+    expect(mockPrisma.wallet.update).toHaveBeenCalledTimes(2);
+    expect(mockPrisma.walletTransaction.create).toHaveBeenCalledTimes(2);
+    expect(mockPrisma.match.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ settlementCommissionPercent: 15 })
+    });
   });
 });
