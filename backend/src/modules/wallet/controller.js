@@ -119,14 +119,16 @@ walletRouter.post('/deposit-intent', requireAuth, async (req, res, next) => {
 walletRouter.post('/withdrawal-request', requireAuth, async (req, res, next) => {
   try {
     const { id: userId } = req.user;
-    const { amountMinorUnits } = req.body;
-    
-    if (!amountMinorUnits || isNaN(amountMinorUnits) || amountMinorUnits <= 0) {
+    const { amountMinorUnits, idempotencyKey } = req.body;
+
+    // S01: amounts are enforced canonically by the service (parseMinorUnits);
+    // this fast-path check mirrors it for malformed junk.
+    if (amountMinorUnits === undefined || amountMinorUnits === null) {
       return res.status(400).json({ error: 'Invalid amount' });
     }
-    
-    const request = await requestWithdrawal(userId, amountMinorUnits);
-    
+
+    const request = await requestWithdrawal(userId, amountMinorUnits, idempotencyKey);
+
     res.status(201).json({
       withdrawalRequest: {
         ...request,
@@ -136,6 +138,9 @@ walletRouter.post('/withdrawal-request', requireAuth, async (req, res, next) => 
   } catch (error) {
     if (error.name === 'InsufficientFundsError') {
       return res.status(402).json({ error: error.message });
+    }
+    if (error.name === 'InvalidAmountError' || error.name === 'InvalidIdempotencyKeyError') {
+      return res.status(400).json({ error: error.message });
     }
     next(error);
   }

@@ -16,6 +16,17 @@ export class InvalidTierError extends Error {
 }
 
 /**
+ * Locks one wallet row (by userId) until the transaction ends. Used by money
+ * operations that only touch a single wallet, so they serialize against each
+ * other and against `lockWalletsInOrder` on the same wallet (S01).
+ */
+export async function lockWalletForUpdate(tx, userId) {
+  const rows = await tx.$queryRaw`SELECT * FROM "Wallet" WHERE "userId" = ${userId} FOR UPDATE`;
+  if (!rows || rows.length === 0) throw new Error('Wallet not found');
+  return rows[0];
+}
+
+/**
  * Locks wallets in ascending userId order to prevent deadlocks.
  */
 export async function lockWalletsInOrder(tx, idA, idB) {

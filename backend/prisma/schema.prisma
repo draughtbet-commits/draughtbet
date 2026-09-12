@@ -98,10 +98,13 @@ model WithdrawalRequest {
   id                String   @id @default(uuid())
   userId            String
   amountMinorUnits  BigInt
+  idempotencyKey    String?  // client-supplied operation key (S01); replay returns the original request
   status            WithdrawalStatus @default(PENDING)
   reviewedBy        String?  // admin User.id
   reviewedAt        DateTime?
   createdAt         DateTime @default(now())
+
+  @@unique([userId, idempotencyKey])
 }
 enum WithdrawalStatus {
   PENDING
