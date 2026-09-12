@@ -1,10 +1,8 @@
 import jwt from 'jsonwebtoken';
 import prisma from '../utils/db.js';
+import { getJwtSecret } from '../utils/jwtEnv.js';
 
-const jwtSecret = process.env.JWT_SECRET;
-if (!jwtSecret && process.env.NODE_ENV !== 'test') {
-  throw new Error('FATAL: JWT_SECRET environment variable is missing.');
-}
+const jwtSecret = getJwtSecret();
 
 export const requireAuth = async (req, res, next) => {
   try {
@@ -12,7 +10,7 @@ export const requireAuth = async (req, res, next) => {
     if (!token) {
       return res.status(401).json({ error: 'Authentication required' });
     }
-    const payload = jwt.verify(token, jwtSecret || 'test_secret');
+    const payload = jwt.verify(token, jwtSecret);
     const user = await prisma.user.findUnique({
       where: { id: payload.userId },
       select: { id: true, email: true, tier: true, isBanned: true }

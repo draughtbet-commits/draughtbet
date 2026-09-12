@@ -1,11 +1,8 @@
 import jwt from 'jsonwebtoken';
 import logger from '../utils/logger.js';
+import { getJwtSecret } from '../utils/jwtEnv.js';
 
-const jwtSecret = process.env.JWT_SECRET;
-if (!jwtSecret && process.env.NODE_ENV !== 'test') {
-  throw new Error('FATAL: JWT_SECRET environment variable is missing.');
-}
-const JWT_SECRET = jwtSecret || 'test_secret';
+const JWT_SECRET = getJwtSecret();
 
 /**
  * Socket.IO authentication middleware

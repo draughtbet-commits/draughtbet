@@ -8,17 +8,14 @@ import { GeoService } from '../../services/geoService.js';
 let prisma = _prisma;
 let redis = _redis;
 import logger from '../../utils/logger.js';
+import { getJwtSecret } from '../../utils/jwtEnv.js';
 import dotenv from 'dotenv';
 
 dotenv.config();
 
 // Prisma initialized in utils/db.js
 
-const JWT_SECRET = process.env.JWT_SECRET;
-if (!JWT_SECRET && process.env.NODE_ENV !== 'test') {
-  throw new Error('FATAL: JWT_SECRET environment variable is missing.');
-}
-const jwtSecret = JWT_SECRET || 'test_secret';
+const jwtSecret = getJwtSecret();
 
 const ACCESS_TOKEN_EXPIRY = '15m';
 const REFRESH_TOKEN_TTL_SECONDS = 7 * 24 * 60 * 60; // 7 days
