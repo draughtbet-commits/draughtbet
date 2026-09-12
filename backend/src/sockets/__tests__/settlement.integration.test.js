@@ -158,9 +158,33 @@ describeIntegration('Settlement gate (real PostgreSQL)', () => {
     }
   });
 
-  it('replays (idempotency gate) neither re-pays nor rewrites ledger rows', async () => {
+  it('sweep and direct settlement racing on the same match yield one outcome and one PAYOUT', async () => {
     const m = await fundMatch();
 
+    // Mirrors reconciliationSweep vs the winning move's own settleGameWithRetry.
+    const [direct, sweep] = await Promise.allSettled([
+      settleGame(m.id, u1.id, u2.id, 'capture_win'),
+      settleGame(m.id, u1.id, u2.id, 'recovery_sweep')
+    ]);
+
+    const settled = [direct, sweep].filter(r => r.status === 'fulfilled' && r.value !== null);
+    expect(settled).toHaveLength(1);
+
+    const match = await prisma.match.findUnique({ where: { id: m.id } });
+    expect(match.status).toBe('COMPLETED');
+    expect(match.winnerId).toBe(u1.id);
+    expect(['capture_win', 'recovery_sweep']).toContain(match.endReason);
+
+    expect(await prisma.walletTransaction.count({
+      where: { relatedMatchId: m.id, type: 'PAYOUT' }
+    })).toBe(1);
+
+    const winner = await prisma.wallet.findUnique({ where: { userId: u1.id } });
+    expect(winner.balanceMinorUnits.toString()).toBe('140000');
+  });
+
+  it('replays (idempotency gate) neither re-pays nor rewrites ledger rows', async () => {
+    const m = await fundMatch();
 
     const first = await settleGame(m.id, u1.id, u2.id, 'capture_win');
     const payoutsAfterFirst = await prisma.walletTransaction.count({

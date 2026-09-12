@@ -5,6 +5,7 @@
 //     src/modules/wallet/__tests__/wallet.integration.test.js
 import prisma from '../../../utils/db.js';
 import { requestWithdrawal } from '../service.js';
+import { debitStakes } from '../../../services/matchService.js';
 
 const describeIntegration =
   process.env.RUN_DB_INTEGRATION === '1' ? describe : describe.skip;
@@ -96,6 +97,55 @@ describeIntegration('Wallet S01 (real PostgreSQL concurrency)', () => {
     const wallet = await prisma.wallet.findUnique({ where: { userId } });
     expect(wallet.balanceMinorUnits.toString()).toBe('70');
 
+    await cleanup();
+  });
+
+  it('withdrawal overlapping a stake debit never reserves more than available funds', async () => {
+    await createFixture(100n);
+
+    const friend = await prisma.user.create({
+      data: { email: `s01-stake-${Date.now()}-${Math.random()}@test.local`, passwordHash: 'x' }
+    });
+    await prisma.wallet.create({
+      data: { userId: friend.id, balanceMinorUnits: 100000n }
+    });
+    await prisma.platformSettings.upsert({
+      where: { id: 'singleton' },
+      create: { id: 'singleton', commissionPercent: 10 },
+      update: { commissionPercent: 10 }
+    });
+
+    // 80 withdrawal and 80 stake race on a 100 balance through the same
+    // FOR UPDATE wallet lock (lockWalletForUpdate vs lockWalletsInOrder).
+    const results = await Promise.allSettled([
+      requestWithdrawal(userId, 80n, 'op_stake_race_a'),
+      debitStakes(userId, friend.id, 80n, 'AMATEUR')
+    ]);
+
+    const rejected = results.filter(r => r.status === 'rejected');
+    expect(rejected).toHaveLength(1);
+    expect(rejected[0].reason.message).toMatch(/Insufficient funds/i);
+
+    // Exactly 80 was reserved (either as a withdrawal or a match stake), the
+    // other operation was rejected — the combined demand of 160 never passed.
+    const wallet = await prisma.wallet.findUnique({ where: { userId } });
+    expect(wallet.balanceMinorUnits.toString()).toBe('20');
+
+    const withdrawals = await prisma.withdrawalRequest.count({ where: { userId } });
+    const matches = await prisma.match.count({
+      where: { OR: [{ playerLightId: userId }, { playerDarkId: userId }] }
+    });
+    expect(withdrawals + matches).toBe(1);
+
+    const match = await prisma.match.findFirst({
+      where: { OR: [{ playerLightId: userId }, { playerDarkId: userId }] }
+    });
+    if (match) {
+      await prisma.walletTransaction.deleteMany({ where: { relatedMatchId: match.id } });
+      await prisma.match.delete({ where: { id: match.id } });
+    }
+    await prisma.wallet.delete({ where: { userId: friend.id } });
+    await prisma.user.delete({ where: { id: friend.id } });
     await cleanup();
   });
 });
