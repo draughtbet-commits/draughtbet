@@ -1,8 +1,7 @@
 import express from 'express';
 import helmet from 'helmet';
 import cors from 'cors';
-import { pinoHttp } from 'pino-http';
-import logger from './utils/logger.js';
+import logger, { httpLogger } from './utils/logger.js';
 import prisma from './utils/db.js';
 import Redis from 'ioredis';
 import { globalRateLimiter } from './middleware/rateLimit.js';
@@ -45,14 +44,7 @@ app.use(requestIdMiddleware);
 app.use('/webhooks', webhookRouter);
 
 app.use(express.json());
-app.use(pinoHttp({
-  logger,
-  genReqId: (req) => req.id,
-  customProps: (req) => ({
-    userId: req.user?.id,
-    route: `${req.method} ${req.originalUrl}`
-  })
-}));
+app.use(httpLogger);
 app.use(globalRateLimiter);
 
 // Routes

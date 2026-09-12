@@ -116,7 +116,7 @@ authRouter.post('/geo-locate', checkRateLimiter, async (req, res, next) => {
   try {
     const { lat, lng } = geolocateSchema.parse(req.body);
     const result = await GeoService.geolocate(lat, lng);
-    logger.info({ lat, lng, ...result }, 'geo-locate resolved');
+    logger.info(result, 'geo-locate resolved');
     res.json(result);
   } catch (err) {
     if (err && err.name === 'ZodError') {

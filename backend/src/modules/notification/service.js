@@ -50,7 +50,7 @@ export class NotificationService {
 
         if (user?.fcmToken) {
           logger.info(
-            { userId, type, notificationId: notification.id, fcmToken: user.fcmToken },
+            { userId, type, notificationId: notification.id },
             '[MOCK FCM] Sent push notification to offline user'
           );
         } else {
