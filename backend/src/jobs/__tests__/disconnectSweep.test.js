@@ -24,7 +24,8 @@ const mockLogger = {
 };
 
 jest.unstable_mockModule('../../utils/redis.js', () => ({
-  default: mockRedis
+  default: mockRedis,
+  isRedisReady: jest.fn().mockReturnValue(true)
 }));
 
 jest.unstable_mockModule('../../sockets/gameManager.js', () => mockGameManager);

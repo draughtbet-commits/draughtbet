@@ -30,7 +30,8 @@ const mockRedis = {
   defineCommand: jest.fn()
 };
 jest.unstable_mockModule('../../../utils/redis.js', () => ({
-  default: mockRedis
+  default: mockRedis,
+  isRedisReady: jest.fn().mockReturnValue(true)
 }));
 
 const logger = (await import('../../../utils/logger.js')).default;
