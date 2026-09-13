@@ -185,9 +185,55 @@ const user = await prisma.$transaction(async (tx) => {
       // Destroy the old token to rotate it (prevents reuse)
       await redis.del(redisKey);
     }
+
+    // S06: a banned or deleted account must never mint a fresh access token
+    // from a refresh token, even though the refresh endpoint is not
+    // authenticated. This closes the "banned user refreshes credentials" gap.
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, isBanned: true }
+    });
+    if (!user) {
+      throw new Error('Invalid or expired refresh token');
+    }
+    if (user.isBanned) {
+      throw new Error('Account suspended');
+    }
     
     // Issue new tokens
     return this.issueTokens(userId);
+  }
+
+  /**
+   * Revokes every refresh token a user holds (S06). Called on ban so a
+   * suspended account cannot rotate any outstanding refresh token.
+   */
+  static async revokeAllRefreshTokens(userId) {
+    if (!redis) return 0;
+    const pattern = `refresh:${userId}:*`;
+    const keys = [];
+    const stream = redis.scanStream({ match: pattern, count: 100 });
+    for await (const batch of stream) keys.push(...batch);
+    if (keys.length > 0) {
+      await redis.del(keys);
+    }
+    return keys.length;
+  }
+
+  /**
+   * Bans or un-bans a user and, when banning, revokes their sessions. The
+   * controller is responsible for disconnecting live sockets (S06).
+   */
+  static async setAccountStatus(userId, banned) {
+    const user = await prisma.user.update({
+      where: { id: userId },
+      data: { isBanned: banned },
+      select: { id: true, email: true, isBanned: true }
+    });
+    if (banned) {
+      await this.revokeAllRefreshTokens(userId);
+    }
+    return user;
   }
 
   static async logout(userId, refreshTokenId) {

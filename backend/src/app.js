@@ -7,6 +7,7 @@ import Redis from 'ioredis';
 import { globalRateLimiter } from './middleware/rateLimit.js';
 import { requestIdMiddleware, finalErrorHandler } from './middleware/requestId.js';
 import { authRouter } from './modules/auth/controller.js';
+import { adminRouter } from './modules/admin/controller.js';
 import { matchRouter } from './modules/match/controller.js';
 import { calloutRouter } from './modules/callout/controller.js';
 import { matchmakingRouter } from './modules/matchmaking/controller.js';
@@ -49,6 +50,7 @@ app.use(globalRateLimiter);
 
 // Routes
 app.use('/auth', authRouter);
+app.use('/admin', adminRouter);
 app.use('/matches', matchRouter);
 app.use('/callouts', calloutRouter);
 app.use('/matchmaking', matchmakingRouter);

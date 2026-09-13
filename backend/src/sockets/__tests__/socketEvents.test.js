@@ -9,6 +9,26 @@ import http from 'node:http';
 import { io as ioClient } from 'socket.io-client';
 import jwt from 'jsonwebtoken';
 
+// S06: socketAuthMiddleware now validates the account against the DB, and
+// handleJoinMatch reads the match row before joining. This mock keeps the
+// real server integration test self-contained: connections authenticate as a
+// non-banned user and match lookups fail so the controlled 'Failed to join
+// match' path stays exercised.
+let bannedUserId = null;
+jest.unstable_mockModule('../../utils/db.js', () => ({
+  default: {
+    user: {
+      findUnique: jest.fn(async ({ where }) => ({
+        id: where.id,
+        isBanned: where.id === bannedUserId
+      }))
+    },
+    match: {
+      findUnique: jest.fn(async () => { throw new Error('db unavailable'); })
+    }
+  }
+}));
+
 describe('socket event rejection safety (real server)', () => {
   let server;
   let port;
@@ -96,5 +116,31 @@ describe('socket event rejection safety (real server)', () => {
     };
     await guardSocketHandler(socket, throwingHandler)({ matchId: 'x' });
     expect(socket.emit).toHaveBeenCalledWith('error', { message: 'Internal server error' });
+  });
+
+  it('rejects socket authentication for a banned account (S06)', async () => {
+    bannedUserId = 'socket-test-user';
+    const socket = connect();
+    try {
+      await expect(connectClient(socket)).rejects.toThrow('Account suspended');
+    } finally {
+      bannedUserId = null;
+      socket.close();
+    }
+  });
+
+  it('enforces connection lifetime: actions after token expiry are refused and disconnected (S06)', async () => {
+    const { guardSocketHandler } = await import('../index.js');
+    const socket = {
+      id: 'expired-socket',
+      user: { userId: 'u', tokenExpiresAt: Date.now() - 1000 },
+      emit: jest.fn(),
+      disconnect: jest.fn()
+    };
+    const handler = jest.fn();
+    await guardSocketHandler(socket, handler)({});
+    expect(handler).not.toHaveBeenCalled();
+    expect(socket.emit).toHaveBeenCalledWith('error', { message: 'Session expired' });
+    expect(socket.disconnect).toHaveBeenCalledWith(true);
   });
 });

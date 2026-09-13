@@ -59,9 +59,18 @@ export const getIO = () => {
  * Shared wrapper so a rejected async handler can never become an unhandled
  * rejection (Node's default behaviour terminates the process). Any error that
  * escapes a handler's own boundaries produces a controlled error reply instead.
+ *
+ * Also enforces connection lifetime (S06): once the access token that
+ * authenticated the socket has expired, further actions are refused and the
+ * socket is disconnected. Sockets must re-authenticate to continue.
  */
 export const guardSocketHandler = (socket, handler) => async (payload) => {
   try {
+    if (socket.user?.tokenExpiresAt && Date.now() > socket.user.tokenExpiresAt) {
+      socket.emit('error', { message: 'Session expired' });
+      socket.disconnect?.(true);
+      return;
+    }
     await handler(socket, payload);
   } catch (err) {
     logger.error({ err, socketId: socket.id }, 'Socket event handler failed');

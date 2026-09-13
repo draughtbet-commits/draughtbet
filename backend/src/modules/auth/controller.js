@@ -4,6 +4,7 @@ import { AuthService } from './service.js';
 import { GeoService } from '../../services/geoService.js';
 import { requireAuth } from '../../middleware/auth.js';
 import { authRateLimiter, checkRateLimiter } from '../../middleware/rateLimit.js';
+import { getIO } from '../../sockets/index.js';
 import logger from '../../utils/logger.js';
 
 export const authRouter = express.Router();
@@ -152,7 +153,7 @@ authRouter.post('/refresh', authRateLimiter, async (req, res, next) => {
     const tokens = await AuthService.refresh(userId, refreshToken);
     res.json(tokens);
   } catch (err) {
-    if (err.message === 'Invalid or expired refresh token') {
+    if (err.message === 'Invalid or expired refresh token' || err.message === 'Account suspended') {
       return res.status(401).json({ error: err.message });
     }
     next(err);
@@ -167,6 +168,16 @@ authRouter.post('/logout', requireAuth, async (req, res, next) => {
     }
     // req.user.id is populated by requireAuth middleware
     await AuthService.logout(req.user.id, refreshToken);
+
+    // S06: end the user's live realtime connections so logout takes effect
+    // immediately, not only when the access token naturally expires.
+    // Access-token policy after logout: stateless access tokens remain valid
+    // until natural expiry for HTTP; the socket session is revoked now.
+    try {
+      getIO().in(`user:${req.user.id}`).disconnectSockets(true);
+    } catch (_) {
+      // Socket layer not initialized (HTTP-only/test environment).
+    }
     res.json({ message: 'Logged out successfully' });
   } catch (err) {
     next(err);

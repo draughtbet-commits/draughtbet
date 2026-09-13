@@ -1,4 +1,5 @@
 import jwt from 'jsonwebtoken';
+import prisma from '../utils/db.js';
 import logger from '../utils/logger.js';
 import { getJwtSecret } from '../utils/jwtEnv.js';
 
@@ -7,9 +8,12 @@ const JWT_SECRET = getJwtSecret();
 /**
  * Socket.IO authentication middleware
  * Extracts JWT from `auth.token` or `handshake.headers.authorization`.
- * Rejects unauthorized connections.
+ * Verifies the signature AND (S06) re-checks the account in the database so a
+ * suspended/banned user cannot authenticate a socket even with a valid,
+ * unexpired access token. Records the access-token expiry so the server can
+ * enforce connection lifetime (see guardSocketHandler).
  */
-export const socketAuthMiddleware = (socket, next) => {
+export const socketAuthMiddleware = async (socket, next) => {
   try {
     // 1. Try to get token from socket.handshake.auth (preferred in Socket.IO v3+)
     let token = socket.handshake.auth?.token;
@@ -28,10 +32,20 @@ export const socketAuthMiddleware = (socket, next) => {
 
     // Verify token
     const decoded = jwt.verify(token, JWT_SECRET);
-    
+
+    // 3. Validate the account still exists and is not banned (S06)
+    const user = await prisma.user.findUnique({
+      where: { id: decoded.userId },
+      select: { id: true, isBanned: true }
+    });
+    if (!user || user.isBanned) {
+      return next(new Error('Account suspended'));
+    }
+
     // Attach decoded user info to the socket
     socket.user = {
-      userId: decoded.userId
+      userId: decoded.userId,
+      tokenExpiresAt: decoded.exp ? decoded.exp * 1000 : null
     };
 
     next();

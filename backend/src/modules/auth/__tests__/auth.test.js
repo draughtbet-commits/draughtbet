@@ -30,6 +30,7 @@ const mockRedis = {
   set: jest.fn(),
   get: jest.fn(),
   del: jest.fn(),
+  scanStream: jest.fn(),
 };
 
 const logger = (await import('../../../utils/logger.js')).default;
@@ -331,22 +332,113 @@ describe('Auth System', () => {
       // Verify the old token was actively deleted (invalidated)
       expect(mockRedis.del).toHaveBeenCalledWith('refresh:user-id:old-token');
     });
+
+    it('should refuse to refresh for a banned account and mint no new token (S06)', async () => {
+      mockRedis.get.mockResolvedValueOnce('valid');
+      mockPrisma.user.findUnique.mockResolvedValueOnce({ id: 'user-id', isBanned: true });
+
+      const res = await request(app)
+        .post('/auth/refresh')
+        .send({ userId: 'user-id', refreshToken: 'old-token' });
+
+      expect(res.status).toBe(401);
+      expect(res.body.error).toBe('Account suspended');
+      expect(mockRedis.set).not.toHaveBeenCalled();
+    });
+
+    it('should refuse to refresh for a deleted account', async () => {
+      mockRedis.get.mockResolvedValueOnce('valid');
+      mockPrisma.user.findUnique.mockResolvedValueOnce(null);
+
+      const res = await request(app)
+        .post('/auth/refresh')
+        .send({ userId: 'user-id', refreshToken: 'old-token' });
+
+      expect(res.status).toBe(401);
+      expect(res.body.error).toBe('Invalid or expired refresh token');
+      expect(mockRedis.set).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('PATCH /admin/users/:userId/ban', () => {
+    it('should deny non-admin accounts (S06)', async () => {
+      const token = (await AuthService.issueTokens('user-id')).accessToken;
+
+      const res = await request(app)
+        .patch('/admin/users/other/ban')
+        .set('Authorization', `Bearer ${token}`);
+
+      expect(res.status).toBe(403);
+    });
+
+    it('should ban a user, revoke their refresh tokens and drop their sockets (S06)', async () => {
+      const token = (await AuthService.issueTokens('admin')).accessToken;
+      mockPrisma.user.findUnique
+        .mockResolvedValueOnce({ id: 'admin', isAdmin: true, isBanned: false })
+        .mockResolvedValueOnce({ id: 'target', isBanned: false });
+      mockPrisma.user.update.mockResolvedValueOnce({ id: 'target', email: 't@t', isBanned: true });
+      mockRedis.scanStream.mockImplementation(() => ({
+        [Symbol.asyncIterator]: async function* () { yield ['refresh:target:t1']; }
+      }));
+
+      const res = await request(app)
+        .patch('/admin/users/target/ban')
+        .set('Authorization', `Bearer ${token}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.user.isBanned).toBe(true);
+      expect(res.body.message).toBe('Account suspended');
+      expect(mockPrisma.user.update).toHaveBeenCalledWith({
+        where: { id: 'target' },
+        data: { isBanned: true },
+        select: { email: true, id: true, isBanned: true }
+      });
+      expect(mockRedis.del).toHaveBeenCalledWith(['refresh:target:t1']);
+    });
+
+    it('should return 404 when banning a missing user', async () => {
+      const token = (await AuthService.issueTokens('admin')).accessToken;
+      mockPrisma.user.findUnique
+        .mockResolvedValueOnce({ id: 'admin', isAdmin: true, isBanned: false })
+        .mockResolvedValueOnce(null);
+
+      const res = await request(app)
+        .patch('/admin/users/missing/ban')
+        .set('Authorization', `Bearer ${token}`);
+
+      expect(res.status).toBe(404);
+    });
+  });
+
+  describe('PATCH /admin/users/:userId/unban', () => {
+    it('should reinstate a banned user without revoking refresh tokens', async () => {
+      const token = (await AuthService.issueTokens('admin')).accessToken;
+      mockPrisma.user.findUnique
+        .mockResolvedValueOnce({ id: 'admin', isAdmin: true, isBanned: false })
+        .mockResolvedValueOnce({ id: 'target', isBanned: true });
+      mockPrisma.user.update.mockResolvedValueOnce({ id: 'target', isBanned: false });
+
+      const res = await request(app)
+        .patch('/admin/users/target/unban')
+        .set('Authorization', `Bearer ${token}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.user.isBanned).toBe(false);
+      expect(res.body.message).toBe('Account reinstated');
+      expect(mockRedis.del).not.toHaveBeenCalled();
+    });
   });
 
   describe('POST /auth/logout', () => {
-    it('should invalidate token on logout', async () => {
-      // Need a valid access token to access the route (requireAuth will look up the user)
+    it('should invalidate token and disconnect the user sockets on logout (S06)', async () => {
       const token = (await AuthService.issueTokens('user-id')).accessToken;
 
       const res = await request(app)
         .post('/auth/logout')
         .set('Authorization', `Bearer ${token}`)
-        .send({
-          refreshToken: 'token-to-delete'
-        });
+        .send({ refreshToken: 'token-to-delete' });
 
       expect(res.status).toBe(200);
-      // Verify token deleted from Redis
       expect(mockRedis.del).toHaveBeenCalledWith('refresh:user-id:token-to-delete');
     });
   });
