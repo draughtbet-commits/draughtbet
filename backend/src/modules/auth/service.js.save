@@ -20,8 +20,8 @@ const jwtSecret = getJwtSecret();
 const ACCESS_TOKEN_EXPIRY = '15m';
 const REFRESH_TOKEN_TTL_SECONDS = 7 * 24 * 60 * 60; // 7 days
 
-// Atomic refresh-token rotation: curl GET and DEL in one step so exactly one
-// concurrent caller wins per token.
+// Atomic refresh-token rotation: returns the current value and deletes
+// the key in one step, so exactly one concurrent caller wins per token.
 const ROTATE_SCRIPT = `
 local current = redis.call('GET', KEYS[1])
 if current then
@@ -194,8 +194,9 @@ const user = await prisma.$transaction(async (tx) => {
       }
     }
 
-    // A banned or deleted account must never mint a fresh access token from a
-    // refresh token, even though the refresh endpoint is not authenticated.
+    // S06: a banned or deleted account must never mint a fresh access token
+    // from a refresh token, even though the refresh endpoint is not
+    // authenticated. This closes the "banned user refreshes credentials" gap.
     const user = await prisma.user.findUnique({
       where: { id: userId },
       select: { id: true, isBanned: true }

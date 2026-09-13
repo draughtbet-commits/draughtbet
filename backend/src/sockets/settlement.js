@@ -156,7 +156,7 @@ async function runCleanupFromDbForDraw(matchId) {
 
 /**
  * Thrown when a settlement names a winner who is not one of the two match
- * participants (S02). Raised before any database write.
+ * participants. Raised before any database write.
  */
 export class OutsiderSettlementError extends Error {
   constructor(message = 'Winner is not a participant of this match') {
@@ -194,7 +194,7 @@ function validateSettlementParticipants(match, winnerId, loserId) {
 }
 
 /**
- * Net-payout ledger convention (S16): the winner's balance moves by exactly one
+ * Net-payout ledger convention: the winner's balance moves by exactly one
  * signed PAYOUT entry (pot minus commission). The retained commission is
  * implicit platform revenue — it is NOT written as a second entry on the
  * player wallet, so balance delta always reconciles to the sum of signed
@@ -216,7 +216,7 @@ function computeSettlement(match, commissionPercent) {
  * Returns { payout, commission, match } on the first successful claim,
  * or null if the match was already settled (atomic status gate).
  *
- * S02: the match is CLAIMED atomically with an `updateMany WHERE status='ACTIVE'`;
+ * The match is CLAIMED atomically with an `updateMany WHERE status='ACTIVE'`;
  * competing settlements (win/win, win/draw, resign vs sweep, ...) serialize on
  * that conditional update and exactly one of them sees `count === 1`. Winner
  * membership is validated before any write, and the unique
@@ -257,7 +257,7 @@ export async function settleGame(matchId, winnerId, loserId, reason) {
     const commissionPercent = match.settlementCommissionPercent ?? settings?.commissionPercent;
     const { commission, payout } = computeSettlement(match, commissionPercent);
 
-    // Lock the winner's wallet (serializes with withdrawals/stakes, S01),
+    // Lock the winner's wallet (serializes with withdrawals/stakes),
     // then credit the net payout under the lock.
     const winnerWallet = await lockWalletForUpdate(tx, winnerId);
     await tx.wallet.update({

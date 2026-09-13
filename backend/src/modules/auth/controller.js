@@ -169,7 +169,7 @@ authRouter.post('/logout', requireAuth, async (req, res, next) => {
     // req.user.id is populated by requireAuth middleware
     await AuthService.logout(req.user.id, refreshToken);
 
-    // S06: end the user's live realtime connections so logout takes effect
+    // End the user's live realtime connections so logout takes effect
     // immediately, not only when the access token naturally expires.
     // Access-token policy after logout: stateless access tokens remain valid
     // until natural expiry for HTTP; the socket session is revoked now.

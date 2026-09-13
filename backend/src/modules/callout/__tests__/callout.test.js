@@ -73,7 +73,7 @@ class FakeInsufficientFundsError extends Error {
 const challengerOk = { id: 'player-1', tier: 'PRO', isBanned: false };
 const acceptorOk = { id: 'player-2', tier: 'PRO', isBanned: false };
 
-describe('acceptCallout (S05 call-out acceptance policy)', () => {
+describe('acceptCallout policy', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockPrisma.$transaction.mockImplementation(async (fn) => fn(mockPrisma));

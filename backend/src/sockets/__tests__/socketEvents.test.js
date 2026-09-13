@@ -9,7 +9,7 @@ import http from 'node:http';
 import { io as ioClient } from 'socket.io-client';
 import jwt from 'jsonwebtoken';
 
-// S06: socketAuthMiddleware now validates the account against the DB, and
+// socketAuthMiddleware now validates the account against the DB, and
 // handleJoinMatch reads the match row before joining. This mock keeps the
 // real server integration test self-contained: connections authenticate as a
 // non-banned user and match lookups fail so the controlled 'Failed to join
@@ -118,7 +118,7 @@ describe('socket event rejection safety (real server)', () => {
     expect(socket.emit).toHaveBeenCalledWith('error', { message: 'Internal server error' });
   });
 
-  it('rejects socket authentication for a banned account (S06)', async () => {
+  it('rejects socket authentication for a banned account', async () => {
     bannedUserId = 'socket-test-user';
     const socket = connect();
     try {
@@ -129,7 +129,7 @@ describe('socket event rejection safety (real server)', () => {
     }
   });
 
-  it('enforces connection lifetime: actions after token expiry are refused and disconnected (S06)', async () => {
+  it('enforces connection lifetime: actions after token expiry are refused and disconnected', async () => {
     const { guardSocketHandler } = await import('../index.js');
     const socket = {
       id: 'expired-socket',

@@ -1,4 +1,4 @@
-// Real-PostgreSQL + real-Redis S07 refresh-rotation integration test.
+// Real-PostgreSQL + real-Redis refresh-rotation integration test.
 // Skipped by default; run (start a postgres + redis container first):
 //   DATABASE_URL=postgresql://test:test@127.0.0.1:5544/testpostgres?schema=public \
 //   REDIS_URL=redis://127.0.0.1:6379/0 \
@@ -35,7 +35,7 @@ describeIntegration('Refresh token rotation (real PostgreSQL + real Redis)', () 
     redis?.disconnect?.('flush');
   });
 
-  it('two simultaneous refreshes from one token yield exactly one valid successor (S07)', async () => {
+  it('two simultaneous refreshes from one token yield exactly one valid successor', async () => {
     const user = await makeUser();
     const { refreshToken } = await AuthService.issueTokens(user.id);
 
@@ -58,7 +58,7 @@ describeIntegration('Refresh token rotation (real PostgreSQL + real Redis)', () 
     expect(await redis.keys(`refresh:${user.id}:*`)).toHaveLength(1);
   });
 
-  it('reuse of a consumed token is rejected and never grants a successor (S07)', async () => {
+  it('reuse of a consumed token is rejected and never grants a successor', async () => {
     const user = await makeUser();
     const { refreshToken } = await AuthService.issueTokens(user.id);
     const rotated = await AuthService.refresh(user.id, refreshToken);

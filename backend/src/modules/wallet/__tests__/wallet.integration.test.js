@@ -1,4 +1,4 @@
-// Real-PostgreSQL S01 integration test. The default suite runs with no DB
+// Real-PostgreSQL integration test. The default suite runs with no DB
 // (skipped); run it against a scratch Postgres with migrations applied:
 //   DATABASE_URL=postgresql://test:test@127.0.0.1:5544/draughts_arena_test?schema=public \
 //   REDIS_URL= RUN_DB_INTEGRATION=1 node --experimental-vm-modules node_modules/jest/bin/jest.js \
@@ -10,7 +10,7 @@ import { debitStakes } from '../../../services/matchService.js';
 const describeIntegration =
   process.env.RUN_DB_INTEGRATION === '1' ? describe : describe.skip;
 
-describeIntegration('Wallet S01 (real PostgreSQL concurrency)', () => {
+describeIntegration('Wallet (real PostgreSQL concurrency)', () => {
   let userId;
   let walletId;
 

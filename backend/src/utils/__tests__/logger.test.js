@@ -8,7 +8,7 @@ import {
   createHttpLogger
 } from '../logger.js';
 
-describe('logger redaction (S13)', () => {
+describe('logger redaction', () => {
   const SYNTHETIC_BEARER = 'Bearer synthetic.secret.token.0123456789';
   const SYNTHETIC_COOKIE = 'sid=synthetic-cookie-value-9876';
   const QUERY_SECRET = 'synthetic-query-token';

@@ -23,9 +23,8 @@ export class IdenticalPlayersError extends Error {
 }
 
 /**
- * Locks one wallet row (by userId) until the transaction ends. Used by money
- * operations that only touch a single wallet, so they serialize against each
- * other and against `lockWalletsInOrder` on the same wallet (S01).
+ * Locks one wallet row (by userId) until the transaction ends, so money
+ * operations touching the same wallet serialize against each other.
  */
 export async function lockWalletForUpdate(tx, userId) {
   const rows = await tx.$queryRaw`SELECT * FROM "Wallet" WHERE "userId" = ${userId} FOR UPDATE`;
@@ -61,7 +60,7 @@ export function getStakeForTier(settings, tier) {
  * Core of stake funding, meant to run inside an interactive transaction (`tx`).
  * Locks both wallets, verifies affordability, snapshots fee terms, debits both
  * players, and creates a Match row. Shared by `debitStakes` (matchmaking) and
- * `acceptCallout` so callout claims and reservations commit atomically (S05).
+ * `acceptCallout` so a callout is claimed and its funds committed atomically.
  */
 export const createMatchWithStakes = async (tx, player1Id, player2Id, stakeMinorUnits, stakeTier) => {
   if (player1Id === player2Id) {

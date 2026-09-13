@@ -53,7 +53,7 @@ export async function handleJoinMatch(socket, payload) {
   const { matchId } = validated.data;
 
   try {
-    // AUTHORIZE BEFORE any room/presence mutation (S04): a third account must
+    // AUTHORIZE BEFORE any room/presence mutation: a third account must
     // receive neither room membership nor game state, and cannot spoof a
     // reconnection notification. Knowledge of a match id is not authorization.
     const match = await prisma.match.findUnique({

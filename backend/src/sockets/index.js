@@ -60,7 +60,7 @@ export const getIO = () => {
  * rejection (Node's default behaviour terminates the process). Any error that
  * escapes a handler's own boundaries produces a controlled error reply instead.
  *
- * Also enforces connection lifetime (S06): once the access token that
+ * Also enforces connection lifetime: once the access token that
  * authenticated the socket has expired, further actions are refused and the
  * socket is disconnected. Sockets must re-authenticate to continue.
  */

@@ -1,5 +1,5 @@
 // JWT secret resolution with a guard against weak/sample values in
-// production (S12). Shared by HTTP auth, socket auth and the auth service so
+// production. Shared by HTTP auth, socket auth and the auth service so
 // all three enforce one policy.
 const KNOWN_WEAK_JWT_SECRETS = new Set([
   'your-super-secret-jwt-key',

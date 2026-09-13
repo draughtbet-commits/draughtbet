@@ -121,8 +121,8 @@ walletRouter.post('/withdrawal-request', requireAuth, async (req, res, next) => 
     const { id: userId } = req.user;
     const { amountMinorUnits, idempotencyKey } = req.body;
 
-    // S01: amounts are enforced canonically by the service (parseMinorUnits);
-    // this fast-path check mirrors it for malformed junk.
+    // Enforced canonically by the service (parseMinorUnits); this fast-path
+    // check mirrors it for malformed junk.
     if (amountMinorUnits === undefined || amountMinorUnits === null) {
       return res.status(400).json({ error: 'Invalid amount' });
     }

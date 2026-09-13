@@ -1,6 +1,6 @@
 import pino from 'pino';
 
-// Credential/secret field names that are never allowed in logs (S13).
+// Credential/secret field names that are never allowed in logs.
 // Stored lowercase; keys are matched after lowercasing so camelCase,
 // snake_case and mixed caps all scrub at any depth.
 export const SENSITIVE_KEYS = new Set([

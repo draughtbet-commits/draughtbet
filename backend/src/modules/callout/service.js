@@ -131,7 +131,7 @@ export const getOpenCallouts = async (userId) => {
 };
 
 export const acceptCallout = async (userId, calloutId) => {
-  // Claim, validate and fund in ONE transaction (S05). A row lock serializes
+  // Claim, validate and fund in ONE transaction. A row lock serializes
   // concurrent accepts of the same callout; policy checks (self-accept, tier,
   // ban, active-match) and the wallet reservation run before the callout is
   // marked ACCEPTED, so a failed accept rolls everything back and the callout
@@ -207,7 +207,7 @@ export const acceptCallout = async (userId, calloutId) => {
   });
 
   // 7. Initialize Redis game state (idempotent; a crash here releases via the
-  //    S10 recovery path rather than re-debiting)
+  //    recovery path rather than re-debiting)
   // player1 is challenger, player2 is acceptor
   await initializeGame(match.id, callout.challengerId, userId, callout.tier);
 

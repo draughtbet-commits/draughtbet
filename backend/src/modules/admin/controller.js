@@ -36,7 +36,7 @@ async function setStatus(req, res, next, banned) {
     const user = await AuthService.setAccountStatus(targetId, banned);
 
     // Disconnect any live sockets so a banned session stops emitting and
-    // stops receiving the account's events (S06). Socket.IO may not be
+    // stops receiving the account's events. Socket.IO may not be
     // initialized in HTTP-only/test environments; that must not fail the ban.
     if (banned) {
       try {

@@ -79,7 +79,7 @@ describe('matchService debitStakes', () => {
     expect(mockPrisma.match.create).not.toHaveBeenCalled();
   });
 
-  it('rejects identical light/dark players before touching any wallet (S05)', async () => {
+  it('rejects identical light/dark players before touching any wallet', async () => {
     await expect(debitStakes('player-a', 'player-a', 5000n, 'AMATEUR'))
       .rejects.toThrow(IdenticalPlayersError);
 
@@ -89,7 +89,7 @@ describe('matchService debitStakes', () => {
     expect(mockPrisma.match.create).not.toHaveBeenCalled();
   });
 
-  it('exposes the transaction core for reuse inside another transaction (S05)', async () => {
+  it('exposes the transaction core for reuse inside another transaction', async () => {
     mockPrisma.platformSettings.findUnique.mockResolvedValue({ commissionPercent: 15 });
     mockPrisma.match.create.mockResolvedValue({ id: 'm-shared' });
 

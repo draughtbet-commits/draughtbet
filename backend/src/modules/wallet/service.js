@@ -6,9 +6,9 @@ import {
 } from '../../services/matchService.js';
 
 // Canonical money contract: a non-negative bounded minor-unit integer accepted
-// as a plain-digit string or number (S01). Rejects floats, signs, exponent
-// notation, empty strings and anything that would overflow BigInt — senders
-// must always transmit money as integer minor units, never floats.
+// as a plain-digit string or number. Rejects floats, signs, exponent notation,
+// empty strings and anything that would overflow BigInt — senders must always
+// transmit money as integer minor units, never floats.
 const MAX_MINOR_UNITS = 1_000_000_000_000_000n;
 
 export const parseMinorUnits = (raw) => {
@@ -82,7 +82,7 @@ export const processDepositWebhook = async (reference, amountMinorUnits, gateway
 
 /**
  * Request a withdrawal (reserves funds in the same transaction that creates
- * the pending request). S01:
+ * the pending request).
  *  - The wallet row is locked FOR UPDATE before balance reads/debits so
  *    concurrent withdrawals and match-results serialize instead of both
  *    observing the pre-debit balance.

@@ -315,7 +315,7 @@ describe('Auth System', () => {
   });
 
   describe('POST /auth/refresh', () => {
-    it('should rotate refresh token and invalidate old one atomically (S07)', async () => {
+    it('rotates the refresh token and invalidates the old one atomically', async () => {
       mockRedis.eval.mockResolvedValueOnce(1);
 
       const res = await request(app)
@@ -340,7 +340,7 @@ describe('Auth System', () => {
       expect(mockRedis.del).not.toHaveBeenCalled();
     });
 
-    it('should reject reuse of a consumed refresh token (S07)', async () => {
+    it('rejects reuse of a consumed refresh token', async () => {
       mockRedis.eval.mockResolvedValueOnce(null);
 
       const res = await request(app)
@@ -352,7 +352,7 @@ describe('Auth System', () => {
       expect(mockRedis.set).not.toHaveBeenCalled();
     });
 
-    it('should refuse to refresh for a banned account and mint no new token (S06)', async () => {
+    it('refuses to refresh for a banned account and mints no new token', async () => {
       mockRedis.eval.mockResolvedValueOnce(1);
       mockPrisma.user.findUnique.mockResolvedValueOnce({ id: 'user-id', isBanned: true });
 
@@ -380,7 +380,7 @@ describe('Auth System', () => {
   });
 
   describe('PATCH /admin/users/:userId/ban', () => {
-    it('should deny non-admin accounts (S06)', async () => {
+    it('should deny non-admin accounts', async () => {
       const token = (await AuthService.issueTokens('user-id')).accessToken;
 
       const res = await request(app)
@@ -390,7 +390,7 @@ describe('Auth System', () => {
       expect(res.status).toBe(403);
     });
 
-    it('should ban a user, revoke their refresh tokens and drop their sockets (S06)', async () => {
+    it('bans a user, revokes their refresh tokens and drops their sockets', async () => {
       const token = (await AuthService.issueTokens('admin')).accessToken;
       mockPrisma.user.findUnique
         .mockResolvedValueOnce({ id: 'admin', isAdmin: true, isBanned: false })
@@ -449,7 +449,7 @@ describe('Auth System', () => {
   });
 
   describe('POST /auth/logout', () => {
-    it('should invalidate token and disconnect the user sockets on logout (S06)', async () => {
+    it('invalidates the token and disconnects the user sockets on logout', async () => {
       const token = (await AuthService.issueTokens('user-id')).accessToken;
 
       const res = await request(app)

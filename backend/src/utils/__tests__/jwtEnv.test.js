@@ -1,7 +1,7 @@
 import { jest } from '@jest/globals';
 import { getJwtSecret } from '../jwtEnv.js';
 
-describe('getJwtSecret (S12)', () => {
+describe('getJwtSecret', () => {
   const originalEnv = process.env;
 
   beforeEach(() => {

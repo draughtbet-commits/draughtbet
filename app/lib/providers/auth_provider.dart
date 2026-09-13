@@ -39,7 +39,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
   StreamSubscription<void>? _sessionSub;
 
   /// Called when the auth interceptor flags the session as expired, so the
-  /// router can redirect to /login. S06: the singleton socket belongs to the
+  /// router can redirect to /login. The singleton socket belongs to the
   /// expired account; tear it down so a later login cannot inherit its events
   /// or send actions on its behalf.
   void onSessionExpired() {
@@ -87,7 +87,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
         await _storage.setRefreshToken(refreshToken);
         final userId = _extractUserId(accessToken);
         if (userId != null) await _storage.setUserId(userId);
-        // S06: never reuse the previous account's socket across a login.
+        // Never reuse the previous account's socket across a login.
         socketService.disconnect();
         unawaited(socketService.initSocket().catchError((_) {}));
         state = state.copyWith(isAuthenticated: true, isLoading: false);
@@ -149,7 +149,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
           await _storage.setRefreshToken(refreshToken);
           final userId = _extractUserId(accessToken);
           if (userId != null) await _storage.setUserId(userId);
-          // S06: same account-switch protection as login.
+          // Same account-switch protection as login.
           socketService.disconnect();
           unawaited(socketService.initSocket().catchError((_) {}));
           state = state.copyWith(isAuthenticated: true);

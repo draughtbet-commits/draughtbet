@@ -67,7 +67,7 @@ const liveMatch = (overrides = {}) => ({
   ...overrides
 });
 
-describe('handleJoinMatch (S04 room membership authorization)', () => {
+describe('handleJoinMatch room membership authorization', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockPrisma.match.findUnique.mockResolvedValue(liveMatch());
