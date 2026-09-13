@@ -1,8 +1,8 @@
 import { Router } from 'express';
-import { getGameState } from '../../sockets/gameManager.js';
+import { getGameState, reconstructMoveHistory } from '../../sockets/gameManager.js';
 import prisma from '../../utils/db.js';
 import { requireAuth } from '../../middleware/auth.js';
-import { createInitialBoard, applyMove, getLegalMoves } from '../engine/index.js';
+import { createInitialBoard, getLegalMoves, COLOR_WHITE } from '../engine/index.js';
 import logger from '../../utils/logger.js';
 
 export const matchRouter = Router();
@@ -79,6 +79,8 @@ matchRouter.get('/:id/state', requireAuth, async (req, res) => {
       const board = JSON.parse(redisState.board);
       const currentTurn = redisState.currentTurn;
       return res.json({
+        matchId,
+        version: parseInt(redisState.version, 10),
         board,
         currentTurn,
         moveCount: parseInt(redisState.moveCount, 10),
@@ -89,37 +91,37 @@ matchRouter.get('/:id/state', requireAuth, async (req, res) => {
       });
     }
 
-    // 3. Fallback to Postgres (rebuildBoardFromMoveLog)
-    const moves = await prisma.matchMove.findMany({
-      where: { matchId },
-      orderBy: { moveNumber: 'asc' }
-    });
-
-    let board = createInitialBoard();
-    let currentTurnStr = 'WHITE'; // Starting turn
-    let moveCount = 0;
-
-    for (const m of moves) {
-      // Create a move object that applyMove expects
-      const moveObj = {
-        from: m.fromSquare,
-        to: m.toSquare,
-        capturedSquares: m.capturedSquares || []
-      };
-      
-      board = applyMove(board, moveObj);
-      currentTurnStr = currentTurnStr === 'WHITE' ? 'BLACK' : 'WHITE';
-      moveCount = m.moveNumber;
+    // 3. Fallback to the durable move log (Redis loss or restart). The log is
+    //    replayed through the engine, so the returned board is exactly the
+    //    state before the last accepted move.
+    const rebuilt = await reconstructMoveHistory(matchId);
+    if (rebuilt) {
+      return res.json({
+        matchId,
+        version: rebuilt.moveCount,
+        board: rebuilt.board,
+        currentTurn: rebuilt.currentTurn,
+        moveCount: rebuilt.moveCount,
+        status: match.status.toLowerCase(),
+        players: { light: match.playerLightId, dark: match.playerDarkId },
+        winnerId: match.winnerId,
+        legalMoves: getLegalMoves(rebuilt.board, rebuilt.currentTurn)
+      });
     }
-    
+
+    // A freshly activated match whose Redis state was lost before any move:
+    // return the pristine starting position.
+    const initialBoard = createInitialBoard();
     return res.json({
-      board,
-      currentTurn: currentTurnStr,
-      moveCount,
+      matchId,
+      version: 0,
+      board: initialBoard,
+      currentTurn: COLOR_WHITE,
+      moveCount: 0,
       status: match.status.toLowerCase(),
       players: { light: match.playerLightId, dark: match.playerDarkId },
       winnerId: match.winnerId,
-      legalMoves: getLegalMoves(board, currentTurnStr)
+      legalMoves: getLegalMoves(initialBoard, COLOR_WHITE)
     });
 
   } catch (err) {

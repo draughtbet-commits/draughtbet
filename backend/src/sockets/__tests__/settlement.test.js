@@ -7,6 +7,9 @@ const mockPrisma = {
     findUnique: jest.fn(),
     updateMany: jest.fn()
   },
+  matchMove: {
+    findFirst: jest.fn()
+  },
   platformSettings: {
     findUniqueOrThrow: jest.fn(),
     findUnique: jest.fn()
@@ -198,6 +201,33 @@ describe('settlement logic', () => {
       expect(mockPrisma.wallet.update).not.toHaveBeenCalled();
       expect(mockPrisma.walletTransaction.create).not.toHaveBeenCalled();
     });
+
+    it('refuses a board-derived win claim when the durable move log is empty', async () => {
+      mockPrisma.match.findUnique.mockResolvedValue(activeMatch());
+      mockPrisma.matchMove.findFirst.mockResolvedValue(null);
+
+      await expect(settlement.settleGame('match-1', 'p1', 'p2', 'NO_LEGAL_MOVES'))
+        .rejects.toThrow(invalidSettlementError);
+
+      expect(mockPrisma.match.updateMany).not.toHaveBeenCalled();
+      expect(mockPrisma.wallet.update).not.toHaveBeenCalled();
+      expect(mockPrisma.walletTransaction.create).not.toHaveBeenCalled();
+    });
+
+    it('settles a board-derived win claim when the final move is on the durable log', async () => {
+      mockPrisma.match.findUnique.mockResolvedValue(activeMatch());
+      mockPrisma.matchMove.findFirst.mockResolvedValue({ id: 'mv-1', moveNumber: 42 });
+      mockPrisma.match.updateMany.mockResolvedValue({ count: 1 });
+      mockPrisma.$queryRaw.mockResolvedValue([{ id: 'w-p1', userId: 'p1', balanceMinorUnits: '0' }]);
+
+      const result = await settlement.settleGame('match-1', 'p1', 'p2', 'NO_LEGAL_MOVES');
+
+      expect(mockPrisma.matchMove.findFirst).toHaveBeenCalledWith({
+        where: { matchId: 'match-1' },
+        orderBy: { moveNumber: 'desc' }
+      });
+      expect(result).not.toBeNull();
+    });
   });
 
   describe('settleGameDraw', () => {
@@ -237,6 +267,18 @@ describe('settlement logic', () => {
       expect(result).toBeNull();
       expect(mockPrisma.wallet.update).not.toHaveBeenCalled();
       expect(mockRedis.del).not.toHaveBeenCalled();
+    });
+
+    it('refuses a board-derived draw claim when the durable move log is empty', async () => {
+      mockPrisma.match.findUnique.mockResolvedValue(activeMatch());
+      mockPrisma.matchMove.findFirst.mockResolvedValue(null);
+
+      await expect(settlement.settleGameDraw('match-1', 'DRAW_THREEFOLD'))
+        .rejects.toThrow(invalidSettlementError);
+
+      expect(mockPrisma.match.updateMany).not.toHaveBeenCalled();
+      expect(mockPrisma.wallet.update).not.toHaveBeenCalled();
+      expect(mockPrisma.walletTransaction.create).not.toHaveBeenCalled();
     });
   });
 

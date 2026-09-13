@@ -171,6 +171,8 @@ model MatchMove {
   isKingMove        Boolean  @default(false)
   boardStateAfter   Json     // full board snapshot — enables fast reconnect and future replay features
   createdAt         DateTime @default(now())
+
+  @@unique([matchId, moveNumber])
 }
 
 model Callout {

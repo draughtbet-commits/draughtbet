@@ -37,29 +37,36 @@ return 'OK'
 // Utility sleep function
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+// Durable write of an accepted move. Returns { persisted: true } on success and
+// { alreadyExists: true } when the (matchId, moveNumber) pair is already on the
+// log (a duplicate delivery of an accepted move). Throws when the write could
+// not be completed after retries — in that case the move is NOT accepted.
 async function persistMatchMove(moveData, retries = 3) {
+  let lastErr = null;
   for (let attempt = 1; attempt <= retries; attempt++) {
     try {
       await prisma.matchMove.create({ data: moveData });
-      return;
+      return { persisted: true };
     } catch (err) {
+      lastErr = err;
+      if (err && err.code === 'P2002') {
+        return { alreadyExists: true };
+      }
       logger.warn({ err, attempt, matchId: moveData.matchId, moveNumber: moveData.moveNumber },
         'MatchMove persist failed, retrying');
-      if (attempt === retries) {
-        logger.error({ err, moveData },
-          'CRITICAL: MatchMove persist failed after all retries. Move audit trail has a gap.');
-        if (Sentry && typeof Sentry.captureException === 'function') {
-          Sentry.captureException(err, {
-            level: 'fatal',
-            tags: { subsystem: 'match_audit' },
-            extra: { matchId: moveData.matchId, moveNumber: moveData.moveNumber }
-          });
-        }
-      } else {
-        await sleep(attempt * 100);
-      }
+      if (attempt < retries) await sleep(attempt * 100);
     }
   }
+  logger.error({ err: lastErr, moveData },
+    'CRITICAL: MatchMove persist failed after all retries. Move not accepted.');
+  if (Sentry && typeof Sentry.captureException === 'function') {
+    Sentry.captureException(lastErr, {
+      level: 'fatal',
+      tags: { subsystem: 'match_audit' },
+      extra: { matchId: moveData.matchId, moveNumber: moveData.moveNumber }
+    });
+  }
+  throw lastErr;
 }
 
 export const getActiveGameForUser = async (userId) => {
@@ -77,6 +84,37 @@ export const getGameState = async (matchId) => {
   const state = await redis.hgetall(`match:${matchId}`);
   if (!state || Object.keys(state).length === 0) return null;
   return state;
+};
+
+// Replays the durable move log back into a playable board. The log is the
+// source of truth, so this is the repair path when the Redis projection is
+// lost and the evidence source settlement can fall back on. Returns null when
+// the log is empty.
+export const reconstructMoveHistory = async (matchId) => {
+  const rows = await prisma.matchMove.findMany({
+    where: { matchId },
+    orderBy: { moveNumber: 'asc' }
+  });
+  if (rows.length === 0) return null;
+
+  let board = createInitialBoard();
+  for (const row of rows) {
+    const applied = applyMove(board, {
+      from: row.fromSquare,
+      to: row.toSquare,
+      capturedSquares: row.capturedSquares || []
+    });
+    // Prefer the recomputed board so the chain stays continuous; a stored
+    // snapshot is only a backstop against a corrupted log.
+    board = (applied && applied.newBoard) || row.boardStateAfter;
+  }
+
+  return {
+    board,
+    currentTurn: rows.length % 2 === 1 ? COLOR_BLACK : COLOR_WHITE,
+    moveCount: rows.length,
+    rows
+  };
 };
 
 export const initializeGame = async (matchId, player1Id, player2Id, stakeTier) => {
@@ -293,6 +331,46 @@ export const handleMoveAttempt = async (socket, payload) => {
         positionCounts, ended, reason, newStatus, winnerId, move, promoted
       } = nextState;
 
+      // The move is accepted durably BEFORE the live projection advances. The
+      // move log is the source of truth and Redis is a replayable projection
+      // of it, so an accepted move survives a crash or Redis loss in one
+      // replayable history.
+      const pieceMoved = JSON.parse(state.board)[from - 1];
+      let persisted;
+      try {
+        persisted = await persistMatchMove({
+          matchId,
+          moveNumber: moveCount,
+          playerId: userId,
+          fromSquare: from,
+          toSquare: to,
+          capturedSquares: move.capturedSquares || [],
+          isKingMove: isKing(pieceMoved),
+          boardStateAfter: newBoard
+        });
+      } catch (err) {
+        // Durable acceptance failed — nothing advanced, so the client can
+        // safely retry the same move.
+        socket.emit('move_rejected', { reason: 'persist_failed' });
+        return;
+      }
+
+      if (persisted.alreadyExists) {
+        // A previous delivery already recorded this exact move. If the
+        // projection has advanced past it, this is a duplicate delivery of an
+        // accepted move — idempotent, no second broadcast. Otherwise a process
+        // died between the DB write and the projection apply; resume it below.
+        const current = await getGameState(matchId);
+        if (!current) {
+          socket.emit('move_rejected', { reason: 'game_already_ended' });
+          return;
+        }
+        if (parseInt(current.moveCount, 10) >= moveCount) {
+          success = true;
+          continue;
+        }
+      }
+
       await redis.eval(
         casScript,
         1,
@@ -311,10 +389,14 @@ export const handleMoveAttempt = async (socket, payload) => {
 
       success = true;
 
-      // Emit to room
+      // Emit to room — the board plus the match identity (matchId/version) a
+      // client needs to reconcile state after a reconnect or a duplicate
+      // delivery.
       const io = getIO();
       const nextLegalMoves = ended ? [] : getLegalMoves(newBoard, nextTurn);
       io.to(`match:${matchId}`).emit('move_applied', {
+        matchId,
+        version: String(parseInt(state.version, 10) + 1),
         from, to,
         captured: move.capturedSquares || [],
         promoted,
@@ -325,20 +407,8 @@ export const handleMoveAttempt = async (socket, payload) => {
         board: newBoard
       });
 
-      // Persist move async
-      const pieceMoved = JSON.parse(state.board)[from - 1];
-      persistMatchMove({
-        matchId,
-        moveNumber: moveCount,
-        playerId: userId,
-        fromSquare: from,
-        toSquare: to,
-        capturedSquares: move.capturedSquares || [],
-        isKingMove: isKing(pieceMoved),
-        boardStateAfter: newBoard
-      });
-
-      // Settlement
+      // Settlement. The outcome evidence is durable by now: the final move hit
+      // the log before the projection advanced and before settlement ran.
       if (ended) {
         if (newStatus === 'completed') {
           const loserId = winnerId === state.player1 ? state.player2 : state.player1;

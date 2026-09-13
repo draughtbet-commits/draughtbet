@@ -154,6 +154,16 @@ async function runCleanupFromDbForDraw(matchId) {
 // DB settlement (idempotent — returns result on first call, null on subsequent)
 // ─────────────────────────────────────────────────────────────
 
+// Board-deriveable outcomes (played to a finish) must be reproducible from the
+// durable move log. Settlement refuses to claim an outcome that has no durable
+// evidence behind it; declaration-based results (resign, forfeit, sweep
+// cleanups) carry their own reason and need no play record.
+const BOARD_OUTCOME_REASONS = new Set([
+  'NO_LEGAL_MOVES',
+  'DRAW_THREEFOLD',
+  'DRAW_25_KING_MOVES'
+]);
+
 /**
  * Thrown when a settlement names a winner who is not one of the two match
  * participants. Raised before any database write.
@@ -237,6 +247,18 @@ export async function settleGame(matchId, winnerId, loserId, reason) {
 
     if (!match || match.status !== 'ACTIVE') return null;
 
+    // Evidence gate: board-derived outcomes require a durable record of the
+    // final move, otherwise the settlement has no history to stand on.
+    if (BOARD_OUTCOME_REASONS.has(reason)) {
+      const finalMove = await tx.matchMove.findFirst({
+        where: { matchId },
+        orderBy: { moveNumber: 'desc' }
+      });
+      if (!finalMove) {
+        throw new InvalidSettlementError('Settlement evidence missing: move log is empty');
+      }
+    }
+
     // Validate membership BEFORE any write.
     validateSettlementParticipants(match, winnerId, loserId);
 
@@ -300,6 +322,18 @@ export async function settleGameDraw(matchId, reason) {
       }
     });
     if (!match || match.status !== 'ACTIVE') return null;
+
+    // Evidence gate: a draw reached through board rules needs the durable log
+    // of the final move; declaration-based draws skip this check.
+    if (BOARD_OUTCOME_REASONS.has(reason)) {
+      const finalMove = await tx.matchMove.findFirst({
+        where: { matchId },
+        orderBy: { moveNumber: 'desc' }
+      });
+      if (!finalMove) {
+        throw new InvalidSettlementError('Settlement evidence missing: move log is empty');
+      }
+    }
 
     // Same atomic claim gate as win settlement — a draw can never race a win
     // into a double settlement.
