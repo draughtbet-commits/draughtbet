@@ -3,6 +3,9 @@ import { jest } from '@jest/globals';
 const mockPrisma = {
   $transaction: jest.fn(),
   $queryRaw: jest.fn(),
+  user: {
+    findUnique: jest.fn()
+  },
   platformSettings: {
     findUnique: jest.fn()
   },
@@ -31,6 +34,13 @@ describe('matchService debitStakes', () => {
       .mockResolvedValueOnce([{ id: 'w-a', userId: 'player-a', balanceMinorUnits: '100000' }])
       .mockResolvedValueOnce([{ id: 'w-b', userId: 'player-b', balanceMinorUnits: '100000' }]);
   });
+
+  const eligibleUser = {
+    countryCode: 'NG',
+    kycStatus: 'VERIFIED',
+    eligibility: { id: 'elig-1', countryAllowed: true, ageVerified: true }
+  };
+  mockPrisma.user.findUnique.mockResolvedValue(eligibleUser);
 
   it('snapshots the accepted commissionPercent onto the Match row', async () => {
     mockPrisma.platformSettings.findUnique.mockResolvedValue({ commissionPercent: 20 });
@@ -101,5 +111,36 @@ describe('matchService debitStakes', () => {
     expect(mockPrisma.match.create).toHaveBeenCalledWith({
       data: expect.objectContaining({ settlementCommissionPercent: 15 })
     });
+  });
+
+  it('refuses to fund a match when either player fails KYC', async () => {
+    mockPrisma.user.findUnique
+      .mockResolvedValueOnce({
+        countryCode: 'NG',
+        kycStatus: 'NONE',
+        eligibility: { id: 'elig-1', countryAllowed: true, ageVerified: true }
+      });
+
+    await expect(debitStakes('player-a', 'player-b', 5000n, 'AMATEUR'))
+      .rejects.toThrow('KYC verification is required');
+
+    // No wallet row is locked and no stake is taken for the failing pair
+    expect(mockPrisma.$queryRaw).not.toHaveBeenCalled();
+    expect(mockPrisma.wallet.update).not.toHaveBeenCalled();
+    expect(mockPrisma.match.create).not.toHaveBeenCalled();
+  });
+
+  it('refuses to fund a match for a player with no country evidence', async () => {
+    mockPrisma.user.findUnique.mockResolvedValueOnce({
+      countryCode: null,
+      kycStatus: 'VERIFIED',
+      eligibility: null
+    });
+
+    await expect(debitStakes('player-a', 'player-b', 5000n, 'AMATEUR'))
+      .rejects.toThrow('Account eligibility has not been verified');
+
+    expect(mockPrisma.$queryRaw).not.toHaveBeenCalled();
+    expect(mockPrisma.match.create).not.toHaveBeenCalled();
   });
 });

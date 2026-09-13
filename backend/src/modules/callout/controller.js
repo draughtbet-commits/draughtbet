@@ -52,6 +52,10 @@ calloutRouter.post('/:id/accept', requireAuth, async (req, res, next) => {
       case 'TierMismatchError':
         return res.status(400).json({ error: err.message });
       case 'NotEligibleError':
+      case 'EligibilityRequiredError':
+      case 'CountryNotAllowedError':
+      case 'AgeNotVerifiedError':
+      case 'KycRequiredError':
         return res.status(403).json({ error: err.message });
       default:
         return next(err);

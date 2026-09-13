@@ -4,6 +4,9 @@ const mockPrisma = {
   $transaction: jest.fn(),
   $executeRaw: jest.fn(),
   $queryRaw: jest.fn(),
+  user: {
+    findUnique: jest.fn()
+  },
   wallet: {
     findUnique: jest.fn(),
     update: jest.fn()
@@ -25,6 +28,14 @@ jest.unstable_mockModule('../../../utils/db.js', () => ({
 }));
 
 const { requestWithdrawal, rejectWithdrawal } = await import('../service.js');
+
+const eligibleUser = {
+  id: 'user-1',
+  countryCode: 'NG',
+  kycStatus: 'VERIFIED',
+  eligibility: { id: 'elig-1', countryAllowed: true, ageVerified: true }
+};
+mockPrisma.user.findUnique.mockResolvedValue(eligibleUser);
 
 describe('Wallet Service', () => {
   beforeEach(() => {
@@ -81,6 +92,28 @@ describe('Wallet Service', () => {
       await expect(requestWithdrawal('user-1', 0)).rejects.toThrow('Invalid amount');
       await expect(requestWithdrawal('user-1', '100.50')).rejects.toThrow('Invalid amount');
       await expect(requestWithdrawal('user-1', -50)).rejects.toThrow('Invalid amount');
+      expect(mockPrisma.$queryRaw).not.toHaveBeenCalled();
+    });
+
+    it('should block withdrawal for an account without KYC verification', async () => {
+      mockPrisma.user.findUnique.mockResolvedValueOnce({
+        id: 'user-1',
+        countryCode: 'NG',
+        kycStatus: 'NONE',
+        eligibility: { id: 'elig-1', countryAllowed: true, ageVerified: true }
+      });
+
+      await expect(requestWithdrawal('user-1', 100000)).rejects.toThrow('KYC verification is required');
+      // No wallet row is locked or debited for an ineligible account
+      expect(mockPrisma.$queryRaw).not.toHaveBeenCalled();
+      expect(mockPrisma.wallet.update).not.toHaveBeenCalled();
+      expect(mockPrisma.walletTransaction.create).not.toHaveBeenCalled();
+    });
+
+    it('should block withdrawal for an account without an eligibility record', async () => {
+      mockPrisma.user.findUnique.mockResolvedValueOnce({ id: 'user-1', countryCode: 'NG', kycStatus: 'VERIFIED', eligibility: null });
+
+      await expect(requestWithdrawal('user-1', 100000)).rejects.toThrow('Account eligibility has not been verified');
       expect(mockPrisma.$queryRaw).not.toHaveBeenCalled();
     });
 

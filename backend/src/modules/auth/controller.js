@@ -5,7 +5,6 @@ import { GeoService } from '../../services/geoService.js';
 import { requireAuth } from '../../middleware/auth.js';
 import { authRateLimiter, checkRateLimiter } from '../../middleware/rateLimit.js';
 import { getIO } from '../../sockets/index.js';
-import logger from '../../utils/logger.js';
 
 export const authRouter = express.Router();
 
@@ -35,7 +34,8 @@ const registerSchema = z.object({
     }
     return age >= 18;
   }, { message: 'Must be at least 18 years old' }),
-  countryCode: z.string().length(2).optional(),
+  countryCode: z.string().length(2),
+  geoBinding: z.string().min(8),
   fingerprintHash: z.string().optional()
 }).refine((d) => d.email || d.phone, { message: 'Email or phone is required' });
 
@@ -74,7 +74,8 @@ authRouter.post('/register', authRateLimiter, async (req, res, next) => {
       password: data.password,
       dateOfBirth: data.dateOfBirth,
       fingerprintHash: data.fingerprintHash,
-      countryCode: data.countryCode
+      countryCode: data.countryCode,
+      geoBinding: data.geoBinding
     });
     // Auto-login: issue tokens in the same call so the app can skip the
     // separate sign-in step after account creation.
@@ -86,6 +87,9 @@ authRouter.post('/register', authRateLimiter, async (req, res, next) => {
     }
     if (err.message === 'Country not allowed') {
       return res.status(403).json({ error: 'This app is not available in your country' });
+    }
+    if (err.message === 'Geo evidence required' || err.message === 'Geo evidence expired or invalid') {
+      return res.status(400).json({ error: err.message });
     }
     if (err.message === 'Account already exists') {
       return res.status(409).json({ error: 'An account with this email, phone or username already exists' });
@@ -117,8 +121,11 @@ authRouter.post('/geo-locate', checkRateLimiter, async (req, res, next) => {
   try {
     const { lat, lng } = geolocateSchema.parse(req.body);
     const result = await GeoService.geolocate(lat, lng);
-    logger.info(result, 'geo-locate resolved');
-    res.json(result);
+    // Bind the resolved country to an opaque token so registration later
+    // proves its country came from this server-side resolution, not the
+    // client. No binding is minted for a blocked country.
+    const binding = result.allowed ? await AuthService.createGeoBinding(result.countryCode) : null;
+    res.json({ ...result, binding });
   } catch (err) {
     if (err && err.name === 'ZodError') {
       return res.status(400).json({ errors: err.errors || err.issues });

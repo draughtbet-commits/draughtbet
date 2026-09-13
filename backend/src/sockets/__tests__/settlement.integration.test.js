@@ -18,7 +18,15 @@ describeIntegration('Settlement gate (real PostgreSQL)', () => {
 
   const makeUser = async (suffix, initialBalance = 100000n) => {
     const user = await prisma.user.create({
-      data: { email: `settle-${Date.now()}-${Math.random()}-${suffix}@test.local`, passwordHash: 'x' }
+      data: {
+        email: `settle-${Date.now()}-${Math.random()}-${suffix}@test.local`,
+        passwordHash: 'x',
+        kycStatus: 'VERIFIED',
+        countryCode: 'NG',
+        eligibility: {
+          create: { countryCode: 'NG', countryAllowed: true, ageVerified: true }
+        }
+      }
     });
     await prisma.wallet.create({
       data: { userId: user.id, balanceMinorUnits: initialBalance }

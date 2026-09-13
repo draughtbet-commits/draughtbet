@@ -35,7 +35,12 @@ describeIntegration('Call-out acceptance policy (real PostgreSQL)', () => {
         email: `callout-${Date.now()}-${Math.random()}-${suffix}@test.local`,
         passwordHash: 'x',
         tier,
-        isBanned
+        isBanned,
+        kycStatus: 'VERIFIED',
+        countryCode: 'NG',
+        eligibility: {
+          create: { countryCode: 'NG', countryAllowed: true, ageVerified: true }
+        }
       }
     });
     await prisma.wallet.create({ data: { userId: user.id, balanceMinorUnits: balance } });

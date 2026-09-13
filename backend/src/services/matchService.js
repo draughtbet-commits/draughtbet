@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import prisma from '../utils/db.js';
+import { assertEligibleForMoney } from './eligibilityService.js';
 
 export class InsufficientFundsError extends Error {
   constructor(message = 'Insufficient funds') {
@@ -66,6 +67,12 @@ export const createMatchWithStakes = async (tx, player1Id, player2Id, stakeMinor
   if (player1Id === player2Id) {
     throw new IdenticalPlayersError('A player cannot fund a match against themselves');
   }
+
+  // Eligibility is checked before any wallet is locked: each player must have
+  // server-verified country evidence, be an adult, and have passed KYC. This
+  // covers both matchmaking (queued worker) and call-out acceptances.
+  await assertEligibleForMoney(tx, player1Id);
+  await assertEligibleForMoney(tx, player2Id);
 
   // 1. Lock both wallets (ordered by ascending userId to prevent deadlocks)
   const [w1, w2] = await lockWalletsInOrder(tx, player1Id, player2Id);

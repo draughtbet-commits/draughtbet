@@ -4,6 +4,7 @@ import {
   InsufficientFundsError,
   lockWalletForUpdate
 } from '../../services/matchService.js';
+import { assertEligibleForMoney } from '../../services/eligibilityService.js';
 
 // Canonical money contract: a non-negative bounded minor-unit integer accepted
 // as a plain-digit string or number. Rejects floats, signs, exponent notation,
@@ -99,6 +100,10 @@ export const requestWithdrawal = async (userId, amountMinorUnits, idempotencyKey
   }
 
   const key = parseIdempotencyKey(idempotencyKey);
+
+  // Only eligible accounts may move money out (own funds are returned on
+  // deposit, but funds leaving the platform require verified identity).
+  await assertEligibleForMoney(prisma, userId);
 
   try {
     return await prisma.$transaction(async (tx) => {

@@ -22,7 +22,8 @@ model User {
   tier              Tier     @default(AMATEUR)
   ageVerified       Boolean  @default(false)
   kycStatus         KycStatus @default(NONE)
-  countryCode       String?
+  countryCode       String?  // ISO 3166-1 alpha-2, from the server-side geo evidence at registration
+  dateOfBirth       DateTime? // persisted claimed date of birth; ageVerified is derived from it
   fcmToken          String?  // Firebase Cloud Messaging token for push notifications
   isBanned          Boolean  @default(false)
   isAdmin           Boolean  @default(false)
@@ -32,6 +33,7 @@ model User {
   notifications     Notification[]
   calloutsCreated   Callout[] @relation("CalloutChallenger")
   calloutsAccepted  Callout[] @relation("CalloutAcceptedBy")
+  eligibility       Eligibility?
 }
 
 enum Tier {
@@ -44,6 +46,19 @@ enum KycStatus {
   NONE
   PENDING
   VERIFIED
+}
+
+model Eligibility {
+  id             String    @id @default(uuid())
+  userId         String    @unique
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  countryCode    String
+  countryAllowed Boolean   @default(false)
+  geoVerifiedAt  DateTime  @default(now())
+  dateOfBirth    DateTime? // persisted claimed date of birth used for the age check
+  ageVerified    Boolean   @default(false)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 }
 
 model Wallet {

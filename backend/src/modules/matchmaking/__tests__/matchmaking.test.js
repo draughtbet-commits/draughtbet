@@ -45,7 +45,13 @@ const { default: request } = await import('supertest');
 describe('Matchmaking smoke', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    mockPrisma.user.findUnique.mockResolvedValue({ tier: 'AMATEUR' });
+    mockPrisma.user.findUnique.mockResolvedValue({
+      id: 'user-1',
+      tier: 'AMATEUR',
+      countryCode: 'NG',
+      kycStatus: 'VERIFIED',
+      eligibility: { id: 'elig-1', countryAllowed: true, ageVerified: true }
+    });
     mockPrisma.platformSettings.findUniqueOrThrow.mockResolvedValue({
       amateurStakeMinP: 50000n,
       amateurStakeMaxP: 1500000n,
@@ -62,6 +68,19 @@ describe('Matchmaking smoke', () => {
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ status: 'queued', queueKey: 'queue:AMATEUR:50000' });
     expect(mockRedis.zadd).toHaveBeenCalledWith('queue:AMATEUR:50000', expect.any(Number), 'user-1');
+  });
+
+  it('blocks queue join for an account without KYC verification', async () => {
+    mockPrisma.user.findUnique.mockResolvedValue({
+      id: 'user-1',
+      tier: 'AMATEUR',
+      countryCode: 'NG',
+      kycStatus: 'NONE',
+      eligibility: { id: 'elig-1', countryAllowed: true, ageVerified: true }
+    });
+    const res = await request(app).post('/matchmaking/join').send({ stakeMinorUnits: 50000 });
+    expect(res.status).toBe(403);
+    expect(mockRedis.zadd).not.toHaveBeenCalled();
   });
 
   it('requires stakeMinorUnits to leave the queue', async () => {

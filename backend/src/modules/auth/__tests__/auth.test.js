@@ -33,6 +33,7 @@ const mockRedis = {
   scanStream: jest.fn(),
   eval: jest.fn(),
 };
+mockRedis.get.mockResolvedValue('ng');
 
 const logger = (await import('../../../utils/logger.js')).default;
 jest.spyOn(logger, 'error').mockImplementation(() => {});
@@ -92,6 +93,8 @@ describe('Auth System', () => {
           email: 'test@example.com',
           password: 'StrongPassword1',
           dateOfBirth: '2000-01-01',
+          countryCode: 'NG',
+          geoBinding: 'geo-abcdefgh',
           fingerprintHash: 'hash123'
         });
 
@@ -110,11 +113,15 @@ describe('Auth System', () => {
         .send({
           email: 'test@example.com',
           password: 'StrongPassword1',
-          dateOfBirth: '2000-01-01'
+          dateOfBirth: '2000-01-01',
+          countryCode: 'NG',
+          geoBinding: 'geo-abcdefgh'
         });
 
       expect(res.status).toBe(201);
       expect(mockPrisma.$transaction).toHaveBeenCalled();
+      // The geo evidence token is consumed on successful registration
+      expect(mockRedis.del).toHaveBeenCalledWith('geo:binding:geo-abcdefgh');
     });
 
     it('should register with username/fullName/address/phone/countryCode and normalize phone', async () => {
@@ -129,7 +136,8 @@ describe('Auth System', () => {
           address: '14 Marina Road, Lagos',
           password: 'StrongPassword1',
           dateOfBirth: '1995-05-10',
-          countryCode: 'NG'
+          countryCode: 'NG',
+          geoBinding: 'geo-abcdefgh'
         });
 
       expect(res.status).toBe(201);
@@ -137,13 +145,49 @@ describe('Auth System', () => {
     });
 
     it('should reject registration from a blocked country', async () => {
+      mockRedis.get.mockResolvedValueOnce('us');
       const res = await request(app)
         .post('/auth/register')
         .send({
           email: 'test@example.com',
           password: 'StrongPassword1',
           dateOfBirth: '2000-01-01',
-          countryCode: 'US'
+          countryCode: 'US',
+          geoBinding: 'geo-usresolv'
+        });
+
+      expect(res.status).toBe(403);
+      expect(res.body.error).toBe('This app is not available in your country');
+    });
+
+    it('should reject registration when the geo token is expired or invalid', async () => {
+      mockRedis.get.mockResolvedValueOnce(null);
+
+      const res = await request(app)
+        .post('/auth/register')
+        .send({
+          email: 'test@example.com',
+          password: 'StrongPassword1',
+          dateOfBirth: '2000-01-01',
+          countryCode: 'NG',
+          geoBinding: 'geo-staletoken'
+        });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBe('Geo evidence expired or invalid');
+    });
+
+    it('should reject registration when the geo token binds a different country', async () => {
+      mockRedis.get.mockResolvedValueOnce('gh');
+
+      const res = await request(app)
+        .post('/auth/register')
+        .send({
+          email: 'test@example.com',
+          password: 'StrongPassword1',
+          dateOfBirth: '2000-01-01',
+          countryCode: 'NG',
+          geoBinding: 'geo-ghresolv'
         });
 
       expect(res.status).toBe(403);
@@ -155,7 +199,9 @@ describe('Auth System', () => {
         .post('/auth/register')
         .send({
           password: 'StrongPassword1',
-          dateOfBirth: '2000-01-01'
+          dateOfBirth: '2000-01-01',
+          countryCode: 'NG',
+          geoBinding: 'geo-abcdefgh'
         });
 
       expect(res.status).toBe(400);
@@ -207,7 +253,7 @@ describe('Auth System', () => {
       delete global.fetch;
     });
 
-    it('should return allowed country from coordinates', async () => {
+    it('should return allowed country from coordinates with a geo binding token', async () => {
       const res = await request(app)
         .post('/auth/geo-locate')
         .send({ lat: 6.5244, lng: 3.3792 });
@@ -215,9 +261,17 @@ describe('Auth System', () => {
       expect(res.status).toBe(200);
       expect(res.body.countryCode).toBe('ng');
       expect(res.body.allowed).toBe(true);
+      expect(typeof res.body.binding).toBe('string');
+      expect(res.body.binding.length).toBeGreaterThan(8);
+      expect(mockRedis.set).toHaveBeenCalledWith(
+        `geo:binding:${res.body.binding}`,
+        'ng',
+        'EX',
+        expect.any(Number)
+      );
     });
 
-    it('should flag restricted countries as blocked', async () => {
+    it('should flag restricted countries as blocked and mint no binding', async () => {
       global.fetch = jest.fn().mockResolvedValue({
         ok: true,
         json: () => Promise.resolve({
@@ -231,6 +285,8 @@ describe('Auth System', () => {
 
       expect(res.status).toBe(200);
       expect(res.body.allowed).toBe(false);
+      expect(res.body.binding).toBeNull();
+      expect(mockRedis.set).not.toHaveBeenCalled();
     });
 
     it('should validate coordinate ranges via Zod', async () => {

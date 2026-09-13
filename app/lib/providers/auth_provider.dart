@@ -116,6 +116,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
     required String password,
     required DateTime dateOfBirth,
     String? countryCode,
+    String? geoBinding,
   }) async {
     try {
       state = state.copyWith(isLoading: true, error: null);
@@ -134,6 +135,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
           'dateOfBirth': dateOfBirth.toIso8601String(),
           if (countryCode != null && countryCode.isNotEmpty)
             'countryCode': countryCode,
+          if (geoBinding != null && geoBinding.isNotEmpty) 'geoBinding': geoBinding,
           'fingerprintHash': 'dev_device',
         },
       );

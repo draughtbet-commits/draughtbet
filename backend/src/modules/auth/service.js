@@ -19,6 +19,16 @@ const jwtSecret = getJwtSecret();
 
 const ACCESS_TOKEN_EXPIRY = '15m';
 const REFRESH_TOKEN_TTL_SECONDS = 7 * 24 * 60 * 60; // 7 days
+const GEO_BINDING_TTL_SECONDS = 10 * 60; // geo evidence lasts 10 minutes
+
+function computeAge(dateOfBirth) {
+  const dob = new Date(dateOfBirth);
+  const now = new Date();
+  let age = now.getFullYear() - dob.getFullYear();
+  const m = now.getMonth() - dob.getMonth();
+  if (m < 0 || (m === 0 && now.getDate() < dob.getDate())) age--;
+  return age;
+}
 
 // Atomic refresh-token rotation: curl GET and DEL in one step so exactly one
 // concurrent caller wins per token.
@@ -47,12 +57,25 @@ export class AuthService {
     redis = mockRedis;
   }
 
-  static async register({ email, phone, username, fullName, address, password, dateOfBirth, fingerprintHash, countryCode }) {
-    // Geolocation gate: reject signups from restricted countries before any
-    // other work happens. countryCode is produced by POST /auth/geo-locate.
-    if (countryCode && !GeoService.isCountryAllowed(countryCode)) {
+  static async register({ email, phone, username, fullName, address, password, dateOfBirth, fingerprintHash, countryCode, geoBinding }) {
+    // Geo evidence gate: a registration must carry the country the server
+    // resolved (POST /auth/geo-locate) plus the opaque binding that proves it.
+    if (!countryCode) {
+      throw new Error('Geo evidence required');
+    }
+    const boundCountry = await this.consumeGeoBinding(geoBinding);
+    if (!boundCountry) {
+      throw new Error('Geo evidence expired or invalid');
+    }
+    if (boundCountry.toUpperCase() !== countryCode.toUpperCase()) {
       throw new Error('Country not allowed');
     }
+    if (!GeoService.isCountryAllowed(countryCode)) {
+      throw new Error('Country not allowed');
+    }
+    const dob = new Date(dateOfBirth);
+    const ageVerified = computeAge(dob) >= 18;
+
     try {
       const passwordHash = await bcrypt.hash(password, 12);
 
@@ -65,9 +88,18 @@ const user = await prisma.$transaction(async (tx) => {
           fullName,
           address,
           passwordHash,
+          dateOfBirth: dob,
           isBanned: false, // Explicit requirement
-          ageVerified: true, // Zod in the controller already confirmed 18+
-          countryCode: countryCode ? countryCode.toUpperCase() : null,
+          ageVerified,
+          countryCode: countryCode.toUpperCase(),
+          eligibility: {
+            create: {
+              countryCode: countryCode.toUpperCase(),
+              countryAllowed: true,
+              dateOfBirth: dob,
+              ageVerified
+            }
+          },
           wallet: {
             create: {
               balanceMinorUnits: 0n,
@@ -165,6 +197,33 @@ const user = await prisma.$transaction(async (tx) => {
       select: { id: true }
     });
     return { available: existing === null };
+  }
+
+  /**
+   * Issues the opaque token that binds a geo-locate result to a later
+   * registration. The server stores the resolved country under the token so
+   * registration can prove the country came from the server, not the client.
+   * Returns null when no token could be minted (Redis unavailable).
+   */
+  static async createGeoBinding(countryCode) {
+    if (!redis) return null;
+    const binding = uuidv4();
+    await redis.set(`geo:binding:${binding}`, countryCode, 'EX', GEO_BINDING_TTL_SECONDS);
+    return binding;
+  }
+
+  /**
+   * Returns the country bound to a geo token and consumes it (one-time use).
+   * Null when the token is unknown, already used, or Redis is unavailable.
+   */
+  static async consumeGeoBinding(binding) {
+    if (!binding || !redis) return null;
+    const key = `geo:binding:${binding}`;
+    const code = await redis.get(key);
+    if (code) {
+      await redis.del(key);
+    }
+    return code;
   }
 
   static async issueTokens(userId) {

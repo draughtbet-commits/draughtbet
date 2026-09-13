@@ -1,6 +1,8 @@
 import express from 'express';
 import { requireAuth } from '../../middleware/auth.js';
 import { requireValidStake } from '../../middleware/tierEnforcement.js';
+import { assertEligibleForMoney } from '../../services/eligibilityService.js';
+import prisma from '../../utils/db.js';
 import redis from '../../utils/redis.js';
 import logger from '../../utils/logger.js';
 
@@ -11,6 +13,10 @@ matchmakingRouter.post('/join', requireAuth, requireValidStake(false), async (re
   try {
     const { id: userId, tier } = req.user;
     const { stakeMinorUnits } = req.body;
+
+    // Eligibility is enforced here so ineligible users never reach a queue,
+    // and again inside debitStakes when the worker matches the pair.
+    await assertEligibleForMoney(prisma, userId);
     
     // We bucket users strictly by tier and exact stake preset amount.
     // E.g. queue:AMATEUR:50000
@@ -23,6 +29,9 @@ matchmakingRouter.post('/join', requireAuth, requireValidStake(false), async (re
     
     res.status(200).json({ status: 'queued', queueKey });
   } catch (err) {
+    if (['EligibilityRequiredError', 'CountryNotAllowedError', 'AgeNotVerifiedError', 'KycRequiredError'].includes(err.name)) {
+      return res.status(403).json({ error: err.message });
+    }
     next(err);
   }
 });

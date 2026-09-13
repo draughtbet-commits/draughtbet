@@ -16,7 +16,15 @@ describeIntegration('Wallet (real PostgreSQL concurrency)', () => {
 
   const createFixture = async (balance) => {
     const user = await prisma.user.create({
-      data: { email: `s01-${Date.now()}-${Math.random()}@test.local`, passwordHash: 'x' }
+      data: {
+        email: `s01-${Date.now()}-${Math.random()}@test.local`,
+        passwordHash: 'x',
+        kycStatus: 'VERIFIED',
+        countryCode: 'NG',
+        eligibility: {
+          create: { countryCode: 'NG', countryAllowed: true, ageVerified: true }
+        }
+      }
     });
     const wallet = await prisma.wallet.create({
       data: { userId: user.id, balanceMinorUnits: balance }
@@ -100,11 +108,35 @@ describeIntegration('Wallet (real PostgreSQL concurrency)', () => {
     await cleanup();
   });
 
+  it('blocks withdrawal for an account without KYC even with funds available', async () => {
+    await createFixture(100n);
+    await prisma.user.update({ where: { id: userId }, data: { kycStatus: 'NONE' } });
+
+    await expect(requestWithdrawal(userId, 80n, 'op_no_kyc'))
+      .rejects.toThrow('KYC verification is required');
+
+    const wallet = await prisma.wallet.findUnique({ where: { userId } });
+    expect(wallet.balanceMinorUnits.toString()).toBe('100');
+
+    const requests = await prisma.withdrawalRequest.count({ where: { userId } });
+    expect(requests).toBe(0);
+
+    await cleanup();
+  });
+
   it('withdrawal overlapping a stake debit never reserves more than available funds', async () => {
     await createFixture(100n);
 
     const friend = await prisma.user.create({
-      data: { email: `s01-stake-${Date.now()}-${Math.random()}@test.local`, passwordHash: 'x' }
+      data: {
+        email: `s01-stake-${Date.now()}-${Math.random()}@test.local`,
+        passwordHash: 'x',
+        kycStatus: 'VERIFIED',
+        countryCode: 'NG',
+        eligibility: {
+          create: { countryCode: 'NG', countryAllowed: true, ageVerified: true }
+        }
+      }
     });
     await prisma.wallet.create({
       data: { userId: friend.id, balanceMinorUnits: 100000n }

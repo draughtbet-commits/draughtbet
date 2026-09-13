@@ -142,6 +142,9 @@ walletRouter.post('/withdrawal-request', requireAuth, async (req, res, next) => 
     if (error.name === 'InvalidAmountError' || error.name === 'InvalidIdempotencyKeyError') {
       return res.status(400).json({ error: error.message });
     }
+    if (['EligibilityRequiredError', 'CountryNotAllowedError', 'AgeNotVerifiedError', 'KycRequiredError'].includes(error.name)) {
+      return res.status(403).json({ error: error.message });
+    }
     next(error);
   }
 });
