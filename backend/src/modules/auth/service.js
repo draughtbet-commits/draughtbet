@@ -20,6 +20,17 @@ const jwtSecret = getJwtSecret();
 const ACCESS_TOKEN_EXPIRY = '15m';
 const REFRESH_TOKEN_TTL_SECONDS = 7 * 24 * 60 * 60; // 7 days
 
+// Atomic refresh-token rotation (S07): returns the current value and deletes
+// the key in one step, so exactly one concurrent caller wins per token.
+const ROTATE_SCRIPT = `
+local current = redis.call('GET', KEYS[1])
+if current then
+  redis.call('DEL', KEYS[1])
+  return 1
+end
+return 0
+`;
+
 function normalizePhone(phone) {
   if (!phone) return phone;
   const digits = phone.replace(/\D/g, '');
@@ -175,15 +186,23 @@ const user = await prisma.$transaction(async (tx) => {
 
   static async refresh(userId, oldRefreshTokenId) {
     const redisKey = `refresh:${userId}:${oldRefreshTokenId}`;
-    
+
     if (redis) {
-      const exists = await redis.get(redisKey);
-      if (!exists) {
+      // Atomic consume+rotate (S07): the previous GET-then-DEL let two
+      // simultaneous requests both read "valid" and each mint a successor.
+      // The Lua round trip deletes and claims the token in one step, so from
+      // the same old token exactly one caller proceeds and the loser is
+      // rejected. Reuse of an already-consumed token is thus always rejected.
+      //
+      // Response-loss policy: if the winner's response is lost, that refresh
+      // attempt must be retried as a fresh login — no successor is ever minted
+      // for a consumed token. This is deliberately stricter than
+      // "remember issued successor" because remembering lets anyone who
+      // presents a consumed token keep receiving its successor.
+      const consumed = await redis.eval(ROTATE_SCRIPT, 1, redisKey);
+      if (!consumed) {
         throw new Error('Invalid or expired refresh token');
       }
-      
-      // Destroy the old token to rotate it (prevents reuse)
-      await redis.del(redisKey);
     }
 
     // S06: a banned or deleted account must never mint a fresh access token

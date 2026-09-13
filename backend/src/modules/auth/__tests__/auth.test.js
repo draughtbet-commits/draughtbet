@@ -31,6 +31,7 @@ const mockRedis = {
   get: jest.fn(),
   del: jest.fn(),
   scanStream: jest.fn(),
+  eval: jest.fn(),
 };
 
 const logger = (await import('../../../utils/logger.js')).default;
@@ -314,8 +315,8 @@ describe('Auth System', () => {
   });
 
   describe('POST /auth/refresh', () => {
-    it('should rotate refresh token and invalidate old one', async () => {
-      mockRedis.get.mockResolvedValueOnce('valid');
+    it('should rotate refresh token and invalidate old one atomically (S07)', async () => {
+      mockRedis.eval.mockResolvedValueOnce(1);
 
       const res = await request(app)
         .post('/auth/refresh')
@@ -329,12 +330,30 @@ describe('Auth System', () => {
       expect(res.body).toHaveProperty('refreshToken');
       expect(res.body.refreshToken).not.toBe('old-token');
 
-      // Verify the old token was actively deleted (invalidated)
-      expect(mockRedis.del).toHaveBeenCalledWith('refresh:user-id:old-token');
+      // The Lua script claimed the old key in a single round trip.
+      expect(mockRedis.eval).toHaveBeenCalledWith(
+        expect.stringContaining('DEL'),
+        1,
+        'refresh:user-id:old-token'
+      );
+      expect(mockRedis.get).not.toHaveBeenCalled();
+      expect(mockRedis.del).not.toHaveBeenCalled();
+    });
+
+    it('should reject reuse of a consumed refresh token (S07)', async () => {
+      mockRedis.eval.mockResolvedValueOnce(null);
+
+      const res = await request(app)
+        .post('/auth/refresh')
+        .send({ userId: 'user-id', refreshToken: 'stale-token' });
+
+      expect(res.status).toBe(401);
+      expect(res.body.error).toBe('Invalid or expired refresh token');
+      expect(mockRedis.set).not.toHaveBeenCalled();
     });
 
     it('should refuse to refresh for a banned account and mint no new token (S06)', async () => {
-      mockRedis.get.mockResolvedValueOnce('valid');
+      mockRedis.eval.mockResolvedValueOnce(1);
       mockPrisma.user.findUnique.mockResolvedValueOnce({ id: 'user-id', isBanned: true });
 
       const res = await request(app)
@@ -347,7 +366,7 @@ describe('Auth System', () => {
     });
 
     it('should refuse to refresh for a deleted account', async () => {
-      mockRedis.get.mockResolvedValueOnce('valid');
+      mockRedis.eval.mockResolvedValueOnce(1);
       mockPrisma.user.findUnique.mockResolvedValueOnce(null);
 
       const res = await request(app)
