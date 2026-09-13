@@ -122,6 +122,18 @@ export const createMatchWithStakes = async (tx, player1Id, player2Id, stakeMinor
     status: 'ACTIVE'
   }});
 
+  // 7. Record the durable activation intent in the same transaction, so a crash
+  // after commit can never leave funds reserved for a match Redis never saw.
+  // The recovery sweep replays this into Redis idempotently, or releases it.
+  await tx.gameOutbox.create({ data: {
+    matchId,
+    player1Id,
+    player2Id,
+    tier: stakeTier,
+    stakeMinorUnits: stakeAmount,
+    status: 'PENDING'
+  }});
+
   return match;
 };
 

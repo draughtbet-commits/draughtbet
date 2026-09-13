@@ -81,6 +81,18 @@ export const getGameState = async (matchId) => {
 
 export const initializeGame = async (matchId, player1Id, player2Id, stakeTier) => {
   const matchKey = `match:${matchId}`;
+
+  // Idempotent by construction: the durable GameOutbox record is the source of
+  // truth here. If Redis already holds state for this match (a crash between
+  // the Redis write and the outbox ACTIVATED mark), do NOT clobber a possibly
+  // running game — just guarantee the participant pointers and return.
+  const stateExists = await redis.exists(matchKey);
+  if (stateExists) {
+    await redis.set(`user:${player1Id}:activeMatch`, matchId);
+    await redis.set(`user:${player2Id}:activeMatch`, matchId);
+    return getGameState(matchId);
+  }
+
   const initialBoard = createInitialBoard();
   const boardHash = JSON.stringify([initialBoard, COLOR_WHITE]);
   

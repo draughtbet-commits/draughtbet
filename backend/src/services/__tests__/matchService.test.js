@@ -17,6 +17,9 @@ const mockPrisma = {
   },
   match: {
     create: jest.fn()
+  },
+  gameOutbox: {
+    create: jest.fn()
   }
 };
 
@@ -67,6 +70,18 @@ describe('matchService debitStakes', () => {
     expect(mockPrisma.walletTransaction.create).toHaveBeenCalledTimes(2);
     expect(mockPrisma.walletTransaction.create).toHaveBeenCalledWith({
       data: expect.objectContaining({ type: 'STAKE', amountMinorUnits: -5000n })
+    });
+
+    // The durable activation record commits atomically with the reservations
+    expect(mockPrisma.gameOutbox.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        matchId: expect.any(String),
+        player1Id: 'player-a',
+        player2Id: 'player-b',
+        tier: 'AMATEUR',
+        stakeMinorUnits: 5000n,
+        status: 'PENDING'
+      })
     });
   });
 

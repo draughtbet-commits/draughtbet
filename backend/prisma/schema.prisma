@@ -148,6 +148,7 @@ model Match {
   createdAt         DateTime @default(now())
   endedAt           DateTime?
   moves             MatchMove[]
+  outbox            GameOutbox?
 }
 enum MatchStatus {
   PENDING
@@ -155,6 +156,7 @@ enum MatchStatus {
   COMPLETED
   FORFEITED
   DISPUTED
+  RELEASED
 }
 
 model MatchMove {
@@ -242,4 +244,37 @@ model Notification {
   link        String?
   isRead      Boolean  @default(false)
   createdAt   DateTime @default(now())
+}
+
+// Durable activation record written in the SAME transaction that reserves
+// stakes and creates the Match row. Redis is initialized idempotently from this
+// record afterwards; a recovery sweep reconstructs (or releases) a match when
+// the original process dies between commit and activation.
+//   PENDING    -> committed with the reservations, Redis not known-good yet
+//   ACTIVATING -> someone holds the claim lease for this row
+//   ACTIVATED  -> Redis state is live and playable
+//   RELEASED   -> activation abandoned; both stakes credited back exactly once
+model GameOutbox {
+  id                 String           @id @default(uuid())
+  matchId            String           @unique
+  match              Match            @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  player1Id          String
+  player2Id          String
+  tier               Tier
+  stakeMinorUnits    BigInt           // per-player stake, used by the release refund
+  status             GameOutboxStatus @default(PENDING)
+  attempts           Int              @default(0)
+  lastError          String?
+  claimToken         String?          @unique // CAS ownership of the activation attempt
+  claimExpiresAt     DateTime?        // lease: a crashed owner loses the claim after this
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+
+  @@index([status, updatedAt])
+}
+enum GameOutboxStatus {
+  PENDING
+  ACTIVATING
+  ACTIVATED
+  RELEASED
 }

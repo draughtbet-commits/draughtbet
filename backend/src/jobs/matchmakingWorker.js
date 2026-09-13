@@ -1,9 +1,10 @@
 import cron from 'node-cron';
 import redis, { isRedisReady } from '../utils/redis.js';
 import logger from '../utils/logger.js';
+import prisma from '../utils/db.js';
 import { getIO } from '../sockets/index.js';
 import { debitStakes, InsufficientFundsError } from '../services/matchService.js';
-import { initializeGame } from '../sockets/gameManager.js';
+import { finalizeMatchActivation } from '../services/gameActivationService.js';
 import { STAKE_PRESETS } from '../middleware/tierEnforcement.js';
 import { NotificationService } from '../modules/notification/service.js';
 
@@ -48,54 +49,66 @@ export const processMatchmakingQueues = async () => {
           
           const [player1Id, player2Id] = pair;
           
+          // Funding and activation are SEPARATE. The atomic debit transaction is
+          // the point of no return: once wallets are locked and the Match row is
+          // committed (with its GameOutbox record), the pair is on the hook. We
+          // must never hand them back to the queue, because re-queuing would
+          // re-debit. Activation is best-effort; the recovery sweep finishes it
+          // (or releases the match) if this process dies mid-way.
+          let match = null;
+          let funded = false;
           try {
-            // 1. Atomically debit stakes and create DB match
-            const match = await debitStakes(player1Id, player2Id, stakeMinorUnits, tier);
-            
-            // 2. Initialize Redis state
-            await initializeGame(match.id, player1Id, player2Id, tier);
-            
-            // 3. Notify players
-            const io = getIO();
-            const payload = {
-              ...match,
-              stakeMinorUnits: match.stakeMinorUnits.toString()
-            };
-            io.to(`user:${player1Id}`).emit('match_found', payload);
-            io.to(`user:${player2Id}`).emit('match_found', payload);
-            
-            // Trigger MATCH_FOUND notifications for both players
-            const notifyMatch = async (uid) => {
-              await NotificationService.create(
-                uid,
-                'MATCH_FOUND',
-                'Match Found!',
-                'An opponent has been found. Your match is starting.',
-                `/match/${match.id}`
-              );
-            };
-            await Promise.all([notifyMatch(player1Id), notifyMatch(player2Id)]);
-            
-            logger.info({ p1: player1Id, p2: player2Id, matchId: match.id, tier, stakeMinorUnits: stakeMinorUnits.toString() }, 'Matchmaking pair found and game started');
-            
+            match = await debitStakes(player1Id, player2Id, stakeMinorUnits, tier);
+            funded = true;
+            const outbox = await prisma.gameOutbox.findUnique({
+              where: { matchId: match.id },
+              select: { id: true }
+            });
+            try {
+              if (outbox) await finalizeMatchActivation(outbox.id);
+            } catch (actErr) {
+              logger.warn({ actErr, matchId: match.id }, 'Activation pending; the recovery sweep will finish it');
+            }
           } catch (err) {
-            // If creation fails (e.g., insufficient funds during DB lock), 
-            // we must evict the failing player(s) and potentially requeue the other.
-            logger.warn({ err, player1Id, player2Id }, 'Failed to create match for popped pair');
-            
-            // It's non-trivial to know WHICH player had insufficient funds purely from the generic error
-            // (though our lock logic throws generically). 
-            // The safest thing is to notify both players of the error and leave them dequeued.
-            // They will have to re-queue.
-            const io = getIO();
-            if (err instanceof InsufficientFundsError) {
+            if (!funded && err instanceof InsufficientFundsError) {
+              const io = getIO();
               io.to(`user:${player1Id}`).emit('error', { message: 'Match failed: Insufficient funds' });
               io.to(`user:${player2Id}`).emit('error', { message: 'Match failed: Insufficient funds' });
-            } else {
+            } else if (!funded) {
+              const io = getIO();
               io.to(`user:${player1Id}`).emit('error', { message: 'Matchmaking error. Please try again.' });
               io.to(`user:${player2Id}`).emit('error', { message: 'Matchmaking error. Please try again.' });
+            } else {
+              throw err;
             }
+            continue;
           }
+
+          // Pair is funded; tell both players to head to the room.
+          const io = getIO();
+          const payload = {
+            ...match,
+            stakeMinorUnits: match.stakeMinorUnits.toString()
+          };
+          io.to(`user:${player1Id}`).emit('match_found', payload);
+          io.to(`user:${player2Id}`).emit('match_found', payload);
+          
+          const notifyMatch = async (uid) => {
+            await NotificationService.create(
+              uid,
+              'MATCH_FOUND',
+              'Match Found!',
+              'An opponent has been found. Your match is starting.',
+              `/match/${match.id}`
+            );
+          };
+          try {
+            await Promise.all([notifyMatch(player1Id), notifyMatch(player2Id)]);
+          } catch (notifyErr) {
+            logger.warn({ notifyErr, matchId: match.id }, 'Match found notifications failed');
+          }
+          
+          logger.info({ p1: player1Id, p2: player2Id, matchId: match.id, tier, stakeMinorUnits: stakeMinorUnits.toString() }, 'Matchmaking pair found and game started');
         }
       }
     }

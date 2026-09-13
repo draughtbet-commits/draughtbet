@@ -8,6 +8,12 @@ jest.unstable_mockModule('../../../sockets/gameManager.js', () => ({
   initializeGame: jest.fn()
 }));
 
+jest.unstable_mockModule('../../../services/gameActivationService.js', () => ({
+  finalizeMatchActivation: jest.fn(),
+  releaseMatch: jest.fn(),
+  MAX_ACTIVATION_ATTEMPTS: 5
+}));
+
 jest.unstable_mockModule('../../../sockets/index.js', () => ({
   getIO: jest.fn(() => ({ emit: jest.fn(), to: jest.fn(() => ({ emit: jest.fn() })) }))
 }));
@@ -16,8 +22,13 @@ jest.unstable_mockModule('../../notification/service.js', () => ({
   NotificationService: { create: jest.fn() }
 }));
 
+jest.unstable_mockModule('../../../utils/redis.js', () => ({
+  default: null,
+  isRedisReady: jest.fn(() => true)
+}));
+
 const prisma = (await import('../../../utils/db.js')).default;
-const { initializeGame } = await import('../../../sockets/gameManager.js');
+const { finalizeMatchActivation } = await import('../../../services/gameActivationService.js');
 const { acceptCallout } = await import('../service.js');
 
 const describeIntegration =
@@ -117,7 +128,15 @@ describeIntegration('Call-out acceptance policy (real PostgreSQL)', () => {
     for (const userId of [challenger.id, acceptor.id]) {
       await assertWallet(userId, 9000000n);
     }
-    expect(initializeGame).toHaveBeenCalledWith(payload.id, challenger.id, acceptor.id, 'PRO');
+
+    // The outbox record commits with the reservations; activation is attempted
+    // against the (mocked here) Redis path and left to the real sweep suite.
+    const outbox = await prisma.gameOutbox.findUnique({ where: { matchId: payload.id } });
+    expect(outbox.status).toBe('PENDING');
+    expect(outbox.player1Id).toBe(challenger.id);
+    expect(outbox.player2Id).toBe(acceptor.id);
+    expect(outbox.stakeMinorUnits.toString()).toBe('1000000');
+    expect(finalizeMatchActivation).toHaveBeenCalledWith(outbox.id);
   });
 
   it('rejects self-accept with zero side effects', async () => {

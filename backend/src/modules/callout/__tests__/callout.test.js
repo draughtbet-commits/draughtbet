@@ -9,7 +9,8 @@ const mockTx = {
 
 const mockPrisma = {
   $transaction: jest.fn(),
-  ...mockTx
+  ...mockTx,
+  gameOutbox: { findUnique: jest.fn() }
 };
 
 jest.unstable_mockModule('../../../utils/db.js', () => ({
@@ -32,8 +33,12 @@ jest.unstable_mockModule('../../../services/matchService.js', () => ({
 }));
 
 const mockInitializeGame = jest.fn();
+const mockFinalizeMatchActivation = jest.fn();
 jest.unstable_mockModule('../../../sockets/gameManager.js', () => ({
   initializeGame: mockInitializeGame
+}));
+jest.unstable_mockModule('../../../services/gameActivationService.js', () => ({
+  finalizeMatchActivation: mockFinalizeMatchActivation
 }));
 
 const mockEmit = jest.fn();
@@ -90,7 +95,7 @@ describe('acceptCallout policy', () => {
   const expectNoSideEffects = () => {
     expect(mockCreateMatchWithStakes).not.toHaveBeenCalled();
     expect(mockTx.$executeRaw).not.toHaveBeenCalled();
-    expect(mockInitializeGame).not.toHaveBeenCalled();
+    expect(mockFinalizeMatchActivation).not.toHaveBeenCalled();
   };
 
   it('claims, validates and funds atomically, then notifies both rooms', async () => {
@@ -98,6 +103,8 @@ describe('acceptCallout policy', () => {
       id: 'match-1',
       stakeMinorUnits: 1000000n
     });
+    mockPrisma.gameOutbox.findUnique.mockResolvedValue({ id: 'outbox-1' });
+    mockFinalizeMatchActivation.mockResolvedValue('ACTIVATED');
 
     const payload = await acceptCallout('player-2', 'callout-1');
 
@@ -110,7 +117,12 @@ describe('acceptCallout policy', () => {
       'PRO'
     );
     expect(mockTx.$executeRaw).toHaveBeenCalled();
-    expect(mockInitializeGame).toHaveBeenCalledWith('match-1', 'player-1', 'player-2', 'PRO');
+    expect(mockPrisma.gameOutbox.findUnique).toHaveBeenCalledWith({
+      where: { matchId: 'match-1' },
+      select: { id: true }
+    });
+    expect(mockFinalizeMatchActivation).toHaveBeenCalledWith('outbox-1');
+    expect(mockInitializeGame).not.toHaveBeenCalled();
     expect(mockTo).toHaveBeenCalledWith('user:player-1');
     expect(mockTo).toHaveBeenCalledWith('user:player-2');
     expect(mockEmit).toHaveBeenCalledWith('match_found', expect.anything());
@@ -118,6 +130,35 @@ describe('acceptCallout policy', () => {
       'player-1', 'CALLOUT_ACCEPTED', expect.anything(), expect.anything(), '/match/match-1'
     );
     expect(payload).toEqual({ id: 'match-1', stakeMinorUnits: '1000000' });
+  });
+
+  it('still notifies players when activation fails (the sweep repairs it)', async () => {
+    mockCreateMatchWithStakes.mockResolvedValue({
+      id: 'match-1',
+      stakeMinorUnits: 1000000n
+    });
+    mockPrisma.gameOutbox.findUnique.mockResolvedValue({ id: 'outbox-1' });
+    mockFinalizeMatchActivation.mockRejectedValue(new Error('redis down'));
+
+    await expect(acceptCallout('player-2', 'callout-1')).resolves.toEqual({
+      id: 'match-1',
+      stakeMinorUnits: '1000000'
+    });
+
+    expect(mockFinalizeMatchActivation).toHaveBeenCalledWith('outbox-1');
+    expect(mockEmit).toHaveBeenCalledWith('match_found', expect.anything());
+  });
+
+  it('does not emit match_found when funding itself fails', async () => {
+    mockCreateMatchWithStakes.mockRejectedValue(new FakeInsufficientFundsError());
+    mockPrisma.gameOutbox.findUnique.mockResolvedValue({ id: 'outbox-1' });
+
+    await expect(acceptCallout('player-2', 'callout-1'))
+      .rejects.toThrow('Insufficient funds');
+
+    expect(mockPrisma.gameOutbox.findUnique).not.toHaveBeenCalled();
+    expect(mockFinalizeMatchActivation).not.toHaveBeenCalled();
+    expect(mockEmit).not.toHaveBeenCalled();
   });
 
   it('rejects self-accept before any reservation or claim write', async () => {
@@ -178,7 +219,7 @@ describe('acceptCallout policy', () => {
 
     // The ACCEPTED write never ran, so the row lock release leaves it OPEN.
     expect(mockTx.$executeRaw).not.toHaveBeenCalled();
-    expect(mockInitializeGame).not.toHaveBeenCalled();
+    expect(mockFinalizeMatchActivation).not.toHaveBeenCalled();
     expect(mockEmit).not.toHaveBeenCalled();
   });
 });

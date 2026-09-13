@@ -2,7 +2,7 @@ import prisma from '../../utils/db.js';
 import logger from '../../utils/logger.js';
 import { getIO } from '../../sockets/index.js';
 import { createMatchWithStakes } from '../../services/matchService.js';
-import { initializeGame } from '../../sockets/gameManager.js';
+import { finalizeMatchActivation } from '../../services/gameActivationService.js';
 import { NotificationService } from '../notification/service.js';
 
 export class CalloutUnavailableError extends Error {
@@ -206,10 +206,21 @@ export const acceptCallout = async (userId, calloutId) => {
     return { callout, match };
   });
 
-  // 7. Initialize Redis game state (idempotent; a crash here releases via the
-  //    recovery path rather than re-debiting)
-  // player1 is challenger, player2 is acceptor
-  await initializeGame(match.id, callout.challengerId, userId, callout.tier);
+  // 7. Durable activation. The outbox record was written in the same
+  //    transaction that funded the match; activating is best-effort here. If
+  //    Redis is not ready the recovery sweep finishes it (or releases the
+  //    match), and a crash in between cannot orphan the reserved stakes.
+  const outbox = await prisma.gameOutbox.findUnique({
+    where: { matchId: match.id },
+    select: { id: true }
+  });
+  if (outbox) {
+    try {
+      await finalizeMatchActivation(outbox.id);
+    } catch (actErr) {
+      logger.warn({ actErr, matchId: match.id }, 'Activation pending; the recovery sweep will finish it');
+    }
+  }
 
   // Convert BigInt for socket/HTTP payload
   const matchPayload = {
