@@ -1,9 +1,11 @@
 import prisma from '../../utils/db.js';
 import logger from '../../utils/logger.js';
 import { getIO } from '../../sockets/index.js';
-import { createMatchWithStakes } from '../../services/matchService.js';
+import { createMatchWithStakes, ActiveMatchError } from '../../services/matchService.js';
 import { finalizeMatchActivation } from '../../services/gameActivationService.js';
 import { NotificationService } from '../notification/service.js';
+
+export { ActiveMatchError };
 
 export class CalloutUnavailableError extends Error {
   constructor(message = 'Callout is no longer available') {
@@ -30,13 +32,6 @@ export class TierMismatchError extends Error {
   constructor(message = 'Acceptor tier does not match the callout tier') {
     super(message);
     this.name = 'TierMismatchError';
-  }
-}
-
-export class ActiveMatchError extends Error {
-  constructor(message = 'Player already has an active match') {
-    super(message);
-    this.name = 'ActiveMatchError';
   }
 }
 

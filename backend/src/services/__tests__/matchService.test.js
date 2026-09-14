@@ -16,6 +16,7 @@ const mockPrisma = {
     create: jest.fn()
   },
   match: {
+    findFirst: jest.fn(),
     create: jest.fn()
   },
   gameOutbox: {

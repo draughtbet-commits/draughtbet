@@ -3,7 +3,7 @@ import redis, { isRedisReady } from '../utils/redis.js';
 import logger from '../utils/logger.js';
 import prisma from '../utils/db.js';
 import { getIO } from '../sockets/index.js';
-import { debitStakes, InsufficientFundsError } from '../services/matchService.js';
+import { debitStakes, InsufficientFundsError, ActiveMatchError } from '../services/matchService.js';
 import { finalizeMatchActivation } from '../services/gameActivationService.js';
 import { STAKE_PRESETS } from '../middleware/tierEnforcement.js';
 import { NotificationService } from '../modules/notification/service.js';
@@ -70,7 +70,14 @@ export const processMatchmakingQueues = async () => {
               logger.warn({ actErr, matchId: match.id }, 'Activation pending; the recovery sweep will finish it');
             }
           } catch (err) {
-            if (!funded && err instanceof InsufficientFundsError) {
+            if (!funded && err instanceof ActiveMatchError) {
+              // The pair reached the funding check but one player already holds
+              // an ACTIVE match (double-enqueue, or they just started a game).
+              // They were removed from the queue and are not re-queued.
+              const io = getIO();
+              io.to(`user:${player1Id}`).emit('error', { message: 'Match failed: you are already in a match' });
+              io.to(`user:${player2Id}`).emit('error', { message: 'Match failed: you are already in a match' });
+            } else if (!funded && err instanceof InsufficientFundsError) {
               const io = getIO();
               io.to(`user:${player1Id}`).emit('error', { message: 'Match failed: Insufficient funds' });
               io.to(`user:${player2Id}`).emit('error', { message: 'Match failed: Insufficient funds' });

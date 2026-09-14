@@ -9,6 +9,25 @@ import { NotificationService } from '../modules/notification/service.js';
 // Utility sleep function
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+// CAS-delete: only remove the user's activeMatch pointer when it still points
+// at this match, so cleanup can never wipe a pointer that belongs to a newer
+// match the user just started. Compare-and-delete is safe in single-instance
+// Socket.IO (no shared adapter; see "represent presence" item).
+const deleteActiveMatchIfOwnedLua = `
+  if redis.call('GET', KEYS[1]) == ARGV[1] then
+    return redis.call('DEL', KEYS[1])
+  end
+  return 0
+`;
+
+const deleteActiveMatchPointer = async (userId, matchId) => {
+  try {
+    await redis.eval(deleteActiveMatchIfOwnedLua, 1, `user:${userId}:activeMatch`, matchId);
+  } catch (e) {
+    logger.warn({ e, userId, matchId }, 'Redis delete activeMatch pointer failed');
+  }
+};
+
 // ─────────────────────────────────────────────────────────────
 // Post-settlement cleanup & notification (independent of DB)
 //
@@ -24,8 +43,8 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 async function notifyAndCleanupWin(matchId, winnerId, playerLightId, playerDarkId, payout, reason) {
   // Each operation is fault-isolated — one failure doesn't prevent the rest
   try { await redis.del(`match:${matchId}`); } catch (e) { logger.warn({ e, matchId }, 'Redis del match key failed'); }
-  try { await redis.del(`user:${playerLightId}:activeMatch`); } catch (e) { logger.warn({ e, matchId }, 'Redis del activeMatch failed'); }
-  try { await redis.del(`user:${playerDarkId}:activeMatch`); } catch (e) { logger.warn({ e, matchId }, 'Redis del activeMatch failed'); }
+  await deleteActiveMatchPointer(playerLightId, matchId);
+  await deleteActiveMatchPointer(playerDarkId, matchId);
 
   try {
     const io = getIO();
@@ -67,8 +86,8 @@ async function notifyAndCleanupWin(matchId, winnerId, playerLightId, playerDarkI
  */
 async function notifyAndCleanupDraw(matchId, playerLightId, playerDarkId, refundAmount, reason) {
   try { await redis.del(`match:${matchId}`); } catch (e) { logger.warn({ e, matchId }, 'Redis del match key failed'); }
-  try { await redis.del(`user:${playerLightId}:activeMatch`); } catch (e) { logger.warn({ e, matchId }, 'Redis del activeMatch failed'); }
-  try { await redis.del(`user:${playerDarkId}:activeMatch`); } catch (e) { logger.warn({ e, matchId }, 'Redis del activeMatch failed'); }
+  await deleteActiveMatchPointer(playerLightId, matchId);
+  await deleteActiveMatchPointer(playerDarkId, matchId);
 
   try {
     const io = getIO();

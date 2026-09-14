@@ -23,6 +23,13 @@ export class IdenticalPlayersError extends Error {
   }
 }
 
+export class ActiveMatchError extends Error {
+  constructor(message = 'Player already has an active match') {
+    super(message);
+    this.name = 'ActiveMatchError';
+  }
+}
+
 /**
  * Locks one wallet row (by userId) until the transaction ends, so money
  * operations touching the same wallet serialize against each other.
@@ -76,6 +83,28 @@ export const createMatchWithStakes = async (tx, player1Id, player2Id, stakeMinor
 
   // 1. Lock both wallets (ordered by ascending userId to prevent deadlocks)
   const [w1, w2] = await lockWalletsInOrder(tx, player1Id, player2Id);
+
+  // 2. Active-match reservation: a player may hold exactly one ACTIVE match at
+  //    a time. The wallet row locks above serialize concurrent fundings of the
+  //    same player, so this check-and-create is atomic enough — the second
+  //    contender sees the first one's committed ACTIVE match and refuses here.
+  //    This is the single choke point for every funding path (matchmaking
+  //    worker and call-out accept), so no same-user pair can ever commit twice.
+  const activeMatch = await tx.match.findFirst({
+    where: {
+      status: 'ACTIVE',
+      OR: [
+        { playerLightId: player1Id },
+        { playerDarkId: player1Id },
+        { playerLightId: player2Id },
+        { playerDarkId: player2Id }
+      ]
+    },
+    select: { id: true }
+  });
+  if (activeMatch) {
+    throw new ActiveMatchError('A player already has an active match');
+  }
 
   const stakeAmount = BigInt(stakeMinorUnits);
 

@@ -28,8 +28,16 @@ jest.unstable_mockModule('../../../utils/logger.js', () => ({
 }));
 
 const mockCreateMatchWithStakes = jest.fn();
+class FakeActiveMatchError extends Error {
+  constructor(message = 'Player already has an active match') {
+    super(message);
+    this.name = 'ActiveMatchError';
+  }
+}
+
 jest.unstable_mockModule('../../../services/matchService.js', () => ({
-  createMatchWithStakes: mockCreateMatchWithStakes
+  createMatchWithStakes: mockCreateMatchWithStakes,
+  ActiveMatchError: FakeActiveMatchError
 }));
 
 const mockInitializeGame = jest.fn();

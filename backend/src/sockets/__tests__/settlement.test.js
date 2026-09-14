@@ -24,7 +24,8 @@ const mockPrisma = {
 };
 
 const mockRedis = {
-  del: jest.fn()
+  del: jest.fn().mockResolvedValue(1),
+  eval: jest.fn().mockResolvedValue(1)
 };
 
 const mockLogger = {
@@ -307,8 +308,20 @@ describe('settlement logic', () => {
 
       // It should have called runCleanupFromDbForWin -> notifyAndCleanupWin -> redis.del
       expect(mockRedis.del).toHaveBeenCalledWith('match:match-1');
-      expect(mockRedis.del).toHaveBeenCalledWith('user:light-id:activeMatch');
-      expect(mockRedis.del).toHaveBeenCalledWith('user:dark-id:activeMatch');
+      // The activeMatch pointers are removed via compare-and-delete (only when
+      // they still point at this match), not by an unconditional del.
+      expect(mockRedis.eval).toHaveBeenCalledWith(
+        expect.stringContaining('if redis.call'),
+        1,
+        'user:light-id:activeMatch',
+        'match-1'
+      );
+      expect(mockRedis.eval).toHaveBeenCalledWith(
+        expect.stringContaining('if redis.call'),
+        1,
+        'user:dark-id:activeMatch',
+        'match-1'
+      );
 
       // Importantly, the socket emit must use 'true-winner', 'true-reason', and '1800' payout.
       expect(mockTo).toHaveBeenCalledWith('match:match-1');

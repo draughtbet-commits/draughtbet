@@ -17,7 +17,21 @@ matchmakingRouter.post('/join', requireAuth, requireValidStake(false), async (re
     // Eligibility is enforced here so ineligible users never reach a queue,
     // and again inside debitStakes when the worker matches the pair.
     await assertEligibleForMoney(prisma, userId);
-    
+
+    // A player may only be in one game at a time. Refuse to enqueue anyone
+    // already holding an ACTIVE match (funding re-checks this atomically too,
+    // so the worker can never debit a player who just started a game).
+    const activeMatch = await prisma.match.findFirst({
+      where: {
+        status: 'ACTIVE',
+        OR: [{ playerLightId: userId }, { playerDarkId: userId }]
+      },
+      select: { id: true }
+    });
+    if (activeMatch) {
+      return res.status(409).json({ error: 'You are already in an active match' });
+    }
+
     // We bucket users strictly by tier and exact stake preset amount.
     // E.g. queue:AMATEUR:50000
     const queueKey = `queue:${tier}:${stakeMinorUnits}`;

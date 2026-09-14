@@ -9,6 +9,9 @@ const mockPrisma = {
   user: {
     findUnique: jest.fn()
   },
+  match: {
+    findFirst: jest.fn()
+  },
   platformSettings: {
     findUniqueOrThrow: jest.fn()
   }
@@ -60,6 +63,7 @@ describe('Matchmaking smoke', () => {
       proStakeMinP: 3000000n,
       proStakeMaxP: 6000000n
     });
+    mockPrisma.match.findFirst.mockResolvedValue(null);
   });
 
   it('joins the queue bucketed by tier and exact stake preset', async () => {
@@ -68,6 +72,14 @@ describe('Matchmaking smoke', () => {
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ status: 'queued', queueKey: 'queue:AMATEUR:50000' });
     expect(mockRedis.zadd).toHaveBeenCalledWith('queue:AMATEUR:50000', expect.any(Number), 'user-1');
+  });
+
+  it('blocks a player who already holds an ACTIVE match from the queue', async () => {
+    mockPrisma.match.findFirst.mockResolvedValue({ id: 'other-game' });
+    const res = await request(app).post('/matchmaking/join').send({ stakeMinorUnits: 50000 });
+    expect(res.status).toBe(409);
+    expect(res.body).toEqual({ error: 'You are already in an active match' });
+    expect(mockRedis.zadd).not.toHaveBeenCalled();
   });
 
   it('blocks queue join for an account without KYC verification', async () => {
