@@ -28,16 +28,17 @@ matchRouter.get('/history', requireAuth, async (req, res) => {
     }
     const users = await prisma.user.findMany({
       where: { id: { in: [...playerIds] } },
-      select: { id: true, email: true },
+      select: { id: true, username: true },
     });
-    const emailById = new Map(users.map((u) => [u.id, u.email]));
+    const usernameById = new Map(users.map((u) => [u.id, u.username]));
 
     const sanitized = matches.map((m) => ({
       id: m.id,
       playerLightId: m.playerLightId,
       playerDarkId: m.playerDarkId,
-      playerLight: { id: m.playerLightId, email: emailById.get(m.playerLightId) ?? null },
-      playerDark: { id: m.playerDarkId, email: emailById.get(m.playerDarkId) ?? null },
+      // Only the public handle is exposed — never the account email (S17).
+      playerLight: { id: m.playerLightId, username: usernameById.get(m.playerLightId) ?? null },
+      playerDark: { id: m.playerDarkId, username: usernameById.get(m.playerDarkId) ?? null },
       tier: m.tier,
       stakeMinorUnits: m.stakeMinorUnits.toString(),
       status: m.status,

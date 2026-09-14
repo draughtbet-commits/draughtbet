@@ -137,8 +137,8 @@ describe('match state HTTP endpoints', () => {
       }
     ]);
     mockPrisma.user.findMany.mockResolvedValue([
-      { id: 'user-1', email: 'a@test.local' },
-      { id: 'user-2', email: 'b@test.local' }
+      { id: 'user-1', username: 'light_handle' },
+      { id: 'user-2', username: 'dark_handle' }
     ]);
 
     const res = await request(app).get('/matches/history');
@@ -147,6 +147,16 @@ describe('match state HTTP endpoints', () => {
     expect(res.body.matches).toHaveLength(1);
     expect(res.body.matches[0].id).toBe('m-1');
     expect(res.body.matches[0].stakeMinorUnits).toBe('100000');
-    expect(res.body.matches[0].playerLight).toEqual({ id: 'user-1', email: 'a@test.local' });
+    expect(res.body.matches[0].playerLight).toEqual({ id: 'user-1', username: 'light_handle' });
+    expect(res.body.matches[0].playerDark).toEqual({ id: 'user-2', username: 'dark_handle' });
+
+    const raw = JSON.stringify(res.body);
+    expect(raw).not.toContain('email');
+    expect(raw).not.toContain('@test.local');
+
+    // A user without a chosen handle is returned as id-only, still no email.
+    mockPrisma.user.findMany.mockResolvedValue([{ id: 'user-2', username: null }]);
+    const resNoHandle = await request(app).get('/matches/history');
+    expect(resNoHandle.body.matches[0].playerLight).toEqual({ id: 'user-1', username: null });
   });
 });
