@@ -11,6 +11,12 @@ import '../theme/colors.dart';
 class LobbyHeader extends ConsumerWidget {
   const LobbyHeader({super.key});
 
+  /// Test seam: the greeting is derived from the wall clock. Golden tests pin
+  /// this to a fixed instant so captures are stable regardless of the hour the
+  /// suite happens to run in.
+  @visibleForTesting
+  static DateTime Function() clock = DateTime.now;
+
   static String _greetingByHour(int hour) {
     if (hour >= 5 && hour < 12) return 'Good morning';
     if (hour >= 12 && hour < 17) return 'Good afternoon';
@@ -127,7 +133,7 @@ class LobbyHeader extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final profile = ref.watch(profileProvider).profile;
     final avatar = avatarById(profile?.avatar) ?? defaultAvatar;
-    final hour = DateTime.now().hour;
+    final hour = LobbyHeader.clock().hour;
     final name = profile?.username ?? profile?.displayName ?? 'Player';
 
     return Row(

@@ -14,6 +14,7 @@ import 'package:draughts_arena/screens/match_screen.dart';
 import 'package:draughts_arena/screens/matchmaking_screen.dart';
 import 'package:draughts_arena/theme/app_theme.dart';
 import 'package:draughts_arena/widgets/draught_board.dart';
+import 'package:draughts_arena/widgets/lobby_header.dart';
 import 'package:draughts_arena/widgets/main_layout.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -142,6 +143,16 @@ void main() {
         rootBundle.load('packages/lucide_icons_flutter/assets/lucide.ttf'),
       );
     await Future.wait([inter.load(), sora.load(), lucide.load()]);
+  });
+
+  // The lobby greeting is time-of-day dependent. Pin the clock so the captures
+  // are identical no matter when the suite runs (the goldens were recorded with
+  // this pinned greeting).
+  final originalClock = LobbyHeader.clock;
+  LobbyHeader.clock = () => DateTime(2026, 9, 10, 14, 0, 0);
+
+  tearDownAll(() {
+    LobbyHeader.clock = originalClock;
   });
 
   setUp(() {
