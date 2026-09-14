@@ -35,6 +35,23 @@ model User {
   calloutsAccepted  Callout[] @relation("CalloutAcceptedBy")
   eligibility       Eligibility?
   depositIntents    DepositIntent[]
+  // V2 relations
+  sessions                UserSession[]
+  securityEvents          SecurityEvent[]
+  consentRecords          ConsentRecord[]
+  verificationCases       VerificationCase[]
+  saferPlayProfile        SaferPlayProfile?
+  saferPlayEvents         SaferPlayEvent[]
+  ledgerAccounts          LedgerAccount[]
+  bankAccounts            BankAccount[]
+  adminRoleAssignments    AdminRoleAssignment[]
+  matchParticipants       MatchParticipant[]
+  stakeReservations       StakeReservation[]
+  matchReceipts           MatchReceipt[]
+  riskEvents              RiskEvent[]
+  verificationChallenges  VerificationChallenge[]
+  connectionEvents        MatchConnectionEvent[]
+  withdrawals             Withdrawal[]
 }
 
 enum Tier {
@@ -184,6 +201,24 @@ model Match {
   endedAt           DateTime?
   moves             MatchMove[]
   outbox            GameOutbox?
+  // V2 relations
+  participants           MatchParticipant[]
+  stakeReservations      StakeReservation[]
+  settlements            MatchSettlement[]
+  receipts               MatchReceipt[]
+  gameEvents             GameEvent[]
+  gameState              MatchGameState?
+  connectionEvents       MatchConnectionEvent[]
+  snapshots              GameStateSnapshot[]
+  disputeCases           DisputeCase[]
+  // V2 snapshot fields (NULL for legacy ACTIVE rows funded before this migration)
+  currency                      Currency?  @default(NGN)
+  rulesetVersion                Int?
+  configurationVersion          Int?
+  cancellationPolicyVersion     Int?
+  cancelledAt                   DateTime?
+  confirmedAt                   DateTime?
+  startedAt                     DateTime?
 }
 enum MatchStatus {
   PENDING
@@ -192,6 +227,15 @@ enum MatchStatus {
   FORFEITED
   DISPUTED
   RELEASED
+  // V2 lifecycle states (additive — old values kept for backward compat)
+  DRAFT
+  OPEN
+  FUNDED
+  READY
+  IN_PLAY
+  SETTLED
+  CANCELLED
+  EXPIRED
 }
 
 model MatchMove {
@@ -206,8 +250,13 @@ model MatchMove {
   isKingMove        Boolean  @default(false)
   boardStateAfter   Json     // full board snapshot — enables fast reconnect and future replay features
   createdAt         DateTime @default(now())
+  // V2 fields (NULL for legacy moves)
+  clientMoveId      String?  // client-supplied idempotency key
+  path              Int[]    // full capture path for multi-jump moves
+  stateVersion      Int?     // expected state version at time of move
 
   @@unique([matchId, moveNumber])
+  @@unique([matchId, clientMoveId])
 }
 
 model Callout {
@@ -317,4 +366,625 @@ enum GameOutboxStatus {
   ACTIVATING
   ACTIVATED
   RELEASED
+}
+
+// =============================================================================
+// V2 SCHEMA — additive only. Old models/enums untouched.
+// PR 1: Add V2 database schema without removing V1.
+// =============================================================================
+
+// ---------------------------------------------------------------------------
+// Identity / Security
+// ---------------------------------------------------------------------------
+
+enum SessionStatus {
+  ACTIVE
+  REVOKED
+  EXPIRED
+}
+
+model UserSession {
+  id               String        @id @default(uuid())
+  userId           String
+  user             User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  refreshTokenHash String        // SHA-256 hash of the opaque refresh token
+  family           String        // rotation family id — reuse detection key
+  lastRotatedAt    DateTime      @default(now())
+  deviceInfo       Json?         // { model, os, appVersion } from the client
+  ipAddress        String?
+  userAgent        String?
+  status           SessionStatus @default(ACTIVE)
+  expiresAt        DateTime
+  createdAt        DateTime      @default(now())
+
+  @@index([userId, status])
+  @@index([family])
+}
+
+model VerificationChallenge {
+  id           String   @id @default(uuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type         ChallengeType
+  codeHash     String   // bcrypt/argon2 hash of the OTP code
+  expiresAt    DateTime
+  attempts     Int      @default(0)
+  maxAttempts  Int      @default(5)
+  verifiedAt   DateTime?
+  createdAt    DateTime @default(now())
+
+  @@index([userId, type])
+}
+
+enum ChallengeType {
+  EMAIL
+  PHONE
+}
+
+model ConsentRecord {
+  id          String   @id @default(uuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type        ConsentType
+  version     String   // version string of the accepted document, e.g. "2.1"
+  acceptedAt  DateTime @default(now())
+  ipAddress   String?
+
+  @@unique([userId, type, version])
+}
+
+enum ConsentType {
+  TERMS
+  PRIVACY
+  KYC_CONSENT
+}
+
+model SecurityEvent {
+  id         String   @id @default(uuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type       SecurityEventType
+  metadata   Json?
+  ipAddress  String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([type, createdAt])
+}
+
+enum SecurityEventType {
+  LOGIN_SUCCESS
+  LOGIN_FAILED
+  REFRESH_REUSE_DETECTED
+  TOKEN_REVOKED
+  PASSWORD_CHANGED
+  SESSION_REVOKED
+  ACCOUNT_BANNED
+}
+
+// ---------------------------------------------------------------------------
+// Verification / KYC
+// ---------------------------------------------------------------------------
+
+enum VerificationCaseStatus {
+  NOT_REQUIRED
+  REQUIRED
+  STARTED
+  PENDING
+  UNDER_REVIEW
+  VERIFIED
+  REJECTED
+  EXPIRED
+}
+
+model VerificationCase {
+  id          String                 @id @default(uuid())
+  userId      String
+  user        User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status      VerificationCaseStatus @default(NOT_REQUIRED)
+  provider    String?                // e.g. "dojah", "flutterwave-kyc"
+  metadata    Json?
+  createdAt   DateTime               @default(now())
+  updatedAt   DateTime               @updatedAt
+
+  checks      VerificationCheck[]
+
+  @@index([userId, status])
+}
+
+enum VerificationCheckType {
+  ID_DOCUMENT
+  SELFIE
+  PROOF_OF_ADDRESS
+  BVN
+  NIN
+}
+
+enum VerificationCheckStatus {
+  PENDING
+  PASSED
+  FAILED
+  SKIPPED
+}
+
+model VerificationCheck {
+  id               String                 @id @default(uuid())
+  caseId           String
+  case             VerificationCase       @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  type             VerificationCheckType
+  status           VerificationCheckStatus @default(PENDING)
+  providerResponse Json?
+  verifiedAt       DateTime?
+  createdAt        DateTime               @default(now())
+
+  @@index([caseId])
+}
+
+// ---------------------------------------------------------------------------
+// Safer Play
+// ---------------------------------------------------------------------------
+
+model SaferPlayProfile {
+  id                        String    @id @default(uuid())
+  userId                    String    @unique
+  user                      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  depositLimitMinorUnits    BigInt?   // daily deposit ceiling; NULL = no limit
+  stakeLimitMinorUnits      BigInt?   // per-match stake ceiling; NULL = no limit
+  timeoutUntil              DateTime? // temporary break — player cannot join matches until this
+  selfExcludedUntil         DateTime? // hard self-exclusion — player cannot transact until this
+  createdAt                 DateTime  @default(now())
+  updatedAt                 DateTime  @updatedAt
+}
+
+enum SaferPlayAction {
+  SET
+  UPDATED
+  LIFTED
+}
+
+model SaferPlayEvent {
+  id        String          @id @default(uuid())
+  userId    String
+  user      User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  action    SaferPlayAction
+  field     String          // e.g. "depositLimitMinorUnits", "selfExcludedUntil"
+  oldValue  Json?
+  newValue  Json?
+  createdAt DateTime        @default(now())
+
+  @@index([userId, createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// Finance — V2 double-entry ledger
+// ---------------------------------------------------------------------------
+
+enum AccountType {
+  PLAYER_AVAILABLE
+  PLAYER_LOCKED
+  PLAYER_WITHDRAWAL_PENDING
+  PLATFORM_REVENUE
+  SYSTEM_OPENING_CLEARING
+  SUSPENSE
+}
+
+model LedgerAccount {
+  id          String      @id @default(uuid())
+  userId      String?     // NULL for system/platform singleton accounts
+  user        User?       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type        AccountType
+  currency    Currency    @default(NGN)
+  createdAt   DateTime    @default(now())
+
+  entries     LedgerEntry[]
+
+  @@unique([userId, type, currency])
+}
+
+enum LedgerEntryType {
+  DEPOSIT_CREDIT
+  STAKE_LOCK
+  STAKE_RELEASE
+  SETTLEMENT_PAYOUT
+  WITHDRAWAL_RESERVE
+  WITHDRAWAL_COMPLETE
+  WITHDRAWAL_RELEASE
+  ADJUSTMENT
+}
+
+model LedgerTransaction {
+  id              String          @id @default(uuid())
+  type            LedgerEntryType
+  description     String?
+  idempotencyKey  String?         @unique // prevents double-posting
+  relatedMatchId  String?
+  metadata        Json?
+  createdAt       DateTime        @default(now())
+
+  entries         LedgerEntry[]
+
+  @@index([relatedMatchId])
+}
+
+model LedgerEntry {
+  id                String   @id @default(uuid())
+  transactionId     String
+  transaction       LedgerTransaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  accountId         String
+  account           LedgerAccount     @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  amountMinorUnits  BigInt   // signed: positive = credit, negative = debit; sum must equal 0 per transaction
+  createdAt         DateTime @default(now())
+
+  @@index([transactionId])
+  @@index([accountId, createdAt])
+}
+
+enum WithdrawalV2Status {
+  PENDING_REVIEW
+  APPROVED
+  PROCESSING
+  COMPLETED
+  FAILED
+  RELEASED
+}
+
+model Withdrawal {
+  id                String            @id @default(uuid())
+  userId            String
+  user              User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  amountMinorUnits  BigInt
+  bankAccountId     String?
+  bankAccount       BankAccount?      @relation(fields: [bankAccountId], references: [id], onDelete: SetNull)
+  status            WithdrawalV2Status @default(PENDING_REVIEW)
+  providerRef       String?           @unique // provider payout reference
+  reviewedBy        String?
+  reviewedAt        DateTime?
+  processedAt       DateTime?
+  failureReason     String?
+  idempotencyKey    String?           @unique
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  @@index([userId, status])
+}
+
+model BankAccount {
+  id            String   @id @default(uuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  bankCode      String   // e.g. "044" (Access Bank), "057" (Zenith)
+  bankName      String
+  accountNumber String
+  accountName   String
+  isDefault     Boolean  @default(false)
+  verifiedAt    DateTime?
+  createdAt     DateTime @default(now())
+
+  withdrawals   Withdrawal[]
+
+  @@unique([userId, accountNumber])
+}
+
+enum ReconciliationStatus {
+  RUNNING
+  PASSED
+  FAILED
+}
+
+model FinancialReconciliationRun {
+  id              String              @id @default(uuid())
+  status          ReconciliationStatus @default(RUNNING)
+  discrepancies   Json?               // list of detected mismatches
+  checkedAt       DateTime?
+  createdAt       DateTime            @default(now())
+}
+
+// ---------------------------------------------------------------------------
+// Match V2 — participants, reservations, settlement, receipts
+// ---------------------------------------------------------------------------
+
+enum MatchSide {
+  LIGHT
+  DARK
+}
+
+model MatchParticipant {
+  id        String    @id @default(uuid())
+  matchId   String
+  match     Match     @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  side      MatchSide
+  joinedAt  DateTime  @default(now())
+
+  @@unique([matchId, userId])
+  @@index([userId])
+}
+
+enum StakeReservationStatus {
+  RESERVED
+  RELEASED
+  SETTLED
+}
+
+model StakeReservation {
+  id                String                 @id @default(uuid())
+  matchId           String
+  match             Match                  @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  userId            String
+  user              User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  amountMinorUnits  BigInt
+  status            StakeReservationStatus @default(RESERVED)
+  createdAt         DateTime               @default(now())
+  updatedAt         DateTime               @updatedAt
+
+  @@unique([matchId, userId])
+  @@index([userId, status])
+}
+
+enum MatchSettlementStatus {
+  PENDING
+  SETTLED
+  FAILED
+}
+
+model MatchSettlement {
+  id                String                 @id @default(uuid())
+  matchId           String                 @unique
+  match             Match                  @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  winnerId          String?
+  endReason         String
+  feeSnapshotBps    Int                    // frozen PlatformSettings.commissionPercent at funding
+  netPayoutMinorUnits BigInt               // winner's net payout after commission
+  status            MatchSettlementStatus  @default(PENDING)
+  settledAt         DateTime?
+  createdAt         DateTime               @default(now())
+}
+
+model MatchReceipt {
+  id                String   @id @default(uuid())
+  matchId           String
+  match             Match    @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  userId            String
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  stakeMinorUnits   BigInt
+  payoutMinorUnits  BigInt   // 0 for the loser; full net payout for the winner; full stake refund for a draw
+  feeMinorUnits     BigInt   // commission taken from this player (always >= 0)
+  createdAt         DateTime @default(now())
+
+  @@unique([matchId, userId])
+}
+
+// ---------------------------------------------------------------------------
+// Game V2 — durable state, events, snapshots, connection evidence
+// ---------------------------------------------------------------------------
+
+model MatchGameState {
+  id                   String    @id @default(uuid())
+  matchId              String    @unique
+  match                Match     @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  boardState           Json      // full 64-cell board representation
+  currentTurn          MatchSide @default(LIGHT)
+  stateVersion         Int       @default(0)
+  whiteRemainingMs     BigInt?   // NULL for legacy matches without time controls
+  blackRemainingMs     BigInt?
+  turnStartedAt        DateTime?
+  lastMoveId           String?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+}
+
+enum GameEventType {
+  MOVE
+  RESIGN
+  DISCONNECT
+  FORFEIT
+  DRAW_OFFER
+  DRAW_ACCEPT
+  TIMEOUT
+}
+
+model GameEvent {
+  id         String        @id @default(uuid())
+  matchId    String
+  match      Match         @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  playerId   String?
+  type       GameEventType
+  payload    Json?         // move details, reason, etc.
+  createdAt  DateTime      @default(now())
+
+  @@index([matchId, createdAt])
+}
+
+model GameStateSnapshot {
+  id           String   @id @default(uuid())
+  matchId      String
+  match        Match    @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  stateVersion Int
+  boardState   Json
+  createdAt    DateTime @default(now())
+
+  @@unique([matchId, stateVersion])
+}
+
+enum ConnectionState {
+  CONNECTED
+  DISCONNECTED
+  RECONNECTED
+}
+
+model MatchConnectionEvent {
+  id         String         @id @default(uuid())
+  matchId    String
+  match      Match          @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  userId     String
+  user       User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  state      ConnectionState
+  ipAddress  String?
+  userAgent  String?
+  createdAt  DateTime       @default(now())
+
+  @@index([matchId, createdAt])
+  @@index([userId, matchId])
+}
+
+// ---------------------------------------------------------------------------
+// Admin / RBAC / Risk / Disputes
+// ---------------------------------------------------------------------------
+
+enum AdminRoleName {
+  SUPER_ADMIN
+  FINANCE
+  RISK_COMPLIANCE
+  SUPPORT
+  GAME_OPERATIONS
+  READ_ONLY_AUDITOR
+}
+
+model AdminRole {
+  id          String        @id @default(uuid())
+  name        AdminRoleName @unique
+  description String?
+  createdAt   DateTime      @default(now())
+
+  assignments AdminRoleAssignment[]
+}
+
+model AdminRoleAssignment {
+  id          String   @id @default(uuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  roleId      String
+  role        AdminRole @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  assignedBy  String?
+  assignedAt  DateTime @default(now())
+
+  @@unique([userId, roleId])
+}
+
+enum RiskEventType {
+  VELOCITY
+  AMOUNT_ANOMALY
+  MULTI_ACCOUNT
+  COLLUSION
+  BOT
+}
+
+enum RiskSeverity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+model RiskEvent {
+  id         String         @id @default(uuid())
+  userId     String
+  user       User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type       RiskEventType
+  severity   RiskSeverity   @default(LOW)
+  metadata   Json?
+  createdAt  DateTime       @default(now())
+
+  @@index([userId, createdAt])
+  @@index([type, createdAt])
+}
+
+enum RiskCaseStatus {
+  OPEN
+  INVESTIGATING
+  RESOLVED
+  DISMISSED
+}
+
+model RiskCase {
+  id          String         @id @default(uuid())
+  subjectId   String         // userId under investigation
+  status      RiskCaseStatus @default(OPEN)
+  assignedTo  String?
+  notes       Json?
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  @@index([status])
+}
+
+enum DisputeStatus {
+  OPEN
+  UNDER_REVIEW
+  RESOLVED
+  DISMISSED
+}
+
+model DisputeCase {
+  id          String        @id @default(uuid())
+  matchId     String
+  match       Match         @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  raisedBy    String
+  status      DisputeStatus @default(OPEN)
+  reason      String
+  resolution  String?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  evidence    DisputeEvidence[]
+
+  @@index([matchId])
+  @@index([status])
+}
+
+enum DisputeEvidenceType {
+  SCREENSHOT
+  CHAT_LOG
+  GAME_LOG
+  SYSTEM_LOG
+  OTHER
+}
+
+model DisputeEvidence {
+  id          String              @id @default(uuid())
+  caseId      String
+  case        DisputeCase         @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  type        DisputeEvidenceType
+  url         String?             // storage path
+  description String?
+  uploadedAt  DateTime            @default(now())
+
+  @@index([caseId])
+}
+
+// ---------------------------------------------------------------------------
+// Operations — general outbox + idempotency
+// ---------------------------------------------------------------------------
+
+enum OutboxEventStatus {
+  PENDING
+  SENT
+  FAILED
+}
+
+model OutboxEvent {
+  id             String           @id @default(uuid())
+  aggregateType  String           // e.g. "Match", "LedgerTransaction"
+  aggregateId    String
+  eventType      String           // e.g. "match.settled", "wallet.updated"
+  payload        Json
+  status         OutboxEventStatus @default(PENDING)
+  attempts       Int              @default(0)
+  lastError      String?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  @@index([status, createdAt])
+  @@index([aggregateType, aggregateId])
+}
+
+model IdempotencyRecord {
+  id        String   @id @default(uuid())
+  key       String   @unique // client-supplied idempotency key
+  scope     String?  // e.g. "deposit:intent", "withdrawal:request"
+  result    Json?    // cached response
+  expiresAt DateTime
+  createdAt DateTime @default(now())
 }

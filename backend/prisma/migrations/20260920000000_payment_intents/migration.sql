@@ -1,3 +1,6 @@
+-- CreateEnum
+CREATE TYPE "DepositIntentStatus" AS ENUM ('PENDING', 'FAILED', 'COMPLETED');
+
 -- CreateTable
 CREATE TABLE "DepositIntent" (
     "id" TEXT NOT NULL,
