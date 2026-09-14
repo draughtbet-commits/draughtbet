@@ -200,6 +200,59 @@ export async function postLedgerTransaction(
 }
 
 /**
+ * Posts the two-player STAKE_LOCK for a funded match inside the caller's tx:
+ *   PLAYER_AVAILABLE  -amount   (each player)
+ *   PLAYER_LOCKED     +amount   (each player)
+ * Net zero across the two users. Idempotent per match via `stake-lock:{matchId}`.
+ * This is the V2 reservation mirror; the legacy Wallet decrement stays as the
+ * read-source bridge until the final read-flip PR.
+ */
+export async function postStakeReservation(tx, matchId, reservations) {
+  const entries = [];
+  for (const r of reservations) {
+    const accounts = await ensureUserAccounts(tx, r.userId, r.currency ?? 'NGN');
+    entries.push(
+      { accountId: accounts.PLAYER_AVAILABLE.id, amountMinorUnits: -r.amountMinorUnits },
+      { accountId: accounts.PLAYER_LOCKED.id, amountMinorUnits: r.amountMinorUnits }
+    );
+  }
+  return postLedgerTransaction(tx, {
+    type: 'STAKE_LOCK',
+    description: `Stakes locked for match ${matchId}`,
+    idempotencyKey: `stake-lock:${matchId}`,
+    relatedMatchId: matchId,
+    metadata: { players: reservations.map((r) => r.userId) },
+    entries
+  });
+}
+
+/**
+ * Reverses the two-player stake lock when a match is released before it ever
+ * becomes playable (activation failure / allowed cancellation):
+ *   PLAYER_LOCKED     -amount   (each player)
+ *   PLAYER_AVAILABLE  +amount   (each player)
+ * Idempotent per match via `stake-release:{matchId}`.
+ */
+export async function postStakeRelease(tx, matchId, reservations) {
+  const entries = [];
+  for (const r of reservations) {
+    const accounts = await ensureUserAccounts(tx, r.userId, r.currency ?? 'NGN');
+    entries.push(
+      { accountId: accounts.PLAYER_LOCKED.id, amountMinorUnits: -r.amountMinorUnits },
+      { accountId: accounts.PLAYER_AVAILABLE.id, amountMinorUnits: r.amountMinorUnits }
+    );
+  }
+  return postLedgerTransaction(tx, {
+    type: 'STAKE_RELEASE',
+    description: `Stakes released for match ${matchId}`,
+    idempotencyKey: `stake-release:${matchId}`,
+    relatedMatchId: matchId,
+    metadata: { players: reservations.map((r) => r.userId) },
+    entries
+  });
+}
+
+/**
  * Net balance of one account: sum of all signed entries.
  */
 export async function getAccountBalance(client, accountId) {

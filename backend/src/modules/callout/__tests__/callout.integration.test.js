@@ -99,6 +99,11 @@ describeIntegration('Call-out acceptance policy (real PostgreSQL)', () => {
     });
     await prisma.callout.deleteMany({ where: { id: { in: allCallouts } } });
     await prisma.wallet.deleteMany({ where: { userId: { in: allUsers } } });
+    // V2 ledger rows must go before users: user delete cascades LedgerAccount,
+    // but LedgerEntry.account is onDelete Restrict.
+    await prisma.ledgerTransaction.deleteMany({
+      where: { relatedMatchId: { in: allMatches } }
+    });
     await prisma.user.deleteMany({ where: { id: { in: allUsers } } });
     await prisma.$disconnect();
   });

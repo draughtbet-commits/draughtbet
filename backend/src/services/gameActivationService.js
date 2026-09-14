@@ -4,6 +4,7 @@ import redis from '../utils/redis.js';
 import logger from '../utils/logger.js';
 import { initializeGame } from '../sockets/gameManager.js';
 import { lockWalletsInOrder } from './matchService.js';
+import { postStakeRelease } from './ledgerService.js';
 
 // Lease length for an activation claim. All claims are short (an idempotent
 // Redis init + a boolean mark); a lease this long is only meant to outlive the
@@ -120,6 +121,14 @@ export const releaseMatch = async (outboxId) => {
           }
         });
       }
+
+      // V2 ledger mirror: reverse both players' LOCKED -> AVAILABLE in one
+      // balanced, idempotent posting (same tx; guarded by the claim token and
+      // the unique stake-release key, so it can never release twice).
+      await postStakeRelease(tx, outbox.matchId, [
+        { userId: outbox.player1Id, currency: w1.currency ?? 'NGN', amountMinorUnits: BigInt(outbox.stakeMinorUnits) },
+        { userId: outbox.player2Id, currency: w2.currency ?? 'NGN', amountMinorUnits: BigInt(outbox.stakeMinorUnits) }
+      ]);
 
       await tx.match.update({
         where: { id: outbox.matchId },

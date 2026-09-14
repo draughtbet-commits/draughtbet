@@ -15,6 +15,16 @@ const mockPrisma = {
   walletTransaction: {
     create: jest.fn()
   },
+  ledgerAccount: {
+    upsert: jest.fn()
+  },
+  ledgerTransaction: {
+    create: jest.fn(),
+    findUnique: jest.fn()
+  },
+  ledgerEntry: {
+    create: jest.fn()
+  },
   match: {
     findFirst: jest.fn(),
     create: jest.fn()
@@ -35,8 +45,13 @@ describe('matchService debitStakes', () => {
     jest.clearAllMocks();
     mockPrisma.$transaction.mockImplementation(async (cb) => cb(mockPrisma));
     mockPrisma.$queryRaw
-      .mockResolvedValueOnce([{ id: 'w-a', userId: 'player-a', balanceMinorUnits: '100000' }])
-      .mockResolvedValueOnce([{ id: 'w-b', userId: 'player-b', balanceMinorUnits: '100000' }]);
+      .mockResolvedValueOnce([{ id: 'w-a', userId: 'player-a', balanceMinorUnits: '100000', currency: 'NGN' }])
+      .mockResolvedValueOnce([{ id: 'w-b', userId: 'player-b', balanceMinorUnits: '100000', currency: 'NGN' }]);
+    // Ledger mirror mocks
+    mockPrisma.ledgerAccount.upsert.mockImplementation(async ({ create }) => ({ id: `acct:${create.type}:${create.userId}` }));
+    mockPrisma.ledgerTransaction.findUnique.mockResolvedValue(null);
+    mockPrisma.ledgerTransaction.create.mockResolvedValue({ id: 'ledger-tx-1', type: 'STAKE_LOCK' });
+    mockPrisma.ledgerEntry.create.mockImplementation(async ({ data }) => ({ id: `entry:${data.accountId}` }));
   });
 
   const eligibleUser = {
@@ -85,6 +100,21 @@ describe('matchService debitStakes', () => {
         status: 'PENDING'
       })
     });
+
+    // V2 ledger mirror: one STAKE_LOCK tx with a balanced 4-entry posting
+    // (AVAILABLE -5000 -> LOCKED +5000 for each player) in the same tx.
+    expect(mockPrisma.ledgerTransaction.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ type: 'STAKE_LOCK' })
+    });
+    expect(mockPrisma.ledgerEntry.create).toHaveBeenCalledTimes(4);
+    const entryAmounts = mockPrisma.ledgerEntry.create.mock.calls.map(([c]) => c.data.amountMinorUnits);
+    expect(entryAmounts).toEqual([-5000n, 5000n, -5000n, 5000n]);
+    // Both players' accounts were resolved for the posting
+    expect(mockPrisma.ledgerAccount.upsert).toHaveBeenCalledWith({
+      where: { userId_type_currency: { userId: 'player-a', type: 'PLAYER_AVAILABLE', currency: 'NGN' } },
+      create: { userId: 'player-a', type: 'PLAYER_AVAILABLE', currency: 'NGN' },
+      update: {}
+    });
   });
 
   it('refuses to fund a match without platform settings', async () => {
@@ -95,6 +125,7 @@ describe('matchService debitStakes', () => {
 
     expect(mockPrisma.match.create).not.toHaveBeenCalled();
     expect(mockPrisma.walletTransaction.create).not.toHaveBeenCalled();
+    expect(mockPrisma.ledgerTransaction.create).not.toHaveBeenCalled();
   });
 
   it('refuses out-of-bounds commission terms before creating the match', async () => {

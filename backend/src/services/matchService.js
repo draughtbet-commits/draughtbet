@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import prisma from '../utils/db.js';
 import { assertEligibleForMoney } from './eligibilityService.js';
 import { DEFAULT_TIME_CONTROL_SECONDS } from '../sockets/timeControl.js';
+import { postStakeReservation } from './ledgerService.js';
 
 export class InsufficientFundsError extends Error {
   constructor(message = 'Insufficient funds') {
@@ -131,7 +132,9 @@ export const createMatchWithStakes = async (tx, player1Id, player2Id, stakeMinor
   // 4. Generate match ID upfront so WalletTransactions can reference it
   const matchId = crypto.randomUUID();
 
-  // 5. Debit both wallets (debit-before-credit ordering)
+  // 5. Debit both wallets (debit-before-credit ordering). This legacy write
+  //    remains the live read source until the final read-flip PR; the V2
+  //    STAKE_LOCK mirror below keeps the ledger in step with it.
   for (const w of [w1, w2]) {
     await tx.wallet.update({ 
       where: { id: w.id }, 
@@ -144,6 +147,13 @@ export const createMatchWithStakes = async (tx, player1Id, player2Id, stakeMinor
       relatedMatchId: matchId
     }});
   }
+
+  // 5b. V2 ledger mirror: move both players AVAILABLE -> LOCKED in one
+  //     balanced, idempotent posting (same tx, so a partial match is impossible).
+  await postStakeReservation(tx, matchId, [
+    { userId: w1.userId, currency: w1.currency ?? 'NGN', amountMinorUnits: stakeAmount },
+    { userId: w2.userId, currency: w2.currency ?? 'NGN', amountMinorUnits: stakeAmount }
+  ]);
 
   // 6. Create Match row (status: ACTIVE) with the fee snapshot
   const match = await tx.match.create({ data: {

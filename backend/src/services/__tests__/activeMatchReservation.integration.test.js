@@ -62,6 +62,12 @@ describeIntegration('One ACTIVE match per player (real PostgreSQL + Redis)', () 
     await prisma.walletTransaction.deleteMany({});
     await prisma.wallet.deleteMany({});
     await prisma.callout.deleteMany({});
+    // V2 ledger rows must go before users: user delete cascades LedgerAccount,
+    // but LedgerEntry.account is onDelete Restrict. Deleting the match's
+    // ledger transactions cascades their entries, unblocking user teardown.
+    await prisma.ledgerTransaction.deleteMany({
+      where: { relatedMatchId: { in: allMatches } }
+    });
     await prisma.user.deleteMany({});
     const matchKeys = await redis.keys('match:*');
     if (matchKeys.length) await redis.del(...matchKeys);
@@ -81,6 +87,9 @@ describeIntegration('One ACTIVE match per player (real PostgreSQL + Redis)', () 
     await prisma.walletTransaction.deleteMany({});
     await prisma.wallet.deleteMany({});
     await prisma.callout.deleteMany({});
+    await prisma.ledgerTransaction.deleteMany({
+      where: { relatedMatchId: { in: allMatches } }
+    });
     await prisma.user.deleteMany({});
     await prisma.$disconnect();
   });

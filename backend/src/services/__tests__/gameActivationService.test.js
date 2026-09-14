@@ -10,6 +10,9 @@ const mockPrisma = {
   },
   wallet: { update: jest.fn() },
   walletTransaction: { create: jest.fn() },
+  ledgerAccount: { upsert: jest.fn() },
+  ledgerTransaction: { create: jest.fn(), findUnique: jest.fn() },
+  ledgerEntry: { create: jest.fn() },
   match: { update: jest.fn() }
 };
 
@@ -115,9 +118,13 @@ describe('gameActivationService releaseMatch', () => {
     jest.clearAllMocks();
     mockPrisma.$queryRaw.mockResolvedValue([pendingRow]);
     lockWalletsInOrder.mockResolvedValue([
-      { id: 'w-a', userId: 'player-a', balanceMinorUnits: '9000' },
-      { id: 'w-b', userId: 'player-b', balanceMinorUnits: '9000' }
+      { id: 'w-a', userId: 'player-a', balanceMinorUnits: '9000', currency: 'NGN' },
+      { id: 'w-b', userId: 'player-b', balanceMinorUnits: '9000', currency: 'NGN' }
     ]);
+    mockPrisma.ledgerAccount.upsert.mockImplementation(async ({ create }) => ({ id: `acct:${create.type}:${create.userId}` }));
+    mockPrisma.ledgerTransaction.findUnique.mockResolvedValue(null);
+    mockPrisma.ledgerTransaction.create.mockResolvedValue({ id: 'lt-release', type: 'STAKE_RELEASE' });
+    mockPrisma.ledgerEntry.create.mockImplementation(async ({ data }) => ({ id: `entry:${data.accountId}` }));
   });
 
   it('refunds both stakes exactly once and records the release', async () => {
@@ -144,6 +151,15 @@ describe('gameActivationService releaseMatch', () => {
       data: expect.objectContaining({ status: 'RELEASED' })
     });
     expect(result.released).toBe(true);
+
+    // V2 ledger mirror: one STAKE_RELEASE tx reversing both locks
+    expect(mockPrisma.ledgerTransaction.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ type: 'STAKE_RELEASE' })
+    });
+    expect(mockPrisma.ledgerEntry.create).toHaveBeenCalledTimes(4);
+    const entryAmounts = mockPrisma.ledgerEntry.create.mock.calls.map(([c]) => c.data.amountMinorUnits);
+    // LOCKED -5000 -> AVAILABLE +5000 for each player
+    expect(entryAmounts).toEqual([-5000n, 5000n, -5000n, 5000n]);
   });
 
   it('does nothing when it loses the claim to another actor', async () => {

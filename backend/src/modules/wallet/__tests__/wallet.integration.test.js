@@ -174,6 +174,9 @@ describeIntegration('Wallet (real PostgreSQL concurrency)', () => {
     });
     if (match) {
       await prisma.walletTransaction.deleteMany({ where: { relatedMatchId: match.id } });
+      // V2 ledger rows must go before users: user delete cascades LedgerAccount,
+      // but LedgerEntry.account is onDelete Restrict (transaction delete cascades its entries).
+      await prisma.ledgerTransaction.deleteMany({ where: { relatedMatchId: match.id } });
       await prisma.match.delete({ where: { id: match.id } });
     }
     await prisma.wallet.delete({ where: { userId: friend.id } });
