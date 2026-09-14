@@ -19,6 +19,7 @@ import { startReconciliationSweep } from './jobs/reconciliationSweep.js';
 import { startMatchmakingWorker } from './jobs/matchmakingWorker.js';
 import { startCalloutExpirySweep } from './jobs/calloutExpiry.js';
 import { startGameActivationSweep } from './jobs/gameActivationSweep.js';
+import { startTurnDeadlineSweep } from './jobs/turnDeadlineSweep.js';
 
 const app = express();
 // Prisma initialized in utils/db.js
@@ -100,6 +101,7 @@ if (process.env.NODE_ENV !== 'test') {
   startMatchmakingWorker();
   startCalloutExpirySweep();
   startGameActivationSweep();
+  startTurnDeadlineSweep();
 }
 
 export default app;

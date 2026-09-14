@@ -46,8 +46,8 @@ describe('matchService debitStakes', () => {
   };
   mockPrisma.user.findUnique.mockResolvedValue(eligibleUser);
 
-  it('snapshots the accepted commissionPercent onto the Match row', async () => {
-    mockPrisma.platformSettings.findUnique.mockResolvedValue({ commissionPercent: 20 });
+  it('snapshots the accepted commissionPercent and time control onto the Match row', async () => {
+    mockPrisma.platformSettings.findUnique.mockResolvedValue({ commissionPercent: 20, timeControlSeconds: 45 });
     mockPrisma.match.create.mockResolvedValue({ id: 'm-1' });
 
     // player-a < player-b lexicographically, lock order follows supply order
@@ -61,7 +61,8 @@ describe('matchService debitStakes', () => {
         id: expect.any(String),
         status: 'ACTIVE',
         stakeMinorUnits: 5000n,
-        settlementCommissionPercent: 20
+        settlementCommissionPercent: 20,
+        timeControlSeconds: 45
       })
     });
     expect(match).toEqual({ id: 'm-1' });
@@ -125,8 +126,18 @@ describe('matchService debitStakes', () => {
     expect(mockPrisma.wallet.update).toHaveBeenCalledTimes(2);
     expect(mockPrisma.walletTransaction.create).toHaveBeenCalledTimes(2);
     expect(mockPrisma.match.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({ settlementCommissionPercent: 15 })
+      data: expect.objectContaining({ settlementCommissionPercent: 15, timeControlSeconds: 60 })
     });
+  });
+
+  it('refuses an out-of-bounds time control snapshot before creating the match', async () => {
+    mockPrisma.platformSettings.findUnique.mockResolvedValue({ commissionPercent: 10, timeControlSeconds: 0 });
+
+    await expect(debitStakes('player-a', 'player-b', 5000n, 'AMATEUR'))
+      .rejects.toThrow('Invalid timeControlSeconds');
+
+    expect(mockPrisma.match.create).not.toHaveBeenCalled();
+    expect(mockPrisma.walletTransaction.create).not.toHaveBeenCalled();
   });
 
   it('refuses to fund a match when either player fails KYC', async () => {

@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import prisma from '../utils/db.js';
 import { assertEligibleForMoney } from './eligibilityService.js';
+import { DEFAULT_TIME_CONTROL_SECONDS } from '../sockets/timeControl.js';
 
 export class InsufficientFundsError extends Error {
   constructor(message = 'Insufficient funds') {
@@ -113,7 +114,7 @@ export const createMatchWithStakes = async (tx, player1Id, player2Id, stakeMinor
     throw new InsufficientFundsError('Insufficient funds for stake');
   }
 
-  // 3. Snapshot the accepted fee terms before any match exists.
+  // 3. Snapshot the accepted fee terms and time control before any match exists.
   const settings = await tx.platformSettings.findUnique({
     where: { id: 'singleton' }
   });
@@ -121,6 +122,10 @@ export const createMatchWithStakes = async (tx, player1Id, player2Id, stakeMinor
   const commissionPercent = settings.commissionPercent;
   if (!Number.isInteger(commissionPercent) || commissionPercent < 0 || commissionPercent > 100) {
     throw new Error(`Invalid commissionPercent snapshot: ${commissionPercent}`);
+  }
+  const timeControlSeconds = settings.timeControlSeconds ?? DEFAULT_TIME_CONTROL_SECONDS;
+  if (!Number.isInteger(timeControlSeconds) || timeControlSeconds < 1) {
+    throw new Error(`Invalid timeControlSeconds snapshot: ${timeControlSeconds}`);
   }
 
   // 4. Generate match ID upfront so WalletTransactions can reference it
@@ -148,6 +153,7 @@ export const createMatchWithStakes = async (tx, player1Id, player2Id, stakeMinor
     tier: stakeTier, 
     stakeMinorUnits: stakeAmount, 
     settlementCommissionPercent: commissionPercent,
+    timeControlSeconds,
     status: 'ACTIVE'
   }});
 

@@ -145,6 +145,10 @@ model Match {
   // Settlement must use this, never live settings. NULL only for
   // legacy ACTIVE rows funded before this column existed.
   settlementCommissionPercent Int?
+  // Authoritative per-turn deadline snapshot (PlatformSettings.timeControlSeconds)
+  // at funding time. Turn expiry is derived from this on the live Redis game
+  // state; NULL only for legacy ACTIVE rows funded before the column existed.
+  timeControlSeconds Int?
   createdAt         DateTime @default(now())
   endedAt           DateTime?
   moves             MatchMove[]
@@ -217,6 +221,9 @@ model AdminAuditLog {
 model PlatformSettings {
   id                 String @id @default("singleton")
   commissionPercent  Int    @default(10)
+  // Seconds a player has to make their move before the deadline sweep forfeits
+  // the game. Snapshot each Match onto `Match.timeControlSeconds` at funding.
+  timeControlSeconds Int    @default(60)
   // Values below are placeholder NGN kobo amounts — confirm real Nigeria-market stake bounds
   // with the client before launch; these are proportional estimates from the original GBP
   // wireframe figures (~₦600/£1), not a client-confirmed pricing decision.

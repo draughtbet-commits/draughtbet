@@ -57,10 +57,22 @@ class FakeRedis {
     return this.store.delete(key) ? 1 : 0;
   }
 
-  eval(_script, _numKeys, key, version, board, currentTurn, currentTurnUserId, moveCount, lastMoveTs, positionCounts, consecutiveKingMoves, status, winnerId) {
+  // Mirrors redis.call('TIME'): [seconds, microseconds] epoch.
+  time() {
+    const now = Date.now();
+    return [String(Math.floor(now / 1000)), String((now % 1000) * 1000)];
+  }
+
+  eval(_script, _numKeys, key, version, board, currentTurn, currentTurnUserId, moveCount, lastMoveTs, positionCounts, consecutiveKingMoves, status, winnerId, deadlineAt, timeControlSeconds) {
     const hash = this.store.get(key);
     if (!hash) throw new Error('GAME_NOT_FOUND');
     if (String(hash.version) !== String(version)) throw new Error('VERSION_MISMATCH');
+
+    const currentDeadline = hash.deadlineAt;
+    if (status === 'in_progress' && currentDeadline && currentDeadline !== '' && Number(currentDeadline) < Date.now()) {
+      throw new Error('TURN_EXPIRED');
+    }
+
     Object.assign(hash, {
       board,
       currentTurn,
@@ -71,7 +83,9 @@ class FakeRedis {
       positionCounts,
       consecutiveKingMoves,
       status,
-      winnerId
+      winnerId,
+      deadlineAt,
+      timeControlSeconds
     });
     return 'OK';
   }
@@ -102,6 +116,7 @@ jest.unstable_mockModule('../settlement.js', () => settlementMocks);
 
 const { handleMoveAttempt, handleResign } = await import('../gameManager.js');
 const { EMPTY, WHITE_MAN, BLACK_MAN, COLOR_WHITE } = await import('../../modules/engine/board.js');
+const { createInitialBoard, getLegalMoves } = await import('../../modules/engine/index.js');
 
 // Endgame: white man on square 32, black men on 27 and 17. White's only legal
 // move is a mandatory two-capture chain 32 -> 21 -> 12 taking both black men,
@@ -129,7 +144,9 @@ const seedMatch = (matchId, board, player1, player2) => {
     version: '0',
     positionCounts: JSON.stringify({ [JSON.stringify([board, COLOR_WHITE])]: 1 }),
     consecutiveKingMoves: '0',
-    lastMoveTs: Date.now().toString()
+    lastMoveTs: Date.now().toString(),
+    timeControlSeconds: '60',
+    deadlineAt: (Date.now() + 60000).toString()
   });
 };
 
@@ -244,5 +261,45 @@ describe('complete game smoke', () => {
 
     expect(socket.emit).toHaveBeenCalledWith('error', { message: 'Invalid payload' });
     expect(mockTo).not.toHaveBeenCalled();
+  });
+
+  it('refuses a move whose turn already expired and forfeits the player on the clock', async () => {
+    const board = createInitialBoard();
+    const opening = getLegalMoves(board, COLOR_WHITE)[0];
+    seedMatch('test-match', board, 'white-user', 'black-user');
+    fakeRedis.hset('match:test-match', { deadlineAt: (Date.now() - 1000).toString() });
+
+    const socket = { id: 's8', user: { userId: 'white-user' }, emit: jest.fn() };
+    await handleMoveAttempt(socket, { matchId: 'test-match', from: opening.from, to: opening.to });
+
+    expect(socket.emit).toHaveBeenCalledWith('move_rejected', { reason: 'turn_expired' });
+    // The expired move must never reach the durable log (pre-persist check).
+    expect(mockPrisma.matchMove.create).not.toHaveBeenCalled();
+    expect(settlementMocks.settleGameWithRetry).toHaveBeenCalledWith(
+      'test-match',
+      'black-user',
+      'white-user',
+      'timeout_forfeit'
+    );
+    expect(mockTo).not.toHaveBeenCalled();
+    expect(fakeRedis.store.get('match:test-match').status).toBe('in_progress');
+  });
+
+  it('mirrors the Lua guard: an in-script expiry race is refused without advancing state', () => {
+    const board = createInitialBoard();
+    seedMatch('test-match', board, 'white-user', 'black-user');
+    const hash = fakeRedis.store.get('match:test-match');
+    const past = (Date.now() - 1000).toString();
+
+    // The deadline has now crossed on the stored projection between the JS
+    // pre-check and the CAS application — same refusal as the embedded guard.
+    hash.deadlineAt = past;
+    expect(() => fakeRedis.eval(
+      'ignored', 1, 'match:test-match',
+      hash.version, JSON.stringify(board), 'BLACK', 'black-user', '1',
+      Date.now().toString(), hash.positionCounts, '0', 'in_progress', '',
+      past, '60'
+    )).toThrow('TURN_EXPIRED');
+    expect(fakeRedis.store.get('match:test-match').version).toBe('0');
   });
 });

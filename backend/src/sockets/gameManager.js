@@ -4,13 +4,17 @@ import { validateMatchIdPayload, validateMoveAttempt } from './payloadGuard.js';
 import { createInitialBoard, getLegalMoves, applyMove, checkGameEnd, COLOR_WHITE, COLOR_BLACK, isKing } from '../modules/engine/index.js';
 import { settleGame, settleGameDraw, settleGameWithRetry, settleGameDrawWithRetry } from './settlement.js';
 import { getIO } from './index.js';
+import { DEFAULT_TIME_CONTROL_SECONDS, TURN_EXPIRED_REASON } from './timeControl.js';
 import prisma from '../utils/db.js';
 import * as Sentry from '@sentry/node';
 
 const GAME_STATE_TTL = 24 * 60 * 60; // 24 hours
 
-// Lua script for atomic compare-and-swap
-const casScript = `
+// Lua script for atomic compare-and-swap. The expiry guard is embedded in the
+// script so a move/resign can never race the turn-deadline sweep: any
+// non-ending transition on an expired turn is refused before the state advance.
+// Exported for real-Redis integration tests (the string is inert to callers).
+export const casScript = `
 local key = KEYS[1]
 local currentVersion = redis.call('HGET', key, 'version')
 if currentVersion == false then
@@ -18,6 +22,19 @@ if currentVersion == false then
 end
 if currentVersion ~= ARGV[1] then
   return redis.error_reply('VERSION_MISMATCH')
+end
+-- Time-control guard: once the current turn's deadline has passed (authoritative
+-- Redis clock), no move may advance the game. Ending transitions (resign, win,
+-- draw) are still allowed — the deadline sweep settles them.
+if ARGV[9] == 'in_progress' then
+  local currentDeadline = redis.call('HGET', key, 'deadlineAt')
+  if currentDeadline and currentDeadline ~= '' then
+    local tim = redis.call('TIME')
+    local nowMs = tonumber(tim[1]) * 1000 + math.floor(tonumber(tim[2]) / 1000)
+    if tonumber(currentDeadline) < nowMs then
+      return redis.error_reply('TURN_EXPIRED')
+    end
+  end
 end
 redis.call('HSET', key,
   'board',                  ARGV[2],
@@ -29,13 +46,33 @@ redis.call('HSET', key,
   'positionCounts',         ARGV[7],
   'consecutiveKingMoves',   ARGV[8],
   'status',                 ARGV[9],
-  'winnerId',               ARGV[10]
+  'winnerId',               ARGV[10],
+  'deadlineAt',             ARGV[11],
+  'timeControlSeconds',     ARGV[12]
 )
 return 'OK'
 `;
 
 // Utility sleep function
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// Authoritative server clock (Redis TIME), echoing the guard embedded in the
+// CAS script so the pre-persist expiry check agrees with the atomic one.
+const authoritativeNowMs = async () => {
+  const [seconds, microseconds] = await redis.time();
+  return Number(seconds) * 1000 + Math.floor(Number(microseconds) / 1000);
+};
+
+// Refuses a move whose turn already expired and forfeits the player on the
+// clock. Used by the pre-persist check (common case, avoids a phantom log row)
+// and by the in-script guard race in the CAS catch (backstop).
+const refuseExpiredTurn = (socket, matchId, state, userId) => {
+  const opponentId = state.player1 === userId ? state.player2 : state.player1;
+  logger.info({ matchId, forfeitedBy: userId, winner: opponentId },
+    'Turn expired — auto-forfeit');
+  socket.emit('move_rejected', { reason: 'turn_expired' });
+  settleGameWithRetry(matchId, opponentId, userId, TURN_EXPIRED_REASON);
+};
 
 // Durable write of an accepted move. Returns { persisted: true } on success and
 // { alreadyExists: true } when the (matchId, moveNumber) pair is already on the
@@ -131,8 +168,26 @@ export const initializeGame = async (matchId, player1Id, player2Id, stakeTier) =
     return getGameState(matchId);
   }
 
+  // Time control is snapshotted from the Match row (taken at funding). Fall
+  // back to the platform default when the row predates the column, so a
+  // legacy/recovered game still runs under a sane clock.
+  let timeControlSeconds = DEFAULT_TIME_CONTROL_SECONDS;
+  try {
+    const match = await prisma.match.findUnique({
+      where: { id: matchId },
+      select: { timeControlSeconds: true }
+    });
+    if (match && Number.isInteger(match.timeControlSeconds) && match.timeControlSeconds > 0) {
+      timeControlSeconds = match.timeControlSeconds;
+    }
+  } catch (err) {
+    logger.warn({ err, matchId },
+      'initializeGame: failed to load time control snapshot, using default');
+  }
+
   const initialBoard = createInitialBoard();
   const boardHash = JSON.stringify([initialBoard, COLOR_WHITE]);
+  const now = Date.now();
   
   const initialState = {
     player1: player1Id,
@@ -147,7 +202,9 @@ export const initializeGame = async (matchId, player1Id, player2Id, stakeTier) =
     version: 0,
     positionCounts: JSON.stringify({ [boardHash]: 1 }),
     consecutiveKingMoves: 0,
-    lastMoveTs: Date.now()
+    lastMoveTs: now,
+    deadlineAt: now + timeControlSeconds * 1000,
+    timeControlSeconds
   };
   
   try {
@@ -203,6 +260,9 @@ export const handleResign = async (socket, payload) => {
       const opponentId = state.player1 === userId ? state.player2 : state.player1;
 
       // We execute the CAS script for resignation, which flips status to completed and sets winner.
+      const resignTc = Number(state.timeControlSeconds) > 0
+        ? state.timeControlSeconds
+        : DEFAULT_TIME_CONTROL_SECONDS;
       await redis.eval(
         casScript,
         1,
@@ -216,7 +276,9 @@ export const handleResign = async (socket, payload) => {
         state.positionCounts,
         state.consecutiveKingMoves,
         'completed',
-        opponentId
+        opponentId,
+        '', // deadlineAt — no future deadline on an ended game
+        resignTc.toString()
       );
 
       success = true;
@@ -251,7 +313,7 @@ const validatePreconditions = (state, userId) => {
   return null;
 };
 
-const computeNextState = (state, from, to) => {
+const computeNextState = (state, from, to, nowMs = Date.now()) => {
   const board = JSON.parse(state.board);
   const legalMoves = getLegalMoves(board, state.currentTurn);
   
@@ -290,9 +352,19 @@ const computeNextState = (state, from, to) => {
     }
   }
 
+  // The next turn's clock opens when this move lands; an ended game carries
+  // no deadline.
+  const timeControlSeconds = state.timeControlSeconds && Number(state.timeControlSeconds) > 0
+    ? Number(state.timeControlSeconds)
+    : DEFAULT_TIME_CONTROL_SECONDS;
+  const deadlineAt = newStatus === 'in_progress'
+    ? String(nowMs + timeControlSeconds * 1000)
+    : '';
+
   return { 
     newBoard, nextTurn, nextTurnUserId, moveCount, consecutiveKingMoves, 
-    positionCounts, ended, reason, newStatus, winnerId, move, promoted: applyResult.promoted
+    positionCounts, ended, reason, newStatus, winnerId, move, promoted: applyResult.promoted,
+    deadlineAt, timeControlSeconds
   };
 };
 
@@ -328,8 +400,26 @@ export const handleMoveAttempt = async (socket, payload) => {
 
       const {
         newBoard, nextTurn, nextTurnUserId, moveCount, consecutiveKingMoves,
-        positionCounts, ended, reason, newStatus, winnerId, move, promoted
+        positionCounts, ended, reason, newStatus, winnerId, move, promoted,
+        deadlineAt, timeControlSeconds
       } = nextState;
+
+      // Single clock read per attempt: the durable log and the live projection
+      // must agree on the moment the turn clock opened.
+      const nowMs = Date.now();
+
+      // Expiry pre-check BEFORE durable acceptance: a move whose turn already
+      // expired must not be persisted at all (no phantom log row). The CAS
+      // script re-validates atomically, so even a deadline crossing between
+      // here and the script resolves correctly via the catch below.
+      const deadlineVal = Number(state.deadlineAt);
+      if (newStatus === 'in_progress' && Number.isFinite(deadlineVal) && deadlineVal > 0) {
+        const nowMsAuthoritative = await authoritativeNowMs();
+        if (nowMsAuthoritative > deadlineVal) {
+          refuseExpiredTurn(socket, matchId, state, userId);
+          return;
+        }
+      }
 
       // The move is accepted durably BEFORE the live projection advances. The
       // move log is the source of truth and Redis is a replayable projection
@@ -380,11 +470,13 @@ export const handleMoveAttempt = async (socket, payload) => {
         nextTurn,
         nextTurnUserId,
         moveCount.toString(),
-        Date.now().toString(),
+        nowMs.toString(),
         JSON.stringify(positionCounts),
         consecutiveKingMoves.toString(),
         newStatus,
-        winnerId
+        winnerId,
+        deadlineAt,
+        timeControlSeconds.toString()
       );
 
       success = true;
@@ -425,6 +517,11 @@ export const handleMoveAttempt = async (socket, payload) => {
         }
       } else if (err.message && err.message.includes('GAME_NOT_FOUND')) {
         socket.emit('move_rejected', { reason: 'game_already_ended' });
+        return;
+      } else if (err.message && err.message.includes('TURN_EXPIRED')) {
+        // The clock expired in the window between the pre-check and the CAS —
+        // an extremely narrow race against the sweep. Same refusal outcome.
+        refuseExpiredTurn(socket, matchId, state, userId);
         return;
       } else {
         logger.error({ err, matchId }, 'Error in handleMoveAttempt');
