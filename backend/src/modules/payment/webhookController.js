@@ -1,5 +1,5 @@
 import express from 'express';
-import { processDepositWebhook } from '../wallet/service.js';
+import { processDepositWebhook, parseDecimalMajorToMinor } from '../wallet/service.js';
 import { PaystackGateway } from './PaystackGateway.js';
 import { FlutterwaveGateway } from './FlutterwaveGateway.js';
 import logger from '../../utils/logger.js';
@@ -13,6 +13,40 @@ const flutterwaveGateway = new FlutterwaveGateway();
 
 // Webhooks must use raw body parsing to verify signatures exactly
 webhookRouter.use(express.raw({ type: 'application/json' }));
+
+// Post-credit events are derived from the DURABLE ledger record returned by
+// the service, never from the raw webhook body, and only fire for a newly
+// applied webhook — a duplicate delivery is acknowledged but emits nothing.
+const handleDepositResult = async (res, result, userId) => {
+  if (result.handled && !result.alreadyApplied) {
+    const credited = result.transaction.amountMinorUnits.toString();
+    try {
+      getIO().to(`user:${userId}`).emit('wallet_updated', {
+        balanceChange: credited,
+        type: 'DEPOSIT'
+      });
+
+      await NotificationService.create(
+        userId,
+        'DEPOSIT_CONFIRMED',
+        'Deposit Successful',
+        `Your deposit of ${credited} has been credited to your wallet.`,
+        '/wallet'
+      );
+    } catch (e) {
+      logger.warn({ e, userId }, 'Failed to emit events after deposit');
+    }
+    return res.status(200).send('OK');
+  }
+
+  if (result.alreadyApplied) {
+    logger.info('Deposit webhook already applied (duplicate) — acknowledged without re-credit');
+    return res.status(200).send('OK');
+  }
+
+  logger.warn({ reason: result.reason }, 'Deposit webhook acknowledged without credit');
+  return res.status(200).send('OK');
+};
 
 webhookRouter.post('/paystack', async (req, res) => {
   try {
@@ -29,8 +63,8 @@ webhookRouter.post('/paystack', async (req, res) => {
     if (payload.event === 'charge.success') {
       const data = payload.data;
       const reference = data.reference;
-      // Paystack sends amount in kobo which is our minor units
-      const amountMinorUnits = data.amount;
+      // Paystack sends the amount in kobo — already our minor units. The
+      // service parses it canonically and compares it against the intent.
       const userId = data.metadata?.userId;
 
       if (!userId) {
@@ -38,33 +72,21 @@ webhookRouter.post('/paystack', async (req, res) => {
         return res.status(400).send('Missing userId in metadata');
       }
 
-      await processDepositWebhook(reference, amountMinorUnits, 'PAYSTACK', userId);
+      const result = await processDepositWebhook({
+        reference,
+        amountMinorUnits: data.amount,
+        currency: data.currency,
+        gateway: 'PAYSTACK',
+        userId
+      });
 
-      // Notify the user's Flutter client in real time
-      try {
-        getIO().to(`user:${userId}`).emit('wallet_updated', {
-          balanceChange: amountMinorUnits.toString(),
-          type: 'DEPOSIT'
-        });
-        
-        // Trigger notification
-        await NotificationService.create(
-          userId,
-          'DEPOSIT_CONFIRMED',
-          'Deposit Successful',
-          `Your deposit of ${amountMinorUnits} has been credited to your wallet.`,
-          '/wallet'
-        );
-      } catch (e) {
-        logger.warn({ e, userId }, 'Failed to emit events after Paystack deposit');
-      }
+      await handleDepositResult(res, result, userId);
+      return;
     }
 
     res.status(200).send('OK');
   } catch (error) {
     logger.error({ error }, 'Paystack webhook error');
-    // Always return 200 to prevent retries if it's an internal error or idempotency already handled it
-    // Actually, if we return 500, they retry. We probably want them to retry if our DB is down.
     res.status(500).send('Internal Server Error');
   }
 });
@@ -81,14 +103,13 @@ webhookRouter.post('/flutterwave', async (req, res) => {
 
     const payload = JSON.parse(rawBody.toString('utf8'));
 
-    // Flutterwave event types vary, but 'charge.completed' with status 'successful' is typical
-    // According to docs, 'event' could be 'charge.completed'
     if (payload.event === 'charge.completed' && payload.data.status === 'successful') {
       const data = payload.data;
       const reference = data.tx_ref;
-      // Flutterwave sends amount in major units, we must convert to minor units (kobo)
-      // Note: check Flutterwave docs for exact webhook amount format. Typically it's major units.
-      const amountMinorUnits = Math.round(Number(data.amount) * 100);
+      // Flutterwave sends amount in major units; convert to minor units with
+      // exact string math — never Number() * 100 (FP drift). If the value is
+      // malformed the intent amount comparison rejects the event anyway.
+      const amountMinorUnits = parseDecimalMajorToMinor(data.amount);
       const userId = data.meta?.userId;
 
       if (!userId) {
@@ -96,26 +117,16 @@ webhookRouter.post('/flutterwave', async (req, res) => {
         return res.status(400).send('Missing userId in meta');
       }
 
-      await processDepositWebhook(reference, amountMinorUnits, 'FLUTTERWAVE', userId);
+      const result = await processDepositWebhook({
+        reference,
+        amountMinorUnits,
+        currency: data.currency,
+        gateway: 'FLUTTERWAVE',
+        userId
+      });
 
-      // Notify the user's Flutter client in real time
-      try {
-        getIO().to(`user:${userId}`).emit('wallet_updated', {
-          balanceChange: amountMinorUnits.toString(),
-          type: 'DEPOSIT'
-        });
-        
-        // Trigger notification
-        await NotificationService.create(
-          userId,
-          'DEPOSIT_CONFIRMED',
-          'Deposit Successful',
-          `Your deposit of ${amountMinorUnits} has been credited to your wallet.`,
-          '/wallet'
-        );
-      } catch (e) {
-        logger.warn({ e, userId }, 'Failed to emit events after Flutterwave deposit');
-      }
+      await handleDepositResult(res, result, userId);
+      return;
     }
 
     res.status(200).send('OK');

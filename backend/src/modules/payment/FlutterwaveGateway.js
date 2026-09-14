@@ -43,16 +43,23 @@ export class FlutterwaveGateway extends PaymentGateway {
     }
   }
 
-  async initiatePayment(amountMinorUnits, userId, email) {
+  async initiatePayment(amountMinorUnits, userId, email, reference) {
     try {
-      // Flutterwave expects amounts in major units (NGN) not kobo, 
-      // but double check their docs. Usually it's major units.
-      // We'll convert minor (kobo) to major (NGN).
-      const amountMajorUnits = Number(amountMinorUnits) / 100;
-      
+      // Flutterwave expects amounts in major units (NGN) not kobo.
+      // The intent is stored in integer minor units, so convert exactly with
+      // integer math (no floating point): totalMinorUnits / 100.
+      const minor = BigInt(amountMinorUnits);
+      const major = minor / 100n;
+      const frac = minor % 100n;
+      const amountMajorUnits = `${major}.${frac.toString().padStart(2, '0')}`;
+
+      // Use the server-created intent reference as tx_ref so the webhook can be
+      // verified against the stored intent rather than an arbitrary ref.
+      const txRef = reference || `flw-${Date.now()}-${userId}`;
+
       const payload = {
-        tx_ref: `flw-${Date.now()}-${userId}`, // Generate a unique tx_ref
-        amount: amountMajorUnits.toString(),
+        tx_ref: txRef,
+        amount: amountMajorUnits,
         currency: 'NGN',
         redirect_url: 'https://placeholder.uplix.com/payment/callback',
         customer: {

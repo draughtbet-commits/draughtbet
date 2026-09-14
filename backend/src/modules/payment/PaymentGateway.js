@@ -15,9 +15,12 @@ export class PaymentGateway {
    * @param {BigInt} amountMinorUnits - The amount in minor units (e.g. kobo)
    * @param {string} userId - The ID of the user depositing
    * @param {string} email - The email of the user depositing
+   * @param {string} [reference] - Optional server-created intent reference; when
+   *   provided the gateway must echo it (Paystack `reference` / Flutterwave
+   *   `tx_ref`) so webhooks can be verified against the stored intent.
    * @returns {Promise<{ authorizationUrl: string, reference: string }>}
    */
-  async initiatePayment(amountMinorUnits, userId, email) {
+  async initiatePayment(amountMinorUnits, userId, email, reference) {
     throw new Error('Not implemented');
   }
 

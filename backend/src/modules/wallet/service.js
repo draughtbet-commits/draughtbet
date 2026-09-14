@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import prisma from '../../utils/db.js';
 import logger from '../../utils/logger.js';
 import {
@@ -34,47 +35,152 @@ export const parseIdempotencyKey = (raw) => {
   return raw;
 };
 
+// Provider webhooks (e.g. Flutterwave) send major units as decimals
+// ("1250.00"). Parse those exactly to integer minor units with string math —
+// never through Number(), which reintroduces floating-point drift like the
+// old Math.round(Number(data.amount) * 100).
+export const parseDecimalMajorToMinor = (raw) => {
+  const str =
+    typeof raw === 'number' || typeof raw === 'bigint' ? String(raw) : raw;
+  if (typeof str !== 'string') return null;
+  const m = /^\s*(\d+)(?:\.(\d{1,2}))?\s*$/.exec(str);
+  if (!m) return null;
+  const major = BigInt(m[1]);
+  const frac = BigInt((m[2] || '').padEnd(2, '0'));
+  const minor = major * 100n + frac;
+  if (minor < 1n || minor > MAX_MINOR_UNITS) return null;
+  return minor;
+};
+
 /**
- * Idempotently process a successful deposit webhook.
+ * Creates and persists a server-owned deposit intent BEFORE any checkout is
+ * exposed. The provider is then handed OUR reference (custom reference /
+ * tx_ref), so every later webhook can be verified against this record and
+ * credit is derived from it — never from the raw webhook body.
  */
-export const processDepositWebhook = async (reference, amountMinorUnits, gateway, userId) => {
+export const createDepositIntent = async (userId, amountMinorUnits, gateway, email) => {
+  const amount = parseMinorUnits(amountMinorUnits);
+  if (amount === null) {
+    const error = new Error('Invalid amount');
+    error.name = 'InvalidAmountError';
+    throw error;
+  }
+  if (gateway !== 'PAYSTACK' && gateway !== 'FLUTTERWAVE') {
+    const error = new Error('Invalid gateway');
+    error.name = 'InvalidGatewayError';
+    throw error;
+  }
+
+  const reference = `${gateway.toLowerCase()}-${crypto.randomUUID()}`;
+
+  return await prisma.$transaction(async (tx) => {
+    const wallet = await tx.wallet.findUnique({ where: { userId } });
+    if (!wallet) {
+      const error = new Error(`Wallet not found for userId ${userId}`);
+      error.name = 'WalletNotFoundError';
+      throw error;
+    }
+    // Phase 1 supports NGN only; a GBP wallet must never be credited in kobo.
+    if (wallet.currency !== 'NGN') {
+      const error = new Error('Deposits are only supported for NGN wallets');
+      error.name = 'UnsupportedCurrencyError';
+      throw error;
+    }
+    return tx.depositIntent.create({
+      data: {
+        userId,
+        walletId: wallet.id,
+        gateway,
+        reference,
+        amountMinorUnits: amount,
+        currency: wallet.currency
+      }
+    });
+  });
+};
+
+/**
+ * Idempotently process a successful deposit webhook, verified against the
+ * stored intent. Returns one of:
+ *   { handled: true,  alreadyApplied: false, intent, transaction } — newly credited
+ *   { handled: false, alreadyApplied: true }                          — duplicate/replay
+ *   { handled: false, reason: UNKNOWN_REFERENCE | GATEWAY_MISMATCH | USER_MISMATCH |
+ *                            AMOUNT_MISMATCH | CURRENCY_MISMATCH }    — rejected, no credit
+ *
+ * The credited amount is `intent.amountMinorUnits`; the webhook amount is only
+ * compared for exact equality against it.
+ */
+export const processDepositWebhook = async ({ reference, amountMinorUnits, currency, gateway, userId }) => {
+  const webhookAmount = parseMinorUnits(amountMinorUnits);
+  if (webhookAmount === null) {
+    logger.warn({ reference, gateway }, 'Deposit webhook amount is not canonical minor units');
+    return { handled: false, reason: 'AMOUNT_MISMATCH' };
+  }
+
   try {
-    await prisma.$transaction(async (tx) => {
-      // 1. Fetch wallet by userId
-      const wallet = await tx.wallet.findUnique({ where: { userId } });
-      if (!wallet) {
-        throw new Error(`Wallet not found for userId ${userId}`);
+    return await prisma.$transaction(async (tx) => {
+      // 1. The stored intent is the only reference that can authorize a credit.
+      const intent = await tx.depositIntent.findUnique({ where: { reference } });
+      if (!intent) {
+        logger.warn({ reference, gateway }, 'Deposit webhook ignored: unknown reference');
+        return { handled: false, reason: 'UNKNOWN_REFERENCE' };
+      }
+      if (intent.status === 'COMPLETED') {
+        return { handled: false, alreadyApplied: true, intent };
+      }
+      if (intent.gateway !== gateway) {
+        logger.warn({ reference }, 'Deposit webhook rejected: gateway does not match intent');
+        return { handled: false, reason: 'GATEWAY_MISMATCH' };
+      }
+      // 2. Who the event claims to be for must match who we created the intent for.
+      if (userId && intent.userId !== userId) {
+        logger.warn({ reference }, 'Deposit webhook rejected: user does not match intent');
+        return { handled: false, reason: 'USER_MISMATCH' };
+      }
+      // 3. Exact amount verification — BigInt comparison, no floats anywhere.
+      if (intent.amountMinorUnits !== webhookAmount) {
+        logger.warn({ reference }, 'Deposit webhook rejected: amount does not match intent');
+        return { handled: false, reason: 'AMOUNT_MISMATCH' };
+      }
+      // 4. Currency must line up on the event, the intent and the wallet.
+      const wallet = await tx.wallet.findUnique({ where: { id: intent.walletId } });
+      if (!wallet || wallet.currency !== intent.currency || (currency && currency !== intent.currency)) {
+        logger.warn({ reference }, 'Deposit webhook rejected: currency does not match wallet/intent');
+        return { handled: false, reason: 'CURRENCY_MISMATCH' };
       }
 
-      // Create the DEPOSIT transaction. 
-      // If gatewayReference already exists, this throws P2002 (Unique Constraint)
+      // 5. Credit from the intent, durably. The unique gatewayReference index
+      //    makes a concurrent duplicate delivery fail with P2002 (caught below),
+      //    so the wallet is credited at most once either way.
       const txRecord = await tx.walletTransaction.create({
         data: {
           walletId: wallet.id,
           type: 'DEPOSIT',
-          amountMinorUnits: BigInt(amountMinorUnits),
-          gateway: gateway,
+          amountMinorUnits: intent.amountMinorUnits,
+          gateway,
           gatewayReference: reference,
           status: 'COMPLETED'
         }
       });
-      
-      // Update wallet balance
+
       await tx.wallet.update({
-        where: { id: txRecord.walletId },
-        data: {
-          balanceMinorUnits: { increment: BigInt(amountMinorUnits) }
-        }
+        where: { id: wallet.id },
+        data: { balanceMinorUnits: { increment: intent.amountMinorUnits } }
       });
+
+      await tx.depositIntent.update({
+        where: { id: intent.id },
+        data: { status: 'COMPLETED', appliedAt: new Date() }
+      });
+
+      logger.info({ reference, gateway }, 'Deposit webhook processed against stored intent');
+      return { handled: true, alreadyApplied: false, intent, transaction: txRecord };
     });
-    
-    logger.info({ reference, gateway }, 'Deposit webhook processed successfully');
-    return true;
   } catch (error) {
     if (error.code === 'P2002') {
-      // Idempotency: webhook was already processed
-      logger.info({ reference, gateway }, 'Deposit webhook ignored: already processed (idempotency)');
-      return true;
+      // A concurrent delivery won the race; the ledger already has this credit.
+      logger.info({ reference, gateway }, 'Deposit webhook ignored: already applied (concurrent duplicate)');
+      return { handled: false, alreadyApplied: true };
     }
     logger.error({ error, reference, gateway }, 'Failed to process deposit webhook');
     throw error;

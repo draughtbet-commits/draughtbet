@@ -34,6 +34,7 @@ model User {
   calloutsCreated   Callout[] @relation("CalloutChallenger")
   calloutsAccepted  Callout[] @relation("CalloutAcceptedBy")
   eligibility       Eligibility?
+  depositIntents    DepositIntent[]
 }
 
 enum Tier {
@@ -69,6 +70,7 @@ model Wallet {
   currency            Currency @default(NGN)
   updatedAt           DateTime @updatedAt
   transactions        WalletTransaction[]
+  depositIntents      DepositIntent[]
 }
 enum Currency {
   NGN
@@ -112,6 +114,35 @@ enum Gateway {
   PAYSTACK
   FLUTTERWAVE
   STRIPE
+}
+
+// Server-created deposit intent, persisted BEFORE any checkout is exposed to
+// the user. The webhook is verified against this record (reference, amount,
+// currency, wallet, user); credit is derived from it, never from the raw
+// webhook body.
+model DepositIntent {
+  id                String               @id @default(uuid())
+  userId            String
+  user              User                 @relation(fields: [userId], references: [id])
+  walletId          String
+  wallet            Wallet               @relation(fields: [walletId], references: [id])
+  gateway           Gateway
+  reference         String               @unique // server-generated, echoed to the provider as custom reference/tx_ref
+  amountMinorUnits  BigInt               // canonical integer minor units, matching the wallet's currency
+  currency          Currency             @default(NGN)
+  status            DepositIntentStatus  @default(PENDING)
+  authorizationUrl  String?
+  appliedAt         DateTime?            // set when the matched webhook credits the wallet
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+
+  @@index([userId, status])
+}
+
+enum DepositIntentStatus {
+  PENDING
+  FAILED // provider initiation reported an error; no checkout was exposed
+  COMPLETED // matched webhook applied; the credit is durable in the ledger
 }
 
 model WithdrawalRequest {

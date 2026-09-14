@@ -46,7 +46,7 @@ export class PaystackGateway extends PaymentGateway {
     }
   }
 
-  async initiatePayment(amountMinorUnits, userId, email) {
+  async initiatePayment(amountMinorUnits, userId, email, reference) {
     try {
       // Amount in Paystack is expected in kobo (which matches our NGN minor units)
       const payload = {
@@ -56,6 +56,11 @@ export class PaystackGateway extends PaymentGateway {
           userId: userId
         }
       };
+      // Pass OUR server-created intent reference through so the webhook can be
+      // verified against the stored intent instead of an arbitrary provider ref.
+      if (reference) {
+        payload.reference = reference;
+      }
 
       const data = await this.fetchWithRetry('https://api.paystack.co/transaction/initialize', {
         method: 'POST',

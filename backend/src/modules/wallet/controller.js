@@ -3,7 +3,9 @@ import { requireAuth } from '../../middleware/auth.js';
 import { 
   getWalletBalance, 
   getWalletTransactions, 
-  requestWithdrawal 
+  requestWithdrawal,
+  createDepositIntent,
+  parseMinorUnits
 } from './service.js';
 import { PaystackGateway } from '../payment/PaystackGateway.js';
 import { FlutterwaveGateway } from '../payment/FlutterwaveGateway.js';
@@ -87,32 +89,62 @@ walletRouter.get('/tier-limits', requireAuth, async (req, res, next) => {
 });
 
 walletRouter.post('/deposit-intent', requireAuth, async (req, res, next) => {
+  let intent;
   try {
     const { id: userId, email } = req.user; // requireAuth populates id and email from DB
     const { amountMinorUnits, gateway } = req.body;
     
-    if (!amountMinorUnits || isNaN(amountMinorUnits) || amountMinorUnits <= 0) {
+    const amount = parseMinorUnits(amountMinorUnits);
+    if (amount === null) {
       return res.status(400).json({ error: 'Invalid amount' });
     }
 
-    let gatewayImpl;
+    let gatewayKey;
     if (gateway === 'paystack') {
-      gatewayImpl = paystackGateway;
+      gatewayKey = 'PAYSTACK';
     } else if (gateway === 'flutterwave') {
-      gatewayImpl = flutterwaveGateway;
+      gatewayKey = 'FLUTTERWAVE';
     } else {
       return res.status(400).json({ error: 'Invalid gateway specified' });
     }
 
+    // 1. Persist the server-owned intent BEFORE any checkout is exposed. The
+    //    webhook can then only be authorized against this record, and the
+    //    amount/currency/wallet are never taken from the raw webhook body.
+    intent = await createDepositIntent(userId, amount, gatewayKey, email || 'user@example.com');
+
+    // 2. Initiate at the provider with OUR reference, so the webhook echoes it.
+    const gatewayImpl = gatewayKey === 'PAYSTACK' ? paystackGateway : flutterwaveGateway;
     const { authorizationUrl, reference } = await gatewayImpl.initiatePayment(
-      amountMinorUnits,
+      intent.amountMinorUnits,
       userId,
-      email || 'user@example.com' // Fallback if email is missing from token payload
+      email || 'user@example.com',
+      intent.reference
     );
+
+    // 3. Reference echoed back must be the intent's (the ledger idempotency
+    //    and webhook verification both key off it).
+    await prisma.depositIntent.update({
+      where: { id: intent.id },
+      data: { authorizationUrl }
+    });
 
     res.json({ authorizationUrl, reference });
   } catch (error) {
     if (error.name === 'PaymentGatewayError') {
+      // Provider init failed — the intent was persisted but no checkout was
+      // exposed. Mark only that intent FAILED so it can never be credited by
+      // a stray webhook (other PENDING intents of this user stay untouched).
+      if (typeof intent !== 'undefined') {
+        try {
+          await prisma.depositIntent.update({
+            where: { id: intent.id },
+            data: { status: 'FAILED' }
+          });
+        } catch (markErr) {
+          // Best-effort; the webhook layer still requires a matching intent.
+        }
+      }
       // Specifically catch the Gateway Error and surface a clear message to the client
       return res.status(503).json({ error: error.message });
     }
