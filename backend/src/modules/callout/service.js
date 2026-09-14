@@ -72,20 +72,24 @@ export const createCallout = async (challengerId, tier, stakeMinorUnits) => {
   const io = getIO();
   io.emit('callout_created', payload);
 
-  // Send notifications to eligible users asynchronously
+  // Bounded notification fanout: batch-write in fixed-size chunks instead of
+  // one INSERT per tier member (S14). A callout cannot fan out an unbounded
+  // number of per-row statements.
+  const FANOUT_CHUNK = 500;
   prisma.user.findMany({
     where: { tier, id: { not: challengerId } },
     select: { id: true }
-  }).then(users => {
-    return Promise.all(users.map(u => 
-      NotificationService.create(
-        u.id, 
-        'CALLOUT_RECEIVED', 
-        'New Challenge Available', 
-        `A new callout is available in the ${tier} tier.`, 
-        '/tier-select'
-      )
-    ));
+  }).then(async (users) => {
+    for (let i = 0; i < users.length; i += FANOUT_CHUNK) {
+      const chunk = users.slice(i, i + FANOUT_CHUNK).map((u) => ({
+        userId: u.id,
+        type: 'CALLOUT_RECEIVED',
+        title: 'New Challenge Available',
+        message: `A new callout is available in the ${tier} tier.`,
+        link: '/tier-select',
+      }));
+      await prisma.notification.createMany({ data: chunk });
+    }
   }).catch(err => logger.error({ err }, 'Failed to send CALLOUT_RECEIVED notifications'));
 
   return payload;
@@ -107,6 +111,7 @@ export const getOpenCallouts = async (userId) => {
       challengerId: { not: userId }
     },
     orderBy: { createdAt: 'desc' },
+    take: 100, // bound the list; open callouts are time-boxed so 100 is generous
     include: {
       challenger: { select: { displayName: true } }
     }

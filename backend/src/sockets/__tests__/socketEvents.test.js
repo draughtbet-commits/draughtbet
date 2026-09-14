@@ -4,6 +4,8 @@ process.env.NODE_ENV = 'test';
 process.env.JWT_SECRET = 'test_secret';
 process.env.REDIS_URL = '';
 process.env.DATABASE_URL = '';
+// Lower the move budget so the throttling test can trip it with a few events.
+process.env.SOCKET_BUDGET_MOVE_ATTEMPT_MAX = '3';
 
 import http from 'node:http';
 import { io as ioClient } from 'socket.io-client';
@@ -138,9 +140,41 @@ describe('socket event rejection safety (real server)', () => {
       disconnect: jest.fn()
     };
     const handler = jest.fn();
-    await guardSocketHandler(socket, handler)({});
+    await guardSocketHandler(socket, handler, 'move_attempt')({});
     expect(handler).not.toHaveBeenCalled();
     expect(socket.emit).toHaveBeenCalledWith('error', { message: 'Session expired' });
     expect(socket.disconnect).toHaveBeenCalledWith(true);
+  });
+
+  it('throttles a burst of socket events per user with a controlled reply', async () => {
+    const burstUser = 'socket-burst-user';
+    const socket = ioClient(`http://127.0.0.1:${port}`, {
+      transports: ['websocket'],
+      reconnection: false,
+      auth: { token: jwt.sign({ userId: burstUser }, 'test_secret', { expiresIn: '1m' }) }
+    });
+    try {
+      await connectClient(socket);
+      const first = onceEvent(socket, 'move_rejected');
+      socket.emit('move_attempt', null);
+      expect(await first).toEqual({ reason: 'invalid_payload' });
+
+      const second = onceEvent(socket, 'move_rejected');
+      socket.emit('move_attempt', null);
+      expect(await second).toEqual({ reason: 'invalid_payload' });
+
+      const third = onceEvent(socket, 'move_rejected');
+      socket.emit('move_attempt', null);
+      expect(await third).toEqual({ reason: 'invalid_payload' });
+
+      // Fourth event exceeds the (overridden) budget of 3/min → controlled 'error'.
+      const throttled = onceEvent(socket, 'error');
+      socket.emit('move_attempt', null);
+      const reply = await throttled;
+      expect(reply.message).toBe('Too many events, please slow down');
+      expect(reply.retryAfterMs).toBeGreaterThan(0);
+    } finally {
+      socket.close();
+    }
   });
 });

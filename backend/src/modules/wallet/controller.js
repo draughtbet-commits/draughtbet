@@ -8,6 +8,7 @@ import {
 import { PaystackGateway } from '../payment/PaystackGateway.js';
 import { FlutterwaveGateway } from '../payment/FlutterwaveGateway.js';
 import prisma from '../../utils/db.js';
+import { parsePagination } from '../../utils/pagination.js';
 
 export const walletRouter = express.Router();
 
@@ -30,9 +31,12 @@ walletRouter.get('/balance', requireAuth, async (req, res, next) => {
 walletRouter.get('/transactions', requireAuth, async (req, res, next) => {
   try {
     const { id: userId } = req.user;
-    const page = parseInt(req.query.page, 10) || 1;
-    const limit = parseInt(req.query.limit, 10) || 20;
-    
+    const parsed = parsePagination(req.query);
+    if (!parsed.ok) {
+      return res.status(400).json({ error: 'Invalid pagination params' });
+    }
+    const { page, limit } = parsed.data;
+
     const data = await getWalletTransactions(userId, page, limit);
     res.json(data);
   } catch (error) {
