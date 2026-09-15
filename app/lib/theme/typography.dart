@@ -89,7 +89,7 @@ class JetBrainsMono {
   static TextStyle textStyle({
     double fontSize = 14,
     FontWeight fontWeight = FontWeight.normal,
-    Color color = const Color(0xFFF4F2ED),
+    Color color = AppColors.monoText,
   }) {
     return GoogleFonts.jetBrainsMono(
       fontSize: fontSize,

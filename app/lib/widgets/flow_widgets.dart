@@ -31,7 +31,7 @@ class FlowPage extends StatelessWidget {
         gradient: RadialGradient(
           center: Alignment(0.9, -1.1),
           radius: 1.2,
-          colors: [Color(0x2218C986), AppColors.background],
+          colors: [AppColors.primaryGlow, AppColors.background],
         ),
       ),
       child: scrollable

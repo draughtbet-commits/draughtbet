@@ -219,7 +219,7 @@ class BoardPainter extends CustomPainter {
       canvas.drawCircle(
         center.translate(0, square * .05),
         square * .38,
-        Paint()..color = Colors.black.withValues(alpha: .35),
+        Paint()..color = AppColors.pieceShadow,
       );
       canvas.drawCircle(center, square * .38, Paint()..color = pieceColor);
       canvas.drawCircle(
