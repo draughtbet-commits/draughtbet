@@ -61,7 +61,7 @@ const makeSocket = (overrides = {}) => {
 };
 
 const liveMatch = (overrides = {}) => ({
-  status: 'ACTIVE',
+  status: 'IN_PLAY',
   playerLightId: 'user-1',
   playerDarkId: 'user-2',
   ...overrides
@@ -132,6 +132,17 @@ describe('handleJoinMatch room membership authorization', () => {
     expect(socket.join).toHaveBeenCalledWith('match:match-1');
     expect(socket.emit).toHaveBeenCalledWith('game_state', expect.anything());
     expect(socket.to).not.toHaveBeenCalled();
+  });
+
+  it('broadcasts a reconnection for a legacy ACTIVE match (pre-refactor value)', async () => {
+    mockPrisma.match.findUnique.mockResolvedValue(liveMatch({ status: 'ACTIVE' }));
+    const socket = makeSocket();
+
+    await handleJoinMatch(socket, { matchId: 'match-1' });
+
+    expect(socket.to('match:match-1').emit).toHaveBeenCalledWith('opponent_reconnected', {
+      userId: 'user-1'
+    });
   });
 
   it('replies Game not found when state is gone and never broadcasts a reconnect', async () => {

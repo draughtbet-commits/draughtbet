@@ -6,6 +6,7 @@ import { settleGame, settleGameDraw, settleGameWithRetry, settleGameDrawWithRetr
 import { getIO } from './index.js';
 import { DEFAULT_TIME_CONTROL_SECONDS, TURN_EXPIRED_REASON } from './timeControl.js';
 import prisma from '../utils/db.js';
+import { transitionMatchWhere } from '../modules/match/service.js';
 import * as Sentry from '@sentry/node';
 
 const GAME_STATE_TTL = 24 * 60 * 60; // 24 hours
@@ -156,6 +157,21 @@ export const reconstructMoveHistory = async (matchId) => {
 
 export const initializeGame = async (matchId, player1Id, player2Id, stakeTier) => {
   const matchKey = `match:${matchId}`;
+
+  // Server-authoritative start: once Redis is live for a funded match, the game
+  // is PLAYING. Advance the match lifecycle FUNDED/READY -> IN_PLAY with an
+  // idempotent CAS (already-live matches are a no-op). This is what lets the
+  // deadline sweep forfeit a first-turn timeout before any move was made —
+  // settling a READY/FUNDED match is invalid, settling IN_PLAY is correct.
+  try {
+    await transitionMatchWhere(prisma, matchId, ['FUNDED', 'READY'], 'IN_PLAY', {
+      startedAt: new Date()
+    });
+  } catch (err) {
+    // The game is still initialized in Redis; a failed status flip is repaired
+    // by the first move or the reconciliation sweep, so never fail init over it.
+    logger.warn({ err, matchId }, 'Match lifecycle FUNDED/READY -> IN_PLAY skipped');
+  }
 
   // Idempotent by construction: the durable GameOutbox record is the source of
   // truth here. If Redis already holds state for this match (a crash between
@@ -480,6 +496,22 @@ export const handleMoveAttempt = async (socket, payload) => {
       );
 
       success = true;
+
+      // First accepted live move advances the match lifecycle: READY -> IN_PLAY
+      // (idempotent CAS; the startedAt stamp is written once). A retry on an
+      // already-started match finds status IN_PLAY and is a no-op.
+      if (moveCount === 0) {
+        try {
+          await transitionMatchWhere(prisma, matchId, ['READY'], 'IN_PLAY', {
+            startedAt: new Date()
+          });
+        } catch (err) {
+          // The move is already durable and Redis is already advanced; a failed
+          // status flip is repaired by the next move or the reconciliation
+          // sweep. Never reject the move over it.
+          logger.warn({ err, matchId }, 'READY -> IN_PLAY transition skipped');
+        }
+      }
 
       // Emit to room — the board plus the match identity (matchId/version) a
       // client needs to reconcile state after a reconnect or a duplicate

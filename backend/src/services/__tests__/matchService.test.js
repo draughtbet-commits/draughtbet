@@ -27,6 +27,12 @@ const mockPrisma = {
   },
   match: {
     findFirst: jest.fn(),
+    findUnique: jest.fn(),
+    create: jest.fn(),
+    update: jest.fn()
+  },
+  stakeReservation: {
+    findUnique: jest.fn(),
     create: jest.fn()
   },
   gameOutbox: {
@@ -52,6 +58,13 @@ describe('matchService debitStakes', () => {
     mockPrisma.ledgerTransaction.findUnique.mockResolvedValue(null);
     mockPrisma.ledgerTransaction.create.mockResolvedValue({ id: 'ledger-tx-1', type: 'STAKE_LOCK' });
     mockPrisma.ledgerEntry.create.mockImplementation(async ({ data }) => ({ id: `entry:${data.accountId}` }));
+    // Lifecycle mocks: no pre-terminal match blocks funding; OPEN is the
+    // created status transitioned to FUNDED after both stakes are reserved.
+    mockPrisma.match.findFirst.mockResolvedValue(null);
+    mockPrisma.match.findUnique.mockResolvedValue({ status: 'OPEN' });
+    mockPrisma.match.update.mockImplementation(async ({ data }) => ({ id: 'm-1', ...data }));
+    mockPrisma.stakeReservation.findUnique.mockResolvedValue(null);
+    mockPrisma.stakeReservation.create.mockImplementation(async ({ data }) => ({ ...data, id: `sr:${data.userId}` }));
   });
 
   const eligibleUser = {
@@ -63,7 +76,7 @@ describe('matchService debitStakes', () => {
 
   it('snapshots the accepted commissionPercent and time control onto the Match row', async () => {
     mockPrisma.platformSettings.findUnique.mockResolvedValue({ commissionPercent: 20, timeControlSeconds: 45 });
-    mockPrisma.match.create.mockResolvedValue({ id: 'm-1' });
+    mockPrisma.match.create.mockResolvedValue({ id: 'm-1', status: 'OPEN' });
 
     // player-a < player-b lexicographically, lock order follows supply order
     const match = await debitStakes('player-a', 'player-b', 5000n, 'AMATEUR');
@@ -74,13 +87,29 @@ describe('matchService debitStakes', () => {
     expect(mockPrisma.match.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         id: expect.any(String),
-        status: 'ACTIVE',
+        status: 'OPEN',
+        playerLightId: 'player-a',
+        playerDarkId: 'player-b',
+        currency: 'NGN',
         stakeMinorUnits: 5000n,
         settlementCommissionPercent: 20,
-        timeControlSeconds: 45
+        timeControlSeconds: 45,
+        participants: {
+          create: [
+            { userId: 'player-a', side: 'LIGHT' },
+            { userId: 'player-b', side: 'DARK' }
+          ]
+        }
       })
     });
-    expect(match).toEqual({ id: 'm-1' });
+
+    // Both stakes reserved -> OPEN -> FUNDED in the same tx
+    expect(mockPrisma.match.update).toHaveBeenCalledWith({
+      where: { id: expect.any(String) },
+      data: { status: 'FUNDED' }
+    });
+    expect(mockPrisma.stakeReservation.create).toHaveBeenCalledTimes(2);
+    expect(match).toEqual({ id: 'm-1', status: 'FUNDED' });
 
     // Both wallets debited exactly once with a signed STAKE entry each
     expect(mockPrisma.wallet.update).toHaveBeenCalledTimes(2);
@@ -149,11 +178,12 @@ describe('matchService debitStakes', () => {
 
   it('exposes the transaction core for reuse inside another transaction', async () => {
     mockPrisma.platformSettings.findUnique.mockResolvedValue({ commissionPercent: 15 });
-    mockPrisma.match.create.mockResolvedValue({ id: 'm-shared' });
+    mockPrisma.match.create.mockResolvedValue({ id: 'm-shared', status: 'OPEN' });
+    mockPrisma.match.update.mockResolvedValue({ id: 'm-shared', status: 'FUNDED' });
 
     const match = await createMatchWithStakes(mockPrisma, 'player-a', 'player-b', 5000n, 'AMATEUR');
 
-    expect(match).toEqual({ id: 'm-shared' });
+    expect(match).toEqual({ id: 'm-shared', status: 'FUNDED' });
     expect(mockPrisma.wallet.update).toHaveBeenCalledTimes(2);
     expect(mockPrisma.walletTransaction.create).toHaveBeenCalledTimes(2);
     expect(mockPrisma.match.create).toHaveBeenCalledWith({

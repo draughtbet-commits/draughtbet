@@ -2,6 +2,7 @@ import express from 'express';
 import { requireAuth } from '../../middleware/auth.js';
 import { requireValidStake } from '../../middleware/tierEnforcement.js';
 import { assertEligibleForMoney } from '../../services/eligibilityService.js';
+import { hasPreterminalMatchForPlayers } from '../match/service.js';
 import prisma from '../../utils/db.js';
 import redis from '../../utils/redis.js';
 import logger from '../../utils/logger.js';
@@ -19,16 +20,10 @@ matchmakingRouter.post('/join', requireAuth, requireValidStake(false), async (re
     await assertEligibleForMoney(prisma, userId);
 
     // A player may only be in one game at a time. Refuse to enqueue anyone
-    // already holding an ACTIVE match (funding re-checks this atomically too,
-    // so the worker can never debit a player who just started a game).
-    const activeMatch = await prisma.match.findFirst({
-      where: {
-        status: 'ACTIVE',
-        OR: [{ playerLightId: userId }, { playerDarkId: userId }]
-      },
-      select: { id: true }
-    });
-    if (activeMatch) {
+    // already holding a pre-terminal match (DRAFT/OPEN/FUNDED/READY/IN_PLAY,
+    // or the legacy ACTIVE). Funding re-checks this atomically too, so the
+    // worker can never debit a player who just started a game.
+    if (await hasPreterminalMatchForPlayers(prisma, [userId])) {
       return res.status(409).json({ error: 'You are already in an active match' });
     }
 

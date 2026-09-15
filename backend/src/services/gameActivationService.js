@@ -4,7 +4,8 @@ import redis from '../utils/redis.js';
 import logger from '../utils/logger.js';
 import { initializeGame } from '../sockets/gameManager.js';
 import { lockWalletsInOrder } from './matchService.js';
-import { postStakeRelease } from './ledgerService.js';
+import { releaseStakes } from '../modules/stake/service.js';
+import { transitionMatch } from '../modules/match/service.js';
 
 // Lease length for an activation claim. All claims are short (an idempotent
 // Redis init + a boolean mark); a lease this long is only meant to outlive the
@@ -79,6 +80,9 @@ export const finalizeMatchActivation = async (outboxId) => {
   try {
     // initializeGame is idempotent: it reconstructs fresh Redis state when the
     // key is absent and only repairs the participant pointers when it exists.
+    // It also performs the server-authoritative start: the Match row advances
+    // FUNDED/READY -> IN_PLAY (idempotent CAS), so the game clock and the
+    // settlement gate agree the match is live.
     await initializeGame(outbox.matchId, outbox.player1Id, outbox.player2Id, outbox.tier);
     await markActivated(outbox);
     return 'ACTIVATED';
@@ -105,34 +109,29 @@ export const releaseMatch = async (outboxId) => {
   try {
     const result = await prisma.$transaction(async (tx) => {
       const [w1, w2] = await lockWalletsInOrder(tx, outbox.player1Id, outbox.player2Id);
+      const stakeAmount = BigInt(outbox.stakeMinorUnits);
 
-      for (const w of [w1, w2]) {
-        await tx.wallet.update({
-          where: { id: w.id },
-          data: { balanceMinorUnits: { increment: outbox.stakeMinorUnits } }
-        });
-        await tx.walletTransaction.create({
-          data: {
-            walletId: w.id,
-            type: 'REFUND',
-            amountMinorUnits: outbox.stakeMinorUnits,
-            relatedMatchId: outbox.matchId,
-            status: 'COMPLETED'
-          }
-        });
-      }
+      // A release is only legal before the game ever became live: a player can
+      // recoup their stake from FUNDED (activation failed) or READY (never
+      // started), never after IN_PLAY. The guard runs inside the tx before any
+      // refund so an invalid release rolls back with no money moved.
+      await transitionMatch(tx, outbox.matchId, 'RELEASED');
 
-      // V2 ledger mirror: reverse both players' LOCKED -> AVAILABLE in one
-      // balanced, idempotent posting (same tx; guarded by the claim token and
-      // the unique stake-release key, so it can never release twice).
-      await postStakeRelease(tx, outbox.matchId, [
-        { userId: outbox.player1Id, currency: w1.currency ?? 'NGN', amountMinorUnits: BigInt(outbox.stakeMinorUnits) },
-        { userId: outbox.player2Id, currency: w2.currency ?? 'NGN', amountMinorUnits: BigInt(outbox.stakeMinorUnits) }
-      ]);
+      // Legacy Wallet refund + StakeReservation rows RESERVED -> RELEASED + the
+      // V2 ledger STAKE_RELEASE mirror, all in the same tx.
+      await releaseStakes(tx, {
+        matchId: outbox.matchId,
+        participants: [
+          { userId: outbox.player1Id },
+          { userId: outbox.player2Id }
+        ],
+        amountMinorUnits: stakeAmount,
+        wallets: [w1, w2]
+      });
 
       await tx.match.update({
         where: { id: outbox.matchId },
-        data: { status: 'RELEASED', endReason: 'activation_failed', endedAt: new Date() }
+        data: { endReason: 'activation_failed', endedAt: new Date() }
       });
 
       await tx.gameOutbox.update({

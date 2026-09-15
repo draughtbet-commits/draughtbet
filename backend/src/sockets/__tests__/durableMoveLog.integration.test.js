@@ -164,6 +164,13 @@ describeIntegration('Durable move log (real PostgreSQL + Redis)', () => {
     const p2 = await makeEligibleUser('evid-2');
     const match = await stakeAndFund(p1, p2);
 
+    // Settlement is only legal once the match is live: FUNDED -> IN_PLAY (the
+    // server-authoritative start), leaving the durable log empty.
+    const { finalizeMatchActivation } = await import('../../services/gameActivationService.js');
+    await finalizeMatchActivation(
+      (await prisma.gameOutbox.findUnique({ where: { matchId: match.id } })).id
+    );
+
     await expect(
       settleGame(match.id, p1.id, p2.id, 'NO_LEGAL_MOVES')
     ).rejects.toThrow(InvalidSettlementError);

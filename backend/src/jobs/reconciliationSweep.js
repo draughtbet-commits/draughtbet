@@ -2,6 +2,7 @@ import redis, { isRedisReady } from '../utils/redis.js';
 import prisma from '../utils/db.js';
 import logger from '../utils/logger.js';
 import { settleGameWithRetry, settleGameDrawWithRetry } from '../sockets/settlement.js';
+import { LIVE_STATUSES } from '../modules/match/service.js';
 import cron from 'node-cron';
 
 export const startReconciliationSweep = () => {
@@ -10,9 +11,10 @@ export const startReconciliationSweep = () => {
     if (!isRedisReady()) return;
 
     try {
-      // Find matches that Postgres thinks are still active
+      // Find matches that Postgres thinks are still live (IN_PLAY or the
+      // legacy ACTIVE value pre-refactor matches were created with)
       const activeMatches = await prisma.match.findMany({
-        where: { status: 'ACTIVE' },
+        where: { status: { in: LIVE_STATUSES } },
         select: { id: true, playerLightId: true, playerDarkId: true, createdAt: true }
       });
 

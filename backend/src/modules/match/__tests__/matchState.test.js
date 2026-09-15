@@ -48,7 +48,7 @@ describe('match state HTTP endpoints', () => {
     mockPrisma.match.findUnique.mockResolvedValue({
       playerLightId: 'user-1',
       playerDarkId: 'player-2',
-      status: 'ACTIVE',
+      status: 'IN_PLAY',
       winnerId: null
     });
   });
@@ -113,7 +113,7 @@ describe('match state HTTP endpoints', () => {
     mockPrisma.match.findUnique.mockResolvedValue({
       playerLightId: 'someone-else',
       playerDarkId: 'player-2',
-      status: 'ACTIVE',
+      status: 'IN_PLAY',
       winnerId: null
     });
 

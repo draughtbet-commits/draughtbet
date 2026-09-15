@@ -123,7 +123,9 @@ describeIntegration('Call-out acceptance policy (real PostgreSQL)', () => {
     const match = await prisma.match.findUnique({ where: { id: payload.id } });
     expect(match.playerLightId).toBe(challenger.id);
     expect(match.playerDarkId).toBe(acceptor.id);
-    expect(match.status).toBe('ACTIVE');
+    // Both stakes are reserved and the match is funded (activation is a separate,
+    // best-effort step after this transaction commits).
+    expect(match.status).toBe('FUNDED');
 
     const claimed = await prisma.callout.findUnique({ where: { id: callout.id } });
     expect(claimed.status).toBe('ACCEPTED');

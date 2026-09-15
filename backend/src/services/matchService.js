@@ -2,7 +2,12 @@ import crypto from 'crypto';
 import prisma from '../utils/db.js';
 import { assertEligibleForMoney } from './eligibilityService.js';
 import { DEFAULT_TIME_CONTROL_SECONDS } from '../sockets/timeControl.js';
-import { postStakeReservation } from './ledgerService.js';
+import {
+  createMatch,
+  transitionMatch,
+  hasPreterminalMatchForPlayers
+} from '../modules/match/service.js';
+import { reserveBothStakes } from '../modules/stake/service.js';
 
 export class InsufficientFundsError extends Error {
   constructor(message = 'Insufficient funds') {
@@ -68,8 +73,10 @@ export function getStakeForTier(settings, tier) {
 
 /**
  * Core of stake funding, meant to run inside an interactive transaction (`tx`).
- * Locks both wallets, verifies affordability, snapshots fee terms, debits both
- * players, and creates a Match row. Shared by `debitStakes` (matchmaking) and
+ * Locks both wallets, verifies affordability, snapshots fee terms, creates the
+ * canonical OPEN match with both participants, reserves both stakes
+ * (StakeReservation rows + legacy Wallet debit + V2 ledger STAKE_LOCK mirror)
+ * and lands at FUNDED. Shared by `debitStakes` (matchmaking) and
  * `acceptCallout` so a callout is claimed and its funds committed atomically.
  */
 export const createMatchWithStakes = async (tx, player1Id, player2Id, stakeMinorUnits, stakeTier) => {
@@ -86,36 +93,24 @@ export const createMatchWithStakes = async (tx, player1Id, player2Id, stakeMinor
   // 1. Lock both wallets (ordered by ascending userId to prevent deadlocks)
   const [w1, w2] = await lockWalletsInOrder(tx, player1Id, player2Id);
 
-  // 2. Active-match reservation: a player may hold exactly one ACTIVE match at
-  //    a time. The wallet row locks above serialize concurrent fundings of the
-  //    same player, so this check-and-create is atomic enough — the second
-  //    contender sees the first one's committed ACTIVE match and refuses here.
-  //    This is the single choke point for every funding path (matchmaking
+  // 2. Active-match reservation: a player may hold exactly one pre-terminal
+  //    match at a time. The wallet row locks above serialize concurrent
+  //    fundings of the same player, so this check-and-create is atomic enough —
+  //    the second contender sees the first one's committed match and refuses
+  //    here. This is the single choke point for every funding path (matchmaking
   //    worker and call-out accept), so no same-user pair can ever commit twice.
-  const activeMatch = await tx.match.findFirst({
-    where: {
-      status: 'ACTIVE',
-      OR: [
-        { playerLightId: player1Id },
-        { playerDarkId: player1Id },
-        { playerLightId: player2Id },
-        { playerDarkId: player2Id }
-      ]
-    },
-    select: { id: true }
-  });
-  if (activeMatch) {
+  if (await hasPreterminalMatchForPlayers(tx, [player1Id, player2Id])) {
     throw new ActiveMatchError('A player already has an active match');
   }
 
   const stakeAmount = BigInt(stakeMinorUnits);
 
-  // 2. Verify BOTH players can afford the stake
+  // 3. Verify BOTH players can afford the stake
   if (BigInt(w1.balanceMinorUnits) < stakeAmount || BigInt(w2.balanceMinorUnits) < stakeAmount) {
     throw new InsufficientFundsError('Insufficient funds for stake');
   }
 
-  // 3. Snapshot the accepted fee terms and time control before any match exists.
+  // 4. Snapshot the accepted fee terms and time control before any match exists.
   const settings = await tx.platformSettings.findUnique({
     where: { id: 'singleton' }
   });
@@ -129,47 +124,41 @@ export const createMatchWithStakes = async (tx, player1Id, player2Id, stakeMinor
     throw new Error(`Invalid timeControlSeconds snapshot: ${timeControlSeconds}`);
   }
 
-  // 4. Generate match ID upfront so WalletTransactions can reference it
+  // 5. Generate match ID upfront so WalletTransactions can reference it
   const matchId = crypto.randomUUID();
 
-  // 5. Debit both wallets (debit-before-credit ordering). This legacy write
-  //    remains the live read source until the final read-flip PR; the V2
-  //    STAKE_LOCK mirror below keeps the ledger in step with it.
-  for (const w of [w1, w2]) {
-    await tx.wallet.update({ 
-      where: { id: w.id }, 
-      data: { balanceMinorUnits: { decrement: stakeAmount } } 
-    });
-    await tx.walletTransaction.create({ data: {
-      walletId: w.id, 
-      type: 'STAKE', 
-      amountMinorUnits: -stakeAmount, 
-      relatedMatchId: matchId
-    }});
-  }
-
-  // 5b. V2 ledger mirror: move both players AVAILABLE -> LOCKED in one
-  //     balanced, idempotent posting (same tx, so a partial match is impossible).
-  await postStakeReservation(tx, matchId, [
-    { userId: w1.userId, currency: w1.currency ?? 'NGN', amountMinorUnits: stakeAmount },
-    { userId: w2.userId, currency: w2.currency ?? 'NGN', amountMinorUnits: stakeAmount }
-  ]);
-
-  // 6. Create Match row (status: ACTIVE) with the fee snapshot
-  const match = await tx.match.create({ data: {
-    id: matchId,
-    playerLightId: player1Id, 
+  // 6. Create the canonical Match (OPEN) with both participants and the frozen
+  //    commercial/game terms. No balances are touched here.
+  const match = await createMatch(tx, {
+    matchId,
+    playerLightId: player1Id,
     playerDarkId: player2Id,
-    tier: stakeTier, 
-    stakeMinorUnits: stakeAmount, 
-    settlementCommissionPercent: commissionPercent,
+    tier: stakeTier,
+    stakeMinorUnits: stakeAmount,
+    commissionPercent,
     timeControlSeconds,
-    status: 'ACTIVE'
-  }});
+    currency: w1.currency ?? 'NGN'
+  });
 
-  // 7. Record the durable activation intent in the same transaction, so a crash
-  // after commit can never leave funds reserved for a match Redis never saw.
-  // The recovery sweep replays this into Redis idempotently, or releases it.
+  // 7. Reserve both stakes: StakeReservation rows + legacy Wallet debit (the
+  //    live read source until the final read-flip PR) + V2 ledger STAKE_LOCK
+  //    mirror, all in the same tx so a partial match is impossible.
+  await reserveBothStakes(tx, {
+    matchId,
+    participants: [
+      { userId: player1Id },
+      { userId: player2Id }
+    ],
+    amountMinorUnits: stakeAmount,
+    wallets: [w1, w2]
+  });
+
+  // 8. Both stakes are now reserved: OPEN -> FUNDED.
+  const funded = await transitionMatch(tx, matchId, 'FUNDED');
+
+  // 9. Record the durable activation intent in the same transaction, so a crash
+  //    after commit can never leave funds reserved for a match Redis never saw.
+  //    The recovery sweep replays this into Redis idempotently, or releases it.
   await tx.gameOutbox.create({ data: {
     matchId,
     player1Id,
@@ -179,7 +168,7 @@ export const createMatchWithStakes = async (tx, player1Id, player2Id, stakeMinor
     status: 'PENDING'
   }});
 
-  return match;
+  return funded;
 };
 
 /**

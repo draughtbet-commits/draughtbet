@@ -1,13 +1,18 @@
-// Real-PostgreSQL settlement integration test. Skipped by default; run:
+// Real-PostgreSQL + Redis settlement integration test. Skipped by default; run:
 //   DATABASE_URL=postgresql://test:test@127.0.0.1:5544/draughts_arena_test?schema=public \
-//   REDIS_URL= RUN_DB_INTEGRATION=1 node --experimental-vm-modules node_modules/jest/bin/jest.js \
+//   REDIS_URL=redis://127.0.0.1:6390/0 RUN_REDIS_INTEGRATION=1 RUN_DB_INTEGRATION=1 \
+//   node --experimental-vm-modules node_modules/jest/bin/jest.js \
 //     src/sockets/__tests__/settlement.integration.test.js
 import prisma from '../../utils/db.js';
+import redis from '../../utils/redis.js';
 import { debitStakes, InsufficientFundsError } from '../../services/matchService.js';
+import { finalizeMatchActivation } from '../../services/gameActivationService.js';
 import { settleGame, settleGameDraw } from '../settlement.js';
 
 const describeIntegration =
-  process.env.RUN_DB_INTEGRATION === '1' ? describe : describe.skip;
+  process.env.RUN_DB_INTEGRATION === '1' && process.env.RUN_REDIS_INTEGRATION === '1'
+    ? describe
+    : describe.skip;
 
 describeIntegration('Settlement gate (real PostgreSQL)', () => {
   const settings = { id: 'singleton', commissionPercent: 10 };
@@ -43,6 +48,14 @@ describeIntegration('Settlement gate (real PostgreSQL)', () => {
     });
     const match = await debitStakes(u1.id, u2.id, 50000n, 'AMATEUR');
     allMatches.push(match.id);
+    // Settlement is only legal once the match is LIVE. Activate (server-
+    // authoritative start) so the row advances FUNDED -> IN_PLAY exactly as
+    // production does; a never-started match must NOT be settlable.
+    const outbox = await prisma.gameOutbox.findUnique({
+      where: { matchId: match.id },
+      select: { id: true }
+    });
+    await finalizeMatchActivation(outbox.id);
     return match;
   };
 
@@ -55,6 +68,10 @@ describeIntegration('Settlement gate (real PostgreSQL)', () => {
       await prisma.matchMove.deleteMany({ where: { matchId } });
       await prisma.walletTransaction.deleteMany({ where: { relatedMatchId: matchId } });
       await prisma.match.delete({ where: { id: matchId } });
+      await redis.del(`match:${matchId}`);
+    }
+    for (const userId of allUsers) {
+      await redis.del(`user:${userId}:activeMatch`);
     }
     await prisma.walletTransaction.deleteMany({
       where: { wallet: { userId: { in: allUsers } } }
@@ -162,8 +179,10 @@ describeIntegration('Settlement gate (real PostgreSQL)', () => {
     await expect(settleGame(m.id, 'outsider-user', u2.id, 'capture_win'))
       .rejects.toThrow('Winner is not a participant');
 
+    // Activated matches are IN_PLAY until claimed; an outsider rejection leaves
+    // the live match untouched.
     const match = await prisma.match.findUnique({ where: { id: m.id } });
-    expect(match.status).toBe('ACTIVE');
+    expect(match.status).toBe('IN_PLAY');
     expect(await prisma.walletTransaction.count({ where: { relatedMatchId: m.id, type: 'PAYOUT' } })).toBe(0);
     for (const userId of [u1.id, u2.id]) {
       const w = await prisma.wallet.findUnique({ where: { userId } });

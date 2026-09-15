@@ -156,8 +156,10 @@ describeIntegration('Turn deadlines (real PostgreSQL + Redis)', () => {
 
     await processTurnDeadlineSweep();
 
+    // initializeGame is the server-authoritative start: FUNDED -> IN_PLAY, and an
+    // unexpired turn leaves the match live and untouched.
     const active = await prisma.match.findUnique({ where: { id: match.id } });
-    expect(active.status).toBe('ACTIVE');
+    expect(active.status).toBe('IN_PLAY');
     expect(await redis.exists(`match:${match.id}`)).toBe(1);
   });
 });

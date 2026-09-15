@@ -1,6 +1,7 @@
 import prisma from '../utils/db.js';
 import logger from '../utils/logger.js';
 import { lockWalletsInOrder, lockWalletForUpdate } from '../services/matchService.js';
+import { LIVE_STATUSES, isLiveStatus } from '../modules/match/service.js';
 import redis from '../utils/redis.js';
 import { getIO } from './index.js';
 import * as Sentry from '@sentry/node';
@@ -264,7 +265,7 @@ export async function settleGame(matchId, winnerId, loserId, reason) {
       }
     });
 
-    if (!match || match.status !== 'ACTIVE') return null;
+    if (!match || !isLiveStatus(match.status)) return null;
 
     // Evidence gate: board-derived outcomes require a durable record of the
     // final move, otherwise the settlement has no history to stand on.
@@ -284,7 +285,7 @@ export async function settleGame(matchId, winnerId, loserId, reason) {
     // Atomic claim: the single settlement gate. Exactly one concurrent caller
     // wins; every other contender returns null.
     const claimed = await tx.match.updateMany({
-      where: { id: matchId, status: 'ACTIVE' },
+      where: { id: matchId, status: { in: LIVE_STATUSES } },
       data: { status: 'COMPLETED', winnerId, endReason: reason, endedAt: new Date() }
     });
     if (claimed.count === 0) return null;
@@ -340,7 +341,7 @@ export async function settleGameDraw(matchId, reason) {
         playerDarkId: true
       }
     });
-    if (!match || match.status !== 'ACTIVE') return null;
+    if (!match || !isLiveStatus(match.status)) return null;
 
     // Evidence gate: a draw reached through board rules needs the durable log
     // of the final move; declaration-based draws skip this check.
@@ -357,7 +358,7 @@ export async function settleGameDraw(matchId, reason) {
     // Same atomic claim gate as win settlement — a draw can never race a win
     // into a double settlement.
     const claimed = await tx.match.updateMany({
-      where: { id: matchId, status: 'ACTIVE' },
+      where: { id: matchId, status: { in: LIVE_STATUSES } },
       data: { status: 'COMPLETED', endReason: reason, endedAt: new Date() }
     });
     if (claimed.count === 0) return null;

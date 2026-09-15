@@ -6,6 +6,7 @@ import { getLegalMoves } from '../modules/engine/index.js';
 import { validateMatchIdPayload } from './payloadGuard.js';
 import logger from '../utils/logger.js';
 import { NotificationService } from '../modules/notification/service.js';
+import { isLiveStatus } from '../modules/match/service.js';
 
 // Room budget per connection: every socket owns its personal `user:<id>` room,
 // so this is the cap on the personal room plus match rooms.
@@ -98,10 +99,11 @@ export async function handleJoinMatch(socket, payload) {
       return;
     }
 
-    // 4. Notify opponent — only for live (ACTIVE) matches. A reconnection
-    // notification is only ever broadcast by the actual opponent, from inside
-    // the match room, so it can never describe a non-participant.
-    if (match.status === 'ACTIVE') {
+    // 4. Notify opponent — only for live matches (IN_PLAY, or legacy ACTIVE).
+    // A reconnection notification is only ever broadcast by the actual
+    // opponent, from inside the match room, so it can never describe a
+    // non-participant.
+    if (isLiveStatus(match.status)) {
       socket.to(`match:${matchId}`).emit('opponent_reconnected', { userId });
     }
     logger.info({ userId, matchId }, 'Player reconnected and joined match room');

@@ -55,6 +55,8 @@ jest.unstable_mockModule('../index.js', () => ({
   }))
 }));
 
+const { LIVE_STATUSES } = await import('../../modules/match/service.js');
+
 describe('settlement logic', () => {
   let settlement;
   let outsiderError;
@@ -62,7 +64,7 @@ describe('settlement logic', () => {
   let originalSleep;
 
   const activeMatch = (overrides = {}) => ({
-    status: 'ACTIVE',
+    status: 'IN_PLAY',
     stakeMinorUnits: BigInt(1000),
     playerLightId: 'p1',
     playerDarkId: 'p2',
@@ -99,7 +101,7 @@ describe('settlement logic', () => {
 
       // Atomic claim gate
       expect(mockPrisma.match.updateMany).toHaveBeenCalledWith({
-        where: { id: 'match-1', status: 'ACTIVE' },
+        where: { id: 'match-1', status: { in: LIVE_STATUSES } },
         data: {
           status: 'COMPLETED',
           winnerId: 'p1',
@@ -242,7 +244,7 @@ describe('settlement logic', () => {
       const result = await settlement.settleGameDraw('match-1', 'draw_threefold');
 
       expect(mockPrisma.match.updateMany).toHaveBeenCalledWith({
-        where: { id: 'match-1', status: 'ACTIVE' },
+        where: { id: 'match-1', status: { in: LIVE_STATUSES } },
         data: expect.objectContaining({ status: 'COMPLETED', endReason: 'draw_threefold' })
       });
       expect(result).not.toBeNull();
