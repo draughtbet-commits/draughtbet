@@ -253,6 +253,70 @@ export async function postStakeRelease(tx, matchId, reservations) {
 }
 
 /**
+ * Posts the winner-payout settlement for a decided match:
+ *   PLAYER_LOCKED      -amount   (each player — stake leaves the lock)
+ *   PLAYER_AVAILABLE   +netPayout (winner's pot minus commission)
+ *   PLATFORM_REVENUE   +commission
+ * Net zero: -2s + (2s - c) + c = 0. Idempotent per match via
+ * `MATCH_SETTLEMENT:{matchId}`, so a retried settlement never credits twice.
+ */
+export async function postSettlementWin(
+  tx,
+  matchId,
+  { reservations, winnerId, netPayoutMinorUnits, commissionMinorUnits }
+) {
+  const accountsByUser = new Map();
+  const entries = [];
+  for (const r of reservations) {
+    const accounts = await ensureUserAccounts(tx, r.userId, r.currency ?? 'NGN');
+    accountsByUser.set(r.userId, accounts);
+    entries.push({ accountId: accounts.PLAYER_LOCKED.id, amountMinorUnits: -r.amountMinorUnits });
+  }
+  const winnerAccounts = accountsByUser.get(winnerId);
+  if (!winnerAccounts) {
+    throw new Error('Settlement winner must be part of the match reservations');
+  }
+  entries.push({ accountId: winnerAccounts.PLAYER_AVAILABLE.id, amountMinorUnits: netPayoutMinorUnits });
+  const revenue = await ensureSystemAccount(tx, 'PLATFORM_REVENUE', 'NGN');
+  entries.push({ accountId: revenue.id, amountMinorUnits: commissionMinorUnits });
+
+  return postLedgerTransaction(tx, {
+    type: 'SETTLEMENT_PAYOUT',
+    description: `Match ${matchId} settled: winner payout + platform commission`,
+    idempotencyKey: `MATCH_SETTLEMENT:${matchId}`,
+    relatedMatchId: matchId,
+    metadata: { matchId, players: reservations.map((r) => r.userId), winnerId },
+    entries
+  });
+}
+
+/**
+ * Posts the draw settlement (stakes returned to both players):
+ *   PLAYER_LOCKED     -amount   (each player)
+ *   PLAYER_AVAILABLE  +amount   (each player)
+ * Net zero. Shares the same `MATCH_SETTLEMENT:{matchId}` idempotency key as a
+ * win — no match can settle twice, so at most one of the two ever posts.
+ */
+export async function postSettlementDraw(tx, matchId, { reservations }) {
+  const entries = [];
+  for (const r of reservations) {
+    const accounts = await ensureUserAccounts(tx, r.userId, r.currency ?? 'NGN');
+    entries.push(
+      { accountId: accounts.PLAYER_LOCKED.id, amountMinorUnits: -r.amountMinorUnits },
+      { accountId: accounts.PLAYER_AVAILABLE.id, amountMinorUnits: r.amountMinorUnits }
+    );
+  }
+  return postLedgerTransaction(tx, {
+    type: 'SETTLEMENT_PAYOUT',
+    description: `Match ${matchId} settled: stakes returned on draw`,
+    idempotencyKey: `MATCH_SETTLEMENT:${matchId}`,
+    relatedMatchId: matchId,
+    metadata: { matchId, players: reservations.map((r) => r.userId) },
+    entries
+  });
+}
+
+/**
  * Net balance of one account: sum of all signed entries.
  */
 export async function getAccountBalance(client, accountId) {

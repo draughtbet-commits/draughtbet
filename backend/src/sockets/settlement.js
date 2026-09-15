@@ -1,11 +1,17 @@
-import prisma from '../utils/db.js';
 import logger from '../utils/logger.js';
-import { lockWalletsInOrder, lockWalletForUpdate } from '../services/matchService.js';
-import { LIVE_STATUSES, isLiveStatus } from '../modules/match/service.js';
+import prisma from '../utils/db.js';
 import redis from '../utils/redis.js';
 import { getIO } from './index.js';
 import * as Sentry from '@sentry/node';
 import { NotificationService } from '../modules/notification/service.js';
+import {
+  SettlementService,
+  DEFAULT_SETTLEMENT_RETRIES,
+  OutsiderSettlementError,
+  InvalidSettlementError
+} from '../modules/settlement/service.js';
+
+export { OutsiderSettlementError, InvalidSettlementError } from '../modules/settlement/service.js';
 
 // Utility sleep function
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -117,317 +123,165 @@ async function notifyAndCleanupDraw(matchId, playerLightId, playerDarkId, refund
 // ─────────────────────────────────────────────────────────────
 
 /**
- * Reads match details from Postgres, computes payout (from actual WalletTransactions),
- * and runs notification/cleanup. Called when we know the DB already shows
- * COMPLETED but aren't sure cleanup ran.
+ * Reads the terminal settlement record from Postgres and runs
+ * notification/cleanup. Called when we know the DB already settled but aren't
+ * sure cleanup ran. Falls back to the legacy PAYOUT mirror row for matches
+ * settled before the MatchSettlement record existed.
  */
-async function runCleanupFromDbForWin(matchId) {
-  const match = await prisma.match.findUnique({
-    where: { id: matchId },
-    select: { 
-      status: true, 
-      stakeMinorUnits: true, 
-      playerLightId: true, 
-      playerDarkId: true,
-      winnerId: true,
-      endReason: true 
-    }
-  });
-  
-  if (!match || match.status !== 'COMPLETED') return;
+async function readSettlementOrLegacyPayout(matchId) {
+  const settlement = await prisma.matchSettlement.findUnique({ where: { matchId } });
+  if (settlement) return settlement;
 
-  // Read the actual payout that was committed, rather than recomputing it
-  // against potentially changed commission settings.
   const payoutTx = await prisma.walletTransaction.findFirst({
     where: { relatedMatchId: matchId, type: 'PAYOUT' }
   });
+  return payoutTx ? { winnerId: null, netPayoutMinorUnits: payoutTx.amountMinorUnits, endReason: null } : null;
+}
 
-  const payout = payoutTx ? payoutTx.amountMinorUnits : 0n;
+async function runCleanupFromDbForWin(matchId) {
+  const match = await prisma.match.findUnique({
+    where: { id: matchId },
+    select: {
+      status: true,
+      playerLightId: true,
+      playerDarkId: true,
+      winnerId: true,
+      endReason: true
+    }
+  });
+
+  if (!match || match.status !== 'SETTLED') return;
+
+  const record = await readSettlementOrLegacyPayout(matchId);
+  if (!record) return;
+  const winnerId = record.winnerId ?? match.winnerId;
+  if (!winnerId) return;
 
   await notifyAndCleanupWin(
-    matchId, 
-    match.winnerId, 
-    match.playerLightId, 
-    match.playerDarkId, 
-    payout, 
-    match.endReason
+    matchId,
+    winnerId,
+    match.playerLightId,
+    match.playerDarkId,
+    BigInt(record.netPayoutMinorUnits),
+    record.endReason ?? match.endReason
   );
 }
 
 async function runCleanupFromDbForDraw(matchId) {
   const match = await prisma.match.findUnique({
     where: { id: matchId },
-    select: { 
-      status: true, 
-      stakeMinorUnits: true, 
-      playerLightId: true, 
+    select: {
+      status: true,
+      stakeMinorUnits: true,
+      playerLightId: true,
       playerDarkId: true,
       endReason: true
     }
   });
-  if (!match || match.status !== 'COMPLETED') return;
+  if (!match || match.status !== 'SETTLED') return;
 
   await notifyAndCleanupDraw(matchId, match.playerLightId, match.playerDarkId, match.stakeMinorUnits, match.endReason);
 }
 
 // ─────────────────────────────────────────────────────────────
-// DB settlement (idempotent — returns result on first call, null on subsequent)
+// Socket-layer settlement (financial core lives in SettlementService)
 // ─────────────────────────────────────────────────────────────
 
-// Board-deriveable outcomes (played to a finish) must be reproducible from the
-// durable move log. Settlement refuses to claim an outcome that has no durable
-// evidence behind it; declaration-based results (resign, forfeit, sweep
-// cleanups) carry their own reason and need no play record.
-const BOARD_OUTCOME_REASONS = new Set([
-  'NO_LEGAL_MOVES',
-  'DRAW_THREEFOLD',
-  'DRAW_25_KING_MOVES'
-]);
-
 /**
- * Thrown when a settlement names a winner who is not one of the two match
- * participants. Raised before any database write.
- */
-export class OutsiderSettlementError extends Error {
-  constructor(message = 'Winner is not a participant of this match') {
-    super(message);
-    this.name = 'OutsiderSettlementError';
-  }
-}
-
-/**
- * Thrown for any other inconsistent settlement request (mismatched loser id,
- * fee out of bounds, missing fee terms).
- */
-export class InvalidSettlementError extends Error {
-  constructor(message = 'Invalid settlement request') {
-    super(message);
-    this.name = 'InvalidSettlementError';
-  }
-}
-
-/**
- * Validates the claimed winner (and optional loser) against the match
- * participants. Must run before any write touches match or ledger rows.
- */
-function validateSettlementParticipants(match, winnerId, loserId) {
-  const { playerLightId, playerDarkId } = match;
-  if (winnerId !== playerLightId && winnerId !== playerDarkId) {
-    throw new OutsiderSettlementError();
-  }
-  if (loserId) {
-    const other = winnerId === playerLightId ? playerDarkId : playerLightId;
-    if (loserId !== other) {
-      throw new InvalidSettlementError('Loser is not the non-winning participant');
-    }
-  }
-}
-
-/**
- * Net-payout ledger convention: the winner's balance moves by exactly one
- * signed PAYOUT entry (pot minus commission). The retained commission is
- * implicit platform revenue — it is NOT written as a second entry on the
- * player wallet, so balance delta always reconciles to the sum of signed
- * WalletTransaction rows for that wallet.
- */
-function computeSettlement(match, commissionPercent) {
-  if (!Number.isInteger(commissionPercent) || commissionPercent < 0 || commissionPercent > 100) {
-    const error = new InvalidSettlementError(`Invalid commission percent: ${commissionPercent}`);
-    throw error;
-  }
-  const pot = BigInt(match.stakeMinorUnits) * 2n;
-  const commission = (pot * BigInt(commissionPercent)) / 100n;
-  const payout = pot - commission;
-  return { pot, commission, payout };
-}
-
-/**
- * Idempotent game settlement — DB transaction only.
- * Returns { payout, commission, match } on the first successful claim,
- * or null if the match was already settled (atomic status gate).
+ * Idempotent win settlement. Financial movement (ledger + legacy mirror +
+ * MatchSettlement + MatchReceipt) is delegated to SettlementService; the
+ * socket layer keeps the post-settlement notification/cleanup concept.
  *
- * The match is CLAIMED atomically with an `updateMany WHERE status IN
- * LIVE_STATUSES` (IN_PLAY and legacy ACTIVE); competing settlements
- * (win/win, win/draw, resign vs sweep, ...) serialize on that conditional
- * update and exactly one of them sees `count === 1`. Winner membership is
- * validated before any write, and the unique
- * (relatedMatchId, type, walletId) ledger index rejects duplicate entries.
+ * Returns { payout, commission, match } on the first successful claim (the
+ * established Flutter-facing result payload), or the same shape for a replay.
  */
 export async function settleGame(matchId, winnerId, loserId, reason) {
-  const result = await prisma.$transaction(async (tx) => {
-    const match = await tx.match.findUnique({
-      where: { id: matchId },
-      select: {
-        status: true,
-        stakeMinorUnits: true,
-        playerLightId: true,
-        playerDarkId: true,
-        settlementCommissionPercent: true
-      }
-    });
-
-    if (!match || !isLiveStatus(match.status)) return null;
-
-    // Evidence gate: board-derived outcomes require a durable record of the
-    // final move, otherwise the settlement has no history to stand on.
-    if (BOARD_OUTCOME_REASONS.has(reason)) {
-      const finalMove = await tx.matchMove.findFirst({
-        where: { matchId },
-        orderBy: { moveNumber: 'desc' }
-      });
-      if (!finalMove) {
-        throw new InvalidSettlementError('Settlement evidence missing: move log is empty');
-      }
-    }
-
-    // Validate membership BEFORE any write.
-    validateSettlementParticipants(match, winnerId, loserId);
-
-    // Atomic claim: the single settlement gate. Exactly one concurrent caller
-    // wins; every other contender returns null.
-    const claimed = await tx.match.updateMany({
-      where: { id: matchId, status: { in: LIVE_STATUSES } },
-      data: { status: 'COMPLETED', winnerId, endReason: reason, endedAt: new Date() }
-    });
-    if (claimed.count === 0) return null;
-
-    // Fee terms accepted at funding time. Live settings are touched only for
-    // legacy ACTIVE rows funded before the snapshot column existed.
-    const settings =
-      match.settlementCommissionPercent !== null && match.settlementCommissionPercent !== undefined
-        ? null
-        : await tx.platformSettings.findUnique({ where: { id: 'singleton' } });
-    const commissionPercent = match.settlementCommissionPercent ?? settings?.commissionPercent;
-    const { commission, payout } = computeSettlement(match, commissionPercent);
-
-    // Lock the winner's wallet (serializes with withdrawals/stakes),
-    // then credit the net payout under the lock.
-    const winnerWallet = await lockWalletForUpdate(tx, winnerId);
-    await tx.wallet.update({
-      where: { id: winnerWallet.id },
-      data: { balanceMinorUnits: { increment: payout } }
-    });
-
-    await tx.walletTransaction.create({
-      data: {
-        walletId: winnerWallet.id,
-        type: 'PAYOUT',
-        amountMinorUnits: payout,
-        relatedMatchId: matchId
-      }
-    });
-
-    return { payout, commission, match };
+  // Validated-rejectable requests (outsider winner, missing evidence) throw
+  // Outsider/InvalidSettlementError straight through; the retry wrapper treats
+  // only transient failures as retryable.
+  const result = await SettlementService.settleMatch(matchId, {
+    result: 'WIN',
+    winnerId,
+    loserId,
+    endReason: reason
   });
 
-  if (result) {
+  if (result.claimed) {
     await notifyAndCleanupWin(
       matchId, winnerId,
       result.match.playerLightId, result.match.playerDarkId,
       result.payout, reason
     );
+  } else {
+    // Idempotency gate fired: DB already settled, cleanup may not have run.
+    await runCleanupFromDbForWin(matchId);
   }
 
-  return result;
+  return { payout: result.payout, commission: result.commission, match: result.match };
 }
 
 export async function settleGameDraw(matchId, reason) {
-  const result = await prisma.$transaction(async (tx) => {
-    const match = await tx.match.findUnique({
-      where: { id: matchId },
-      select: {
-        status: true,
-        stakeMinorUnits: true,
-        playerLightId: true,
-        playerDarkId: true
-      }
-    });
-    if (!match || !isLiveStatus(match.status)) return null;
-
-    // Evidence gate: a draw reached through board rules needs the durable log
-    // of the final move; declaration-based draws skip this check.
-    if (BOARD_OUTCOME_REASONS.has(reason)) {
-      const finalMove = await tx.matchMove.findFirst({
-        where: { matchId },
-        orderBy: { moveNumber: 'desc' }
-      });
-      if (!finalMove) {
-        throw new InvalidSettlementError('Settlement evidence missing: move log is empty');
-      }
-    }
-
-    // Same atomic claim gate as win settlement — a draw can never race a win
-    // into a double settlement.
-    const claimed = await tx.match.updateMany({
-      where: { id: matchId, status: { in: LIVE_STATUSES } },
-      data: { status: 'COMPLETED', endReason: reason, endedAt: new Date() }
-    });
-    if (claimed.count === 0) return null;
-
-    const [w1, w2] = await lockWalletsInOrder(tx, match.playerLightId, match.playerDarkId);
-
-    for (const w of [w1, w2]) {
-      await tx.wallet.update({ where: { id: w.id }, data: {
-        balanceMinorUnits: { increment: match.stakeMinorUnits }
-      }});
-      await tx.walletTransaction.create({ data: {
-        walletId: w.id, type: 'REFUND',
-        amountMinorUnits: match.stakeMinorUnits, relatedMatchId: matchId
-      }});
-    }
-
-    return { match };
+  const result = await SettlementService.settleMatch(matchId, {
+    result: 'DRAW',
+    endReason: reason
   });
 
-  if (result) {
+  if (result.claimed) {
     await notifyAndCleanupDraw(
       matchId,
       result.match.playerLightId, result.match.playerDarkId,
       result.match.stakeMinorUnits, reason
     );
+  } else {
+    await runCleanupFromDbForDraw(matchId);
   }
 
-  return result;
+  return { payout: result.payout, commission: result.commission, match: result.match };
 }
 
 // ─────────────────────────────────────────────────────────────
 // Retry wrappers
 //
 // The key invariant: on EVERY non-throwing return from settleGame/Draw,
-// we check the return value. If it's null, the DB already committed
+// we check the return value. If `claimed` is false, the DB already committed
 // (from a previous attempt whose cleanup threw). In that case we
-// attempt cleanup directly — we don't treat "null without throwing"
+// attempt cleanup directly — we don't treat "false without throwing"
 // as success and return silently.
 //
 // This closes the gap where:
 //   1. Attempt 1: DB commits, cleanup throws → settleGame throws
-//   2. Attempt 2: idempotency gate returns null, no throw
+//   2. Attempt 2: idempotency gate returns replayed, no throw
 //   3. Old code: treated non-throw as success → returned → cleanup never ran
-//   4. New code: detects null → runs cleanup from DB state
+//   4. New code: detects replayed → runs cleanup from DB state
+//
+// Settlement is retried 10 times; the claim + posting are transactional and
+// idempotent, so the winner is credited exactly once no matter the attempts.
 // ─────────────────────────────────────────────────────────────
 
-export async function settleGameWithRetry(matchId, winnerId, loserId, reason, retries = 3) {
+export async function settleGameWithRetry(matchId, winnerId, loserId, reason, retries = DEFAULT_SETTLEMENT_RETRIES) {
   for (let attempt = 1; attempt <= retries; attempt++) {
     try {
       const result = await settleGame(matchId, winnerId, loserId, reason);
 
       if (result) {
         // DB settled AND cleanup ran (settleGame didn't throw) — genuine success.
-        return;
+        return result;
       }
 
-      // result === null: DB is already COMPLETED (idempotency gate).
-      // A previous attempt committed the txn but cleanup may have thrown.
-      // Attempt cleanup now — it's idempotent, so running it again is safe.
-      logger.info({ matchId, attempt }, 'settleGameWithRetry: DB already settled (idempotency gate), running cleanup');
+      logger.info({ matchId, attempt }, 'settleGameWithRetry: settlement returned no result, running cleanup');
       try {
         await runCleanupFromDbForWin(matchId);
       } catch (cleanupErr) {
-        logger.error({ cleanupErr, matchId }, 'settleGameWithRetry: cleanup after idempotency gate failed');
+        logger.error({ cleanupErr, matchId }, 'settleGameWithRetry: cleanup after settlement gate failed');
       }
-      return;
+      return null;
 
     } catch (err) {
+      // Rejectable requests (outsider winner, missing evidence) are not
+      // transient — surface them instead of burning the retry budget.
+      if (err instanceof OutsiderSettlementError || err instanceof InvalidSettlementError) {
+        throw err;
+      }
       logger.warn({ err, attempt, matchId }, 'settleGame failed, retrying');
       if (attempt === retries) {
         logger.error({ err, matchId }, 'CRITICAL: settleGame failed after all retries. Requires manual or sweep reconciliation.');
@@ -451,27 +305,31 @@ export async function settleGameWithRetry(matchId, winnerId, loserId, reason, re
   } catch (cleanupErr) {
     logger.error({ cleanupErr, matchId }, 'settleGameWithRetry: final cleanup attempt also failed');
   }
+  return null;
 }
 
-export async function settleGameDrawWithRetry(matchId, reason, retries = 3) {
+export async function settleGameDrawWithRetry(matchId, reason, retries = DEFAULT_SETTLEMENT_RETRIES) {
   for (let attempt = 1; attempt <= retries; attempt++) {
     try {
       const result = await settleGameDraw(matchId, reason);
 
       if (result) {
-        return; // Genuine success
+        return result; // Genuine success
       }
 
-      // Idempotency gate fired — attempt cleanup directly
-      logger.info({ matchId, attempt }, 'settleGameDrawWithRetry: DB already settled (idempotency gate), running cleanup');
+      // Settlement gate fired — attempt cleanup directly
+      logger.info({ matchId, attempt }, 'settleGameDrawWithRetry: settlement returned no result, running cleanup');
       try {
         await runCleanupFromDbForDraw(matchId);
       } catch (cleanupErr) {
-        logger.error({ cleanupErr, matchId }, 'settleGameDrawWithRetry: cleanup after idempotency gate failed');
+        logger.error({ cleanupErr, matchId }, 'settleGameDrawWithRetry: cleanup after settlement gate failed');
       }
-      return;
+      return null;
 
     } catch (err) {
+      if (err instanceof OutsiderSettlementError || err instanceof InvalidSettlementError) {
+        throw err;
+      }
       logger.warn({ err, attempt, matchId }, 'settleGameDraw failed, retrying');
       if (attempt === retries) {
         logger.error({ err, matchId }, 'CRITICAL: settleGameDraw failed after all retries.');
@@ -494,4 +352,7 @@ export async function settleGameDrawWithRetry(matchId, reason, retries = 3) {
   } catch (cleanupErr) {
     logger.error({ cleanupErr, matchId }, 'settleGameDrawWithRetry: final cleanup attempt also failed');
   }
+  return null;
 }
+
+export { SettlementService, DEFAULT_SETTLEMENT_RETRIES };

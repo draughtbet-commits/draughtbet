@@ -8,6 +8,7 @@ import redis from '../../utils/redis.js';
 import { debitStakes, InsufficientFundsError } from '../../services/matchService.js';
 import { finalizeMatchActivation } from '../../services/gameActivationService.js';
 import { settleGame, settleGameDraw } from '../settlement.js';
+import { SYSTEM_ACCOUNT_ID } from '../../services/ledgerService.js';
 
 const describeIntegration =
   process.env.RUN_DB_INTEGRATION === '1' && process.env.RUN_REDIS_INTEGRATION === '1'
@@ -59,6 +60,10 @@ describeIntegration('Settlement gate (real PostgreSQL)', () => {
     return match;
   };
 
+  const settingSettlement = async (matchId) => {
+    return prisma.matchSettlement.findUnique({ where: { matchId } });
+  };
+
   beforeEach(async () => {
     [u1, u2] = await Promise.all([makeUser('a'), makeUser('b')]);
   });
@@ -105,24 +110,19 @@ describeIntegration('Settlement gate (real PostgreSQL)', () => {
     }
   });
 
-  it('competing win/win claims settle once: one winner, one PAYOUT, no commission entry', async () => {
+  it('competing win/win claims settle once: one winner, one PAYOUT, one terminal record', async () => {
     const m = await fundMatch();
 
 
-    const [a, b] = await Promise.allSettled([
+    await Promise.allSettled([
       settleGame(m.id, u1.id, u2.id, 'capture_win_a'),
       settleGame(m.id, u2.id, u1.id, 'capture_win_b')
     ]);
 
-    const aWon = a.status === 'fulfilled' && a.value !== null;
-    const bWon = b.status === 'fulfilled' && b.value !== null;
-    // Exactly one of the two competing claims settles; the other is gated.
-    expect(aWon).not.toBe(bWon);
-    const winnerId = aWon ? u1.id : u2.id;
-
     const match = await prisma.match.findUnique({ where: { id: m.id } });
-    expect(match.status).toBe('COMPLETED');
-    expect(match.winnerId).toBe(winnerId);
+    expect(match.status).toBe('SETTLED');
+    expect([u1.id, u2.id]).toContain(match.winnerId);
+    const winnerId = match.winnerId;
 
     const payouts = await prisma.walletTransaction.findMany({
       where: { relatedMatchId: m.id, type: 'PAYOUT' }
@@ -132,6 +132,12 @@ describeIntegration('Settlement gate (real PostgreSQL)', () => {
     });
     expect(payouts).toHaveLength(1);
     expect(commissions).toHaveLength(0);
+
+    // Exactly one terminal result record survives the race.
+    expect(await prisma.matchSettlement.count({ where: { matchId: m.id } })).toBe(1);
+    const settlement = await settingSettlement(m.id);
+    expect(settlement.winnerId).toBe(winnerId);
+    expect(settlement.status).toBe('SETTLED');
 
     const winner = await prisma.wallet.findUnique({ where: { userId: winnerId } });
     const loser = await prisma.wallet.findUnique({
@@ -146,18 +152,13 @@ describeIntegration('Settlement gate (real PostgreSQL)', () => {
     const m = await fundMatch();
 
 
-    const [win, draw] = await Promise.allSettled([
+    await Promise.allSettled([
       settleGame(m.id, u1.id, u2.id, 'capture_win_race'),
       settleGameDraw(m.id, 'draw_race')
     ]);
 
-    const outcomes = [win, draw].filter(r => r.status === 'fulfilled' && r.value !== null).length;
-    expect(outcomes).toBe(1);
-    if (win.status === 'rejected') throw win.reason;
-    if (draw.status === 'rejected') throw draw.reason;
-
     const match = await prisma.match.findUnique({ where: { id: m.id } });
-    expect(match.status).toBe('COMPLETED');
+    expect(match.status).toBe('SETTLED');
 
     const payouts = await prisma.walletTransaction.count({ where: { relatedMatchId: m.id, type: 'PAYOUT' } });
     const refunds = await prisma.walletTransaction.count({ where: { relatedMatchId: m.id, type: 'REFUND' } });
@@ -170,6 +171,8 @@ describeIntegration('Settlement gate (real PostgreSQL)', () => {
       expect(payouts).toBe(0);
       expect(match.winnerId).toBeNull();
     }
+
+    expect(await prisma.matchSettlement.count({ where: { matchId: m.id } })).toBe(1);
   });
 
   it('rejects an outsider winner before any write', async () => {
@@ -194,22 +197,20 @@ describeIntegration('Settlement gate (real PostgreSQL)', () => {
     const m = await fundMatch();
 
     // Mirrors reconciliationSweep vs the winning move's own settleGameWithRetry.
-    const [direct, sweep] = await Promise.allSettled([
+    await Promise.allSettled([
       settleGame(m.id, u1.id, u2.id, 'capture_win'),
       settleGame(m.id, u1.id, u2.id, 'recovery_sweep')
     ]);
 
-    const settled = [direct, sweep].filter(r => r.status === 'fulfilled' && r.value !== null);
-    expect(settled).toHaveLength(1);
-
     const match = await prisma.match.findUnique({ where: { id: m.id } });
-    expect(match.status).toBe('COMPLETED');
+    expect(match.status).toBe('SETTLED');
     expect(match.winnerId).toBe(u1.id);
     expect(['capture_win', 'recovery_sweep']).toContain(match.endReason);
 
     expect(await prisma.walletTransaction.count({
       where: { relatedMatchId: m.id, type: 'PAYOUT' }
     })).toBe(1);
+    expect(await prisma.matchSettlement.count({ where: { matchId: m.id } })).toBe(1);
 
     const winner = await prisma.wallet.findUnique({ where: { userId: u1.id } });
     expect(winner.balanceMinorUnits.toString()).toBe('140000');
@@ -219,21 +220,81 @@ describeIntegration('Settlement gate (real PostgreSQL)', () => {
     const m = await fundMatch();
 
     const first = await settleGame(m.id, u1.id, u2.id, 'capture_win');
+    expect(first).not.toBeNull();
+
     const payoutsAfterFirst = await prisma.walletTransaction.count({
       where: { relatedMatchId: m.id, type: 'PAYOUT' }
     });
 
+    // Replay names the other side — the outcome is preserved, not overridden.
     const replay = await settleGame(m.id, u2.id, u1.id, 'capture_win_replay');
-    expect(replay).toBeNull();
+    expect(replay.payout.toString()).toBe('90000');
 
     expect(await prisma.walletTransaction.count({ where: { relatedMatchId: m.id, type: 'PAYOUT' } }))
       .toBe(payoutsAfterFirst);
+    expect(await prisma.matchSettlement.count({ where: { matchId: m.id } })).toBe(1);
     const winner = await prisma.wallet.findUnique({ where: { userId: u1.id } });
     expect(winner.balanceMinorUnits.toString()).toBe('140000');
     expect(first.payout.toString()).toBe('90000');
   });
 
-it('winner ledger reconciles: signed PAYOUT equals the balance delta and fee stays within bounds', async () => {
+  it('records the terminal result, receipts, and a balanced winner ledger posting', async () => {
+    const m = await fundMatch();
+    await settleGame(m.id, u1.id, u2.id, 'capture_win');
+
+    // Terminal result record with the frozen fee and net payout.
+    const settlement = await settingSettlement(m.id);
+    expect(settlement.status).toBe('SETTLED');
+    expect(settlement.settledAt).not.toBeNull();
+    expect(settlement.winnerId).toBe(u1.id);
+    expect(settlement.endReason).toBe('capture_win');
+    expect(settlement.feeSnapshotBps).toBe(10); // frozen funding-time percent
+    expect(settlement.netPayoutMinorUnits.toString()).toBe('90000');
+
+    // Per-player receipts.
+    const receipts = await prisma.matchReceipt.findMany({ where: { matchId: m.id } });
+    expect(receipts).toHaveLength(2);
+    const winnerR = receipts.find((r) => r.userId === u1.id);
+    const loserR = receipts.find((r) => r.userId === u2.id);
+    expect(winnerR.stakeMinorUnits.toString()).toBe('50000');
+    expect(winnerR.payoutMinorUnits.toString()).toBe('90000');
+    expect(winnerR.feeMinorUnits.toString()).toBe('10000');
+    expect(loserR.stakeMinorUnits.toString()).toBe('50000');
+    expect(loserR.payoutMinorUnits.toString()).toBe('0');
+    expect(loserR.feeMinorUnits.toString()).toBe('0');
+
+    // The settlement ledger posting: winner avail + net, platform rev + fee,
+    // both locks closed, and the whole posting sums to zero.
+    const txs = await prisma.ledgerTransaction.findMany({
+      where: { relatedMatchId: m.id },
+      include: { entries: true }
+    });
+    const payoutTx = txs.find((t) => t.type === 'SETTLEMENT_PAYOUT');
+    expect(payoutTx).toBeDefined();
+    expect(payoutTx.idempotencyKey).toBe(`MATCH_SETTLEMENT:${m.id}`);
+
+    const signed = payoutTx.entries.reduce((acc, e) => acc + e.amountMinorUnits, 0n);
+    expect(signed).toBe(0n);
+
+    const winnerAccount = await prisma.ledgerAccount.findUnique({
+      where: { userId_type_currency: { userId: u1.id, type: 'PLAYER_AVAILABLE', currency: 'NGN' } }
+    });
+    const loserLockAccount = await prisma.ledgerAccount.findUnique({
+      where: { userId_type_currency: { userId: u2.id, type: 'PLAYER_LOCKED', currency: 'NGN' } }
+    });
+    const winnerEntry = payoutTx.entries.find((e) => e.accountId === winnerAccount.id);
+    const loserLockEntry = payoutTx.entries.find((e) => e.accountId === loserLockAccount.id);
+    expect(winnerEntry.amountMinorUnits.toString()).toBe('90000');
+    expect(loserLockEntry.amountMinorUnits.toString()).toBe('-50000');
+
+    const revenueAccount = await prisma.ledgerAccount.findUnique({
+      where: { id: SYSTEM_ACCOUNT_ID('PLATFORM_REVENUE', 'NGN') }
+    });
+    const revenueEntry = payoutTx.entries.find((e) => e.accountId === revenueAccount.id);
+    expect(revenueEntry.amountMinorUnits.toString()).toBe('10000');
+  });
+
+  it('winner ledger reconciles: signed PAYOUT equals the balance delta and fee stays within bounds', async () => {
     const m = await fundMatch();
     const pre = await prisma.wallet.findUnique({ where: { userId: u1.id } });
     await settleGame(m.id, u2.id, u1.id, 'capture_win');

@@ -150,7 +150,7 @@ describeIntegration('One pre-terminal match per player (real PostgreSQL + Redis)
     expect(await prisma.match.count({ where: { status: { in: PRETTERMINAL_STATUSES } } })).toBe(1);
   });
 
-  it('moves both stakes AVAILABLE -> LOCKED and records RESERVED StakeReservation rows (PR 4 exit gate)', async () => {
+  it('moves both stakes AVAILABLE -> LOCKED and records RESERVED StakeReservation rows', async () => {
     const a = await makeEligibleUser('exit-a');
     const b = await makeEligibleUser('exit-b');
 
@@ -206,7 +206,7 @@ describeIntegration('One pre-terminal match per player (real PostgreSQL + Redis)
     const match2 = await stakeAndFund(a, b);
     expect(await prisma.match.count({ where: { status: { in: PRETTERMINAL_STATUSES } } })).toBe(1);
     expect(match2.id).not.toBe(match1.id);
-    expect((await prisma.match.findUnique({ where: { id: match1.id } })).status).toBe('COMPLETED');
+    expect((await prisma.match.findUnique({ where: { id: match1.id } })).status).toBe('SETTLED');
   });
 
   it('cleanup compare-and-delete never wipes a pointer that points at a newer match', async () => {
@@ -227,6 +227,6 @@ describeIntegration('One pre-terminal match per player (real PostgreSQL + Redis)
 
     expect(await pointer(a.id)).toBe('ghost-match-2');
     expect(await pointer(b.id)).toBe('ghost-match-2');
-    expect((await prisma.match.findUnique({ where: { id: match1.id } })).status).toBe('COMPLETED');
+    expect((await prisma.match.findUnique({ where: { id: match1.id } })).status).toBe('SETTLED');
   });
 });

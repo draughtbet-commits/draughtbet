@@ -14,7 +14,8 @@ matchRouter.get('/history', requireAuth, async (req, res) => {
       where: {
         AND: [
           { OR: [{ playerLightId: userId }, { playerDarkId: userId }] },
-          { status: 'COMPLETED' }
+          // V2 settlement writes SETTLED; legacy COMPLETED rows remain.
+          { status: { in: ['COMPLETED', 'SETTLED'] } }
         ]
       },
       orderBy: { endedAt: 'desc' },

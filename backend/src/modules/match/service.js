@@ -38,9 +38,9 @@ export class InvalidTransitionError extends Error {
 }
 
 /**
- * Allowed state transitions. Settlement keeps claiming with its own atomic
- * CAS to COMPLETED (PR 5 rewrites it to SETTLED); the map below covers the
- * structured lifecycle: funding, ready, start, and abandonment before start.
+ * Allowed state transitions. The map below covers the structured lifecycle:
+ * funding, ready, start, and abandonment before start. Settlement claims its
+ * own transition (LIVE -> SETTLED) atomically inside the settlement service.
  */
 export const ALLOWED_TRANSITIONS = Object.freeze({
   DRAFT: ['OPEN', 'CANCELLED', 'EXPIRED'],

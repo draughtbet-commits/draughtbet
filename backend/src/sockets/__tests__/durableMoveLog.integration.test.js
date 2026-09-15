@@ -194,6 +194,6 @@ describeIntegration('Durable move log (real PostgreSQL + Redis)', () => {
     const result = await settleGame(match.id, p1.id, p2.id, 'NO_LEGAL_MOVES');
     expect(result).not.toBeNull();
     const settled = await prisma.match.findUnique({ where: { id: match.id } });
-    expect(settled.status).toBe('COMPLETED');
+    expect(settled.status).toBe('SETTLED');
   });
 });

@@ -6,13 +6,13 @@ import { postStakeReservation, postStakeRelease } from '../../services/ledgerSer
  * Owns stake reservation and release. Each player's stake is recorded as a
  * StakeReservation row (RESERVED -> RELEASED / SETTLED), mirrored into the
  * double-entry ledger (PLAYER_AVAILABLE -> PLAYER_LOCKED / reverse) and, until
- * the final read-flip PR, kept in lockstep with the legacy Wallet debit/refund
+ * the final read-flip, kept in lockstep with the legacy Wallet debit/refund
  * in the SAME transaction so a partial match is impossible.
  *
- * Responsibilities (plan § lines 502-529):
+ * Responsibilities:
  *   - idempotency per matchId:userId (a replay never double-reserves)
  *   - release only a permitted reservation; a release is terminal for the row
- *   - NEVER settle a payout itself (settlement is a later PR)
+ *   - NEVER settle a payout itself (that lives in modules/settlement)
  *
  * Balance math is BigInt-in everywhere. These helpers expect the caller to
  * have already locked the wallet rows (lockWalletsInOrder) so money moves

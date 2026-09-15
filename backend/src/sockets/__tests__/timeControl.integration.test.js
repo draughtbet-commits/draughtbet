@@ -137,7 +137,7 @@ describeIntegration('Turn deadlines (real PostgreSQL + Redis)', () => {
     expect(result.settled).toContain(match.id);
 
     const settled = await prisma.match.findUnique({ where: { id: match.id } });
-    expect(settled.status).toBe('COMPLETED');
+    expect(settled.status).toBe('SETTLED');
     expect(settled.winnerId).toBe(p2.id);
     expect(settled.endReason).toBe('timeout_forfeit');
 
