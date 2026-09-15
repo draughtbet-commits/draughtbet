@@ -246,10 +246,11 @@ function computeSettlement(match, commissionPercent) {
  * Returns { payout, commission, match } on the first successful claim,
  * or null if the match was already settled (atomic status gate).
  *
- * The match is CLAIMED atomically with an `updateMany WHERE status='ACTIVE'`;
- * competing settlements (win/win, win/draw, resign vs sweep, ...) serialize on
- * that conditional update and exactly one of them sees `count === 1`. Winner
- * membership is validated before any write, and the unique
+ * The match is CLAIMED atomically with an `updateMany WHERE status IN
+ * LIVE_STATUSES` (IN_PLAY and legacy ACTIVE); competing settlements
+ * (win/win, win/draw, resign vs sweep, ...) serialize on that conditional
+ * update and exactly one of them sees `count === 1`. Winner membership is
+ * validated before any write, and the unique
  * (relatedMatchId, type, walletId) ledger index rejects duplicate entries.
  */
 export async function settleGame(matchId, winnerId, loserId, reason) {
