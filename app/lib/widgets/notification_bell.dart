@@ -7,9 +7,13 @@ import '../theme/colors.dart';
 import 'package:intl/intl.dart';
 
 class NotificationBell extends ConsumerWidget {
-  const NotificationBell({Key? key}) : super(key: key);
+  const NotificationBell({super.key});
 
-  void _showNotificationPanel(BuildContext context, WidgetRef ref, NotificationState state) {
+  void _showNotificationPanel(
+    BuildContext context,
+    WidgetRef ref,
+    NotificationState state,
+  ) {
     showModalBottomSheet(
       context: context,
       backgroundColor: AppColors.surface1,
@@ -42,10 +46,7 @@ class NotificationBell extends ConsumerWidget {
                 color: AppColors.danger,
                 borderRadius: BorderRadius.circular(10),
               ),
-              constraints: const BoxConstraints(
-                minWidth: 16,
-                minHeight: 16,
-              ),
+              constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
               child: Text(
                 '${state.unreadCount > 9 ? '9+' : state.unreadCount}',
                 style: const TextStyle(
@@ -99,54 +100,62 @@ class _NotificationPanel extends ConsumerWidget {
           child: state.isLoading
               ? const Center(child: CircularProgressIndicator())
               : state.notifications.isEmpty
-                  ? const Center(
-                      child: Text(
-                        'No notifications yet.',
-                        style: TextStyle(color: AppColors.textMuted),
+              ? const Center(
+                  child: Text(
+                    'No notifications yet.',
+                    style: TextStyle(color: AppColors.textMuted),
+                  ),
+                )
+              : ListView.builder(
+                  itemCount: state.notifications.length,
+                  itemBuilder: (context, index) {
+                    final notification = state.notifications[index];
+                    return ListTile(
+                      title: Text(
+                        notification.title,
+                        style: TextStyle(
+                          color: notification.isRead
+                              ? AppColors.textMuted
+                              : AppColors.textMain,
+                          fontWeight: notification.isRead
+                              ? FontWeight.normal
+                              : FontWeight.bold,
+                        ),
                       ),
-                    )
-                  : ListView.builder(
-                      itemCount: state.notifications.length,
-                      itemBuilder: (context, index) {
-                        final notification = state.notifications[index];
-                        return ListTile(
-                          title: Text(
-                            notification.title,
-                            style: TextStyle(
-                              color: notification.isRead
-                                  ? AppColors.textMuted
-                                  : AppColors.textMain,
-                              fontWeight: notification.isRead
-                                  ? FontWeight.normal
-                                  : FontWeight.bold,
+                      subtitle: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            notification.message,
+                            style: const TextStyle(color: AppColors.textMuted),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            DateFormat(
+                              'MMM d, h:mm a',
+                            ).format(notification.createdAt.toLocal()),
+                            style: const TextStyle(
+                              color: AppColors.textMuted,
+                              fontSize: 12,
                             ),
                           ),
-                          subtitle: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                notification.message,
-                                style: const TextStyle(color: AppColors.textMuted),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                DateFormat('MMM d, h:mm a').format(notification.createdAt.toLocal()),
-                                style: const TextStyle(color: AppColors.textMuted, fontSize: 12),
-                              ),
-                            ],
-                          ),
-                          onTap: () {
-                            if (!notification.isRead) {
-                              ref.read(notificationProvider.notifier).markAsRead(notification.id);
-                            }
-                            if (notification.link != null && notification.link!.isNotEmpty) {
-                              Navigator.pop(context); // Close panel
-                              context.go(notification.link!);
-                            }
-                          },
-                        );
+                        ],
+                      ),
+                      onTap: () {
+                        if (!notification.isRead) {
+                          ref
+                              .read(notificationProvider.notifier)
+                              .markAsRead(notification.id);
+                        }
+                        if (notification.link != null &&
+                            notification.link!.isNotEmpty) {
+                          Navigator.pop(context); // Close panel
+                          context.go(notification.link!);
+                        }
                       },
-                    ),
+                    );
+                  },
+                ),
         ),
       ],
     );

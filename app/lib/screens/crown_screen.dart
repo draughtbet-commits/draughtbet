@@ -4,7 +4,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../theme/colors.dart';
 
 class CrownScreen extends StatelessWidget {
-  const CrownScreen({Key? key}) : super(key: key);
+  const CrownScreen({super.key});
 
   @override
   Widget build(BuildContext context) {

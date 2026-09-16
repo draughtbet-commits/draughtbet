@@ -80,188 +80,218 @@ class _ResultsScreenState extends ConsumerState<ResultsScreen> {
         elevation: 0,
         actions: [
           IconButton(
-            icon: const Icon(LucideIcons.refreshCw, color: AppColors.textSecondary, size: 20),
+            icon: const Icon(
+              LucideIcons.refreshCw,
+              color: AppColors.textSecondary,
+              size: 20,
+            ),
             onPressed: _fetchHistory,
           ),
         ],
       ),
       body: _isLoading
-          ? const Center(child: CircularProgressIndicator(color: AppColors.gold500))
+          ? const Center(
+              child: CircularProgressIndicator(color: AppColors.gold500),
+            )
           : _error != null
-              ? Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(LucideIcons.alertCircle, color: AppColors.danger, size: 48),
-                      const SizedBox(height: 16),
-                      Text(_error!, style: AppTypography.bodyLarge),
-                      const SizedBox(height: 16),
-                      ElevatedButton(
-                        style: ElevatedButton.styleFrom(backgroundColor: AppColors.surface2),
-                        onPressed: _fetchHistory,
-                        child: const Text('Retry', style: TextStyle(color: AppColors.textPrimary)),
-                      )
-                    ],
+          ? Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(
+                    LucideIcons.alertCircle,
+                    color: AppColors.danger,
+                    size: 48,
                   ),
-                )
-              : _matches.isEmpty
-                  ? Center(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
+                  const SizedBox(height: 16),
+                  Text(_error!, style: AppTypography.bodyLarge),
+                  const SizedBox(height: 16),
+                  ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.surface2,
+                    ),
+                    onPressed: _fetchHistory,
+                    child: const Text(
+                      'Retry',
+                      style: TextStyle(color: AppColors.textPrimary),
+                    ),
+                  ),
+                ],
+              ),
+            )
+          : _matches.isEmpty
+          ? Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(
+                    LucideIcons.trophy,
+                    color: AppColors.textMuted,
+                    size: 48,
+                  ),
+                  const SizedBox(height: 16),
+                  Text('No match history yet', style: AppTypography.heading3),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Play matches in the lobby to see your results here.',
+                    style: AppTypography.bodySmall,
+                  ),
+                ],
+              ),
+            )
+          : ListView.separated(
+              padding: const EdgeInsets.all(16),
+              itemCount: _matches.length,
+              separatorBuilder: (context, index) => const SizedBox(height: 12),
+              itemBuilder: (context, index) {
+                final m = _matches[index] as Map<String, dynamic>;
+                final winnerId = m['winnerId'] as String?;
+                final tier = (m['tier'] as String? ?? 'AMATEUR').toUpperCase();
+                final stake = m['stakeMinorUnits'];
+                final endedAtStr = m['endedAt'] as String?;
+                final endedAt = endedAtStr != null
+                    ? DateTime.parse(endedAtStr)
+                    : DateTime.now();
+
+                final bool isWinner =
+                    winnerId != null &&
+                    _currentUserId != null &&
+                    winnerId == _currentUserId;
+                final bool isDraw = winnerId == null || winnerId.isEmpty;
+
+                final lightPlayer = m['playerLight'] as Map<String, dynamic>?;
+                final darkPlayer = m['playerDark'] as Map<String, dynamic>?;
+
+                final lightPlayerId = m['playerLightId'] as String?;
+                final bool isLight =
+                    lightPlayerId != null && lightPlayerId == _currentUserId;
+                // S17: the history API exposes only the public handle — never the email.
+                final String opponentName = isLight
+                    ? (darkPlayer?['username'] as String? ?? 'Opponent')
+                    : (lightPlayer?['username'] as String? ?? 'Opponent');
+
+                final Color statusColor;
+                final String resultText;
+                final IconData resultIcon;
+
+                if (isWinner) {
+                  statusColor = AppColors.gold500;
+                  resultText = 'VICTORY';
+                  resultIcon = LucideIcons.trophy;
+                } else if (isDraw) {
+                  statusColor = AppColors.textMuted;
+                  resultText = 'DRAW';
+                  resultIcon = LucideIcons.minus;
+                } else {
+                  statusColor = AppColors.danger;
+                  resultText = 'DEFEAT';
+                  resultIcon = LucideIcons.x;
+                }
+
+                return Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: AppColors.surface1,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: isWinner
+                          ? AppColors.gold500.withValues(alpha: 0.4)
+                          : (isDraw
+                                ? AppColors.borderDim
+                                : AppColors.danger.withValues(alpha: 0.3)),
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      // Result Icon Circle
+                      CircleAvatar(
+                        radius: 22,
+                        backgroundColor: isWinner
+                            ? AppColors.gold500.withValues(alpha: 0.15)
+                            : (isDraw
+                                  ? AppColors.surface3
+                                  : AppColors.danger.withValues(alpha: 0.15)),
+                        child: Icon(resultIcon, color: statusColor, size: 20),
+                      ),
+                      const SizedBox(width: 16),
+                      // Match details
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Text(
+                                  resultText,
+                                  style: AppTypography.labelBold.copyWith(
+                                    color: statusColor,
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 6,
+                                    vertical: 2,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: AppColors.surface3,
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                  child: Text(
+                                    tier,
+                                    style: AppTypography.bodySmall.copyWith(
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.bold,
+                                      color: AppColors.textSecondary,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              'vs $opponentName',
+                              style: AppTypography.bodyMedium,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              DateFormat(
+                                'MMM d, y • h:mm a',
+                              ).format(endedAt.toLocal()),
+                              style: AppTypography.bodySmall,
+                            ),
+                          ],
+                        ),
+                      ),
+                      // Stake Amount
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.end,
                         children: [
-                          const Icon(LucideIcons.trophy, color: AppColors.textMuted, size: 48),
-                          const SizedBox(height: 16),
-                          Text('No match history yet', style: AppTypography.heading3),
-                          const SizedBox(height: 8),
                           Text(
-                            'Play matches in the lobby to see your results here.',
-                            style: AppTypography.bodySmall,
+                            _formatNaira(stake),
+                            style: AppTypography.labelBold.copyWith(
+                              color: isWinner
+                                  ? AppColors.gold500
+                                  : AppColors.textPrimary,
+                              fontSize: 16,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            isWinner ? 'Winnings' : 'Stake',
+                            style: AppTypography.bodySmall.copyWith(
+                              fontSize: 11,
+                            ),
                           ),
                         ],
                       ),
-                    )
-                  : ListView.separated(
-                      padding: const EdgeInsets.all(16),
-                      itemCount: _matches.length,
-                      separatorBuilder: (context, index) => const SizedBox(height: 12),
-                      itemBuilder: (context, index) {
-                        final m = _matches[index] as Map<String, dynamic>;
-                        final winnerId = m['winnerId'] as String?;
-                        final tier = (m['tier'] as String? ?? 'AMATEUR').toUpperCase();
-                        final stake = m['stakeMinorUnits'];
-                        final endedAtStr = m['endedAt'] as String?;
-                        final endedAt = endedAtStr != null ? DateTime.parse(endedAtStr) : DateTime.now();
-
-                        final bool isWinner = winnerId != null && _currentUserId != null && winnerId == _currentUserId;
-                        final bool isDraw = winnerId == null || winnerId.isEmpty;
-
-                        final lightPlayer = m['playerLight'] as Map<String, dynamic>?;
-                        final darkPlayer = m['playerDark'] as Map<String, dynamic>?;
-
-                        final lightPlayerId = m['playerLightId'] as String?;
-                        final bool isLight = lightPlayerId != null && lightPlayerId == _currentUserId;
-                        // S17: the history API exposes only the public handle — never the email.
-                        final String opponentName = isLight
-                            ? (darkPlayer?['username'] as String? ?? 'Opponent')
-                            : (lightPlayer?['username'] as String? ?? 'Opponent');
-
-                        final Color statusColor;
-                        final String resultText;
-                        final IconData resultIcon;
-
-                        if (isWinner) {
-                          statusColor = AppColors.gold500;
-                          resultText = 'VICTORY';
-                          resultIcon = LucideIcons.trophy;
-                        } else if (isDraw) {
-                          statusColor = AppColors.textMuted;
-                          resultText = 'DRAW';
-                          resultIcon = LucideIcons.minus;
-                        } else {
-                          statusColor = AppColors.danger;
-                          resultText = 'DEFEAT';
-                          resultIcon = LucideIcons.x;
-                        }
-
-                        return Container(
-                          padding: const EdgeInsets.all(16),
-                          decoration: BoxDecoration(
-                            color: AppColors.surface1,
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(
-                              color: isWinner
-                                  ? AppColors.gold500.withOpacity(0.4)
-                                  : (isDraw
-                                      ? AppColors.borderDim
-                                      : AppColors.danger.withOpacity(0.3)),
-                            ),
-                          ),
-                          child: Row(
-                            children: [
-                              // Result Icon Circle
-                              CircleAvatar(
-                                radius: 22,
-                                backgroundColor: isWinner
-                                    ? AppColors.gold500.withOpacity(0.15)
-                                    : (isDraw
-                                        ? AppColors.surface3
-                                        : AppColors.danger.withOpacity(0.15)),
-                                child: Icon(
-                                  resultIcon,
-                                  color: statusColor,
-                                  size: 20,
-                                ),
-                              ),
-                              const SizedBox(width: 16),
-                              // Match details
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Row(
-                                      children: [
-                                        Text(
-                                          resultText,
-                                          style: AppTypography.labelBold.copyWith(
-                                            color: statusColor,
-                                          ),
-                                        ),
-                                        const SizedBox(width: 8),
-                                        Container(
-                                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                          decoration: BoxDecoration(
-                                            color: AppColors.surface3,
-                                            borderRadius: BorderRadius.circular(4),
-                                          ),
-                                          child: Text(
-                                            tier,
-                                            style: AppTypography.bodySmall.copyWith(
-                                              fontSize: 10,
-                                              fontWeight: FontWeight.bold,
-                                              color: AppColors.textSecondary,
-                                            ),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                    const SizedBox(height: 4),
-                                    Text(
-                                      'vs $opponentName',
-                                      style: AppTypography.bodyMedium,
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                    const SizedBox(height: 2),
-                                    Text(
-                                      DateFormat('MMM d, y • h:mm a').format(endedAt.toLocal()),
-                                      style: AppTypography.bodySmall,
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              // Stake Amount
-                              Column(
-                                crossAxisAlignment: CrossAxisAlignment.end,
-                                children: [
-                                  Text(
-                                    _formatNaira(stake),
-                                    style: AppTypography.labelBold.copyWith(
-                                      color: isWinner ? AppColors.gold500 : AppColors.textPrimary,
-                                      fontSize: 16,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    isWinner ? 'Winnings' : 'Stake',
-                                    style: AppTypography.bodySmall.copyWith(fontSize: 11),
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
-                        );
-                      },
-                    ),
+                    ],
+                  ),
+                );
+              },
+            ),
     );
   }
 }

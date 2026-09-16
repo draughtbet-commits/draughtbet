@@ -1,3 +1,5 @@
+import 'dart:developer' as developer;
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:dio/dio.dart';
 import '../models/wallet.dart';
@@ -119,7 +121,11 @@ class WalletNotifier extends StateNotifier<WalletState> {
         state = state.copyWith(tierLimits: tierLimits);
       }
     } catch (e) {
-      print('Failed to fetch tier limits: $e');
+      developer.log(
+        'Failed to fetch tier limits',
+        name: 'draughtbet.wallet',
+        error: e,
+      );
     }
   }
 

@@ -49,8 +49,12 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
   @override
   Widget build(BuildContext context) {
     final walletState = ref.watch(walletProvider);
-    final currencyFormatter = NumberFormat.currency(symbol: '₦', decimalDigits: 0);
-    final double balance = (int.tryParse(walletState.balance ?? '0') ?? 0) / 100;
+    final currencyFormatter = NumberFormat.currency(
+      symbol: '₦',
+      decimalDigits: 0,
+    );
+    final double balance =
+        (int.tryParse(walletState.balance ?? '0') ?? 0) / 100;
 
     return Scaffold(
       backgroundColor: AppColors.voidBg,
@@ -60,13 +64,18 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
         elevation: 0,
       ),
       body: walletState.isLoading && walletState.balance == null
-          ? const Center(child: CircularProgressIndicator(color: AppColors.gold500))
+          ? const Center(
+              child: CircularProgressIndicator(color: AppColors.gold500),
+            )
           : Column(
               children: [
                 const SizedBox(height: 24),
                 // Balance Chip
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 24),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 32,
+                    vertical: 24,
+                  ),
                   decoration: BoxDecoration(
                     color: AppColors.surface2,
                     borderRadius: BorderRadius.circular(24),
@@ -78,7 +87,9 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
                       const SizedBox(height: 8),
                       Text(
                         currencyFormatter.format(balance),
-                        style: AppTypography.heading1.copyWith(color: AppColors.gold500),
+                        style: AppTypography.heading1.copyWith(
+                          color: AppColors.gold500,
+                        ),
                       ),
                     ],
                   ),
@@ -93,8 +104,13 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
                       style: ElevatedButton.styleFrom(
                         backgroundColor: AppColors.gold500,
                         foregroundColor: AppColors.voidBg,
-                        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 24,
+                          vertical: 12,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
                       ),
                       icon: const Icon(LucideIcons.arrowDownToLine),
                       label: Text('Deposit', style: AppTypography.labelBold),
@@ -105,8 +121,13 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
                       style: OutlinedButton.styleFrom(
                         foregroundColor: AppColors.textPrimary,
                         side: const BorderSide(color: AppColors.hairline),
-                        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 24,
+                          vertical: 12,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
                       ),
                       icon: const Icon(LucideIcons.arrowUpFromLine),
                       label: Text('Withdraw', style: AppTypography.labelBold),
@@ -120,62 +141,85 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
                     padding: const EdgeInsets.symmetric(horizontal: 16),
                     decoration: const BoxDecoration(
                       color: AppColors.surface1,
-                      borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+                      borderRadius: BorderRadius.vertical(
+                        top: Radius.circular(24),
+                      ),
                     ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         const SizedBox(height: 24),
-                        Text('Recent Transactions', style: AppTypography.heading3),
+                        Text(
+                          'Recent Transactions',
+                          style: AppTypography.heading3,
+                        ),
                         const SizedBox(height: 16),
                         Expanded(
                           child: walletState.transactions.isEmpty
                               ? Center(
                                   child: Text(
                                     'No recent transactions',
-                                    style: AppTypography.bodyMedium.copyWith(color: AppColors.textMuted),
+                                    style: AppTypography.bodyMedium.copyWith(
+                                      color: AppColors.textMuted,
+                                    ),
                                   ),
                                 )
                               : ListView.separated(
                                   itemCount: walletState.transactions.length,
-                                  separatorBuilder: (context, index) => const Divider(color: AppColors.hairline),
+                                  separatorBuilder: (context, index) =>
+                                      const Divider(color: AppColors.hairline),
                                   itemBuilder: (context, index) {
                                     final tx = walletState.transactions[index];
                                     final amt = tx.amountMinorUnits / 100;
                                     final type = tx.kind.name.toUpperCase();
                                     final isPositive = tx.isCredit;
-                                    
+
                                     return ListTile(
                                       contentPadding: EdgeInsets.zero,
                                       leading: CircleAvatar(
                                         backgroundColor: AppColors.surface3,
                                         child: Icon(
-                                          isPositive ? LucideIcons.arrowDownLeft : LucideIcons.arrowUpRight,
-                                          color: isPositive ? AppColors.success : AppColors.danger,
+                                          isPositive
+                                              ? LucideIcons.arrowDownLeft
+                                              : LucideIcons.arrowUpRight,
+                                          color: isPositive
+                                              ? AppColors.success
+                                              : AppColors.danger,
                                           size: 16,
                                         ),
                                       ),
-                                      title: Text(type, style: AppTypography.bodyMedium),
+                                      title: Text(
+                                        type,
+                                        style: AppTypography.bodyMedium,
+                                      ),
                                       subtitle: Text(
                                         DateFormat.yMMMd().format(tx.createdAt),
                                         style: AppTypography.bodySmall,
                                       ),
                                       trailing: Column(
-                                        mainAxisAlignment: MainAxisAlignment.center,
-                                        crossAxisAlignment: CrossAxisAlignment.end,
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.center,
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.end,
                                         children: [
                                           Text(
                                             '${isPositive ? '+' : '-'}${currencyFormatter.format(amt)}',
-                                            style: AppTypography.labelBold.copyWith(
-                                              color: isPositive ? AppColors.success : AppColors.textPrimary,
-                                            ),
+                                            style: AppTypography.labelBold
+                                                .copyWith(
+                                                  color: isPositive
+                                                      ? AppColors.success
+                                                      : AppColors.textPrimary,
+                                                ),
                                           ),
                                           Text(
                                             tx.status,
-                                            style: AppTypography.bodySmall.copyWith(
-                                              color: tx.status == 'PENDING' ? AppColors.warning : AppColors.textMuted,
-                                              fontSize: 10,
-                                            ),
+                                            style: AppTypography.bodySmall
+                                                .copyWith(
+                                                  color: tx.status == 'PENDING'
+                                                      ? AppColors.warning
+                                                      : AppColors.textMuted,
+                                                  fontSize: 10,
+                                                ),
                                           ),
                                         ],
                                       ),
@@ -208,20 +252,22 @@ class _DepositModalState extends ConsumerState<_DepositModal> {
   Future<void> _submit() async {
     final amount = double.tryParse(_amountController.text);
     if (amount == null || amount <= 0) return;
-    
+
     setState(() => _isLoading = true);
-    final response = await ref.read(walletProvider.notifier).initiateDeposit(
-      (amount * 100).toInt(),
-      _gateway,
-    );
+    final response = await ref
+        .read(walletProvider.notifier)
+        .initiateDeposit((amount * 100).toInt(), _gateway);
     setState(() => _isLoading = false);
 
     if (response != null && response['authorizationUrl'] != null && mounted) {
       context.pop(); // close modal
       context.push('/checkout', extra: response['authorizationUrl']);
     } else if (mounted) {
-      final error = ref.read(walletProvider).error ?? 'Failed to initiate deposit';
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error)));
+      final error =
+          ref.read(walletProvider).error ?? 'Failed to initiate deposit';
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error)));
     }
   }
 
@@ -257,27 +303,29 @@ class _DepositModalState extends ConsumerState<_DepositModal> {
           ),
           const SizedBox(height: 16),
           Text('Select Gateway', style: AppTypography.bodySmall),
-          Row(
-            children: [
-              Expanded(
-                child: RadioListTile<String>(
-                  title: Text('Paystack', style: AppTypography.bodyMedium),
-                  value: 'paystack',
-                  groupValue: _gateway,
-                  activeColor: AppColors.gold500,
-                  onChanged: (val) => setState(() => _gateway = val!),
+          RadioGroup<String>(
+            groupValue: _gateway,
+            onChanged: (value) {
+              if (value != null) setState(() => _gateway = value);
+            },
+            child: Row(
+              children: [
+                Expanded(
+                  child: RadioListTile<String>(
+                    title: Text('Paystack', style: AppTypography.bodyMedium),
+                    value: 'paystack',
+                    activeColor: AppColors.gold500,
+                  ),
                 ),
-              ),
-              Expanded(
-                child: RadioListTile<String>(
-                  title: Text('Flutterwave', style: AppTypography.bodyMedium),
-                  value: 'flutterwave',
-                  groupValue: _gateway,
-                  activeColor: AppColors.gold500,
-                  onChanged: (val) => setState(() => _gateway = val!),
+                Expanded(
+                  child: RadioListTile<String>(
+                    title: Text('Flutterwave', style: AppTypography.bodyMedium),
+                    value: 'flutterwave',
+                    activeColor: AppColors.gold500,
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
           const SizedBox(height: 24),
           SizedBox(
@@ -287,11 +335,22 @@ class _DepositModalState extends ConsumerState<_DepositModal> {
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppColors.gold500,
                 padding: const EdgeInsets.symmetric(vertical: 16),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
               ),
-              child: _isLoading 
-                  ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(color: AppColors.voidBg))
-                  : Text('Continue to Payment', style: AppTypography.labelBold.copyWith(color: AppColors.voidBg)),
+              child: _isLoading
+                  ? const SizedBox(
+                      height: 20,
+                      width: 20,
+                      child: CircularProgressIndicator(color: AppColors.voidBg),
+                    )
+                  : Text(
+                      'Continue to Payment',
+                      style: AppTypography.labelBold.copyWith(
+                        color: AppColors.voidBg,
+                      ),
+                    ),
             ),
           ),
         ],
@@ -314,21 +373,26 @@ class _WithdrawalModalState extends ConsumerState<_WithdrawalModal> {
   Future<void> _submit() async {
     final amount = double.tryParse(_amountController.text);
     if (amount == null || amount <= 0) return;
-    
+
     setState(() => _isLoading = true);
-    final success = await ref.read(walletProvider.notifier).requestWithdrawal(
-      (amount * 100).toInt(),
-    );
+    final success = await ref
+        .read(walletProvider.notifier)
+        .requestWithdrawal((amount * 100).toInt());
     setState(() => _isLoading = false);
 
     if (success && mounted) {
       context.pop(); // close modal
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Withdrawal request submitted for review.')),
+        const SnackBar(
+          content: Text('Withdrawal request submitted for review.'),
+        ),
       );
     } else if (mounted) {
-      final error = ref.read(walletProvider).error ?? 'Failed to request withdrawal';
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error)));
+      final error =
+          ref.read(walletProvider).error ?? 'Failed to request withdrawal';
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error)));
     }
   }
 
@@ -347,7 +411,10 @@ class _WithdrawalModalState extends ConsumerState<_WithdrawalModal> {
         children: [
           Text('Withdraw Funds', style: AppTypography.heading2),
           const SizedBox(height: 8),
-          Text('Withdrawals are subject to admin approval and typically process within 24 hours.', style: AppTypography.bodySmall),
+          Text(
+            'Withdrawals are subject to admin approval and typically process within 24 hours.',
+            style: AppTypography.bodySmall,
+          ),
           const SizedBox(height: 16),
           TextField(
             controller: _amountController,
@@ -372,11 +439,22 @@ class _WithdrawalModalState extends ConsumerState<_WithdrawalModal> {
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppColors.gold500,
                 padding: const EdgeInsets.symmetric(vertical: 16),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
               ),
-              child: _isLoading 
-                  ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(color: AppColors.voidBg))
-                  : Text('Submit Request', style: AppTypography.labelBold.copyWith(color: AppColors.voidBg)),
+              child: _isLoading
+                  ? const SizedBox(
+                      height: 20,
+                      width: 20,
+                      child: CircularProgressIndicator(color: AppColors.voidBg),
+                    )
+                  : Text(
+                      'Submit Request',
+                      style: AppTypography.labelBold.copyWith(
+                        color: AppColors.voidBg,
+                      ),
+                    ),
             ),
           ),
         ],

@@ -8,7 +8,7 @@ import '../providers/auth_provider.dart';
 import '../theme/colors.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
-  const LoginScreen({Key? key}) : super(key: key);
+  const LoginScreen({super.key});
 
   @override
   ConsumerState<LoginScreen> createState() => _LoginScreenState();
@@ -34,6 +34,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       _emailController.text.trim(),
       _passwordController.text,
     );
+    if (!mounted) return;
     if (ok) {
       context.go('/home');
     }
@@ -130,13 +131,18 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   decoration: _decoration(
                     label: 'Email or phone',
                     hint: 'Enter your email or phone',
-                    prefixIcon: const Icon(LucideIcons.mail, color: AppColors.textMuted, size: 20),
+                    prefixIcon: const Icon(
+                      LucideIcons.mail,
+                      color: AppColors.textMuted,
+                      size: 20,
+                    ),
                   ),
                   validator: (value) {
                     if (value == null || value.isEmpty) {
                       return 'Enter a valid email or phone';
                     }
-                    if (!value.contains('@') && !RegExp(r'^[0-9+\s-]{7,15}$').hasMatch(value)) {
+                    if (!value.contains('@') &&
+                        !RegExp(r'^[0-9+\s-]{7,15}$').hasMatch(value)) {
                       return 'Enter a valid email or phone';
                     }
                     return null;
@@ -154,7 +160,11 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   decoration: _decoration(
                     label: 'Password',
                     hint: 'Enter your password',
-                    prefixIcon: const Icon(LucideIcons.lock, color: AppColors.textMuted, size: 20),
+                    prefixIcon: const Icon(
+                      LucideIcons.lock,
+                      color: AppColors.textMuted,
+                      size: 20,
+                    ),
                     suffixIcon: IconButton(
                       icon: Icon(
                         _obscurePassword ? LucideIcons.eye : LucideIcons.eyeOff,
@@ -172,30 +182,32 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     }
                     return null;
                   },
-),
-                  const SizedBox(height: 4),
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: TextButton(
-                      onPressed: () {},
-                      child: Text(
-                        'Forgot password?',
-                        style: GoogleFonts.inter(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w500,
-                          color: AppColors.textMuted,
-                        ),
+                ),
+                const SizedBox(height: 4),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton(
+                    onPressed: () {},
+                    child: Text(
+                      'Forgot password?',
+                      style: GoogleFonts.inter(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
+                        color: AppColors.textMuted,
                       ),
                     ),
                   ),
-                  if (authState.error != null) ...[
+                ),
+                if (authState.error != null) ...[
                   const SizedBox(height: 16),
                   Container(
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
-                      color: AppColors.danger.withOpacity(0.12),
+                      color: AppColors.danger.withValues(alpha: 0.12),
                       borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: AppColors.danger.withOpacity(0.4)),
+                      border: Border.all(
+                        color: AppColors.danger.withValues(alpha: 0.4),
+                      ),
                     ),
                     child: Text(
                       authState.error!,
@@ -265,7 +277,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     style: OutlinedButton.styleFrom(
                       backgroundColor: AppColors.voidBg,
                       foregroundColor: AppColors.textPrimary,
-                      side: const BorderSide(color: AppColors.hairline, width: 1.5),
+                      side: const BorderSide(
+                        color: AppColors.hairline,
+                        width: 1.5,
+                      ),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12),
                       ),
