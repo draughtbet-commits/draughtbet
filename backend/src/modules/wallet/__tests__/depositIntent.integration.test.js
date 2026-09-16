@@ -101,6 +101,13 @@ describeIntegration('Deposit intents (real PostgreSQL)', () => {
     await createFixture();
     const intent = await createDepositIntent(userId, 50000n, 'PAYSTACK', 'u@test.local');
 
+    // CUSTOMER_LIABILITY is a persistent system singleton carrying history from
+    // every other suite/run, so assert its DELTA, never an absolute balance.
+    const prevLiability = prisma.ledgerEntry.aggregate({
+      where: { account: { type: 'CUSTOMER_LIABILITY' } },
+      _sum: { amountMinorUnits: true }
+    }).then((a) => a._sum.amountMinorUnits ?? 0n);
+
     const result = await processDepositWebhook({
       reference: intent.reference,
       amountMinorUnits: 50000,
@@ -123,7 +130,7 @@ describeIntegration('Deposit intents (real PostgreSQL)', () => {
     expect(await ledgerCreditCount(intent.reference)).toBe(1);
     const ledgerBal = await availableBalance();
     expect(ledgerBal.PLAYER_AVAILABLE).toBe(50000n);
-    expect(ledgerBal.CUSTOMER_LIABILITY).toBe(-50000n);
+    expect(ledgerBal.CUSTOMER_LIABILITY - (await prevLiability)).toBe(-50000n);
     // Durable wallet.updated outbox row + notification, atomic with the credit.
     expect(await outboxCount()).toBe(1);
     expect(await notificationCount()).toBe(1);
