@@ -1,37 +1,59 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:dio/dio.dart';
 import '../models/wallet.dart';
-import '../models/wallet_transaction.dart';
+import '../models/wallet_read.dart';
 import '../services/api_client.dart';
 import '../services/socket_service.dart';
 
 class WalletState {
-  final String? balance;
+  final WalletProjection? projection;
   final TierLimits? tierLimits;
-  final List<WalletTransaction> transactions;
+  final List<WalletEntry> transactions;
   final bool isLoading;
+  final WalletLoadPhase walletPhase;
+  final WalletLoadPhase transactionsPhase;
+  final bool isLoadingMore;
+  final bool hasMore;
+  final int transactionPage;
   final String? error;
 
   const WalletState({
-    this.balance,
+    this.projection,
     this.tierLimits,
     this.transactions = const [],
     this.isLoading = false,
+    this.walletPhase = WalletLoadPhase.initial,
+    this.transactionsPhase = WalletLoadPhase.initial,
+    this.isLoadingMore = false,
+    this.hasMore = true,
+    this.transactionPage = 0,
     this.error,
   });
 
+  String? get balance => projection?.availableMinorUnits.toString();
+
   WalletState copyWith({
-    String? balance,
+    WalletProjection? projection,
     TierLimits? tierLimits,
-    List<WalletTransaction>? transactions,
+    List<WalletEntry>? transactions,
     bool? isLoading,
+    WalletLoadPhase? walletPhase,
+    WalletLoadPhase? transactionsPhase,
+    bool? isLoadingMore,
+    bool? hasMore,
+    int? transactionPage,
     String? error,
   }) {
     return WalletState(
-      balance: balance ?? this.balance,
+      projection: projection ?? this.projection,
       tierLimits: tierLimits ?? this.tierLimits,
       transactions: transactions ?? this.transactions,
       isLoading: isLoading ?? this.isLoading,
+      walletPhase: walletPhase ?? this.walletPhase,
+      transactionsPhase: transactionsPhase ?? this.transactionsPhase,
+      isLoadingMore: isLoadingMore ?? this.isLoadingMore,
+      hasMore: hasMore ?? this.hasMore,
+      transactionPage: transactionPage ?? this.transactionPage,
       error: error,
     );
   }
@@ -48,7 +70,11 @@ class WalletNotifier extends StateNotifier<WalletState> {
   void _initListeners() {
     _socketService.onWalletUpdated.listen((data) {
       if (data['balance'] != null) {
-        state = state.copyWith(balance: data['balance'].toString());
+        final payload = Map<String, dynamic>.from(data);
+        state = state.copyWith(
+          projection: WalletProjection.fromJson(payload),
+          walletPhase: WalletLoadPhase.ready,
+        );
       }
       // Re-fetch transactions to get the new entry
       fetchTransactions();
@@ -57,15 +83,30 @@ class WalletNotifier extends StateNotifier<WalletState> {
 
   Future<void> fetchBalance() async {
     try {
-      state = state.copyWith(isLoading: true, error: null);
+      state = state.copyWith(
+        isLoading: true,
+        walletPhase: WalletLoadPhase.loading,
+        error: null,
+      );
       final response = await _dio.get('/wallet/balance');
 
       if (response.statusCode == 200) {
-        final balance = response.data['balance']?.toString();
-        state = state.copyWith(balance: balance, isLoading: false);
+        final body = Map<String, dynamic>.from(response.data as Map);
+        final projection = WalletProjection.fromJson(body);
+        state = state.copyWith(
+          projection: projection,
+          isLoading: false,
+          walletPhase: WalletLoadPhase.ready,
+        );
       }
     } catch (e) {
-      state = state.copyWith(isLoading: false, error: 'Failed to fetch balance: $e');
+      state = state.copyWith(
+        isLoading: false,
+        walletPhase: state.projection == null
+            ? WalletLoadPhase.unavailable
+            : WalletLoadPhase.ready,
+        error: 'Balances could not be verified.',
+      );
     }
   }
 
@@ -83,20 +124,58 @@ class WalletNotifier extends StateNotifier<WalletState> {
   }
 
   Future<void> fetchTransactions({int page = 1, int limit = 20}) async {
+    if (page > 1 && (state.isLoadingMore || !state.hasMore)) return;
     try {
-      final response = await _dio.get('/wallet/transactions?page=$page&limit=$limit');
+      state = state.copyWith(
+        transactionsPhase: page == 1
+            ? WalletLoadPhase.loading
+            : state.transactionsPhase,
+        isLoadingMore: page > 1,
+        error: null,
+      );
+      final response = await _dio.get(
+        '/wallet/transactions?page=$page&limit=$limit',
+      );
 
       if (response.statusCode == 200) {
         final List<dynamic> data = response.data['transactions'] ?? [];
-        final transactions = data.map((json) => WalletTransaction.fromJson(json)).toList();
-        state = state.copyWith(transactions: transactions);
+        final incoming = data
+            .whereType<Map>()
+            .map(
+              (json) => WalletEntry.fromJson(Map<String, dynamic>.from(json)),
+            )
+            .toList();
+        final transactions = page == 1
+            ? incoming
+            : [...state.transactions, ...incoming];
+        state = state.copyWith(
+          transactions: transactions,
+          transactionsPhase: transactions.isEmpty
+              ? WalletLoadPhase.empty
+              : WalletLoadPhase.ready,
+          transactionPage: page,
+          hasMore: incoming.length >= limit,
+          isLoadingMore: false,
+        );
       }
     } catch (e) {
-      print('Failed to fetch transactions: $e');
+      state = state.copyWith(
+        transactionsPhase: page == 1
+            ? WalletLoadPhase.failure
+            : state.transactionsPhase,
+        isLoadingMore: false,
+        error: 'Transactions could not be loaded.',
+      );
     }
   }
 
-  Future<Map<String, dynamic>?> initiateDeposit(int amountMinorUnits, String gateway) async {
+  Future<void> loadMoreTransactions({int limit = 20}) =>
+      fetchTransactions(page: state.transactionPage + 1, limit: limit);
+
+  Future<Map<String, dynamic>?> initiateDeposit(
+    int amountMinorUnits,
+    String gateway,
+  ) async {
     try {
       state = state.copyWith(isLoading: true, error: null);
       final response = await _dio.post(
@@ -105,7 +184,7 @@ class WalletNotifier extends StateNotifier<WalletState> {
       );
 
       state = state.copyWith(isLoading: false);
-      
+
       if (response.statusCode == 200) {
         return response.data; // contains authorizationUrl and reference
       }
@@ -129,7 +208,7 @@ class WalletNotifier extends StateNotifier<WalletState> {
       );
 
       state = state.copyWith(isLoading: false);
-      
+
       if (response.statusCode == 201) {
         // Fetch updated balance and transactions
         fetchBalance();
@@ -148,6 +227,8 @@ class WalletNotifier extends StateNotifier<WalletState> {
   }
 }
 
-final walletProvider = StateNotifierProvider<WalletNotifier, WalletState>((ref) {
+final walletProvider = StateNotifierProvider<WalletNotifier, WalletState>((
+  ref,
+) {
   return WalletNotifier(socketService, ref.watch(apiClientProvider));
 });
