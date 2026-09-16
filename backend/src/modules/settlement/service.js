@@ -187,7 +187,14 @@ export async function settleMatch(matchId, terminalResult) {
 
     // Frozen fee at funding time; never the live commission for new matches.
     const feeBps = await resolveFeeBps(tx, match);
-    const { commission, payout } = computeSettlement(match, feeBps);
+    const { pot, commission, payout } = computeSettlement(match, feeBps);
+    // A draw returns the whole pot and charges no platform cut; the win math
+    // only applies to a decided match. The record, the returned payload and
+    // the receipt math all use the settled amounts so a draw reports exactly
+    // what was returned (pot, 0 fee) instead of a win-style 90%-of-pot.
+    const isDraw = winnerId === null;
+    const settledPayout = isDraw ? pot : payout;
+    const settledCommission = isDraw ? 0n : commission;
 
     // Atomic claim: the single settlement gate. Exactly one concurrent caller
     // wins; every other contender returns / throws so the retry wrapper can
@@ -206,12 +213,17 @@ export async function settleMatch(matchId, terminalResult) {
     }
 
     await postSettlement(tx, matchId, match, {
-      kind: winnerId ? 'WIN' : 'DRAW',
+      kind: isDraw ? 'DRAW' : 'WIN',
       winnerId,
-      payout,
-      commission
+      payout: settledPayout,
+      commission: settledCommission
     });
-    await mirrorLegacySettlement(tx, match, winnerId, payout);
+    await mirrorLegacySettlement(tx, match, winnerId, settledPayout);
+
+    await tx.stakeReservation.updateMany({
+      where: { matchId },
+      data: { status: 'SETTLED' }
+    });
 
     const settlement = await tx.matchSettlement.create({
       data: {
@@ -219,23 +231,23 @@ export async function settleMatch(matchId, terminalResult) {
         ...(winnerId ? { winnerId } : {}),
         endReason,
         feeSnapshotBps: feeBps,
-        netPayoutMinorUnits: payout,
+        netPayoutMinorUnits: settledPayout,
         status: 'SETTLED',
         settledAt: new Date()
       }
     });
 
     await tx.matchReceipt.createMany({
-      data: receiptsFor(match, winnerId, payout, commission)
+      data: receiptsFor(match, winnerId, settledPayout, settledCommission)
     });
 
-    logger.info({ matchId, winnerId: winnerId ?? null, payout: payout.toString(), feeBps }, 'Match settled');
+    logger.info({ matchId, winnerId: winnerId ?? null, payout: settledPayout.toString(), feeBps }, 'Match settled');
 
     return {
       claimed: true,
       replayed: false,
-      payout,
-      commission,
+      payout: settledPayout,
+      commission: settledCommission,
       match,
       settlement
     };

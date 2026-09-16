@@ -5,9 +5,11 @@
 //     src/sockets/__tests__/settlement.integration.test.js
 import prisma from '../../utils/db.js';
 import redis from '../../utils/redis.js';
+import http from 'node:http';
 import { debitStakes, InsufficientFundsError } from '../../services/matchService.js';
 import { finalizeMatchActivation } from '../../services/gameActivationService.js';
 import { settleGame, settleGameDraw } from '../settlement.js';
+import { initSocketServer } from '../index.js';
 import { SYSTEM_ACCOUNT_ID } from '../../services/ledgerService.js';
 
 const describeIntegration =
@@ -68,6 +70,13 @@ describeIntegration('Settlement gate (real PostgreSQL)', () => {
     [u1, u2] = await Promise.all([makeUser('a'), makeUser('b')]);
   });
 
+  beforeAll(async () => {
+    // A real Socket.IO server so post-settlement emits and the notification
+    // rows actually write (without one, getIO() is undefined and the cleanup
+    // path bails before creating them).
+    initSocketServer(http.createServer());
+  });
+
   afterAll(async () => {
     for (const matchId of allMatches) {
       await prisma.matchMove.deleteMany({ where: { matchId } });
@@ -86,6 +95,9 @@ describeIntegration('Settlement gate (real PostgreSQL)', () => {
     // but LedgerEntry.account is onDelete Restrict.
     await prisma.ledgerTransaction.deleteMany({
       where: { relatedMatchId: { in: allMatches } }
+    });
+    await prisma.notification.deleteMany({
+      where: { userId: { in: allUsers } }
     });
     await prisma.user.deleteMany({ where: { id: { in: allUsers } } });
     await prisma.$disconnect();
@@ -146,6 +158,21 @@ describeIntegration('Settlement gate (real PostgreSQL)', () => {
     expect(payouts[0].walletId).toBe(winner.id);
     expect(winner.balanceMinorUnits.toString()).toBe('140000'); // 50k left + 90k net
     expect(loser.balanceMinorUnits.toString()).toBe('50000');   // never credited
+
+    // The race fired the idempotency gate for one caller; the replay-side
+    // cleanup must never stack a second WIN/LOSS notification.
+    expect(await prisma.notification.count({
+      where: { userId: winnerId, matchId: m.id, type: 'MATCH_ENDED_WIN' }
+    })).toBe(1);
+    const loserId = winnerId === u1.id ? u2.id : u1.id;
+    expect(await prisma.notification.count({
+      where: { userId: loserId, matchId: m.id, type: 'MATCH_ENDED_LOSS' }
+    })).toBe(1);
+    // Match-scoped dedup key is populated on the notices.
+    const notice = await prisma.notification.findFirst({
+      where: { userId: winnerId, matchId: m.id, type: 'MATCH_ENDED_WIN' }
+    });
+    expect(notice.matchId).toBe(m.id);
   });
 
   it('competing win vs draw produces exactly one outcome and one set of entries', async () => {
@@ -292,6 +319,55 @@ describeIntegration('Settlement gate (real PostgreSQL)', () => {
     });
     const revenueEntry = payoutTx.entries.find((e) => e.accountId === revenueAccount.id);
     expect(revenueEntry.amountMinorUnits.toString()).toBe('10000');
+
+    // The reservations left RESERVED at funding complete to SETTLED in the
+    // settlement transaction.
+    const reservations = await prisma.stakeReservation.findMany({ where: { matchId: m.id } });
+    expect(reservations).toHaveLength(2);
+    expect(reservations.every((r) => r.status === 'SETTLED')).toBe(true);
+  });
+
+  it('draw returns both stakes and records netPayout as the pot with zero commission', async () => {
+    const m = await fundMatch();
+    await settleGameDraw(m.id, 'draw_agreement');
+
+    const settlement = await settingSettlement(m.id);
+    expect(settlement.status).toBe('SETTLED');
+    expect(settlement.winnerId).toBeNull();
+    expect(settlement.endReason).toBe('draw_agreement');
+    // A draw returns the whole pot; the record must not carry a win-style
+    // pot-minus-commission value.
+    expect(settlement.netPayoutMinorUnits.toString()).toBe('100000');
+
+    const refunds = await prisma.walletTransaction.findMany({
+      where: { relatedMatchId: m.id, type: 'REFUND' }
+    });
+    expect(refunds).toHaveLength(2);
+    for (const userId of [u1.id, u2.id]) {
+      const w = await prisma.wallet.findUnique({ where: { userId } });
+      expect(w.balanceMinorUnits.toString()).toBe('100000');
+    }
+
+    const txs = await prisma.ledgerTransaction.findMany({
+      where: { relatedMatchId: m.id },
+      include: { entries: true }
+    });
+    const payoutTx = txs.find((t) => t.type === 'SETTLEMENT_PAYOUT');
+    expect(payoutTx).toBeDefined();
+    expect(payoutTx.entries.reduce((acc, e) => acc + e.amountMinorUnits, 0n)).toBe(0n);
+    const revenueAccount = await prisma.ledgerAccount.findUnique({
+      where: { id: SYSTEM_ACCOUNT_ID('PLATFORM_REVENUE', 'NGN') }
+    });
+    expect(payoutTx.entries.some((e) => e.accountId === revenueAccount.id)).toBe(false);
+
+    const receipts = await prisma.matchReceipt.findMany({ where: { matchId: m.id } });
+    expect(receipts).toHaveLength(2);
+    expect(receipts.every((r) =>
+      r.stakeMinorUnits === 50000n && r.payoutMinorUnits === 50000n && r.feeMinorUnits === 0n
+    )).toBe(true);
+
+    const reservations = await prisma.stakeReservation.findMany({ where: { matchId: m.id } });
+    expect(reservations.every((r) => r.status === 'SETTLED')).toBe(true);
   });
 
   it('winner ledger reconciles: signed PAYOUT equals the balance delta and fee stays within bounds', async () => {

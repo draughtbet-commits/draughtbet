@@ -74,6 +74,7 @@ describeIntegration('Turn deadlines (real PostgreSQL + Redis)', () => {
     await prisma.ledgerTransaction.deleteMany({
       where: { relatedMatchId: { in: allMatches } }
     });
+    await prisma.notification.deleteMany({ where: { userId: { in: allUsers } } });
     await prisma.user.deleteMany({ where: { id: { in: allUsers } } });
     await prisma.$disconnect();
   });

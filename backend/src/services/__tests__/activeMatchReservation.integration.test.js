@@ -78,6 +78,8 @@ describeIntegration('One pre-terminal match per player (real PostgreSQL + Redis)
     await prisma.ledgerTransaction.deleteMany({
       where: { metadata: { path: ['source'], equals: 'legacy-wallet-backfill' } }
     });
+    // Notifications (matchId dedup column) reference users; clear before the user wipe.
+    await prisma.notification.deleteMany({});
     await prisma.user.deleteMany({});
     const matchKeys = await redis.keys('match:*');
     if (matchKeys.length) await redis.del(...matchKeys);

@@ -16,13 +16,23 @@ export class NotificationService {
    * @param {string} title - Notification title
    * @param {string} message - Notification message body
    * @param {string} [link] - Optional deep link or route (e.g. '/results')
+   * @param {string|null} [matchId] - When set, dedupes by [userId, matchId, type]
+   *   so replay/recovery paths can never stack a second copy of the notice.
    */
-  static async create(userId, type, title, message, link = null) {
+  static async create(userId, type, title, message, link = null, matchId = null) {
     try {
+      if (matchId) {
+        const existing = await prisma.notification.findFirst({
+          where: { userId, matchId, type }
+        });
+        if (existing) return existing;
+      }
+
       // 1. Write to Postgres
       const notification = await prisma.notification.create({
         data: {
           userId,
+          matchId,
           type,
           title,
           message,
@@ -63,6 +73,12 @@ export class NotificationService {
 
       return notification;
     } catch (error) {
+      // A concurrent duplicate hits the unique [userId, matchId, type] index;
+      // that is the same already-created notice, not a failure.
+      if (error?.code === 'P2002' && matchId) {
+        logger.info({ userId, type, matchId }, 'Skipped notification: existing match-scoped copy');
+        return null;
+      }
       logger.error({ error, userId, type }, 'Failed to create notification');
       // Don't throw - notification failures shouldn't crash the main transaction/flow
     }

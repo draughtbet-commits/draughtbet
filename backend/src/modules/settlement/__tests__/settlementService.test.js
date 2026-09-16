@@ -13,6 +13,7 @@ const mockPrisma = {
   platformSettings: { findUnique: jest.fn() },
   matchSettlement: { findUnique: jest.fn(), create: jest.fn() },
   matchReceipt: { createMany: jest.fn() },
+  stakeReservation: { updateMany: jest.fn() },
   wallet: { update: jest.fn() },
   walletTransaction: { create: jest.fn() }
 };
@@ -112,6 +113,12 @@ describe('SettlementService', () => {
       expect(winnerReceipt.feeMinorUnits).toBe(20_000n);
       const loserReceipt = receipts.find((r) => r.userId === 'player-2');
       expect(loserReceipt.payoutMinorUnits).toBe(0n);
+
+      // reservation lifecycle completes in the same tx
+      expect(mockPrisma.stakeReservation.updateMany).toHaveBeenCalledWith({
+        where: { matchId: 'm1' },
+        data: { status: 'SETTLED' }
+      });
     });
   });
 
@@ -125,6 +132,9 @@ describe('SettlementService', () => {
       const result = await settleMatch('m1', { result: 'DRAW', endReason: 'DRAW_THREEFOLD' });
 
       expect(result.claimed).toBe(true);
+      // A draw returns the whole pot and charges no commission.
+      expect(result.payout).toBe(200_000n);
+      expect(result.commission).toBe(0n);
 
       expect(mockPostSettlementDraw).toHaveBeenCalledTimes(1);
       expect(mockPostSettlementWin).not.toHaveBeenCalled();
@@ -133,9 +143,19 @@ describe('SettlementService', () => {
       expect(mockLockWalletsInOrder).toHaveBeenCalledWith(mockPrisma, 'player-1', 'player-2');
       expect(mockPrisma.wallet.update).toHaveBeenCalledTimes(2);
 
+      // record carries the total returned (pot), not a win-style discounted value
+      expect(mockPrisma.matchSettlement.create).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ netPayoutMinorUnits: 200_000n }) })
+      );
+
       // receipts: both get stake back
       const receipts = mockPrisma.matchReceipt.createMany.mock.calls[0][0].data;
       expect(receipts.every((r) => r.payoutMinorUnits === 100_000n && r.feeMinorUnits === 0n)).toBe(true);
+
+      expect(mockPrisma.stakeReservation.updateMany).toHaveBeenCalledWith({
+        where: { matchId: 'm1' },
+        data: { status: 'SETTLED' }
+      });
     });
   });
 

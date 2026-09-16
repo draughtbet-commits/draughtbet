@@ -327,12 +327,18 @@ model Notification {
   id          String   @id @default(uuid())
   userId      String
   user        User     @relation(fields: [userId], references: [id])
+  matchId     String?
   type        String   // see 03_BACKEND_SPEC.md §Notifications for the full enum of values in use
   title       String
   message     String
   link        String?
   isRead      Boolean  @default(false)
   createdAt   DateTime @default(now())
+
+  // Exactly one notification of a given type per user per match (settlement
+  // replay-cleanup must never stack duplicate WIN/LOSS notices).
+  @@unique([userId, matchId, type])
+  @@index([matchId])
 }
 
 // Durable activation record written in the SAME transaction that reserves

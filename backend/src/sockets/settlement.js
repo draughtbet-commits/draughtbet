@@ -73,7 +73,8 @@ async function notifyAndCleanupWin(matchId, winnerId, playerLightId, playerDarkI
       'MATCH_ENDED_WIN',
       'You Won!',
       `You won match ${matchId.slice(0, 8)}. Payout: ${payout} credited.`,
-      `/results`
+      `/results`,
+      matchId
     );
 
     await NotificationService.create(
@@ -81,7 +82,8 @@ async function notifyAndCleanupWin(matchId, winnerId, playerLightId, playerDarkI
       'MATCH_ENDED_LOSS',
       'You Lost',
       `You lost match ${matchId.slice(0, 8)}. Better luck next time!`,
-      `/results`
+      `/results`,
+      matchId
     );
   } catch (e) {
     logger.warn({ e, matchId }, 'Socket emit after settlement failed');
