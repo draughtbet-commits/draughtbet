@@ -16,7 +16,9 @@ const mockParseDecimal = jest.fn((v) => {
 
 jest.unstable_mockModule('../../wallet/service.js', () => ({
   processDepositWebhook: mockProcessDepositWebhook,
-  parseDecimalMajorToMinor: mockParseDecimal
+  parseDecimalMajorToMinor: mockParseDecimal,
+  parseMinorUnits: jest.fn(),
+  parseIdempotencyKey: jest.fn()
 }));
 jest.unstable_mockModule('../../../utils/logger.js', () => ({
   default: { info: jest.fn(), warn: jest.fn(), error: jest.fn() }

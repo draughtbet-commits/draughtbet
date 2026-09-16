@@ -2,6 +2,7 @@ import express from 'express';
 import { processDepositWebhook, parseDecimalMajorToMinor } from '../wallet/service.js';
 import { PaystackGateway } from './PaystackGateway.js';
 import { FlutterwaveGateway } from './FlutterwaveGateway.js';
+import { WithdrawalService } from '../withdrawal/service.js';
 import logger from '../../utils/logger.js';
 import { getIO } from '../../sockets/index.js';
 
@@ -9,6 +10,11 @@ export const webhookRouter = express.Router();
 
 const paystackGateway = new PaystackGateway();
 const flutterwaveGateway = new FlutterwaveGateway();
+// Payout webhook handling only reports a result (no provider calls), but the
+// two real gateways are injected for an honest wiring.
+const withdrawalService = new WithdrawalService({
+  providers: { PAYSTACK: paystackGateway, FLUTTERWAVE: flutterwaveGateway }
+});
 
 // Webhooks must use raw body parsing to verify signatures exactly
 webhookRouter.use(express.raw({ type: 'application/json' }));
@@ -78,6 +84,17 @@ webhookRouter.post('/paystack', async (req, res) => {
       return;
     }
 
+    if (payload.event?.startsWith('transfer.')) {
+      // Payout transfer events. Only a PROCESSING withdrawal transitions; a
+      // duplicated terminal callback is acknowledged without any money move.
+      await withdrawalService.handlePayoutCallback({
+        gateway: 'PAYSTACK',
+        eventType: payload.event,
+        data: payload.data
+      });
+      return res.status(200).send('OK');
+    }
+
     res.status(200).send('OK');
   } catch (error) {
     logger.error({ error }, 'Paystack webhook error');
@@ -121,6 +138,15 @@ webhookRouter.post('/flutterwave', async (req, res) => {
 
       await handleDepositResult(res, result, userId);
       return;
+    }
+
+    if (payload.event?.startsWith('transfer.')) {
+      await withdrawalService.handlePayoutCallback({
+        gateway: 'FLUTTERWAVE',
+        eventType: payload.event,
+        data: payload.data
+      });
+      return res.status(200).send('OK');
     }
 
     res.status(200).send('OK');

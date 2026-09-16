@@ -1,25 +1,19 @@
-import { jest } from '@jest/globals';
+import { jest, describe, it, expect } from '@jest/globals';
 
 const mockPrisma = {
   $transaction: jest.fn(),
-  $executeRaw: jest.fn(),
-  $queryRaw: jest.fn(),
-  user: {
+  wallet: {
     findUnique: jest.fn()
   },
-  wallet: {
-    findUnique: jest.fn(),
-    update: jest.fn()
-  },
   walletTransaction: {
-    create: jest.fn(),
-    findFirst: jest.fn(),
+    findMany: jest.fn(),
     count: jest.fn()
   },
-  withdrawalRequest: {
-    create: jest.fn(),
-    findUnique: jest.fn(),
-    findFirst: jest.fn()
+  depositIntent: {
+    create: jest.fn()
+  },
+  user: {
+    findUnique: jest.fn()
   }
 };
 
@@ -27,184 +21,98 @@ jest.unstable_mockModule('../../../utils/db.js', () => ({
   default: mockPrisma
 }));
 
-const { requestWithdrawal, rejectWithdrawal } = await import('../service.js');
+const { parseMinorUnits, parseIdempotencyKey, parseDecimalMajorToMinor, createDepositIntent } = await import('../service.js');
 
-const eligibleUser = {
-  id: 'user-1',
-  countryCode: 'NG',
-  kycStatus: 'VERIFIED',
-  eligibility: { id: 'elig-1', countryAllowed: true, ageVerified: true }
-};
-mockPrisma.user.findUnique.mockResolvedValue(eligibleUser);
-
-describe('Wallet Service', () => {
+describe('Wallet service — canonical money + deposit-intent gates', () => {
   beforeEach(() => {
     jest.clearAllMocks();
   });
 
-  describe('requestWithdrawal', () => {
-    it('should lock the wallet, deduct balance, and create a PENDING withdrawal request', async () => {
-      const amount = 100000; // 1000 NGN
-
-      // Setup transaction mock to just execute the callback
-      mockPrisma.$transaction.mockImplementation(async (cb) => {
-        return await cb(mockPrisma);
-      });
-
-      // lockWalletForUpdate returns the wallet row from FOR UPDATE query
-      mockPrisma.$queryRaw.mockResolvedValue([{ id: 'wallet-1', userId: 'user-1', balanceMinorUnits: '500000' }]);
-      mockPrisma.withdrawalRequest.create.mockResolvedValue({ id: 'req-1', status: 'PENDING', amountMinorUnits: BigInt(amount) });
-
-      const req = await requestWithdrawal('user-1', amount);
-
-      expect(req.status).toBe('PENDING');
-      expect(mockPrisma.$queryRaw).toHaveBeenCalled();
-      expect(mockPrisma.withdrawalRequest.findFirst).not.toHaveBeenCalled();
-      expect(mockPrisma.wallet.update).toHaveBeenCalledWith({
-        where: { id: 'wallet-1' },
-        data: { balanceMinorUnits: { decrement: BigInt(amount) } }
-      });
-      expect(mockPrisma.withdrawalRequest.create).toHaveBeenCalledWith({
-        data: { userId: 'user-1', amountMinorUnits: BigInt(amount), status: 'PENDING' }
-      });
-      expect(mockPrisma.walletTransaction.create).toHaveBeenCalledWith({
-        data: expect.objectContaining({ type: 'WITHDRAWAL', amountMinorUnits: -BigInt(amount) })
-      });
+  describe('parseMinorUnits', () => {
+    it('accepts positive integer minor units as string or number', () => {
+      expect(parseMinorUnits('50000')).toBe(50000n);
+      expect(parseMinorUnits(50000)).toBe(50000n);
+      expect(parseMinorUnits('00100')).toBe(100n);
     });
 
-    it('should throw InsufficientFundsError if balance is too low and not debit', async () => {
-      mockPrisma.$transaction.mockImplementation(async (cb) => {
-        return await cb(mockPrisma);
-      });
-      mockPrisma.$queryRaw.mockResolvedValue([{ id: 'wallet-1', userId: 'user-1', balanceMinorUnits: '50000' }]);
-
-      await expect(requestWithdrawal('user-1', 100000)).rejects.toThrow('Insufficient funds');
-      expect(mockPrisma.wallet.update).not.toHaveBeenCalled();
-      expect(mockPrisma.walletTransaction.create).not.toHaveBeenCalled();
-    });
-
-    it('should reject invalid amounts without touching the wallet', async () => {
-      mockPrisma.$transaction.mockImplementation(async (cb) => {
-        return await cb(mockPrisma);
-      });
-      mockPrisma.$queryRaw.mockResolvedValue([{ id: 'wallet-1', userId: 'user-1', balanceMinorUnits: '500000' }]);
-
-      await expect(requestWithdrawal('user-1', 0)).rejects.toThrow('Invalid amount');
-      await expect(requestWithdrawal('user-1', '100.50')).rejects.toThrow('Invalid amount');
-      await expect(requestWithdrawal('user-1', -50)).rejects.toThrow('Invalid amount');
-      expect(mockPrisma.$queryRaw).not.toHaveBeenCalled();
-    });
-
-    it('should block withdrawal for an account without KYC verification', async () => {
-      mockPrisma.user.findUnique.mockResolvedValueOnce({
-        id: 'user-1',
-        countryCode: 'NG',
-        kycStatus: 'NONE',
-        eligibility: { id: 'elig-1', countryAllowed: true, ageVerified: true }
-      });
-
-      await expect(requestWithdrawal('user-1', 100000)).rejects.toThrow('KYC verification is required');
-      // No wallet row is locked or debited for an ineligible account
-      expect(mockPrisma.$queryRaw).not.toHaveBeenCalled();
-      expect(mockPrisma.wallet.update).not.toHaveBeenCalled();
-      expect(mockPrisma.walletTransaction.create).not.toHaveBeenCalled();
-    });
-
-    it('should block withdrawal for an account without an eligibility record', async () => {
-      mockPrisma.user.findUnique.mockResolvedValueOnce({ id: 'user-1', countryCode: 'NG', kycStatus: 'VERIFIED', eligibility: null });
-
-      await expect(requestWithdrawal('user-1', 100000)).rejects.toThrow('Account eligibility has not been verified');
-      expect(mockPrisma.$queryRaw).not.toHaveBeenCalled();
-    });
-
-    it('should return the existing request on idempotent replay instead of re-debiting', async () => {
-      mockPrisma.$transaction.mockImplementation(async (cb) => {
-        return await cb(mockPrisma);
-      });
-      mockPrisma.$queryRaw.mockResolvedValue([{ id: 'wallet-1', userId: 'user-1', balanceMinorUnits: '500000' }]);
-      mockPrisma.withdrawalRequest.findFirst.mockResolvedValue({ id: 'req-original', status: 'PENDING', amountMinorUnits: BigInt(100000) });
-
-      const req = await requestWithdrawal('user-1', 100000, 'op_key_abcdef');
-
-      expect(req.id).toBe('req-original');
-      expect(mockPrisma.withdrawalRequest.findFirst).toHaveBeenCalledWith({
-        where: { userId: 'user-1', idempotencyKey: 'op_key_abcdef' }
-      });
-      expect(mockPrisma.wallet.update).not.toHaveBeenCalled();
-      expect(mockPrisma.walletTransaction.create).not.toHaveBeenCalled();
-      expect(mockPrisma.withdrawalRequest.create).not.toHaveBeenCalled();
-    });
-
-    it('should resolve a (userId, idempotencyKey) unique-constraint race to the winner', async () => {
-      mockPrisma.$transaction.mockImplementation(async (cb) => {
-        return await cb(mockPrisma);
-      });
-      mockPrisma.$queryRaw.mockResolvedValue([{ id: 'wallet-1', userId: 'user-1', balanceMinorUnits: '500000' }]);
-      const winner = { id: 'req-winner', status: 'PENDING', amountMinorUnits: BigInt(100000) };
-      // In-tx replay check sees nothing; the CREATE hits the unique index (P2002),
-      // rolling back our debit; the outer reconciler returns the winner.
-      mockPrisma.withdrawalRequest.findFirst.mockResolvedValueOnce(undefined).mockResolvedValue(winner);
-      mockPrisma.withdrawalRequest.create.mockRejectedValue({ code: 'P2002' });
-
-      const req = await requestWithdrawal('user-1', 100000, 'op_key_abcdef');
-
-      expect(req.id).toBe('req-winner');
-      expect(mockPrisma.withdrawalRequest.findFirst).toHaveBeenCalledTimes(2);
-      expect(mockPrisma.withdrawalRequest.findFirst).toHaveBeenLastCalledWith({
-        where: { userId: 'user-1', idempotencyKey: 'op_key_abcdef' }
-      });
-    });
-
-    it('should reject malformed idempotency keys', async () => {
-      mockPrisma.$transaction.mockImplementation(async (cb) => {
-        return await cb(mockPrisma);
-      });
-      mockPrisma.$queryRaw.mockResolvedValue([{ id: 'wallet-1', userId: 'user-1', balanceMinorUnits: '500000' }]);
-
-      await expect(requestWithdrawal('user-1', 100000, 'short')).rejects.toThrow('Invalid idempotency key');
-      await expect(requestWithdrawal('user-1', 100000, 'has space keys')).rejects.toThrow('Invalid idempotency key');
-      expect(mockPrisma.$queryRaw).not.toHaveBeenCalled();
+    it('rejects floats, signs, exponent notation, empty and zero', () => {
+      expect(parseMinorUnits('100.50')).toBeNull();
+      expect(parseMinorUnits('-50')).toBeNull();
+      expect(parseMinorUnits('1e3')).toBeNull();
+      expect(parseMinorUnits('')).toBeNull();
+      expect(parseMinorUnits(0)).toBeNull();
+      expect(parseMinorUnits(-5)).toBeNull();
+      expect(parseMinorUnits(null)).toBeNull();
+      expect(parseMinorUnits(undefined)).toBeNull();
     });
   });
 
-  describe('rejectWithdrawal', () => {
-    it('should refund balance, mark REJECTED, and write REFUND tx atomically', async () => {
-      mockPrisma.$transaction.mockImplementation(async (cb) => {
-        return await cb(mockPrisma);
-      });
-      
-      mockPrisma.withdrawalRequest.findUnique.mockResolvedValue({ id: 'req-1', userId: 'user-1', amountMinorUnits: BigInt(100000) });
-      mockPrisma.$executeRaw.mockResolvedValue(1); // 1 row updated (was PENDING)
-      mockPrisma.wallet.findUnique.mockResolvedValue({ id: 'wallet-1' });
-
-      const result = await rejectWithdrawal('req-1', 'admin-1');
-      expect(result).toBe(true);
-
-      // Verify credit
-      expect(mockPrisma.wallet.update).toHaveBeenCalledWith({
-        where: { id: 'wallet-1' },
-        data: { balanceMinorUnits: { increment: BigInt(100000) } }
-      });
-
-      // Verify REFUND tx
-      expect(mockPrisma.walletTransaction.create).toHaveBeenCalledWith({
-        data: expect.objectContaining({ type: 'REFUND', amountMinorUnits: BigInt(100000) })
-      });
+  describe('parseDecimalMajorToMinor', () => {
+    it('converts major decimals to minor units with exact string math', () => {
+      expect(parseDecimalMajorToMinor('1250.00')).toBe(125000n);
+      expect(parseDecimalMajorToMinor('1250')).toBe(125000n);
+      expect(parseDecimalMajorToMinor('0.50')).toBe(50n);
     });
 
-    it('should be idempotent and not double-refund if already REJECTED', async () => {
-      mockPrisma.$transaction.mockImplementation(async (cb) => {
-        return await cb(mockPrisma);
-      });
-      
-      mockPrisma.withdrawalRequest.findUnique.mockResolvedValue({ id: 'req-1', userId: 'user-1', amountMinorUnits: BigInt(100000) });
-      mockPrisma.$executeRaw.mockResolvedValue(0); // 0 rows updated (was NOT PENDING)
+    it('rejects malformed or non-positive values', () => {
+      expect(parseDecimalMajorToMinor('1.234')).toBeNull();
+      expect(parseDecimalMajorToMinor('-1.00')).toBeNull();
+      expect(parseDecimalMajorToMinor('abc')).toBeNull();
+      expect(parseDecimalMajorToMinor('0.00')).toBeNull();
+    });
+  });
 
-      const result = await rejectWithdrawal('req-1', 'admin-1');
-      expect(result).toBeNull(); // Second attempt should return null
-      
-      // Should not have credited wallet
-      expect(mockPrisma.wallet.update).not.toHaveBeenCalled();
+  describe('parseIdempotencyKey', () => {
+    it('returns undefined for missing keys and accepts valid ones', () => {
+      expect(parseIdempotencyKey(undefined)).toBeUndefined();
+      expect(parseIdempotencyKey('')).toBeUndefined();
+      expect(parseIdempotencyKey(null)).toBeUndefined();
+      expect(parseIdempotencyKey('op_key_abcdef')).toBe('op_key_abcdef');
+    });
+
+    it('rejects malformed keys', () => {
+      expect(() => parseIdempotencyKey('short')).toThrow(/Invalid idempotency key/i);
+      expect(() => parseIdempotencyKey('has space keys')).toThrow(/Invalid idempotency key/i);
+      expect(() => parseIdempotencyKey(12345)).toThrow(/Invalid idempotency key/i);
+    });
+  });
+
+  describe('createDepositIntent', () => {
+    beforeEach(() => {
+      mockPrisma.$transaction.mockImplementation(async (cb) => cb(mockPrisma));
+      mockPrisma.wallet.findUnique.mockResolvedValue({ id: 'w-1', userId: 'u-1', currency: 'NGN' });
+      mockPrisma.depositIntent.create.mockImplementation(({ data }) => ({ id: 'i-1', ...data }));
+    });
+
+    it('rejects invalid amount before any DB call', async () => {
+      await expect(createDepositIntent('u-1', '100.50', 'PAYSTACK', 'e@x.com')).rejects.toThrow('Invalid amount');
+      await expect(createDepositIntent('u-1', 0, 'PAYSTACK', 'e@x.com')).rejects.toThrow('Invalid amount');
+      expect(mockPrisma.wallet.findUnique).not.toHaveBeenCalled();
+    });
+
+    it('rejects unknown gateways', async () => {
+      await expect(createDepositIntent('u-1', 5000n, 'STRIPE', 'e@x.com')).rejects.toThrow('Invalid gateway');
+      expect(mockPrisma.wallet.findUnique).not.toHaveBeenCalled();
+    });
+
+    it('rejects wallets without NGN (Phase 1 deposits)', async () => {
+      mockPrisma.wallet.findUnique.mockResolvedValue({ id: 'w-1', userId: 'u-1', currency: 'GBP' });
+      await expect(createDepositIntent('u-1', 5000n, 'PAYSTACK', 'e@x.com')).rejects.toThrow('Deposits are only supported for NGN wallets');
+    });
+
+    it('creates a server-owned intent with a generated reference', async () => {
+      const intent = await createDepositIntent('u-1', 5000n, 'PAYSTACK', 'e@x.com');
+      expect(intent.id).toBe('i-1');
+      expect(intent.reference).toMatch(/^paystack-/);
+      expect(mockPrisma.depositIntent.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          userId: 'u-1',
+          walletId: 'w-1',
+          gateway: 'PAYSTACK',
+          amountMinorUnits: 5000n,
+          currency: 'NGN'
+        })
+      });
     });
   });
 });

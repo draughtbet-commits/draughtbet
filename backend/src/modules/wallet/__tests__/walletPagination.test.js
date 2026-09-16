@@ -10,9 +10,9 @@ const mockAuth = (req, res, next) => {
 const mockService = {
   getWalletTransactions: jest.fn(async () => ({ transactions: [], total: 0, page: 1, totalPages: 0 })),
   getWalletBalance: jest.fn(async () => ({ balanceMinorUnits: '0' })),
-  requestWithdrawal: jest.fn(),
   createDepositIntent: jest.fn(),
   parseMinorUnits: jest.fn(),
+  parseIdempotencyKey: jest.fn(),
 };
 
 jest.unstable_mockModule('../../../middleware/auth.js', () => ({ requireAuth: mockAuth }));

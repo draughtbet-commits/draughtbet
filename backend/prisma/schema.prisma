@@ -644,32 +644,45 @@ model Withdrawal {
   userId            String
   user              User              @relation(fields: [userId], references: [id], onDelete: Cascade)
   amountMinorUnits  BigInt
+  currency          Currency          @default(NGN)
+  // Server-generated payout reference, echoed to the provider as the transfer
+  // reference so a payout webhook can be matched back to this row.
+  reference         String            @unique
+  gateway           Gateway           @default(PAYSTACK) // payout provider (from the bank account)
   bankAccountId     String?
   bankAccount       BankAccount?      @relation(fields: [bankAccountId], references: [id], onDelete: SetNull)
   status            WithdrawalV2Status @default(PENDING_REVIEW)
-  providerRef       String?           @unique // provider payout reference
+  providerRef       String?           @unique // provider payout id (transfer_code / transfer id)
   reviewedBy        String?
   reviewedAt        DateTime?
   processedAt       DateTime?
   failureReason     String?
-  idempotencyKey    String?           @unique
+  idempotencyKey    String?           // client-supplied operation key; replay returns the original row
   createdAt         DateTime          @default(now())
   updatedAt         DateTime          @updatedAt
 
   @@index([userId, status])
+  @@index([bankAccountId])
+  @@unique([userId, idempotencyKey])
 }
 
 model BankAccount {
-  id            String   @id @default(uuid())
+  id            String     @id @default(uuid())
   userId        String
-  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  bankCode      String   // e.g. "044" (Access Bank), "057" (Zenith)
+  user          User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  gateway       Gateway    @default(PAYSTACK) // provider used to verify + pay out this destination
+  bankCode      String     // e.g. "044" (Access Bank), "057" (Zenith)
   bankName      String
   accountNumber String
   accountName   String
-  isDefault     Boolean  @default(false)
+  // Provider-side recipient/beneficiary id created at verification time, so a
+  // payout initiation can reference it directly (Paystack recipient_code /
+  // Flutterwave beneficiary id).
+  recipientRef  String?
+  verifiedName  String?    // name returned by the provider's account-resolution
+  isDefault     Boolean    @default(false)
   verifiedAt    DateTime?
-  createdAt     DateTime @default(now())
+  createdAt     DateTime   @default(now())
 
   withdrawals   Withdrawal[]
 

@@ -3,19 +3,25 @@ import { requireAuth } from '../../middleware/auth.js';
 import { 
   getWalletBalance, 
   getWalletTransactions, 
-  requestWithdrawal,
   createDepositIntent,
   parseMinorUnits
 } from './service.js';
 import { PaystackGateway } from '../payment/PaystackGateway.js';
 import { FlutterwaveGateway } from '../payment/FlutterwaveGateway.js';
+import { WithdrawalService, BankAccountNotFoundError } from '../withdrawal/service.js';
+import { PaymentGatewayError } from '../payment/PaymentGateway.js';
 import prisma from '../../utils/db.js';
+import logger from '../../utils/logger.js';
 import { parsePagination } from '../../utils/pagination.js';
+import { getIO } from '../../sockets/index.js';
 
 export const walletRouter = express.Router();
 
 const paystackGateway = new PaystackGateway();
 const flutterwaveGateway = new FlutterwaveGateway();
+const withdrawalService = new WithdrawalService({
+  providers: { PAYSTACK: paystackGateway, FLUTTERWAVE: flutterwaveGateway }
+});
 
 walletRouter.get('/balance', requireAuth, async (req, res, next) => {
   try {
@@ -163,7 +169,18 @@ walletRouter.post('/withdrawal-request', requireAuth, async (req, res, next) => 
       return res.status(400).json({ error: 'Invalid amount' });
     }
 
-    const request = await requestWithdrawal(userId, amountMinorUnits, idempotencyKey);
+    const request = await withdrawalService.requestWithdrawal(userId, amountMinorUnits, idempotencyKey);
+
+    // Ephemeral socket push; the durable wallet.updated outbox row was written
+    // inside the reservation transaction.
+    try {
+      getIO().to(`user:${userId}`).emit('wallet_updated', {
+        balanceChange: `-${request.amountMinorUnits}`,
+        type: 'WITHDRAWAL'
+      });
+    } catch (e) {
+      logger.warn({ e, userId }, 'Failed to emit socket event after withdrawal request');
+    }
 
     res.status(201).json({
       withdrawalRequest: {
@@ -175,11 +192,108 @@ walletRouter.post('/withdrawal-request', requireAuth, async (req, res, next) => 
     if (error.name === 'InsufficientFundsError') {
       return res.status(402).json({ error: error.message });
     }
-    if (error.name === 'InvalidAmountError' || error.name === 'InvalidIdempotencyKeyError') {
+    if (['InvalidAmountError', 'InvalidIdempotencyKeyError'].includes(error.name)) {
       return res.status(400).json({ error: error.message });
+    }
+    if (['BankAccountRequiredError', 'BankAccountNotVerifiedError', 'BankAccountNotFoundError'].includes(error.name)) {
+      return res.status(422).json({ error: error.message });
     }
     if (['EligibilityRequiredError', 'CountryNotAllowedError', 'AgeNotVerifiedError', 'KycRequiredError'].includes(error.name)) {
       return res.status(403).json({ error: error.message });
+    }
+    next(error);
+  }
+});
+
+walletRouter.get('/withdrawals', requireAuth, async (req, res, next) => {
+  try {
+    const { id: userId } = req.user;
+    const parsed = parsePagination(req.query);
+    if (!parsed.ok) return res.status(400).json({ error: 'Invalid pagination params' });
+    const { page, limit } = parsed.data;
+    const { status } = req.query;
+    const data = await withdrawalService.listWithdrawals(userId, {
+      page,
+      limit,
+      ...(typeof status === 'string' && status ? { status } : {})
+    });
+    res.json(data);
+  } catch (error) {
+    next(error);
+  }
+});
+
+walletRouter.get('/bank-accounts', requireAuth, async (req, res, next) => {
+  try {
+    const { id: userId } = req.user;
+    const accounts = await withdrawalService.listBankAccounts(userId);
+    res.json({ bankAccounts: accounts });
+  } catch (error) {
+    next(error);
+  }
+});
+
+walletRouter.post('/bank-accounts', requireAuth, async (req, res, next) => {
+  try {
+    const { id: userId } = req.user;
+    const { gateway, bankCode, bankName, accountNumber } = req.body;
+    let normalizedGateway;
+    if (gateway === 'paystack' || gateway === 'PAYSTACK') normalizedGateway = 'PAYSTACK';
+    else if (gateway === 'flutterwave' || gateway === 'FLUTTERWAVE') normalizedGateway = 'FLUTTERWAVE';
+    else return res.status(400).json({ error: 'Invalid gateway' });
+
+    const account = await withdrawalService.createBankAccount(userId, {
+      gateway: normalizedGateway,
+      bankCode,
+      bankName,
+      accountNumber
+    });
+
+    res.status(201).json({
+      bankAccount: {
+        id: account.id,
+        gateway: account.gateway,
+        bankCode: account.bankCode,
+        bankName: account.bankName,
+        accountNumber: account.accountNumber,
+        accountName: account.accountName,
+        isDefault: account.isDefault,
+        verifiedAt: account.verifiedAt,
+        createdAt: account.createdAt
+      }
+    });
+  } catch (error) {
+    if (error.name === 'InvalidBankAccountError') {
+      return res.status(400).json({ error: error.message });
+    }
+    if (error instanceof PaymentGatewayError) {
+      return res.status(422).json({ error: error.message });
+    }
+    next(error);
+  }
+});
+
+walletRouter.patch('/bank-accounts/:id/default', requireAuth, async (req, res, next) => {
+  try {
+    const { id: userId } = req.user;
+    const account = await withdrawalService.setDefaultBankAccount(userId, req.params.id);
+    res.json({ bankAccount: account });
+  } catch (error) {
+    if (error instanceof BankAccountNotFoundError) {
+      return res.status(404).json({ error: error.message });
+    }
+    next(error);
+  }
+});
+
+walletRouter.delete('/bank-accounts/:id', requireAuth, async (req, res, next) => {
+  try {
+    const { id: userId } = req.user;
+    await withdrawalService.deleteBankAccount(userId, req.params.id);
+    res.json({ deleted: true });
+  } catch (error) {
+    if (error instanceof BankAccountNotFoundError) {
+      return res.status(404).json({ error: error.message });
     }
     next(error);
   }

@@ -93,4 +93,91 @@ export class PaystackGateway extends PaymentGateway {
     const hash = crypto.createHmac('sha512', this.secretKey).update(rawBody).digest('hex');
     return hash === signatureHeader;
   }
+
+  /**
+   * Resolves a bank account to its on-file account name via Paystack's bank
+   * resolution endpoint. Real NGN accounts resolve; provider test numbers that
+   * the bank does not route throw PaymentGatewayError (callers treat that as
+   * "not verifiable", never as a verified account).
+   */
+  async resolveBankAccount({ bankCode, accountNumber }) {
+    try {
+      const data = await this.fetchWithRetry(
+        `https://api.paystack.co/bank/resolve?account_number=${encodeURIComponent(accountNumber)}&bank_code=${encodeURIComponent(bankCode)}`,
+        {
+          method: 'GET',
+          headers: { 'Authorization': `Bearer ${this.secretKey}` }
+        }
+      );
+      if (!data.status || !data.data?.account_name) {
+        throw new Error('Paystack could not resolve this account number');
+      }
+      return { accountName: data.data.account_name, verified: true };
+    } catch (error) {
+      logger.warn({ error: error.message, bankCode, accountNumber }, 'Paystack account resolution failed');
+      throw new PaymentGatewayError('Unable to verify this bank account', error);
+    }
+  }
+
+  /**
+   * Creates a reusable transfer recipient (nuban) so payouts can reference it.
+   */
+  async createRecipient({ bankCode, accountNumber, accountName }) {
+    try {
+      const data = await this.fetchWithRetry('https://api.paystack.co/transferrecipient', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${this.secretKey}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          type: 'nuban',
+          name: accountName,
+          account_number: accountNumber,
+          bank_code: bankCode,
+          currency: 'NGN'
+        })
+      });
+      if (!data.status || !data.data?.recipient_code) {
+        throw new Error(data.message || 'Paystack recipient creation failed');
+      }
+      return { recipientRef: data.data.recipient_code };
+    } catch (error) {
+      logger.warn({ error: error.message, bankCode, accountNumber }, 'Paystack recipient creation failed');
+      throw new PaymentGatewayError('Unable to create payout recipient', error);
+    }
+  }
+
+  /**
+   * Initiates a payout via Paystack Transfers. Amount is in kobo (already our
+   * NGN minor units — passed through untouched).
+   */
+  async initiatePayout({ amountMinorUnits, currency, recipientRef, reference }) {
+    try {
+      const data = await this.fetchWithRetry('https://api.paystack.co/transfer', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${this.secretKey}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          source: 'balance',
+          amount: BigInt(amountMinorUnits).toString(),
+          recipient: recipientRef,
+          currency: currency || 'NGN',
+          reference
+        })
+      });
+      if (!data.status || !data.data?.transfer_code) {
+        throw new Error(data.message || 'Paystack transfer initiation failed');
+      }
+      return {
+        providerRef: data.data.transfer_code,
+        status: data.data.status
+      };
+    } catch (error) {
+      logger.error({ error, amountMinorUnits: amountMinorUnits.toString() }, 'Failed to initiate Paystack payout');
+      throw new PaymentGatewayError('Payment provider unavailable, try again', error);
+    }
+  }
 }

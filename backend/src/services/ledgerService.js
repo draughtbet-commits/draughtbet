@@ -347,6 +347,86 @@ export async function postDepositCredit(
 }
 
 /**
+ * Reserves funds for a withdrawal request inside the caller's transaction:
+ *   PLAYER_AVAILABLE            -amount
+ *   PLAYER_WITHDRAWAL_PENDING   +amount
+ * Net zero. Idempotent per withdrawal via `withdrawal:reserve:{withdrawalId}`,
+ * so a replayed or concurrent identical request can never reserve twice. This
+ * is the V2 mirror of the legacy Wallet decrement written by the request flow.
+ */
+export async function postWithdrawalReserve(
+  tx,
+  { withdrawalId, userId, amountMinorUnits, currency = 'NGN' }
+) {
+  const amount = assertAmount(amountMinorUnits);
+  const accounts = await ensureUserAccounts(tx, userId, currency);
+  return postLedgerTransaction(tx, {
+    type: 'WITHDRAWAL_RESERVE',
+    description: `Withdrawal ${withdrawalId} funds reserved for payout`,
+    idempotencyKey: `withdrawal:reserve:${withdrawalId}`,
+    metadata: { withdrawalId },
+    entries: [
+      { accountId: accounts.PLAYER_AVAILABLE.id, amountMinorUnits: -amount },
+      { accountId: accounts.PLAYER_WITHDRAWAL_PENDING.id, amountMinorUnits: amount }
+    ]
+  });
+}
+
+/**
+ * Posts the terminal completion of a withdrawal — the payout left the platform:
+ *   PLAYER_WITHDRAWAL_PENDING   -amount
+ *   CUSTOMER_LIABILITY          +amount   (returns toward zero; mirrors the
+ *                                         deposit's writedown of liability)
+ * Net zero. Idempotent per withdrawal via `withdrawal:complete:{withdrawalId}`.
+ * The wallet was already debited at reserve time, so no mirror is needed here.
+ */
+export async function postWithdrawalComplete(
+  tx,
+  { withdrawalId, userId, amountMinorUnits, currency = 'NGN' }
+) {
+  const amount = assertAmount(amountMinorUnits);
+  const accounts = await ensureUserAccounts(tx, userId, currency);
+  const liability = await ensureSystemAccount(tx, 'CUSTOMER_LIABILITY', currency);
+  return postLedgerTransaction(tx, {
+    type: 'WITHDRAWAL_COMPLETE',
+    description: `Withdrawal ${withdrawalId} paid out and left the platform`,
+    idempotencyKey: `withdrawal:complete:${withdrawalId}`,
+    metadata: { withdrawalId },
+    entries: [
+      { accountId: accounts.PLAYER_WITHDRAWAL_PENDING.id, amountMinorUnits: -amount },
+      { accountId: liability.id, amountMinorUnits: amount }
+    ]
+  });
+}
+
+/**
+ * Releases a withdrawal that will never be paid (admin rejection or provider
+ * failure) back into the player's available balance:
+ *   PLAYER_WITHDRAWAL_PENDING   -amount
+ *   PLAYER_AVAILABLE            +amount
+ * Net zero. Idempotent per withdrawal via `withdrawal:release:{withdrawalId}`,
+ * so a rejected payout can never return pending funds twice. This is the V2
+ * mirror of the legacy Wallet refund written by the release flow.
+ */
+export async function postWithdrawalRelease(
+  tx,
+  { withdrawalId, userId, amountMinorUnits, currency = 'NGN' }
+) {
+  const amount = assertAmount(amountMinorUnits);
+  const accounts = await ensureUserAccounts(tx, userId, currency);
+  return postLedgerTransaction(tx, {
+    type: 'WITHDRAWAL_RELEASE',
+    description: `Withdrawal ${withdrawalId} released back to player`,
+    idempotencyKey: `withdrawal:release:${withdrawalId}`,
+    metadata: { withdrawalId },
+    entries: [
+      { accountId: accounts.PLAYER_WITHDRAWAL_PENDING.id, amountMinorUnits: -amount },
+      { accountId: accounts.PLAYER_AVAILABLE.id, amountMinorUnits: amount }
+    ]
+  });
+}
+
+/**
  * Net balance of one account: sum of all signed entries.
  */
 export async function getAccountBalance(client, accountId) {

@@ -7,6 +7,18 @@ export class PaymentGatewayError extends Error {
 }
 
 /**
+ * Converts a canonical minor-unit BigInt (e.g. kobo) to the exact major-unit
+ * decimal string providers like Flutterwave expect ("50000" -> "500.00").
+ * Integer math only — never Number().
+ */
+export const toMajorUnits = (amountMinorUnits) => {
+  const minor = BigInt(amountMinorUnits);
+  const major = minor / 100n;
+  const frac = minor % 100n;
+  return `${major}.${frac.toString().padStart(2, '0')}`;
+};
+
+/**
  * Interface/Base class for Payment Gateways.
  */
 export class PaymentGateway {
@@ -31,6 +43,35 @@ export class PaymentGateway {
    * @returns {boolean}
    */
   verifyWebhookSignature(rawBody, signatureHeader) {
+    throw new Error('Not implemented');
+  }
+
+  /**
+   * Resolves a bank account at the provider, returning the account name on file.
+   * Throws PaymentGatewayError if the accounts bank/number pair cannot be
+   * resolved (invalid, or provider-test numbers that the bank does not route).
+   * @param {{ bankCode: string, accountNumber: string }} input
+   * @returns {Promise<{ accountName: string, verified: boolean }>}
+   */
+  async resolveBankAccount({ bankCode, accountNumber }) {
+    throw new Error('Not implemented');
+  }
+
+  /**
+   * Creates a reusable payout recipient/beneficiary at the provider.
+   * @param {{ bankCode: string, accountNumber: string, accountName: string }} input
+   * @returns {Promise<{ recipientRef: string }>} provider-side recipient id
+   */
+  async createRecipient({ bankCode, accountNumber, accountName }) {
+    throw new Error('Not implemented');
+  }
+
+  /**
+   * Initiates a payout (transfer) for a previously-created recipient.
+   * @param {{ amountMinorUnits: BigInt, currency: string, recipientRef: string, reference: string }} input
+   * @returns {Promise<{ providerRef: string, status: string }>}
+   */
+  async initiatePayout({ amountMinorUnits, currency, recipientRef, reference }) {
     throw new Error('Not implemented');
   }
 
