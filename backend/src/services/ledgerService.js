@@ -31,7 +31,8 @@ export const PLAYER_ACCOUNT_TYPES = Object.freeze([
 export const SYSTEM_ACCOUNT_TYPES = Object.freeze([
   'PLATFORM_REVENUE',
   'SYSTEM_OPENING_CLEARING',
-  'SUSPENSE'
+  'SUSPENSE',
+  'CUSTOMER_LIABILITY'
 ]);
 
 export const SYSTEM_ACCOUNT_ID = (type, currency) => `system:${type}:${currency}`;
@@ -313,6 +314,35 @@ export async function postSettlementDraw(tx, matchId, { reservations }) {
     relatedMatchId: matchId,
     metadata: { matchId, players: reservations.map((r) => r.userId) },
     entries
+  });
+}
+
+/**
+ * Posts the deposit credit for a webhook-confirmed deposit inside the caller's
+ * transaction:
+ *   CUSTOMER_LIABILITY   -amount   (external funds enter the player float)
+ *   PLAYER_AVAILABLE     +amount   (player's spendable balance)
+ * Net zero. Idempotent per deposit reference via `deposit:credit:{reference}`,
+ * so a replayed or concurrent webhook delivery can never double-post. This is
+ * the V2 mirror of the legacy Wallet increment; the legacy Wallet stays the
+ * read source until the final read-flip PR.
+ */
+export async function postDepositCredit(
+  tx,
+  { userId, amountMinorUnits, currency = 'NGN', depositIntentId, reference }
+) {
+  const amount = assertAmount(amountMinorUnits);
+  const accounts = await ensureUserAccounts(tx, userId, currency);
+  const liability = await ensureSystemAccount(tx, 'CUSTOMER_LIABILITY', currency);
+  return postLedgerTransaction(tx, {
+    type: 'DEPOSIT_CREDIT',
+    description: `Deposit ${reference} credited to player`,
+    idempotencyKey: `deposit:credit:${reference}`,
+    metadata: { depositIntentId, reference },
+    entries: [
+      { accountId: liability.id, amountMinorUnits: -amount },
+      { accountId: accounts.PLAYER_AVAILABLE.id, amountMinorUnits: amount }
+    ]
   });
 }
 

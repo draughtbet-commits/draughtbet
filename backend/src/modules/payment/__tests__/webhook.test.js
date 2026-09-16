@@ -12,6 +12,22 @@ const mockPrisma = {
   },
   walletTransaction: {
     create: jest.fn()
+  },
+  ledgerAccount: {
+    upsert: jest.fn()
+  },
+  ledgerTransaction: {
+    findUnique: jest.fn(),
+    create: jest.fn()
+  },
+  ledgerEntry: {
+    create: jest.fn()
+  },
+  outboxEvent: {
+    create: jest.fn()
+  },
+  notification: {
+    create: jest.fn()
   }
 };
 
@@ -37,6 +53,22 @@ describe('Deposit Webhook Processing (stored-intent verified)', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockPrisma.$transaction.mockImplementation(async (cb) => cb(mockPrisma));
+    // User + system ledger accounts resolve to deterministic ids keyed by type.
+    mockPrisma.ledgerAccount.upsert.mockImplementation(async ({ create }) => ({
+      id: create?.type === 'CUSTOMER_LIABILITY'
+        ? `system:${create.type}:${create.currency}`
+        : `acc-${create?.type}`,
+      ...create
+    }));
+    mockPrisma.ledgerTransaction.findUnique.mockResolvedValue(null);
+    mockPrisma.ledgerTransaction.create.mockImplementation(async (data) => ({
+      id: 'ltx-1',
+      ...data.data
+    }));
+    mockPrisma.ledgerEntry.create.mockImplementation(async ({ data }) => ({
+      id: `entry-${data.accountId}`,
+      ...data
+    }));
   });
 
   it('credits exactly the stored intent amount and marks the intent applied', async () => {
@@ -71,6 +103,40 @@ describe('Deposit Webhook Processing (stored-intent verified)', () => {
       where: { id: 'intent-1' },
       data: expect.objectContaining({ status: 'COMPLETED' })
     });
+    // The V2 ledger mirror posts in the same transaction, idempotent per
+    // reference, and balances to zero (liability -50000 / available +50000).
+    expect(mockPrisma.ledgerTransaction.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        type: 'DEPOSIT_CREDIT',
+        idempotencyKey: 'deposit:credit:paystack-ref-123'
+      })
+    });
+    expect(mockPrisma.ledgerEntry.create).toHaveBeenNthCalledWith(1, {
+      data: expect.objectContaining({
+        accountId: 'system:CUSTOMER_LIABILITY:NGN',
+        amountMinorUnits: BigInt(-50000)
+      })
+    });
+    expect(mockPrisma.ledgerEntry.create).toHaveBeenNthCalledWith(2, {
+      data: expect.objectContaining({
+        accountId: 'acc-PLAYER_AVAILABLE',
+        amountMinorUnits: BigInt(50000)
+      })
+    });
+    // Durable wallet.updated outbox row + notification, atomic with the credit.
+    expect(mockPrisma.outboxEvent.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        aggregateType: 'Wallet',
+        aggregateId: 'wallet-1',
+        eventType: 'wallet.updated'
+      })
+    });
+    expect(mockPrisma.notification.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        userId: 'user-1',
+        type: 'DEPOSIT_CONFIRMED'
+      })
+    });
   });
 
   it('treats an already-applied intent as a duplicate and does not re-credit', async () => {
@@ -88,6 +154,9 @@ describe('Deposit Webhook Processing (stored-intent verified)', () => {
     expect(result.alreadyApplied).toBe(true);
     expect(mockPrisma.walletTransaction.create).not.toHaveBeenCalled();
     expect(mockPrisma.wallet.update).not.toHaveBeenCalled();
+    expect(mockPrisma.ledgerTransaction.create).not.toHaveBeenCalled();
+    expect(mockPrisma.outboxEvent.create).not.toHaveBeenCalled();
+    expect(mockPrisma.notification.create).not.toHaveBeenCalled();
   });
 
   it('converts a concurrent duplicate delivery (P2002) into already-applied without re-credit', async () => {
@@ -106,6 +175,9 @@ describe('Deposit Webhook Processing (stored-intent verified)', () => {
 
     expect(result.alreadyApplied).toBe(true);
     expect(mockPrisma.wallet.update).not.toHaveBeenCalled();
+    expect(mockPrisma.ledgerEntry.create).not.toHaveBeenCalled();
+    expect(mockPrisma.outboxEvent.create).not.toHaveBeenCalled();
+    expect(mockPrisma.notification.create).not.toHaveBeenCalled();
   });
 
   it('rejects an unknown reference without any credit', async () => {

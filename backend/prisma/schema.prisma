@@ -573,6 +573,10 @@ enum AccountType {
   PLATFORM_REVENUE
   SYSTEM_OPENING_CLEARING
   SUSPENSE
+  // Contra for external funds entering player float. Grows negative as player
+  // float grows (system singleton), mirroring SYSTEM_OPENING_CLEARING's sign
+  // convention for money the platform holds on players' behalf.
+  CUSTOMER_LIABILITY
 }
 
 model LedgerAccount {

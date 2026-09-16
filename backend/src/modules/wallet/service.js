@@ -6,6 +6,7 @@ import {
   lockWalletForUpdate
 } from '../../services/matchService.js';
 import { assertEligibleForMoney } from '../../services/eligibilityService.js';
+import { postDepositCredit } from '../../services/ledgerService.js';
 
 // Canonical money contract: a non-negative bounded minor-unit integer accepted
 // as a plain-digit string or number. Rejects floats, signs, exponent notation,
@@ -173,8 +174,55 @@ export const processDepositWebhook = async ({ reference, amountMinorUnits, curre
         data: { status: 'COMPLETED', appliedAt: new Date() }
       });
 
+      // 6. V2 ledger mirror in the SAME transaction: credits commit only with
+      //    the wallet credit, so a replay or concurrent duplicate can never
+      //    leave a wallet credit without its ledger posting (and vice versa).
+      const { transaction: ledgerTx } = await postDepositCredit(tx, {
+        userId: intent.userId,
+        amountMinorUnits: intent.amountMinorUnits,
+        currency: intent.currency,
+        depositIntentId: intent.id,
+        reference: intent.reference
+      });
+
+      // 7. Durable wallet.updated outbox row, atomic with the credit.
+      await tx.outboxEvent.create({
+        data: {
+          aggregateType: 'Wallet',
+          aggregateId: wallet.id,
+          eventType: 'wallet.updated',
+          payload: {
+            userId: intent.userId,
+            walletId: wallet.id,
+            currency: intent.currency,
+            type: 'DEPOSIT',
+            amountMinorUnits: intent.amountMinorUnits.toString()
+          }
+        }
+      });
+
+      // 8. Deposit notification, atomic with the credit (the unique
+      //    [userId, matchId, type] index allows one per deposit; matchId is
+      //    NULL here so different deposits never dedup into one).
+      const amountMajor = `${intent.amountMinorUnits / 100n}.${(intent.amountMinorUnits % 100n).toString().padStart(2, '0')}`;
+      await tx.notification.create({
+        data: {
+          userId: intent.userId,
+          type: 'DEPOSIT_CONFIRMED',
+          title: 'Deposit Successful',
+          message: `Your deposit of ₦${amountMajor} has been credited to your wallet.`,
+          link: '/wallet'
+        }
+      });
+
       logger.info({ reference, gateway }, 'Deposit webhook processed against stored intent');
-      return { handled: true, alreadyApplied: false, intent, transaction: txRecord };
+      return {
+        handled: true,
+        alreadyApplied: false,
+        intent,
+        transaction: txRecord,
+        ledgerTransactionId: ledgerTx.id
+      };
     });
   } catch (error) {
     if (error.code === 'P2002') {

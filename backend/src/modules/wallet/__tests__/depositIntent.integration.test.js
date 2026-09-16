@@ -6,6 +6,7 @@
 //     src/modules/wallet/__tests__/depositIntent.integration.test.js
 import prisma from '../../../utils/db.js';
 import { createDepositIntent, processDepositWebhook } from '../service.js';
+import { reconcileDeposits } from '../../../jobs/depositReconciliation.js';
 
 const describeIntegration =
   process.env.RUN_DB_INTEGRATION === '1' ? describe : describe.skip;
@@ -44,8 +45,49 @@ describeIntegration('Deposit intents (real PostgreSQL)', () => {
   const txCount = async () =>
     prisma.walletTransaction.count({ where: { walletId, type: 'DEPOSIT' } });
 
+  const ledgerCreditKey = (reference) => `deposit:credit:${reference}`;
+
+  const ledgerCreditCount = async (reference) =>
+    prisma.ledgerTransaction.count({
+      where: { idempotencyKey: ledgerCreditKey(reference) }
+    });
+
+  const availableBalance = async () => {
+    const accounts = ['PLAYER_AVAILABLE', 'CUSTOMER_LIABILITY'];
+    const row = await prisma.ledgerAccount.findMany({
+      where: { OR: [{ userId, type: 'PLAYER_AVAILABLE' }, { userId: null, type: 'CUSTOMER_LIABILITY' }], currency: 'NGN' },
+      include: { entries: true }
+    });
+    const bal = {};
+    for (const a of row) bal[a.type] = a.entries.reduce((acc, e) => acc + e.amountMinorUnits, 0n);
+    return bal;
+  };
+
+  const outboxCount = async () =>
+    prisma.outboxEvent.count({
+      where: { aggregateId: walletId, eventType: 'wallet.updated' }
+    });
+
+  const notificationCount = async () =>
+    prisma.notification.count({ where: { userId, type: 'DEPOSIT_CONFIRMED' } });
+
   const cleanup = async () => {
+    const intents = await prisma.depositIntent.findMany({
+      where: { userId },
+      select: { id: true }
+    });
+    const intentIds = intents.map((i) => i.id);
+    for (const id of intentIds) {
+      await prisma.ledgerEntry.deleteMany({
+        where: { transaction: { metadata: { path: ['depositIntentId'], equals: id } } }
+      });
+      await prisma.ledgerTransaction.deleteMany({
+        where: { metadata: { path: ['depositIntentId'], equals: id } }
+      });
+    }
     await prisma.walletTransaction.deleteMany({ where: { walletId } });
+    await prisma.outboxEvent.deleteMany({ where: { aggregateId: walletId } });
+    await prisma.notification.deleteMany({ where: { userId } });
     await prisma.depositIntent.deleteMany({ where: { userId } });
     await prisma.wallet.delete({ where: { id: walletId } });
     await prisma.user.delete({ where: { id: userId } });
@@ -75,6 +117,16 @@ describeIntegration('Deposit intents (real PostgreSQL)', () => {
     const stored = await prisma.depositIntent.findUnique({ where: { id: intent.id } });
     expect(stored.status).toBe('COMPLETED');
     expect(stored.appliedAt).not.toBeNull();
+
+    // V2 ledger mirror: the deposit posts a balanced DEPOSIT_CREDIT in the
+    // same transaction — PLAYER_AVAILABLE +amount, CUSTOMER_LIABILITY -amount.
+    expect(await ledgerCreditCount(intent.reference)).toBe(1);
+    const ledgerBal = await availableBalance();
+    expect(ledgerBal.PLAYER_AVAILABLE).toBe(50000n);
+    expect(ledgerBal.CUSTOMER_LIABILITY).toBe(-50000n);
+    // Durable wallet.updated outbox row + notification, atomic with the credit.
+    expect(await outboxCount()).toBe(1);
+    expect(await notificationCount()).toBe(1);
 
     await cleanup();
   });
@@ -171,6 +223,111 @@ describeIntegration('Deposit intents (real PostgreSQL)', () => {
     expect(second.handled).toBe(false);
     expect(second.alreadyApplied).toBe(true);
     expect(await balance()).toBe('50000');
+    expect(await txCount()).toBe(1);
+    // Exactly-once everywhere: one ledger posting, one outbox row, one notice.
+    expect(await ledgerCreditCount(intent.reference)).toBe(1);
+    expect(await outboxCount()).toBe(1);
+    expect(await notificationCount()).toBe(1);
+
+    await cleanup();
+  });
+
+  it('keeps a concurrent double delivery to exactly one credit everywhere', async () => {
+    await createFixture();
+    const intent = await createDepositIntent(userId, 50000n, 'PAYSTACK', 'u@test.local');
+    const webhook = {
+      reference: intent.reference,
+      amountMinorUnits: 50000,
+      currency: 'NGN',
+      gateway: 'PAYSTACK',
+      userId
+    };
+
+    const results = await Promise.all([
+      processDepositWebhook(webhook),
+      processDepositWebhook(webhook)
+    ]);
+
+    const applied = results.filter((r) => r.handled && !r.alreadyApplied);
+    const duplicates = results.filter((r) => r.alreadyApplied);
+    expect(applied).toHaveLength(1);
+    expect(duplicates).toHaveLength(1);
+    expect(await balance()).toBe('50000');
+    expect(await txCount()).toBe(1);
+    expect(await ledgerCreditCount(intent.reference)).toBe(1);
+    expect(await outboxCount()).toBe(1);
+    expect(await notificationCount()).toBe(1);
+
+    await cleanup();
+  });
+
+  it('parks stale PENDING intents as FAILED and still credits a late valid webhook exactly once', async () => {
+    await createFixture();
+    const intent = await createDepositIntent(userId, 50000n, 'PAYSTACK', 'u@test.local');
+    // Backdate well past the 24h stale threshold so the sweep treats it as a
+    // payment that never arrived.
+    await prisma.depositIntent.update({
+      where: { id: intent.id },
+      data: { createdAt: new Date(Date.now() - 25 * 60 * 60 * 1000) }
+    });
+
+    const summary = await reconcileDeposits();
+    expect(summary.staleParked).toBeGreaterThanOrEqual(1);
+
+    const parked = await prisma.depositIntent.findUnique({ where: { id: intent.id } });
+    expect(parked.status).toBe('FAILED');
+    expect(await balance()).toBe('0');
+    expect(await ledgerCreditCount(intent.reference)).toBe(0);
+
+    // A provider webhook that arrives LATE must still credit once: the guard
+    // against double-application is the unique gatewayReference, not a clock.
+    const late = await processDepositWebhook({
+      reference: intent.reference,
+      amountMinorUnits: 50000,
+      currency: 'NGN',
+      gateway: 'PAYSTACK',
+      userId
+    });
+    expect(late.handled).toBe(true);
+
+    const applied = await prisma.depositIntent.findUnique({ where: { id: intent.id } });
+    expect(applied.status).toBe('COMPLETED');
+    expect(await balance()).toBe('50000');
+    expect(await txCount()).toBe(1);
+    expect(await ledgerCreditCount(intent.reference)).toBe(1);
+    expect(await outboxCount()).toBe(1);
+    expect(await notificationCount()).toBe(1);
+
+    // Re-running the sweep after the late credit is healthy: the intent is
+    // COMPLETED with exactly one credit everywhere.
+    const after = await reconcileDeposits();
+    expect(after.anomalies).toEqual([]);
+
+    await cleanup();
+  });
+
+  it('reconciliation flags a COMPLETED intent whose ledger posting is missing and never repairs it', async () => {
+    await createFixture();
+    const intent = await createDepositIntent(userId, 50000n, 'PAYSTACK', 'u@test.local');
+    await processDepositWebhook({
+      reference: intent.reference,
+      amountMinorUnits: 50000,
+      currency: 'NGN',
+      gateway: 'PAYSTACK',
+      userId
+    });
+    expect(await ledgerCreditCount(intent.reference)).toBe(1);
+
+    // Simulate the anomaly the sweep must catch: a confirmed deposit whose
+    // ledger posting vanished (entries cascade with the transaction).
+    await prisma.ledgerTransaction.deleteMany({
+      where: { idempotencyKey: ledgerCreditKey(intent.reference) }
+    });
+
+    const summary = await reconcileDeposits();
+    expect(summary.anomalies.some((a) => a.check === 'ledgerPostingMissing')).toBe(true);
+    // Never auto-repair: the posting stays gone after the sweep.
+    expect(await ledgerCreditCount(intent.reference)).toBe(0);
     expect(await txCount()).toBe(1);
 
     await cleanup();
