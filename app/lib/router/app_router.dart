@@ -13,6 +13,7 @@ import '../screens/match_confirmation_screen.dart';
 import '../screens/matchmaking_screen.dart';
 import '../screens/match_room_screen.dart';
 import '../screens/match_result_screen.dart';
+import '../screens/settlement_result_screens.dart';
 import '../screens/match_lifecycle_screens.dart';
 import '../screens/player_discovery_screens.dart';
 import '../screens/tier_select_screen.dart';
@@ -243,6 +244,38 @@ final appRouterProvider = Provider<GoRouter>((ref) {
             state.extra is MatchResultViewData ? null : '/home',
         builder: (context, state) =>
             MatchResultScreen(result: state.extra! as MatchResultViewData),
+      ),
+      GoRoute(
+        path: '/matches/:id/settlement-processing',
+        redirect: (context, state) =>
+            state.extra is MatchResultViewData ? null : '/home',
+        builder: (context, state) => SettlementStatusScreen(
+          result: state.extra! as MatchResultViewData,
+          phase: SettlementPhase.pending,
+        ),
+      ),
+      GoRoute(
+        path: '/matches/:id/settlement-complete',
+        redirect: (context, state) =>
+            state.extra is MatchResultViewData ? null : '/home',
+        builder: (context, state) => SettlementStatusScreen(
+          result: state.extra! as MatchResultViewData,
+          phase: SettlementPhase.confirmed,
+        ),
+      ),
+      GoRoute(
+        path: '/matches/:id/settlement-delayed',
+        redirect: (context, state) =>
+            state.extra is MatchResultViewData ? null : '/home',
+        builder: (context, state) => SettlementStatusScreen(
+          result: state.extra! as MatchResultViewData,
+          phase: SettlementPhase.delayed,
+        ),
+      ),
+      GoRoute(
+        path: '/matches/:id/receipt',
+        builder: (context, state) =>
+            MatchReceiptScreen(matchId: state.pathParameters['id']!),
       ),
       GoRoute(
         path: '/match/:id',

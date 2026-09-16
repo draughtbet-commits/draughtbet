@@ -7,7 +7,6 @@ import 'package:go_router/go_router.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../models/game_state.dart';
 import '../models/match_flow.dart';
-import '../providers/match_flow_provider.dart';
 import '../providers/match_provider.dart';
 import '../services/secure_storage.dart';
 import '../services/socket_service.dart';
@@ -220,35 +219,12 @@ class _MatchScreenState extends ConsumerState<MatchScreen> {
     return remaining <= 0 ? 0 : (remaining / 1000).ceil();
   }
 
-  void _openResult(GameState game, MatchState matchState) {
+  void _openResult(MatchResultViewData result) {
     if (_resultOpened) return;
     _resultOpened = true;
-    final intent = ref.read(matchFlowProvider).currentIntent;
-    final opponentId = game.player1 == _userId ? game.player2 : game.player1;
-    final won = game.winnerId != null && game.winnerId == _userId;
-    final draw = game.winnerId == null || game.winnerId!.isEmpty;
-    final result = MatchResultViewData(
-      kind: draw
-          ? ResultKind.draw
-          : won
-          ? ResultKind.victory
-          : ResultKind.defeat,
-      opponent:
-          intent?.opponent ??
-          MatchPlayer(id: opponentId, name: 'Opponent', avatarId: 'avatar_04'),
-      terms: intent?.terms ?? const MatchTerms(stakeMinorUnits: 0),
-      matchId: widget.matchId,
-      reason:
-          matchState.endReason ??
-          (draw
-              ? 'Match drawn'
-              : won
-              ? 'You won the match'
-              : 'Match completed'),
-      settlement: matchState.settlementPhase,
-    );
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) context.go('/play/result', extra: result);
+      if (!mounted) return;
+      GoRouter.maybeOf(context)?.go('/play/result', extra: result);
     });
   }
 
@@ -268,10 +244,8 @@ class _MatchScreenState extends ConsumerState<MatchScreen> {
         _disconnectTicker?.cancel();
       }
     });
-    if (game != null &&
-        (game.status == 'completed' || game.status == 'draw') &&
-        _userId != null) {
-      _openResult(game, state);
+    if (state.authoritativeResult != null) {
+      _openResult(state.authoritativeResult!);
     }
 
     final myTurn = game != null && _isMyTurn(game);

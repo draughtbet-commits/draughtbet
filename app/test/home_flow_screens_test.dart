@@ -587,6 +587,16 @@ void main() {
         match: MatchState(
           currentMatchId: 'match-123',
           gameState: gameFixture(status: 'completed', winnerId: 'player-1'),
+          authoritativeResult: const MatchResultViewData(
+            kind: ResultKind.victory,
+            opponent: opponent,
+            terms: referenceTerms,
+            matchId: 'match-123',
+            reason: 'Server confirmed victory',
+            settlement: SettlementPhase.confirmed,
+            payoutMinorUnits: 390000,
+            serverVerified: true,
+          ),
         ),
       ),
     );
@@ -608,6 +618,7 @@ void main() {
               opponent: opponent,
               terms: referenceTerms,
               settlement: SettlementPhase.pending,
+              serverVerified: true,
             ),
           ),
         ),
@@ -616,7 +627,7 @@ void main() {
         find.text(kind == ResultKind.victory ? 'VICTORY' : 'DEFEAT'),
         findsOneWidget,
       );
-      expect(find.text('Settlement processing'), findsOneWidget);
+      expect(find.text('Result final · settlement processing'), findsOneWidget);
     }
   });
 
@@ -790,12 +801,13 @@ void main() {
       terms: referenceTerms,
       settlement: SettlementPhase.delayed,
       receiptReference: 'DB-123',
+      serverVerified: true,
     );
     await tester.pumpWidget(
       navigationApp(initialLocation: '/result', result: result),
     );
     expect(
-      find.text('Settlement delayed — your result is safe'),
+      find.text('Settlement delayed · result remains final'),
       findsOneWidget,
     );
     invokeButton(tester, 'Back to Home');

@@ -27,6 +27,7 @@ class MatchState {
   final SettlementPhase settlementPhase;
   final int? confirmedPayoutMinorUnits;
   final String? endReason;
+  final MatchResultViewData? authoritativeResult;
 
   const MatchState({
     this.gameState,
@@ -44,6 +45,7 @@ class MatchState {
     this.settlementPhase = SettlementPhase.pending,
     this.confirmedPayoutMinorUnits,
     this.endReason,
+    this.authoritativeResult,
   });
 
   MatchState copyWith({
@@ -64,6 +66,7 @@ class MatchState {
     SettlementPhase? settlementPhase,
     int? confirmedPayoutMinorUnits,
     String? endReason,
+    MatchResultViewData? authoritativeResult,
     bool clearResult = false,
   }) {
     return MatchState(
@@ -90,6 +93,9 @@ class MatchState {
           ? null
           : confirmedPayoutMinorUnits ?? this.confirmedPayoutMinorUnits,
       endReason: clearResult ? null : endReason ?? this.endReason,
+      authoritativeResult: clearResult
+          ? null
+          : authoritativeResult ?? this.authoritativeResult,
     );
   }
 }
@@ -212,10 +218,7 @@ class MatchNotifier extends StateNotifier<MatchState> {
         final current = state.gameState;
         if (current == null) return;
         state = state.copyWith(
-          gameState: current.copyWith(
-            status: 'completed',
-            winnerId: data['winnerId']?.toString(),
-          ),
+          gameState: current.copyWith(status: 'settling'),
           isMovePending: false,
           settlementPhase: SettlementPhase.pending,
           endReason: 'resign',
@@ -227,19 +230,18 @@ class MatchNotifier extends StateNotifier<MatchState> {
       _socketService.onMatchEnded.listen((data) {
         final current = state.gameState;
         if (current == null) return;
-        final winnerId = data['winnerId']?.toString();
-        final payout = int.tryParse(data['payout']?.toString() ?? '');
+        final result = MatchResultViewData.tryFromServer(data);
         state = state.copyWith(
           gameState: current.copyWith(
-            status: winnerId == null || winnerId.isEmpty ? 'draw' : 'completed',
-            winnerId: winnerId,
+            status: result == null ? 'settling' : 'completed',
           ),
           isMovePending: false,
-          settlementPhase: SettlementPhase.confirmed,
-          confirmedPayoutMinorUnits: payout,
-          endReason: data['reason']?.toString(),
+          settlementPhase: result?.settlement ?? SettlementPhase.pending,
+          confirmedPayoutMinorUnits: result?.payoutMinorUnits,
+          endReason: result?.reason,
+          authoritativeResult: result,
         );
-        unawaited(_storage.clearActiveMatchId());
+        if (result != null) unawaited(_storage.clearActiveMatchId());
       }),
     );
 
