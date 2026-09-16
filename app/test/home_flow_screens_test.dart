@@ -14,6 +14,7 @@ import 'package:draughts_arena/screens/arena_screen.dart';
 import 'package:draughts_arena/screens/create_match_screen.dart';
 import 'package:draughts_arena/screens/home_lobby_screen.dart';
 import 'package:draughts_arena/screens/match_confirmation_screen.dart';
+import 'package:draughts_arena/screens/match_lifecycle_screens.dart';
 import 'package:draughts_arena/screens/match_result_screen.dart';
 import 'package:draughts_arena/screens/match_room_screen.dart';
 import 'package:draughts_arena/screens/match_screen.dart';
@@ -234,6 +235,11 @@ Widget navigationApp({
       GoRoute(
         path: '/play/confirm',
         builder: (context, state) => const MatchConfirmationScreen(),
+      ),
+      GoRoute(
+        path: '/play/open-details',
+        builder: (context, state) =>
+            OpenMatchDetailsScreen(match: state.extra! as OpenMatch),
       ),
       GoRoute(
         path: '/play/search',
@@ -721,6 +727,10 @@ void main() {
     );
     await tester.pumpAndSettle();
     invokeButton(tester, 'JOIN');
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.text('OPEN MATCH'), findsOneWidget);
+    invokeButton(tester, 'Join match');
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 400));
     expect(find.text('Match Confirmation'), findsOneWidget);

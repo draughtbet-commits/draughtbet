@@ -18,6 +18,78 @@ enum SettlementPhase { pending, confirmed, delayed, failed }
 
 enum ResultKind { victory, defeat, draw }
 
+enum MatchLifecyclePhase {
+  unavailable,
+  incomingChallenge,
+  challengeSent,
+  challengeExpired,
+  privateRoom,
+  insufficientBalance,
+  eligibilityBlocked,
+  lockingStake,
+  waitingOpponentStake,
+  readyCheck,
+  waitingOpponentReady,
+  readyTimeout,
+  opponentDisconnected,
+}
+
+enum AuthoritativeProgress { pending, confirmed, failed, unknown }
+
+class MatchQuote {
+  const MatchQuote({
+    required this.reference,
+    required this.expiresAt,
+    required this.stakeMinorUnits,
+    required this.opponentStakeMinorUnits,
+    required this.platformFeeMinorUnits,
+    required this.totalPrizeMinorUnits,
+  });
+
+  final String reference;
+  final DateTime expiresAt;
+  final int stakeMinorUnits;
+  final int opponentStakeMinorUnits;
+  final int platformFeeMinorUnits;
+  final int totalPrizeMinorUnits;
+}
+
+class MatchLifecycleSnapshot {
+  const MatchLifecycleSnapshot({
+    required this.phase,
+    required this.terms,
+    this.matchId,
+    this.roomCode,
+    this.opponent,
+    this.quote,
+    this.availableBalanceMinorUnits,
+    this.limitMinorUnits,
+    this.reason,
+    this.playerStake = AuthoritativeProgress.pending,
+    this.opponentStake = AuthoritativeProgress.pending,
+    this.playerReady = AuthoritativeProgress.pending,
+    this.opponentReady = AuthoritativeProgress.pending,
+    this.release = AuthoritativeProgress.unknown,
+    this.deadline,
+  });
+
+  final MatchLifecyclePhase phase;
+  final MatchTerms terms;
+  final String? matchId;
+  final String? roomCode;
+  final MatchPlayer? opponent;
+  final MatchQuote? quote;
+  final int? availableBalanceMinorUnits;
+  final int? limitMinorUnits;
+  final String? reason;
+  final AuthoritativeProgress playerStake;
+  final AuthoritativeProgress opponentStake;
+  final AuthoritativeProgress playerReady;
+  final AuthoritativeProgress opponentReady;
+  final AuthoritativeProgress release;
+  final DateTime? deadline;
+}
+
 class Money {
   const Money(this.minorUnits);
 

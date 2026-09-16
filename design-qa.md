@@ -67,4 +67,31 @@
 
 - Replace the preserved avatar catalog and restrained decorative effects only if client-owned, production-ready exports are supplied.
 
+## PR3 wallet reads and PR4 match lifecycle extension
+
+**Approved sources reviewed**
+
+- `04-wallet-deposits-transactions-043-054.png` and `10-empty-loading-error-states-108-119.png` for wallet read screens and supporting states.
+- `02-match-entry-stake-ready-031-042.png`, `03-match-entry-stake-ready-alternate.png`, and the existing approved Screens 6–18 flow for match-entry continuity.
+- Supporting documents were used for behavior and state requirements; the approved boards remained the visual authority.
+
+**Rendered evidence**
+
+- Wallet comparison: `design-qa-artifacts/pr3-wallet-reference-comparison.png`.
+- Match lifecycle comparison: `design-qa-artifacts/pr4-match-lifecycle-reference-comparison.png`.
+- Wallet captures: `app/test/goldens/wallet_read/` (9 states at 412 × 915, DPR 1).
+- Match lifecycle captures: `app/test/goldens/match_lifecycle/` (16 states at 412 × 915, DPR 1).
+
+**Findings and resolution**
+
+1. The initial PR3/PR4 pass matched the approved palette, card system, typography hierarchy, action treatment, and server-authoritative state language.
+2. The initial PR4 capture lacked the approved illustration weight in insufficient-balance, stake-limit, and pre-start disconnect states because no matching production exports were present. Isolated transparent replacements were generated in the established emerald/gold/dark style, bundled locally, accessibility-labelled, and re-captured.
+3. The final PR4 comparison confirms the replacement illustrations now carry the intended hierarchy without introducing raw UI colours or changing the backend contract.
+4. No Flutter exceptions, render overflow, P0, P1, or actionable P2 mismatch remains in the captured PR3/PR4 states.
+
+**Remaining source constraints**
+
+- Player discovery continues to use the repository avatar-ID catalog. Client-owned portrait exports can replace those assets later without changing screen structure.
+- Live balances, lock/release progress, eligibility, ready state, room codes, challenges, and opponent presence still require authoritative backend payloads. Production screens do not manufacture those values.
+
 final result: passed

@@ -13,6 +13,9 @@ import '../screens/match_confirmation_screen.dart';
 import '../screens/matchmaking_screen.dart';
 import '../screens/match_room_screen.dart';
 import '../screens/match_result_screen.dart';
+import '../screens/match_lifecycle_screens.dart';
+import '../screens/player_discovery_screens.dart';
+import '../screens/tier_select_screen.dart';
 import '../models/match_flow.dart';
 import '../screens/crown_screen.dart';
 import '../screens/wallet_read_screens.dart';
@@ -97,6 +100,17 @@ final appRouterProvider = Provider<GoRouter>((ref) {
             builder: (context, state) => const ArenaScreen(),
           ),
           GoRoute(
+            path: '/arena/players',
+            builder: (context, state) => const PlayerSearchScreen(),
+          ),
+          GoRoute(
+            path: '/arena/player',
+            redirect: (context, state) =>
+                state.extra is MatchPlayer ? null : '/arena/players',
+            builder: (context, state) =>
+                PublicPlayerProfileScreen(player: state.extra! as MatchPlayer),
+          ),
+          GoRoute(
             path: '/results',
             builder: (context, state) => const ResultsScreen(),
           ),
@@ -109,6 +123,106 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/play/create',
         builder: (context, state) => const CreateMatchScreen(),
+      ),
+      GoRoute(
+        path: '/play/tier',
+        builder: (context, state) => const TierSelectScreen(),
+      ),
+      GoRoute(
+        path: '/play/quick',
+        builder: (context, state) => const CreateMatchScreen(),
+      ),
+      GoRoute(
+        path: '/play/open-details',
+        redirect: (context, state) =>
+            state.extra is OpenMatch ? null : '/play/unavailable',
+        builder: (context, state) =>
+            OpenMatchDetailsScreen(match: state.extra! as OpenMatch),
+      ),
+      GoRoute(
+        path: '/play/unavailable',
+        builder: (context, state) => MatchUnavailableScreen(
+          alreadyFilled: state.uri.queryParameters['reason'] == 'filled',
+        ),
+      ),
+      GoRoute(
+        path: '/play/insufficient-balance',
+        redirect: (context, state) =>
+            state.extra is MatchLifecycleSnapshot ? null : '/play/unavailable',
+        builder: (context, state) => InsufficientBalanceScreen(
+          snapshot: state.extra! as MatchLifecycleSnapshot,
+        ),
+      ),
+      GoRoute(
+        path: '/play/stake-limit',
+        redirect: (context, state) =>
+            state.extra is MatchLifecycleSnapshot ? null : '/play/unavailable',
+        builder: (context, state) => StakeEligibilityBlockedScreen(
+          snapshot: state.extra! as MatchLifecycleSnapshot,
+        ),
+      ),
+      GoRoute(
+        path: '/play/locking-stake',
+        redirect: (context, state) =>
+            state.extra is MatchLifecycleSnapshot ? null : '/play/unavailable',
+        builder: (context, state) => LockingStakeScreen(
+          snapshot: state.extra! as MatchLifecycleSnapshot,
+        ),
+      ),
+      GoRoute(
+        path: '/play/waiting-stake',
+        redirect: (context, state) =>
+            state.extra is MatchLifecycleSnapshot ? null : '/play/unavailable',
+        builder: (context, state) => WaitingOpponentStakeScreen(
+          snapshot: state.extra! as MatchLifecycleSnapshot,
+        ),
+      ),
+      GoRoute(
+        path: '/play/ready',
+        redirect: (context, state) =>
+            state.extra is MatchLifecycleSnapshot ? null : '/play/unavailable',
+        builder: (context, state) =>
+            ReadyCheckScreen(snapshot: state.extra! as MatchLifecycleSnapshot),
+      ),
+      GoRoute(
+        path: '/play/waiting-ready',
+        redirect: (context, state) =>
+            state.extra is MatchLifecycleSnapshot ? null : '/play/unavailable',
+        builder: (context, state) => WaitingOpponentReadyScreen(
+          snapshot: state.extra! as MatchLifecycleSnapshot,
+        ),
+      ),
+      GoRoute(
+        path: '/play/ready-timeout',
+        redirect: (context, state) =>
+            state.extra is MatchLifecycleSnapshot ? null : '/play/unavailable',
+        builder: (context, state) => ReadyTimeoutScreen(
+          snapshot: state.extra! as MatchLifecycleSnapshot,
+        ),
+      ),
+      GoRoute(
+        path: '/play/disconnected-before-start',
+        redirect: (context, state) =>
+            state.extra is MatchLifecycleSnapshot ? null : '/play/unavailable',
+        builder: (context, state) => OpponentDisconnectedBeforeStartScreen(
+          snapshot: state.extra! as MatchLifecycleSnapshot,
+        ),
+      ),
+      GoRoute(
+        path: '/play/private-room',
+        redirect: (context, state) =>
+            state.extra is MatchLifecycleSnapshot ? null : '/play/unavailable',
+        builder: (context, state) => PrivateRoomCodeScreen(
+          snapshot: state.extra! as MatchLifecycleSnapshot,
+        ),
+      ),
+      GoRoute(
+        path: '/play/challenge',
+        redirect: (context, state) =>
+            state.extra is MatchLifecycleSnapshot ? null : '/play/unavailable',
+        builder: (context, state) => ChallengeStatusScreen(
+          snapshot: state.extra! as MatchLifecycleSnapshot,
+        ),
       ),
       GoRoute(
         path: '/play/confirm',
