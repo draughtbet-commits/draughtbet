@@ -105,6 +105,8 @@ adminRouter.post('/withdrawals/:id/approve', async (req, res, next) => {
     const row = await withdrawalService.approveWithdrawal(req.params.id, req.user.id);
     res.json({ withdrawal: row });
   } catch (error) {
+    if (error.name === 'WithdrawalNotFoundError') return res.status(404).json({ error: error.message });
+    if (error.name === 'WithdrawalStateError') return res.status(409).json({ error: error.message });
     next(error);
   }
 });
@@ -114,6 +116,11 @@ adminRouter.post('/withdrawals/:id/begin-payout', async (req, res, next) => {
     const row = await withdrawalService.beginPayout(req.params.id);
     res.json({ withdrawal: row });
   } catch (error) {
+    if (error.name === 'WithdrawalNotFoundError') return res.status(404).json({ error: error.message });
+    if (error.name === 'WithdrawalStateError') return res.status(409).json({ error: error.message });
+    if (error.name === 'BankAccountRequiredError' || error.name === 'PaymentGatewayError') {
+      return res.status(422).json({ error: error.message });
+    }
     next(error);
   }
 });
@@ -127,6 +134,8 @@ adminRouter.post('/withdrawals/:id/report-result', async (req, res, next) => {
     const row = await withdrawalService.reportPayoutResult(req.params.id, { success, failureReason });
     res.json({ withdrawal: row });
   } catch (error) {
+    if (error.name === 'WithdrawalNotFoundError') return res.status(404).json({ error: error.message });
+    if (error.name === 'WithdrawalStateError') return res.status(409).json({ error: error.message });
     next(error);
   }
 });
@@ -147,6 +156,8 @@ adminRouter.post('/withdrawals/:id/reject', async (req, res, next) => {
     }
     res.json({ withdrawal: row });
   } catch (error) {
+    if (error.name === 'WithdrawalNotFoundError') return res.status(404).json({ error: error.message });
+    if (error.name === 'WithdrawalStateError') return res.status(409).json({ error: error.message });
     next(error);
   }
 });

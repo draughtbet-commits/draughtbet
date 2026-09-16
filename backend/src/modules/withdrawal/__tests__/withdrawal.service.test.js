@@ -284,6 +284,64 @@ describe('WithdrawalService — provider-gated payout transitions', () => {
     expect(row.status).toBe('FAILED');
   });
 
+  it('completes a PROCESSING payout exactly once via CAS: ledger posting + notification', async () => {
+    mockPrisma.$transaction.mockImplementation(async (cb) => cb(mockPrisma));
+    // First findUnique (pre-read) is PROCESSING; the CAS wins; final read returns COMPLETED.
+    mockPrisma.withdrawal.findUnique
+      .mockResolvedValueOnce(withdrawalRow({ status: 'PROCESSING' }))
+      .mockResolvedValueOnce(withdrawalRow({ status: 'COMPLETED' }));
+    mockPrisma.withdrawal.updateMany.mockResolvedValue({ count: 1 });
+    mockPrisma.ledgerAccount.upsert.mockImplementation(({ create }) => ({ id: `acc-${create.type}`, ...create }));
+    mockPrisma.ledgerTransaction.findUnique.mockResolvedValue(null);
+    mockPrisma.ledgerTransaction.create.mockResolvedValue({ id: 'ltx-2', entries: [] });
+    mockPrisma.ledgerEntry.create.mockResolvedValue({ id: 'le-2' });
+    mockPrisma.notification.create.mockResolvedValue({ id: 'notif-1' });
+
+    const row = await service.reportPayoutResult('wd-1', { success: true });
+
+    expect(row.status).toBe('COMPLETED');
+    // The CAS is the gate: only a winning PROCESSING claim proceeds.
+    expect(mockPrisma.withdrawal.updateMany).toHaveBeenCalledWith({
+      where: { id: 'wd-1', status: 'PROCESSING' },
+      data: { status: 'COMPLETED' }
+    });
+    // WITHDRAWAL_COMPLETE ledger posting with per-withdrawal idempotency key.
+    expect(mockPrisma.ledgerTransaction.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ type: 'WITHDRAWAL_COMPLETE', idempotencyKey: expect.stringMatching(/^withdrawal:complete:/) }) })
+    );
+    expect(mockPrisma.notification.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ type: 'WITHDRAWAL_CONFIRMED' }) })
+    );
+  });
+
+  it('treats a concurrent duplicate success callback as a no-op (CAS loser)', async () => {
+    mockPrisma.$transaction.mockImplementation(async (cb) => cb(mockPrisma));
+    // Pre-read saw PROCESSING, but the CAS lost to a racing callback that
+    // already terminalized the row as COMPLETED.
+    mockPrisma.withdrawal.findUnique
+      .mockResolvedValueOnce(withdrawalRow({ status: 'PROCESSING' }))
+      .mockResolvedValueOnce(withdrawalRow({ status: 'COMPLETED' }));
+    mockPrisma.withdrawal.updateMany.mockResolvedValue({ count: 0 });
+
+    const row = await service.reportPayoutResult('wd-1', { success: true });
+
+    expect(row.status).toBe('COMPLETED');
+    expect(mockPrisma.ledgerTransaction.create).not.toHaveBeenCalled();
+    expect(mockPrisma.notification.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects reporting a payout result for a non-PROCESSING withdrawal', async () => {
+    mockPrisma.$transaction.mockImplementation(async (cb) => cb(mockPrisma));
+    mockPrisma.withdrawal.findUnique.mockResolvedValue(withdrawalRow({ status: 'APPROVED' }));
+    mockPrisma.withdrawal.updateMany.mockResolvedValue({ count: 0 });
+
+    await expect(service.reportPayoutResult('wd-1', { success: true })).rejects.toThrow(
+      /Payout result can only be reported for a PROCESSING withdrawal/
+    );
+    expect(mockPrisma.ledgerTransaction.create).not.toHaveBeenCalled();
+    expect(mockPrisma.notification.create).not.toHaveBeenCalled();
+  });
+
   it('releases only releasable statuses (never PROCESSING)', async () => {
     mockPrisma.$transaction.mockImplementation(async (cb) => cb(mockPrisma));
     mockPrisma.withdrawal.findUnique.mockResolvedValue({ id: 'wd-1', userId: 'user-1', amountMinorUnits: 100000n, status: 'PROCESSING', currency: 'NGN', gateway: 'PAYSTACK' });

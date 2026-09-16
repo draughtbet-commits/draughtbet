@@ -14,25 +14,54 @@
 //   P8  admin reject lifecycle: approve -> REJECTED release refunds exactly
 //       once, re-release is a no-op, ledger reverses, balance restored
 //   P9  GET /wallet/withdrawals lists rows + status filter
-//   P10 closed book after cleanup: every LedgerTransaction nets zero, the
+//   P10 webhook (Paystack transfer.success) completes a PROCESSING payout:
+//       HMAC-gated, reference-matched, ledger complete posting once, wallet
+//       untouched by completion, liability moved toward zero, notification 1
+//   P11 two concurrent duplicate success callbacks -> exactly one completion
+//       posting + one notification; a late transfer.failed afterwards is a
+//       safe no-op on the terminal COMPLETED state
+//   P12 Flutterwave transfer.completed/SUCCESSFUL completes a FLUTTERWAVE
+//       payout via verif-hash (major-unit amounts never involved on payout)
+//   P13 failed payout via webhook (transfer.failed) keeps the reserves; admin
+//       reject then releases exactly once and the ledger closes back to the
+//       starting float
+//   P14 webhook gate errors: forged signature 401; unknown reference 200
+//       no-op; gateway mismatch no-op; unhandled event type no-op
+//   P15 bank-account management over HTTP: list, duplicate-account 400 on
+//       validation, PATCH default switch honored by the next request (gateway
+//       follows the destination), DELETE then 422, 404s on missing ids
+//   P16 unverified (recipientRef-less) destination -> 422 despite a row
+//   P17 admin gates over HTTP: double-approve is a no-op with stable
+//       reviewedBy; report-result success=false keeps funds reserved;
+//       releasing a PROCESSING withdrawal is refused with no refund
+//   P18 socket push on admin release (wallet_updated +N, WITHDRAWAL_RELEASE)
+//   P19 eligibility gates (age-not-verified / country-not-allowed) -> 403
+//   P20 pagination bounds on /wallet/withdrawals (oversize limit 400,
+//       page beyond total empty)
+//   P21 concurrent same-idempotencyKey HTTP requests -> one row, one debit
+//   P22 closed book after cleanup: every LedgerTransaction nets zero, the
 //       global entry sum is zero and the singleton liability is intact.
 //
-// No provider network call ever happens: verified BankAccount rows are seeded
-// directly (the provider-resolution path is covered by unit + integration
-// tests with injected fakes) and only withdraw/release routes are hit.
+// No provider network call ever happens: verified BankAccount rows and
+// PROCESSING withdrawals are seeded directly (the resolution/recipient and
+// begin-payout initiation paths are covered by unit + integration tests with
+// injected fakes) and only withdraw/release/webhook-report routes are hit.
 //
 // Run:  timeout 150 node --env-file=.env scripts/verify/pr7-withdrawal.mjs
 
 import assert from 'node:assert/strict';
 import http from 'node:http';
+import crypto from 'node:crypto';
 import express from 'express';
 import jwt from 'jsonwebtoken';
 import { io as createSocketClient } from 'socket.io-client';
 import prisma from '../../src/utils/db.js';
 import { walletRouter } from '../../src/modules/wallet/controller.js';
 import { adminRouter } from '../../src/modules/admin/controller.js';
+import { webhookRouter } from '../../src/modules/payment/webhookController.js';
 import { initSocketServer } from '../../src/sockets/index.js';
 import { getJwtSecret } from '../../src/utils/jwtEnv.js';
+import { WithdrawalService } from '../../src/modules/withdrawal/service.js';
 import {
   SYSTEM_ACCOUNT_ID,
   getAccountBalance
@@ -49,6 +78,28 @@ apiApp.use('/wallet', walletRouter);
 apiApp.use('/admin', adminRouter);
 const apiServer = apiApp.listen(0);
 const API_BASE = `http://127.0.0.1:${apiServer.address().port}`;
+
+// Payout webhook endpoint: raw-body HMAC middleware lives INSIDE the router.
+const webhookApp = express();
+webhookApp.use('/webhooks', webhookRouter);
+const webhookServer = webhookApp.listen(0);
+const WEBHOOK_BASE = `http://127.0.0.1:${webhookServer.address().port}`;
+
+const paystackSignature = (rawBody) =>
+  crypto.createHmac('sha512', process.env.PAYSTACK_SECRET_KEY).update(rawBody).digest('hex');
+
+const postWebhook = (path, rawBody, headers = {}) =>
+  fetch(`${WEBHOOK_BASE}${path}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', ...headers },
+    body: rawBody
+  });
+
+const paystackTransferEvent = (eventType, reference, extra = {}) =>
+  Buffer.from(JSON.stringify({ event: eventType, data: { reference, ...extra } }));
+
+const flutterwaveTransferEvent = (eventType, reference, status) =>
+  Buffer.from(JSON.stringify({ event: eventType, data: { reference, status, complete_message: 'done' } }));
 
 const state = { users: [] };
 const results = [];
@@ -160,6 +211,40 @@ async function waitForRoom(userId) {
     await new Promise((r) => setTimeout(r, 25));
   }
   await new Promise((r) => setTimeout(r, 50));
+}
+
+async function seedBank(userId, gateway, { isDefault = false } = {}) {
+  return prisma.bankAccount.create({
+    data: {
+      userId,
+      gateway,
+      bankCode: gateway === 'PAYSTACK' ? '057' : '044',
+      bankName: gateway === 'PAYSTACK' ? 'Zenith' : 'Access',
+      accountNumber: `${gateway === 'PAYSTACK' ? '01' : '02'}${String(Math.random()).slice(2, 12)}`,
+      accountName: 'Verify Player',
+      recipientRef: `RCP_${gateway}_${userId.slice(0, 8)}`,
+      verifiedName: 'Verify Player',
+      isDefault,
+      verifiedAt: new Date()
+    }
+  });
+}
+
+async function makeDefault(userId, bankId) {
+  await prisma.bankAccount.updateMany({ where: { userId, isDefault: true }, data: { isDefault: false } });
+  return prisma.bankAccount.update({ where: { id: bankId }, data: { isDefault: true } });
+}
+
+// Creates a PENDING_REVIEW withdrawal through real service code (no provider
+// needed for the request), then simulates the admin-initiated PROCESSING state
+// by flipping the row directly — the payout webhooks only ever see PROCESSING.
+async function seedProcessingWithdrawal(userId, amountMinorUnits) {
+  const svc = new WithdrawalService({ providers: {} });
+  const pending = await svc.requestWithdrawal(userId, amountMinorUnits, `deep:${crypto.randomUUID()}`);
+  return prisma.withdrawal.update({
+    where: { id: pending.id },
+    data: { status: 'PROCESSING', processedAt: new Date() }
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -412,7 +497,431 @@ await run('P9 GET /wallet/withdrawals lists rows and filters by status', async (
   ok('P9 GET /wallet/withdrawals lists rows and filters by status');
 });
 
-await run('P10 closed book after cleanup: zero-sum ledger, single liability singleton', async () => {
+await run('P10 webhook (Paystack transfer.success) completes a PROCESSING payout once', async () => {
+  const { user, wallet } = await makeUser('p10', { balance: 60000n });
+  const wd = await seedProcessingWithdrawal(user.id, 40000n);
+  assert.equal(wd.status, 'PROCESSING');
+  assert.equal(await bal(wallet), 20000n);
+  assert.equal(await sumType(user.id, 'PLAYER_WITHDRAWAL_PENDING'), 40000n);
+  const preLiability = await sumType(null, 'CUSTOMER_LIABILITY', true);
+
+  const raw = paystackTransferEvent('transfer.success', wd.reference);
+  const res = await postWebhook('/webhooks/paystack', raw, {
+    'x-paystack-signature': paystackSignature(raw)
+  });
+  assert.equal(res.status, 200);
+
+  const final = await prisma.withdrawal.findUnique({ where: { id: wd.id } });
+  assert.equal(final.status, 'COMPLETED');
+
+  // Completion moves pending funds to liability but never touches the wallet.
+  assert.equal(await bal(wallet), 20000n);
+  assert.equal(await sumType(user.id, 'PLAYER_WITHDRAWAL_PENDING'), 0n);
+  assert.equal(await sumType(user.id, 'PLAYER_AVAILABLE'), 20000n);
+  assert.equal((await sumType(null, 'CUSTOMER_LIABILITY', true)) - preLiability, 40000n);
+
+  // Exactly one complete posting for THIS withdrawal, one notification; reserve outbox untouched.
+  assert.equal(await ledgerTxCount(`withdrawal:complete:${wd.id}`), 1);
+  assert.equal(
+    await prisma.notification.count({ where: { userId: user.id, type: 'WITHDRAWAL_CONFIRMED' } }),
+    1
+  );
+  assert.equal(
+    await prisma.outboxEvent.count({ where: { aggregateId: wallet.id, eventType: 'wallet.updated' } }),
+    1
+  );
+
+  ok('P10 webhook (Paystack transfer.success) completes a PROCESSING payout once');
+});
+
+await run('P11 concurrent duplicate success + late failure: one completion posting, terminal state stable', async () => {
+  const { user, wallet } = await makeUser('p11', { balance: 60000n });
+  const wd = await seedProcessingWithdrawal(user.id, 40000n);
+  const raw = paystackTransferEvent('transfer.success', wd.reference);
+
+  const [a, b] = await Promise.all([
+    postWebhook('/webhooks/paystack', raw, { 'x-paystack-signature': paystackSignature(raw) }),
+    postWebhook('/webhooks/paystack', raw, { 'x-paystack-signature': paystackSignature(raw) })
+  ]);
+  assert.equal(a.status, 200);
+  assert.equal(b.status, 200);
+
+  const final = await prisma.withdrawal.findUnique({ where: { id: wd.id } });
+  assert.equal(final.status, 'COMPLETED');
+  assert.equal(await ledgerTxCount(`withdrawal:complete:${wd.id}`), 1);
+  assert.equal(
+    await prisma.notification.count({ where: { userId: user.id, type: 'WITHDRAWAL_CONFIRMED' } }),
+    1
+  );
+  assert.equal(await bal(wallet), 20000n);
+
+  // A late transfer.failed must NOT un-complete it or move money again.
+  const failRaw = paystackTransferEvent('transfer.failed', wd.reference);
+  const late = await postWebhook('/webhooks/paystack', failRaw, {
+    'x-paystack-signature': paystackSignature(failRaw)
+  });
+  assert.equal(late.status, 200);
+  assert.equal((await prisma.withdrawal.findUnique({ where: { id: wd.id } })).status, 'COMPLETED');
+  assert.equal(await ledgerTxCount(`withdrawal:complete:${wd.id}`), 1);
+  assert.equal(await bal(wallet), 20000n);
+
+  ok('P11 concurrent duplicate success + late failure: one completion posting, terminal state stable');
+});
+
+await run('P12 Flutterwave transfer.completed SUCCESSFUL completes a FLUTTERWAVE payout', async () => {
+  const { user, wallet } = await makeUser('p12', { balance: 60000n });
+  const flw = await seedBank(user.id, 'FLUTTERWAVE');
+  await makeDefault(user.id, flw.id);
+  const wd = await seedProcessingWithdrawal(user.id, 40000n);
+  assert.equal(wd.gateway, 'FLUTTERWAVE');
+  const preLiability = await sumType(null, 'CUSTOMER_LIABILITY', true);
+
+  const raw = flutterwaveTransferEvent('transfer.completed', wd.reference, 'SUCCESSFUL');
+  const res = await postWebhook('/webhooks/flutterwave', raw, {
+    'verif-hash': process.env.FLUTTERWAVE_SECRET_HASH
+  });
+  assert.equal(res.status, 200);
+
+  const final = await prisma.withdrawal.findUnique({ where: { id: wd.id } });
+  assert.equal(final.status, 'COMPLETED');
+  assert.equal((await sumType(null, 'CUSTOMER_LIABILITY', true)) - preLiability, 40000n);
+  assert.equal(await sumType(user.id, 'PLAYER_WITHDRAWAL_PENDING'), 0n);
+  assert.equal(await bal(wallet), 20000n);
+  assert.equal(
+    await prisma.notification.count({ where: { userId: user.id, type: 'WITHDRAWAL_CONFIRMED' } }),
+    1
+  );
+
+  // A FAILED-status Flutterwave completion for the same transfer is a no-op.
+  const failRaw = flutterwaveTransferEvent('transfer.completed', wd.reference, 'FAILED');
+  const failRes = await postWebhook('/webhooks/flutterwave', failRaw, {
+    'verif-hash': process.env.FLUTTERWAVE_SECRET_HASH
+  });
+  assert.equal(failRes.status, 200);
+  assert.equal((await prisma.withdrawal.findUnique({ where: { id: wd.id } })).status, 'COMPLETED');
+  assert.equal(await ledgerTxCount(`withdrawal:complete:${wd.id}`), 1);
+
+  ok('P12 Flutterwave transfer.completed SUCCESSFUL completes a FLUTTERWAVE payout');
+});
+
+await run('P13 failed payout webhook keeps reserves; admin reject releases exactly once', async () => {
+  const { user, wallet } = await makeUser('p13', { balance: 60000n });
+  const wd = await seedProcessingWithdrawal(user.id, 40000n);
+  const preLiability = await sumType(null, 'CUSTOMER_LIABILITY', true);
+
+  const raw = paystackTransferEvent('transfer.failed', wd.reference, { complete_message: 'insufficient balance' });
+  const res = await postWebhook('/webhooks/paystack', raw, {
+    'x-paystack-signature': paystackSignature(raw)
+  });
+  assert.equal(res.status, 200);
+
+  const failed = await prisma.withdrawal.findUnique({ where: { id: wd.id } });
+  assert.equal(failed.status, 'FAILED');
+  assert.equal(failed.failureReason, 'insufficient balance');
+  // Funds remain reserved — the player has NOT been refunded yet.
+  assert.equal(await bal(wallet), 20000n);
+  assert.equal(await sumType(user.id, 'PLAYER_WITHDRAWAL_PENDING'), 40000n);
+  assert.equal((await sumType(null, 'CUSTOMER_LIABILITY', true)), preLiability);
+
+  // Admin reject releases: refund once, ledger closes, liability returns.
+  const admin = await prisma.user.create({
+    data: {
+      email: `verify-pr7-admin13-${Date.now()}@test.local`,
+      passwordHash: 'x', kycStatus: 'VERIFIED', countryCode: 'NG', isAdmin: true
+    }
+  });
+  state.users.push(admin.id);
+  const rejectBody = await (await api(`/admin/withdrawals/${failed.id}/reject`, {
+    method: 'POST', token: authed(admin.id), body: { reason: 'not retrying' }
+  })).json();
+  assert.equal(rejectBody.withdrawal.status, 'RELEASED');
+
+  assert.equal(await bal(wallet), 60000n);
+  assert.equal(await sumType(user.id, 'PLAYER_WITHDRAWAL_PENDING'), 0n);
+  assert.equal(await sumType(user.id, 'PLAYER_AVAILABLE'), 60000n);
+  assert.equal(await sumType(null, 'CUSTOMER_LIABILITY', true), preLiability);
+  assert.equal(await prisma.walletTransaction.count({ where: { walletId: wallet.id, type: 'REFUND' } }), 1);
+  assert.equal(
+    await prisma.notification.count({ where: { userId: user.id, type: 'WITHDRAWAL_REFUNDED' } }),
+    1
+  );
+
+  ok('P13 failed payout webhook keeps reserves; admin reject releases exactly once');
+});
+
+await run('P14 webhook gate errors: forged, unknown, mismatched, unhandled — all harmless', async () => {
+  const { user } = await makeUser('p14', { balance: 60000n });
+  const flw = await seedBank(user.id, 'FLUTTERWAVE');
+  await makeDefault(user.id, flw.id);
+  const wd = await seedProcessingWithdrawal(user.id, 40000n);
+  assert.equal(wd.gateway, 'FLUTTERWAVE');
+
+  // Forged signature -> 401 before any lookup.
+  const raw = paystackTransferEvent('transfer.success', wd.reference);
+  const forged = await postWebhook('/webhooks/paystack', raw, { 'x-paystack-signature': 'forged' });
+  assert.equal(forged.status, 401);
+  assert.equal((await prisma.withdrawal.findUnique({ where: { id: wd.id } })).status, 'PROCESSING');
+
+  // Unknown reference -> ack 200, no state change.
+  const unknown = paystackTransferEvent('transfer.success', 'wit-nonexistent');
+  const ures = await postWebhook('/webhooks/paystack', unknown, {
+    'x-paystack-signature': paystackSignature(unknown)
+  });
+  assert.equal(ures.status, 200);
+  assert.equal((await prisma.withdrawal.findUnique({ where: { id: wd.id } })).status, 'PROCESSING');
+
+  // Gateway mismatch: Paystack-signature event for a FLUTTERWAVE withdrawal.
+  const mismatch = paystackTransferEvent('transfer.success', wd.reference);
+  const mres = await postWebhook('/webhooks/paystack', mismatch, {
+    'x-paystack-signature': paystackSignature(mismatch)
+  });
+  assert.equal(mres.status, 200);
+  assert.equal((await prisma.withdrawal.findUnique({ where: { id: wd.id } })).status, 'PROCESSING');
+
+  // Unhandled event type (Paystack transfer.status) -> ack, no change.
+  const statusEvt = paystackTransferEvent('transfer.status', wd.reference, { status: 'success' });
+  const sres = await postWebhook('/webhooks/paystack', statusEvt, {
+    'x-paystack-signature': paystackSignature(statusEvt)
+  });
+  assert.equal(sres.status, 200);
+  assert.equal((await prisma.withdrawal.findUnique({ where: { id: wd.id } })).status, 'PROCESSING');
+
+  ok('P14 webhook gate errors: forged, unknown, mismatched, unhandled — all harmless');
+});
+
+await run('P15 bank-account management over HTTP (list, default switch, delete, 404s, validation 400)', async () => {
+  const { user, wallet } = await makeUser('p15', { balance: 60000n });
+  const token = authed(user.id);
+
+  let list = await (await api('/wallet/bank-accounts', { token })).json();
+  assert.equal(list.bankAccounts.length, 1);
+  assert.equal(list.bankAccounts[0].gateway, 'PAYSTACK');
+
+  // Validation error surfaces catch-before-provider as 400.
+  const bad = await api('/wallet/bank-accounts', {
+    method: 'POST', token,
+    body: { gateway: 'paystack', bankCode: '057', accountNumber: '123' }
+  });
+  assert.equal(bad.status, 400);
+  const bad2 = await api('/wallet/bank-accounts', {
+    method: 'POST', token,
+    body: { gateway: 'stripe', bankCode: '057', bankName: 'X', accountNumber: '0123456789' }
+  });
+  assert.equal(bad2.status, 400);
+
+  // Seeded second destination becomes the default; next request follows it.
+  const flw = await seedBank(user.id, 'FLUTTERWAVE');
+  await makeDefault(user.id, flw.id);
+  const created = await (await api('/wallet/withdrawal-request', {
+    method: 'POST', token, body: { amountMinorUnits: 10000, idempotencyKey: 'deep15_default' }
+  })).json();
+  assert.equal(created.withdrawalRequest.gateway, 'FLUTTERWAVE');
+
+  // DELETE the FLUTTERWAVE default -> request now 422 (no destination).
+  const del = await api(`/wallet/bank-accounts/${flw.id}`, { method: 'DELETE', token });
+  assert.equal(del.status, 200);
+  const nowMissing = await api('/wallet/withdrawal-request', {
+    method: 'POST', token, body: { amountMinorUnits: 1000, idempotencyKey: 'deep15_missing' }
+  });
+  assert.equal(nowMissing.status, 422);
+
+  // 404s on unknown ids.
+  const miss = await api('/wallet/bank-accounts/does-not-exist', { method: 'PATCH', token });
+  assert.equal(miss.status, 404);
+
+  ok('P15 bank-account management over HTTP (list, default switch, delete, 404s, validation 400)');
+});
+
+await run('P16 unverified destination (recipientRef missing) -> 422 despite a row', async () => {
+  const { user, wallet } = await makeUser('p16', { balance: 60000n });
+  await prisma.bankAccount.updateMany({
+    where: { userId: user.id },
+    data: { recipientRef: null, verifiedAt: null }
+  });
+  const res = await api('/wallet/withdrawal-request', {
+    method: 'POST', token: authed(user.id),
+    body: { amountMinorUnits: 1000, idempotencyKey: 'deep16-unverified' }
+  });
+  assert.equal(res.status, 422);
+  assert.match((await res.json()).error, /verified/i);
+  assert.equal(await bal(wallet), 60000n);
+  assert.equal(await prisma.withdrawal.count({ where: { userId: user.id } }), 0);
+
+  ok('P16 unverified destination (recipientRef missing) -> 422 despite a row');
+});
+
+await run('P17 admin gates: double-approve no-op, report-result(false) reserves, PROCESSING not releasable', async () => {
+  const { user, wallet } = await makeUser('p17', { balance: 60000n });
+  const token = authed(user.id);
+  const admin = await prisma.user.create({
+    data: {
+      email: `verify-pr7-admin17-${Date.now()}@test.local`,
+      passwordHash: 'x', kycStatus: 'VERIFIED', countryCode: 'NG', isAdmin: true
+    }
+  });
+  state.users.push(admin.id);
+  const adminToken = authed(admin.id);
+
+  const created = await (await api('/wallet/withdrawal-request', {
+    method: 'POST', token, body: { amountMinorUnits: 40000, idempotencyKey: 'deep17a-approve-x2' }
+  })).json();
+  const id = created.withdrawalRequest.id;
+
+  const firstApprove = await (await api(`/admin/withdrawals/${id}/approve`, { method: 'POST', token: adminToken })).json();
+  assert.equal(firstApprove.withdrawal.status, 'APPROVED');
+  const firstReviewedBy = firstApprove.withdrawal.reviewedBy;
+  // Double-approve: no crash, no status regression, reviewedBy stable.
+  const secondApprove = await (await api(`/admin/withdrawals/${id}/approve`, { method: 'POST', token: adminToken })).json();
+  assert.equal(secondApprove.withdrawal.status, 'APPROVED');
+  assert.equal(secondApprove.withdrawal.reviewedBy, firstReviewedBy);
+
+  // Simulate begin-payout (PROCESSING is the only state report-result accepts),
+  // then admin report-result success=false -> FAILED, funds stay reserved.
+  await prisma.withdrawal.update({ where: { id }, data: { status: 'PROCESSING', processedAt: new Date() } });
+  const rejected = await (await api(`/admin/withdrawals/${id}/report-result`, {
+    method: 'POST', token: adminToken, body: { success: false, failureReason: 'ops decision' }
+  })).json();
+  assert.equal(rejected.withdrawal.status, 'FAILED');
+  assert.equal(await bal(wallet), 20000n);
+  assert.equal(await sumType(user.id, 'PLAYER_WITHDRAWAL_PENDING'), 40000n);
+
+  // Release a healthily FAILED withdrawal (the operator path).
+  const released = await (await api(`/admin/withdrawals/${id}/reject`, {
+    method: 'POST', token: adminToken, body: { reason: 'no retry' }
+  })).json();
+  assert.equal(released.withdrawal.status, 'RELEASED');
+  assert.equal(await bal(wallet), 60000n);
+
+  // A PROCESSING withdrawal is NOT releasable: surface an error, refund nothing.
+  const wd2 = await seedProcessingWithdrawal(user.id, 10000n);
+  const lockRes = await api(`/admin/withdrawals/${wd2.id}/reject`, {
+    method: 'POST', token: adminToken, body: { reason: 'oops' }
+  });
+  assert.ok(lockRes.status >= 400);
+  assert.equal((await prisma.withdrawal.findUnique({ where: { id: wd2.id } })).status, 'PROCESSING');
+  assert.equal(await bal(wallet), 50000n);
+
+  ok('P17 admin gates: double-approve no-op, report-result(false) reserves, PROCESSING not releasable');
+});
+
+await run('P18 socket push on admin release (wallet_updated +N, WITHDRAWAL_RELEASE)', async () => {
+  const { user, wallet } = await makeUser('p18', { balance: 60000n });
+  const token = authed(user.id);
+  const created = await (await api('/wallet/withdrawal-request', {
+    method: 'POST', token, body: { amountMinorUnits: 40000, idempotencyKey: 'deep18-release-push' }
+  })).json();
+  const admin = await prisma.user.create({
+    data: {
+      email: `verify-pr7-admin18-${Date.now()}@test.local`,
+      passwordHash: 'x', kycStatus: 'VERIFIED', countryCode: 'NG', isAdmin: true
+    }
+  });
+  state.users.push(admin.id);
+
+  const client = createSocketClient(`http://127.0.0.1:${SOCKET_PORT}`, {
+    auth: { token }, transports: ['websocket']
+  });
+  await new Promise((resolve, reject) => {
+    client.once('connect', resolve);
+    client.once('connect_error', (err) => reject(new Error(err.message)));
+  });
+  await waitForRoom(user.id);
+  const nextEvent = (event, timeout = 3000) =>
+    new Promise((resolve) => {
+      const timer = setTimeout(() => resolve(null), timeout);
+      client.once(event, (payload) => {
+        clearTimeout(timer);
+        resolve(payload);
+      });
+    });
+
+  const pushed = nextEvent('wallet_updated');
+  await api(`/admin/withdrawals/${created.withdrawalRequest.id}/reject`, {
+    method: 'POST', token: authed(admin.id), body: { reason: 'refund now' }
+  });
+  const event = await pushed;
+  assert.ok(event, 'WITHDRAWAL_RELEASE socket event should fire');
+  assert.equal(event.balanceChange, '+40000');
+  assert.equal(event.type, 'WITHDRAWAL_RELEASE');
+  assert.equal(event.withdrawalId, created.withdrawalRequest.id);
+  client.close();
+
+  ok('P18 socket push on admin release (wallet_updated +N, WITHDRAWAL_RELEASE)');
+});
+
+await run('P19 eligibility gates (age / country) -> 403 before any reservation', async () => {
+  const age = await makeUser('p19a', { kyc: 'VERIFIED' });
+  await prisma.eligibility.updateMany({
+    where: { userId: age.user.id },
+    data: { ageVerified: false }
+  });
+  const ageRes = await api('/wallet/withdrawal-request', {
+    method: 'POST', token: authed(age.user.id),
+    body: { amountMinorUnits: 100, idempotencyKey: 'deep19_age' }
+  });
+  assert.equal(ageRes.status, 403);
+  assert.equal(await prisma.withdrawal.count({ where: { userId: age.user.id } }), 0);
+
+  const country = await makeUser('p19b', { kyc: 'VERIFIED' });
+  await prisma.eligibility.updateMany({
+    where: { userId: country.user.id },
+    data: { countryAllowed: false }
+  });
+  const countryRes = await api('/wallet/withdrawal-request', {
+    method: 'POST', token: authed(country.user.id),
+    body: { amountMinorUnits: 100, idempotencyKey: 'deep19_country' }
+  });
+  assert.equal(countryRes.status, 403);
+  assert.equal(await prisma.withdrawal.count({ where: { userId: country.user.id } }), 0);
+
+  ok('P19 eligibility gates (age / country) -> 403 before any reservation');
+});
+
+await run('P20 pagination bounds on /wallet/withdrawals', async () => {
+  const { user } = await makeUser('p20', { balance: 100000n });
+  const token = authed(user.id);
+  await api('/wallet/withdrawal-request', {
+    method: 'POST', token, body: { amountMinorUnits: 1000, idempotencyKey: 'deep20_1' }
+  });
+  await api('/wallet/withdrawal-request', {
+    method: 'POST', token, body: { amountMinorUnits: 2000, idempotencyKey: 'deep20_2' }
+  });
+
+  const oversize = await api('/wallet/withdrawals?limit=1000', { token });
+  assert.equal(oversize.status, 400);
+  const pageBeyond = await (await api('/wallet/withdrawals?page=999', { token })).json();
+  assert.equal(pageBeyond.withdrawals.length, 0);
+  assert.equal(pageBeyond.total, 2);
+
+  ok('P20 pagination bounds on /wallet/withdrawals');
+});
+
+await run('P21 concurrent same-idempotencyKey HTTP requests -> one row, one debit', async () => {
+  const { user, wallet } = await makeUser('p21', { balance: 10000n });
+  const token = authed(user.id);
+  const body = { amountMinorUnits: 8000, idempotencyKey: 'deep21_same_key' };
+
+  const [a, b] = await Promise.all([
+    api('/wallet/withdrawal-request', { method: 'POST', token, body }),
+    api('/wallet/withdrawal-request', { method: 'POST', token, body })
+  ]);
+  assert.equal(a.status, 201);
+  assert.equal(b.status, 201);
+  const aBody = await a.json();
+  const bBody = await b.json();
+  assert.equal(aBody.withdrawalRequest.id, bBody.withdrawalRequest.id);
+  assert.equal(await bal(wallet), 2000n);
+  assert.equal(await sumType(user.id, 'PLAYER_WITHDRAWAL_PENDING'), 8000n);
+  assert.equal(await prisma.withdrawal.count({ where: { userId: user.id } }), 1);
+  assert.equal(
+    await prisma.walletTransaction.count({ where: { walletId: wallet.id, type: 'WITHDRAWAL' } }),
+    1
+  );
+
+  ok('P21 concurrent same-idempotencyKey HTTP requests -> one row, one debit');
+});
+
+await run('P22 closed book after cleanup: zero-sum ledger, single liability singleton', async () => {
   // Every LedgerTransaction nets zero, globally.
   const all = await prisma.ledgerTransaction.findMany({ include: { entries: true } });
   for (const t of all) {
@@ -423,7 +932,7 @@ await run('P10 closed book after cleanup: zero-sum ledger, single liability sing
     where: { type: 'CUSTOMER_LIABILITY' }
   });
   assert.equal(liabilities, 1);
-  ok('P10 closed book after cleanup: zero-sum ledger, single liability singleton');
+  ok('P22 closed book after cleanup: zero-sum ledger, single liability singleton');
 });
 
 // ---------------------------------------------------------------------------
@@ -466,5 +975,6 @@ console.log(`${passed}/${results.length} probes passed`);
 console.log('cleanup: all probe rows removed');
 await prisma.$disconnect();
 apiServer.close();
+webhookServer.close();
 socketServer.close();
 process.exit(passed === results.length ? 0 : 1);

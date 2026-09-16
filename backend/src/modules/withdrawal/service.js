@@ -484,16 +484,21 @@ export class WithdrawalService {
       const w = await tx.withdrawal.findUnique({ where: { id: withdrawalId } });
       if (!w) throw new WithdrawalNotFoundError();
       if (w.status === 'COMPLETED') return toPayload(w);
-      if (w.status !== 'PROCESSING') {
-        throw new WithdrawalStateError('Payout result can only be reported for a PROCESSING withdrawal');
-      }
 
-      const updated = await tx.withdrawal.update({
-        where: { id: w.id },
+      // Atomic CAS: only the winning caller posts side effects, so a concurrent
+      // duplicate callback can never double-create notifications or postings.
+      const claimed = await tx.withdrawal.updateMany({
+        where: { id: withdrawalId, status: 'PROCESSING' },
         data: success
           ? { status: 'COMPLETED' }
           : { status: 'FAILED', failureReason: failureReason || 'Provider reported a failed payout' }
       });
+      if (claimed.count === 0) {
+        // A racing duplicate already resolved the payout — acknowledge, no-op.
+        const current = await tx.withdrawal.findUnique({ where: { id: withdrawalId } });
+        if (current?.status === 'COMPLETED') return toPayload(current);
+        throw new WithdrawalStateError('Payout result can only be reported for a PROCESSING withdrawal');
+      }
 
       if (success) {
         await postWithdrawalComplete(tx, {
@@ -515,6 +520,8 @@ export class WithdrawalService {
       } else {
         logger.warn({ withdrawalId: w.id, userId: w.userId, reason: failureReason }, 'Withdrawal payout failed; funds remain reserved');
       }
+
+      const updated = await tx.withdrawal.findUnique({ where: { id: w.id } });
       return toPayload(updated);
     });
   }
