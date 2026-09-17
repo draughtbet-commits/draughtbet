@@ -21,7 +21,8 @@ import '../models/match_flow.dart';
 import '../screens/crown_screen.dart';
 import '../screens/wallet_read_screens.dart';
 import '../models/wallet_read.dart';
-import '../screens/checkout_webview_screen.dart';
+import '../screens/deposit_flow_screens.dart';
+import '../providers/deposit_provider.dart';
 import '../screens/settings_screen.dart';
 import '../screens/results_screen.dart';
 import '../widgets/main_layout.dart';
@@ -285,11 +286,38 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         },
       ),
       GoRoute(
-        path: '/checkout',
-        builder: (context, state) {
-          final url = state.extra as String;
-          return CheckoutWebviewScreen(authorizationUrl: url);
-        },
+        path: '/wallet/add-money',
+        builder: (context, state) => const AddMoneyScreen(),
+      ),
+      GoRoute(
+        path: '/wallet/payment-method',
+        builder: (context, state) => const PaymentMethodScreen(),
+      ),
+      GoRoute(
+        path: '/wallet/hosted-checkout',
+        builder: (context, state) => const HostedCheckoutScreen(),
+      ),
+      GoRoute(
+        path: '/wallet/deposit-processing',
+        builder: (context, state) => const DepositStatusScreen(
+          requestedPhase: DepositFlowPhase.processing,
+        ),
+      ),
+      GoRoute(
+        path: '/wallet/deposit-successful',
+        builder: (context, state) => const DepositStatusScreen(
+          requestedPhase: DepositFlowPhase.successful,
+        ),
+      ),
+      GoRoute(
+        path: '/wallet/deposit-failed',
+        builder: (context, state) =>
+            const DepositStatusScreen(requestedPhase: DepositFlowPhase.failed),
+      ),
+      GoRoute(
+        path: '/wallet/deposit-pending',
+        builder: (context, state) =>
+            const DepositStatusScreen(requestedPhase: DepositFlowPhase.pending),
       ),
     ],
   );

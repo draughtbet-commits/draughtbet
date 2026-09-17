@@ -14,6 +14,7 @@ class SecureStorageService {
   static const _refreshTokenKey = 'refresh_token';
   static const _userIdKey = 'user_id';
   static const _activeMatchIdKey = 'active_match_id';
+  static const _activeDepositReferenceKey = 'active_deposit_reference';
 
   final FlutterSecureStorage _storage;
 
@@ -21,6 +22,8 @@ class SecureStorageService {
   Future<String?> get refreshToken => _storage.read(key: _refreshTokenKey);
   Future<String?> get userId => _storage.read(key: _userIdKey);
   Future<String?> get activeMatchId => _storage.read(key: _activeMatchIdKey);
+  Future<String?> get activeDepositReference =>
+      _storage.read(key: _activeDepositReferenceKey);
 
   Future<void> setAccessToken(String token) =>
       _storage.write(key: _accessTokenKey, value: token);
@@ -36,16 +39,25 @@ class SecureStorageService {
 
   Future<void> clearActiveMatchId() => _storage.delete(key: _activeMatchIdKey);
 
+  Future<void> setActiveDepositReference(String reference) =>
+      _storage.write(key: _activeDepositReferenceKey, value: reference);
+
+  Future<void> clearActiveDepositReference() =>
+      _storage.delete(key: _activeDepositReferenceKey);
+
   /// Wipes every credential the app owns (used on logout / expiry).
   Future<void> clearCredentials() async {
     await _storage.delete(key: _accessTokenKey);
     await _storage.delete(key: _refreshTokenKey);
     await _storage.delete(key: _userIdKey);
     await _storage.delete(key: _activeMatchIdKey);
+    await _storage.delete(key: _activeDepositReferenceKey);
   }
 
   Future<String?> read({required String key}) => _storage.read(key: key);
 
   Future<void> write({required String key, required String value}) =>
       _storage.write(key: key, value: value);
+
+  Future<void> delete({required String key}) => _storage.delete(key: key);
 }

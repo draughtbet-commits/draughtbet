@@ -141,11 +141,7 @@ class _WalletDashboardBody extends StatelessWidget {
           children: [
             Expanded(
               child: FilledButton(
-                onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Add money will be enabled in Deposit V2.'),
-                  ),
-                ),
+                onPressed: () => context.push('/wallet/add-money'),
                 child: const Text('Add money'),
               ),
             ),

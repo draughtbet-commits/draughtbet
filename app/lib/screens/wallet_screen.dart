@@ -24,17 +24,6 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
     });
   }
 
-  void _showDepositModal() {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: AppColors.surface1,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
-      builder: (context) => const _DepositModal(),
-    );
-  }
-
   void _showWithdrawalModal() {
     showModalBottomSheet(
       context: context,
@@ -100,7 +89,7 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     ElevatedButton.icon(
-                      onPressed: _showDepositModal,
+                      onPressed: () => context.push('/wallet/add-money'),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: AppColors.gold500,
                         foregroundColor: AppColors.voidBg,
@@ -233,128 +222,6 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
                 ),
               ],
             ),
-    );
-  }
-}
-
-class _DepositModal extends ConsumerStatefulWidget {
-  const _DepositModal();
-
-  @override
-  ConsumerState<_DepositModal> createState() => _DepositModalState();
-}
-
-class _DepositModalState extends ConsumerState<_DepositModal> {
-  final _amountController = TextEditingController();
-  String _gateway = 'paystack';
-  bool _isLoading = false;
-
-  Future<void> _submit() async {
-    final amount = double.tryParse(_amountController.text);
-    if (amount == null || amount <= 0) return;
-
-    setState(() => _isLoading = true);
-    final response = await ref
-        .read(walletProvider.notifier)
-        .initiateDeposit((amount * 100).toInt(), _gateway);
-    setState(() => _isLoading = false);
-
-    if (response != null && response['authorizationUrl'] != null && mounted) {
-      context.pop(); // close modal
-      context.push('/checkout', extra: response['authorizationUrl']);
-    } else if (mounted) {
-      final error =
-          ref.read(walletProvider).error ?? 'Failed to initiate deposit';
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(error)));
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: EdgeInsets.only(
-        left: 24,
-        right: 24,
-        top: 24,
-        bottom: MediaQuery.of(context).viewInsets.bottom + 24,
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text('Deposit Funds', style: AppTypography.heading2),
-          const SizedBox(height: 16),
-          TextField(
-            controller: _amountController,
-            keyboardType: TextInputType.number,
-            style: AppTypography.bodyMedium,
-            decoration: InputDecoration(
-              labelText: 'Amount (₦)',
-              labelStyle: AppTypography.bodySmall,
-              filled: true,
-              fillColor: AppColors.surface2,
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide.none,
-              ),
-            ),
-          ),
-          const SizedBox(height: 16),
-          Text('Select Gateway', style: AppTypography.bodySmall),
-          RadioGroup<String>(
-            groupValue: _gateway,
-            onChanged: (value) {
-              if (value != null) setState(() => _gateway = value);
-            },
-            child: Row(
-              children: [
-                Expanded(
-                  child: RadioListTile<String>(
-                    title: Text('Paystack', style: AppTypography.bodyMedium),
-                    value: 'paystack',
-                    activeColor: AppColors.gold500,
-                  ),
-                ),
-                Expanded(
-                  child: RadioListTile<String>(
-                    title: Text('Flutterwave', style: AppTypography.bodyMedium),
-                    value: 'flutterwave',
-                    activeColor: AppColors.gold500,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 24),
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton(
-              onPressed: _isLoading ? null : _submit,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.gold500,
-                padding: const EdgeInsets.symmetric(vertical: 16),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
-              child: _isLoading
-                  ? const SizedBox(
-                      height: 20,
-                      width: 20,
-                      child: CircularProgressIndicator(color: AppColors.voidBg),
-                    )
-                  : Text(
-                      'Continue to Payment',
-                      style: AppTypography.labelBold.copyWith(
-                        color: AppColors.voidBg,
-                      ),
-                    ),
-            ),
-          ),
-        ],
-      ),
     );
   }
 }
