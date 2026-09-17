@@ -2,16 +2,13 @@ import { jest } from '@jest/globals';
 
 const mockPrisma = {
   $transaction: jest.fn(),
+  $queryRaw: jest.fn(),
   depositIntent: {
     findUnique: jest.fn(),
-    update: jest.fn()
+    updateMany: jest.fn()
   },
   wallet: {
-    findUnique: jest.fn(),
-    update: jest.fn()
-  },
-  walletTransaction: {
-    create: jest.fn()
+    findUnique: jest.fn()
   },
   ledgerAccount: {
     upsert: jest.fn()
@@ -53,13 +50,16 @@ describe('Deposit Webhook Processing (stored-intent verified)', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockPrisma.$transaction.mockImplementation(async (cb) => cb(mockPrisma));
-    // User + system ledger accounts resolve to deterministic ids keyed by type.
-    mockPrisma.ledgerAccount.upsert.mockImplementation(async ({ create }) => ({
-      id: create?.type === 'CUSTOMER_LIABILITY'
-        ? `system:${create.type}:${create.currency}`
-        : `acc-${create?.type}`,
-      ...create
-    }));
+    // User + system ledger accounts resolve via atomic raw upserts to
+    // deterministic ids keyed by type.
+    mockPrisma.$queryRaw.mockImplementation(async (_strings, ...values) => {
+      if (values.length === 4) {
+        const [id, userId, type, currency] = values;
+        return [{ id: `acc-${type}`, userId, type, currency }];
+      }
+      const [id, type, currency] = values;
+      return [{ id: `system:${type}:${currency}`, userId: null, type, currency }];
+    });
     mockPrisma.ledgerTransaction.findUnique.mockResolvedValue(null);
     mockPrisma.ledgerTransaction.create.mockImplementation(async (data) => ({
       id: 'ltx-1',
@@ -74,7 +74,7 @@ describe('Deposit Webhook Processing (stored-intent verified)', () => {
   it('credits exactly the stored intent amount and marks the intent applied', async () => {
     mockPrisma.depositIntent.findUnique.mockResolvedValue(INTENT);
     mockPrisma.wallet.findUnique.mockResolvedValue({ id: 'wallet-1', userId: 'user-1', currency: 'NGN' });
-    mockPrisma.walletTransaction.create.mockResolvedValue({ walletId: 'wallet-1', amountMinorUnits: BigInt(50000) });
+    mockPrisma.depositIntent.updateMany.mockResolvedValue({ count: 1 });
 
     const result = await processDepositWebhook({
       reference: 'paystack-ref-123',
@@ -86,22 +86,10 @@ describe('Deposit Webhook Processing (stored-intent verified)', () => {
 
     expect(result.handled).toBe(true);
     expect(result.alreadyApplied).toBe(false);
-    // Credit comes from the intent, not the webhook body.
-    expect(mockPrisma.walletTransaction.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({
-        gatewayReference: 'paystack-ref-123',
-        amountMinorUnits: BigInt(50000),
-        gateway: 'PAYSTACK',
-        type: 'DEPOSIT'
-      })
-    });
-    expect(mockPrisma.wallet.update).toHaveBeenCalledWith({
-      where: { id: 'wallet-1' },
-      data: { balanceMinorUnits: { increment: BigInt(50000) } }
-    });
-    expect(mockPrisma.depositIntent.update).toHaveBeenCalledWith({
-      where: { id: 'intent-1' },
-      data: expect.objectContaining({ status: 'COMPLETED' })
+    // The CAS claim (never-credited -> COMPLETED) is the single dedupe gate.
+    expect(mockPrisma.depositIntent.updateMany).toHaveBeenCalledWith({
+      where: { id: 'intent-1', status: { in: ['PENDING', 'FAILED'] } },
+      data: expect.objectContaining({ status: 'COMPLETED', appliedAt: expect.any(Date) })
     });
     // The V2 ledger mirror posts in the same transaction, idempotent per
     // reference, and balances to zero (liability -50000 / available +50000).
@@ -152,18 +140,15 @@ describe('Deposit Webhook Processing (stored-intent verified)', () => {
 
     expect(result.handled).toBe(false);
     expect(result.alreadyApplied).toBe(true);
-    expect(mockPrisma.walletTransaction.create).not.toHaveBeenCalled();
-    expect(mockPrisma.wallet.update).not.toHaveBeenCalled();
+    expect(mockPrisma.depositIntent.updateMany).not.toHaveBeenCalled();
     expect(mockPrisma.ledgerTransaction.create).not.toHaveBeenCalled();
     expect(mockPrisma.outboxEvent.create).not.toHaveBeenCalled();
     expect(mockPrisma.notification.create).not.toHaveBeenCalled();
   });
 
-  it('converts a concurrent duplicate delivery (P2002) into already-applied without re-credit', async () => {
-    const error = new Error('Unique constraint failed');
-    error.code = 'P2002';
+  it('converts a concurrent duplicate delivery (CAS count 0) into already-applied without re-credit', async () => {
     mockPrisma.depositIntent.findUnique.mockResolvedValue(INTENT);
-    mockPrisma.walletTransaction.create.mockRejectedValue(error);
+    mockPrisma.depositIntent.updateMany.mockResolvedValue({ count: 0 });
 
     const result = await processDepositWebhook({
       reference: 'paystack-ref-123',
@@ -174,7 +159,7 @@ describe('Deposit Webhook Processing (stored-intent verified)', () => {
     });
 
     expect(result.alreadyApplied).toBe(true);
-    expect(mockPrisma.wallet.update).not.toHaveBeenCalled();
+    expect(mockPrisma.ledgerTransaction.create).not.toHaveBeenCalled();
     expect(mockPrisma.ledgerEntry.create).not.toHaveBeenCalled();
     expect(mockPrisma.outboxEvent.create).not.toHaveBeenCalled();
     expect(mockPrisma.notification.create).not.toHaveBeenCalled();
@@ -192,8 +177,8 @@ describe('Deposit Webhook Processing (stored-intent verified)', () => {
     });
 
     expect(result).toMatchObject({ handled: false, reason: 'UNKNOWN_REFERENCE' });
-    expect(mockPrisma.walletTransaction.create).not.toHaveBeenCalled();
-    expect(mockPrisma.wallet.update).not.toHaveBeenCalled();
+    expect(mockPrisma.depositIntent.updateMany).not.toHaveBeenCalled();
+    expect(mockPrisma.ledgerTransaction.create).not.toHaveBeenCalled();
   });
 
   it('rejects an amount that differs from the stored intent', async () => {
@@ -208,7 +193,7 @@ describe('Deposit Webhook Processing (stored-intent verified)', () => {
     });
 
     expect(result).toMatchObject({ handled: false, reason: 'AMOUNT_MISMATCH' });
-    expect(mockPrisma.walletTransaction.create).not.toHaveBeenCalled();
+    expect(mockPrisma.ledgerTransaction.create).not.toHaveBeenCalled();
   });
 
   it('rejects a webhook claiming a different user than the intent', async () => {
@@ -223,7 +208,7 @@ describe('Deposit Webhook Processing (stored-intent verified)', () => {
     });
 
     expect(result).toMatchObject({ handled: false, reason: 'USER_MISMATCH' });
-    expect(mockPrisma.walletTransaction.create).not.toHaveBeenCalled();
+    expect(mockPrisma.ledgerTransaction.create).not.toHaveBeenCalled();
   });
 
   it('rejects an event whose currency does not match the wallet/intent', async () => {
@@ -239,7 +224,7 @@ describe('Deposit Webhook Processing (stored-intent verified)', () => {
     });
 
     expect(result).toMatchObject({ handled: false, reason: 'CURRENCY_MISMATCH' });
-    expect(mockPrisma.walletTransaction.create).not.toHaveBeenCalled();
+    expect(mockPrisma.ledgerTransaction.create).not.toHaveBeenCalled();
   });
 
   it('rejects an event whose gateway does not match the intent', async () => {
@@ -254,7 +239,7 @@ describe('Deposit Webhook Processing (stored-intent verified)', () => {
     });
 
     expect(result).toMatchObject({ handled: false, reason: 'GATEWAY_MISMATCH' });
-    expect(mockPrisma.walletTransaction.create).not.toHaveBeenCalled();
+    expect(mockPrisma.ledgerTransaction.create).not.toHaveBeenCalled();
   });
 
   it('rejects a non-canonical webhook amount (float junk) without querying the intent', async () => {

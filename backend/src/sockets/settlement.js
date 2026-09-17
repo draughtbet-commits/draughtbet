@@ -127,17 +127,10 @@ async function notifyAndCleanupDraw(matchId, playerLightId, playerDarkId, refund
 /**
  * Reads the terminal settlement record from Postgres and runs
  * notification/cleanup. Called when we know the DB already settled but aren't
- * sure cleanup ran. Falls back to the legacy PAYOUT mirror row for matches
- * settled before the MatchSettlement record existed.
+ * sure cleanup ran.
  */
 async function readSettlementOrLegacyPayout(matchId) {
-  const settlement = await prisma.matchSettlement.findUnique({ where: { matchId } });
-  if (settlement) return settlement;
-
-  const payoutTx = await prisma.walletTransaction.findFirst({
-    where: { relatedMatchId: matchId, type: 'PAYOUT' }
-  });
-  return payoutTx ? { winnerId: null, netPayoutMinorUnits: payoutTx.amountMinorUnits, endReason: null } : null;
+  return await prisma.matchSettlement.findUnique({ where: { matchId } });
 }
 
 async function runCleanupFromDbForWin(matchId) {

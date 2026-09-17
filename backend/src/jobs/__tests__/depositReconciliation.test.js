@@ -5,9 +5,6 @@ const mockPrisma = {
     updateMany: jest.fn(),
     findMany: jest.fn()
   },
-  walletTransaction: {
-    count: jest.fn()
-  },
   ledgerTransaction: {
     findUnique: jest.fn()
   },
@@ -51,7 +48,6 @@ describe('depositReconciliation', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockPrisma.depositIntent.updateMany.mockResolvedValue({ count: 0 });
-    mockPrisma.walletTransaction.count.mockResolvedValue(1);
     mockPrisma.ledgerEntry.findFirst.mockResolvedValue({
       amountMinorUnits: BigInt(50000)
     });
@@ -89,7 +85,6 @@ describe('depositReconciliation', () => {
   });
 
   it('flags a COMPLETED intent missing its ledger posting (never repairs)', async () => {
-    mockPrisma.walletTransaction.count.mockResolvedValue(1);
     mockPrisma.ledgerTransaction.findUnique.mockResolvedValue(null);
     mockPrisma.depositIntent.findMany.mockResolvedValue([COMPLETED]);
 
@@ -101,12 +96,14 @@ describe('depositReconciliation', () => {
       check: 'ledgerPostingMissing'
     });
     // No repair happened: nothing re-credits or creates rows.
-    expect(mockPrisma.walletTransaction.count).toHaveBeenCalledTimes(1);
+    expect(mockPrisma.ledgerTransaction.findUnique).toHaveBeenCalledWith({
+      where: { idempotencyKey: 'deposit:credit:paystack-ref-123' },
+      include: { entries: true }
+    });
     expect(logger.error).toHaveBeenCalled();
   });
 
   it('flags a COMPLETED intent whose ledger credit does not match the intent amount', async () => {
-    mockPrisma.walletTransaction.count.mockResolvedValue(1);
     mockPrisma.ledgerTransaction.findUnique.mockResolvedValue({
       id: 'ltx-1',
       type: 'DEPOSIT_CREDIT',
@@ -122,21 +119,11 @@ describe('depositReconciliation', () => {
     expect(summary.anomalies[0].check).toBe('ledgerAmount');
   });
 
-  it('flags a COMPLETED intent with zero or multiple wallet credits', async () => {
-    mockPrisma.walletTransaction.count.mockResolvedValue(0);
-    mockPrisma.depositIntent.findMany.mockResolvedValue([COMPLETED]);
-
-    const summary = await reconcileDeposits();
-
-    expect(summary.anomalies[0]).toMatchObject({
-      check: 'walletCreditCount',
-      expected: 1,
-      actual: 0
+  it('flags a FAILED intent that somehow has a ledger credit', async () => {
+    mockPrisma.ledgerTransaction.findUnique.mockResolvedValue({
+      id: 'ltx-2',
+      type: 'DEPOSIT_CREDIT'
     });
-  });
-
-  it('flags a FAILED intent that somehow has a credit', async () => {
-    mockPrisma.walletTransaction.count.mockResolvedValue(1);
     mockPrisma.depositIntent.findMany.mockResolvedValue([FAILED]);
 
     const summary = await reconcileDeposits();
@@ -144,8 +131,7 @@ describe('depositReconciliation', () => {
     expect(summary.anomalies[0].check).toBe('failedIntentHasCredit');
   });
 
-  it('is healthy when every COMPLETED intent has exactly one credit everywhere', async () => {
-    mockPrisma.walletTransaction.count.mockResolvedValue(1);
+  it('is healthy when every COMPLETED intent has exactly one ledger credit', async () => {
     mockPrisma.ledgerTransaction.findUnique.mockResolvedValue({
       id: 'ltx-1',
       type: 'DEPOSIT_CREDIT',

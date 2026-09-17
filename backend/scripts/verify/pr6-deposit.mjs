@@ -28,7 +28,7 @@
 //   P9  integrity: a COMPLETED intent whose ledger posting vanished is flagged
 //       and NEVER auto-repaired
 //   P10 closed-book: every ledger transaction zero-sums; PLAYER_AVAILABLE
-//       reconciles to the legacy wallet; nothing lost or double-booked
+//       balances every confirmed deposit; nothing lost or double-booked
 //   P11 HTTP webhook gate end-to-end: HMAC/verif-hash enforced (401 + zero
 //       side-effects), valid delivery credits once, replay acknowledged, wrong
 //       amount rejected, Flutterwave major-unit amount parsed exactly
@@ -38,7 +38,7 @@
 //   P14 retry storm: 10 concurrent identical deliveries credit exactly once
 //   P15 deposit-intent creation gate rejects invalid amount/gateway/no-wallet/
 //       non-NGN-wallet with nothing persisted
-//   P16 reconciliation flags every anomaly variant (walletCreditCount,
+//   P16 reconciliation flags every anomaly variant (ledgerPostingMissing,
 //       ledgerAmount, failedIntentHasCredit) and never repairs any of them
 //
 // After cleanup the whole-DB book is re-checked: every LedgerTransaction nets
@@ -62,7 +62,8 @@ import {
 import { reconcileDeposits } from '../../src/jobs/depositReconciliation.js';
 import {
   SYSTEM_ACCOUNT_ID,
-  getAccountBalance
+  getAccountBalance,
+  postDepositCredit
 } from '../../src/services/ledgerService.js';
 
 const WEBHOOK = (ref, amount, userId, gateway = 'PAYSTACK', currency = 'NGN') =>
@@ -87,7 +88,7 @@ async function makeUser(suffix) {
     }
   });
   const wallet = await prisma.wallet.create({
-    data: { userId: user.id, balanceMinorUnits: 0n }
+    data: { userId: user.id }
   });
   state.users.push(user.id);
   return { user, wallet };
@@ -111,8 +112,7 @@ async function ledgerCreditCount(reference) {
 }
 
 async function userBalance(wallet) {
-  const current = await prisma.wallet.findUnique({ where: { id: wallet.id } });
-  return current.balanceMinorUnits;
+  return (await ledgerAvailable(wallet.userId)) ?? 0n;
 }
 
 async function ledgerAvailable(userId) {
@@ -181,7 +181,7 @@ await run('P1 stored intent is the only amount source', async () => {
   ok('P1 stored intent is the only amount source');
 });
 
-await run('P2 ledger mirror balances and matches the wallet', async () => {
+await run('P2 ledger is the single money source: credit + offset liability', async () => {
   const { user, wallet } = await makeUser('a');
   const intent = await createDepositIntent(user.id, 50_000n, 'PAYSTACK', 'u@test.local');
   // CUSTOMER_LIABILITY is a persistent system singleton: assert the delta.
@@ -201,13 +201,13 @@ await run('P2 ledger mirror balances and matches the wallet', async () => {
     ltx.entries.map((e) => [e.accountId, e.amountMinorUnits])
   );
   assert.equal(entryByAccount[liabilityId], -50_000n);
-  // PLAYER_AVAILABLE == legacy wallet (the read source), and the liability
-  // offset mirrors the float exactly.
+  // PLAYER_AVAILABLE is the wallet balance read source; the liability offset
+  // mirrors the float exactly.
   assert.equal(await ledgerAvailable(user.id), await userBalance(wallet));
   assert.equal(await ledgerAvailable(user.id), 50_000n);
   assert.equal((await liabilityBalance()) - preLiability, -50_000n);
 
-  ok('P2 ledger mirror balances and matches the wallet');
+  ok('P2 ledger is the single money source: credit + offset liability');
 });
 
 await run('P3 durable outbox + notification, atomic with the credit', async () => {
@@ -365,7 +365,8 @@ await run('P9 integrity flags a vanished ledger posting and never repairs', asyn
     true
   );
   assert.equal(await ledgerCreditCount(intent.reference), 0);
-  assert.equal(await userBalance(wallet), 50_000n);
+  // The sweep never re-posts: the vanished credit stays gone.
+  assert.equal(await userBalance(wallet), 0n);
 
   ok('P9 integrity flags a vanished ledger posting and never repairs');
 });
@@ -650,7 +651,7 @@ await run('P15 deposit intent creation gate rejects bad input', async () => {
       countryCode: 'NG'
     }
   });
-  await prisma.wallet.create({ data: { userId: gbp.id, balanceMinorUnits: 0n, currency: 'GBP' } });
+  await prisma.wallet.create({ data: { userId: gbp.id, currency: 'GBP' } });
   state.users.push(gbp.id);
   await assert.rejects(
     () => createDepositIntent(gbp.id, 50_000n, 'PAYSTACK', 'u@test.local'),
@@ -664,27 +665,30 @@ await run('P15 deposit intent creation gate rejects bad input', async () => {
 });
 
 await run('P16 reconciliation flags every anomaly variant and never repairs', async () => {
-  const { user, wallet } = await makeUser('a');
-
-  // (a) walletCreditCount: the legacy credit row lost its reference.
-  const a = await createDepositIntent(user.id, 50_000n, 'PAYSTACK', 'u@test.local');
-  await processDepositWebhook(WEBHOOK(a.reference, 50_000, user.id));
-  await prisma.walletTransaction.updateMany({
-    where: { gatewayReference: a.reference },
-    data: { gatewayReference: null }
+  // (a) ledgerPostingMissing: the credit posting was lost entirely.
+  const a = await makeUser('a');
+  const intentA = await createDepositIntent(a.user.id, 50_000n, 'PAYSTACK', 'u@test.local');
+  await processDepositWebhook(WEBHOOK(intentA.reference, 50_000, a.user.id));
+  const creditA = await prisma.ledgerTransaction.findUnique({
+    where: { idempotencyKey: ledgerCreditKey(intentA.reference) }
   });
+  await prisma.ledgerEntry.deleteMany({ where: { transactionId: creditA.id } });
+  await prisma.ledgerTransaction.delete({ where: { id: creditA.id } });
+
   let s = await reconcileDeposits();
   assert.equal(
-    s.anomalies.some((x) => x.check === 'walletCreditCount' && x.actual === 0),
+    s.anomalies.some((x) => x.check === 'ledgerPostingMissing'),
     true
   );
-  assert.equal(await userBalance(wallet), 50_000n); // untouched
+  assert.equal(await userBalance(a.wallet), 0n); // never repaired
+  assert.equal(await ledgerCreditCount(intentA.reference), 0); // no re-posting
 
   // (b) ledgerAmount: the PLAYER_AVAILABLE posting no longer matches the intent.
-  const b = await createDepositIntent(user.id, 50_000n, 'PAYSTACK', 'u@test.local');
-  await processDepositWebhook(WEBHOOK(b.reference, 50_000, user.id));
+  const b = await makeUser('a2');
+  const intentB = await createDepositIntent(b.user.id, 50_000n, 'PAYSTACK', 'u@test.local');
+  await processDepositWebhook(WEBHOOK(intentB.reference, 50_000, b.user.id));
   const ltx = await prisma.ledgerTransaction.findUnique({
-    where: { idempotencyKey: ledgerCreditKey(b.reference) },
+    where: { idempotencyKey: ledgerCreditKey(intentB.reference) },
     include: { entries: true }
   });
   const availEntry = ltx.entries.find((e) => e.amountMinorUnits === 50_000n);
@@ -697,31 +701,26 @@ await run('P16 reconciliation flags every anomaly variant and never repairs', as
   const afterB = await prisma.ledgerEntry.findUnique({ where: { id: availEntry.id } });
   assert.equal(afterB.amountMinorUnits, 60_000n); // never repaired
 
-  // (c) failedIntentHasCredit: a parked FAILED intent with a credit row.
-  const c = await createDepositIntent(user.id, 50_000n, 'PAYSTACK', 'u@test.local');
+  // (c) failedIntentHasCredit: a parked FAILED intent with a credit posting.
+  const c = await makeUser('a3');
+  const intentC = await createDepositIntent(c.user.id, 50_000n, 'PAYSTACK', 'u@test.local');
   await prisma.depositIntent.update({
-    where: { id: c.id },
+    where: { id: intentC.id },
     data: { createdAt: new Date(Date.now() - 25 * 60 * 60 * 1000) }
   });
   await reconcileDeposits();
-  assert.equal((await prisma.depositIntent.findUnique({ where: { id: c.id } })).status, 'FAILED');
-  await prisma.walletTransaction.create({
-    data: {
-      walletId: wallet.id,
-      type: 'DEPOSIT',
-      amountMinorUnits: 50_000n,
-      gateway: 'PAYSTACK',
-      gatewayReference: c.reference,
-      status: 'COMPLETED'
-    }
+  assert.equal((await prisma.depositIntent.findUnique({ where: { id: intentC.id } })).status, 'FAILED');
+  await postDepositCredit(prisma, {
+    userId: c.user.id,
+    amountMinorUnits: 50_000n,
+    currency: 'NGN',
+    depositIntentId: intentC.id,
+    reference: intentC.reference
   });
   s = await reconcileDeposits();
   assert.equal(s.anomalies.some((x) => x.check === 'failedIntentHasCredit'), true);
-  assert.equal(await userBalance(wallet), 100_000n); // no repair
-  assert.equal(
-    await prisma.walletTransaction.count({ where: { gatewayReference: c.reference } }),
-    1
-  ); // row untouched
+  assert.equal(await userBalance(c.wallet), 50_000n); // credit stays: no repair
+  assert.equal(await ledgerCreditCount(intentC.reference), 1); // posting untouched
 
   ok('P16 reconciliation flags every anomaly variant and never repairs');
 });
@@ -754,7 +753,6 @@ try {
     }
     const wallets = await prisma.wallet.findMany({ where: { userId } });
     for (const wallet of wallets) {
-      await prisma.walletTransaction.deleteMany({ where: { walletId: wallet.id } });
       await prisma.outboxEvent.deleteMany({ where: { aggregateId: wallet.id } });
     }
     await prisma.notification.deleteMany({ where: { userId } });

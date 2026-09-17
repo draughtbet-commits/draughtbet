@@ -14,9 +14,7 @@ const makeTx = () => ({
     findUnique: jest.fn(),
     create: jest.fn(),
     updateMany: jest.fn()
-  },
-  wallet: { update: jest.fn() },
-  walletTransaction: { create: jest.fn() }
+  }
 });
 
 const wA = { id: 'w-a', userId: 'player-a', currency: 'NGN' };
@@ -64,7 +62,7 @@ describe('stake/service reserveBothStakes', () => {
     jest.clearAllMocks();
   });
 
-  it('reserves rows, debits both legacy wallets and mirrors STAKE_LOCK into the ledger', async () => {
+  it('reserves rows and posts STAKE_LOCK to the ledger', async () => {
     const tx = makeTx();
     tx.stakeReservation.findUnique.mockResolvedValue(null);
     tx.stakeReservation.create.mockImplementation(async ({ data }) => ({ id: `sr:${data.userId}`, ...data }));
@@ -77,28 +75,13 @@ describe('stake/service reserveBothStakes', () => {
     });
 
     expect(rows.map((r) => r.userId).sort()).toEqual(['player-a', 'player-b']);
-    expect(tx.wallet.update).toHaveBeenCalledTimes(2);
-    expect(tx.walletTransaction.create).toHaveBeenCalledTimes(2);
-    // Legacy mirror debits use each player's OWN wallet row regardless of lock order
-    expect(tx.wallet.update).toHaveBeenCalledWith({
-      where: { id: 'w-a' },
-      data: { balanceMinorUnits: { decrement: 5000n } }
-    });
-    expect(tx.wallet.update).toHaveBeenCalledWith({
-      where: { id: 'w-b' },
-      data: { balanceMinorUnits: { decrement: 5000n } }
-    });
-    expect(tx.walletTransaction.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({ type: 'STAKE', amountMinorUnits: -5000n })
-    });
-
     expect(mockPostStakeReservation).toHaveBeenCalledWith(tx, 'm-1', [
       { userId: 'player-a', currency: 'NGN', amountMinorUnits: 5000n },
       { userId: 'player-b', currency: 'NGN', amountMinorUnits: 5000n }
     ]);
   });
 
-  it('refuses to debit a player whose wallet was not locked', async () => {
+  it('refuses to reserve for a player whose wallet was not locked', async () => {
     const tx = makeTx();
     await expect(
       reserveBothStakes(tx, {
@@ -108,12 +91,12 @@ describe('stake/service reserveBothStakes', () => {
         wallets: [wA]
       })
     ).rejects.toThrow('Wallet not locked for userId: player-b');
-    expect(tx.wallet.update).not.toHaveBeenCalled();
+    expect(tx.stakeReservation.create).not.toHaveBeenCalled();
   });
 });
 
 describe('stake/service releaseStakes', () => {
-  it('refunds both wallets, releases only RESERVED rows and mirrors STAKE_RELEASE', async () => {
+  it('releases only RESERVED rows and posts STAKE_RELEASE to the ledger', async () => {
     const tx = makeTx();
     tx.stakeReservation.updateMany.mockResolvedValue({ count: 2 });
 
@@ -124,14 +107,6 @@ describe('stake/service releaseStakes', () => {
       wallets: [wA, wB]
     });
 
-    expect(tx.wallet.update).toHaveBeenCalledTimes(2);
-    expect(tx.wallet.update).toHaveBeenCalledWith({
-      where: { id: 'w-a' },
-      data: { balanceMinorUnits: { increment: 5000n } }
-    });
-    expect(tx.walletTransaction.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({ type: 'REFUND', amountMinorUnits: 5000n, status: 'COMPLETED' })
-    });
     expect(tx.stakeReservation.updateMany).toHaveBeenCalledWith({
       where: {
         matchId: 'm-1',

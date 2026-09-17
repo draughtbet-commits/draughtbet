@@ -4,10 +4,9 @@ import { postStakeReservation, postStakeRelease } from '../../services/ledgerSer
  * StakeService — V2 stake lifecycle.
  *
  * Owns stake reservation and release. Each player's stake is recorded as a
- * StakeReservation row (RESERVED -> RELEASED / SETTLED), mirrored into the
- * double-entry ledger (PLAYER_AVAILABLE -> PLAYER_LOCKED / reverse) and, until
- * the final read-flip, kept in lockstep with the legacy Wallet debit/refund
- * in the SAME transaction so a partial match is impossible.
+ * StakeReservation row (RESERVED -> RELEASED / SETTLED) and posted to the
+ * double-entry ledger (PLAYER_AVAILABLE -> PLAYER_LOCKED / reverse) in the
+ * SAME transaction so a partial match is impossible.
  *
  * Responsibilities:
  *   - idempotency per matchId:userId (a replay never double-reserves)
@@ -44,23 +43,26 @@ export async function reserveStake(tx, { matchId, userId, amountMinorUnits }) {
  * Reserves BOTH player stakes for a funded match inside the caller's
  * transaction:
  *   1. StakeReservation rows (RESERVED) for each player
- *   2. legacy Wallet debit + STAKE walletTransaction (read-source bridge)
- *   3. V2 ledger STAKE_LOCK mirror (balanced, idempotent per match)
+ *   2. V2 ledger STAKE_LOCK posting (balanced, idempotent per match)
  *
  * `participants` is [{ userId, currency }] for the two players (light/dark),
- * `wallets` are the pre-locked Wallet rows used for the legacy debit; each
- * wallet carries one participant's currency.
+ * `wallets` are the pre-locked Wallet rows used to serialize matching funds;
+ * if supplied they also provide each participant's currency.
  */
 export async function reserveBothStakes(
   tx,
   { matchId, participants, amountMinorUnits, wallets }
 ) {
   // Validate every participant's wallet is locked BEFORE any write so a partial
-  // reservation is impossible.
+  // reservation is impossible. Locking the Wallet rows is what serializes a
+  // player's stake funding against withdrawals and sibling fundings.
   const resolved = participants.map(({ userId }) => {
-    const wallet = wallets.find((w) => w.userId === userId);
-    if (!wallet) throw new Error(`Wallet not locked for userId: ${userId}`);
-    return { userId, wallet };
+    if (wallets) {
+      const wallet = wallets.find((w) => w.userId === userId);
+      if (!wallet) throw new Error(`Wallet not locked for userId: ${userId}`);
+      return { userId, wallet };
+    }
+    return { userId, wallet: null };
   });
 
   const reservedOrders = [];
@@ -71,23 +73,9 @@ export async function reserveBothStakes(
       await reserveStake(tx, { matchId, userId, amountMinorUnits })
     );
 
-    // Legacy mirror debit — debit-before-credit ordering, same tx.
-    await tx.wallet.update({
-      where: { id: wallet.id },
-      data: { balanceMinorUnits: { decrement: amountMinorUnits } }
-    });
-    await tx.walletTransaction.create({
-      data: {
-        walletId: wallet.id,
-        type: 'STAKE',
-        amountMinorUnits: -amountMinorUnits,
-        relatedMatchId: matchId
-      }
-    });
-
     ledgerReservations.push({
       userId,
-      currency: wallet.currency ?? 'NGN',
+      currency: wallet?.currency ?? 'NGN',
       amountMinorUnits
     });
   }
@@ -100,8 +88,7 @@ export async function reserveBothStakes(
  * Releases BOTH player stakes when a match is abandoned before it ever becomes
  * playable (activation failure / allowed cancellation). Reverses the reserve:
  *   1. StakeReservation rows RESERVED -> RELEASED
- *   2. legacy Wallet credit (REFUND walletTransaction)
- *   3. V2 ledger STAKE_RELEASE mirror
+ *   2. V2 ledger STAKE_RELEASE posting
  *
  * Idempotent: the claim token + the ledger's unique stake-release key, and the
  * RESERVED-only guard on the reservation rows, prevent a double release.
@@ -112,31 +99,20 @@ export async function releaseStakes(
 ) {
   // Validate every participant's wallet is locked BEFORE any write.
   const resolved = participants.map(({ userId }) => {
-    const wallet = wallets.find((w) => w.userId === userId);
-    if (!wallet) throw new Error(`Wallet not locked for userId: ${userId}`);
-    return { userId, wallet };
+    if (wallets) {
+      const wallet = wallets.find((w) => w.userId === userId);
+      if (!wallet) throw new Error(`Wallet not locked for userId: ${userId}`);
+      return { userId, wallet };
+    }
+    return { userId, wallet: null };
   });
 
   const ledgerReleases = [];
 
   for (const { userId, wallet } of resolved) {
-    await tx.wallet.update({
-      where: { id: wallet.id },
-      data: { balanceMinorUnits: { increment: amountMinorUnits } }
-    });
-    await tx.walletTransaction.create({
-      data: {
-        walletId: wallet.id,
-        type: 'REFUND',
-        amountMinorUnits,
-        relatedMatchId: matchId,
-        status: 'COMPLETED'
-      }
-    });
-
     ledgerReleases.push({
       userId,
-      currency: wallet.currency ?? 'NGN',
+      currency: wallet?.currency ?? 'NGN',
       amountMinorUnits
     });
   }

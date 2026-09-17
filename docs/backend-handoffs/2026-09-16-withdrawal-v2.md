@@ -117,7 +117,10 @@ as terminal.
 
 ## Other notes
 
-- `GET /wallet/balance` is unchanged.
+- `GET /wallet/balance` response shape is unchanged, but as of the PR 3 read-flip
+  (2026-09-17) its value is the V2 ledger `PLAYER_AVAILABLE` net rather than the
+  legacy `Wallet.balanceMinorUnits` column (which has been dropped). See
+  `docs/backend-handoffs/2026-09-17-readflip.md`.
 - The outbox / ledger mirroring behind all of this is transparent to the
   app; no new header or auth requirement on these endpoints.
 - Admin-only routes (`/admin/withdrawals*`) power the console review,

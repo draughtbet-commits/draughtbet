@@ -3,12 +3,13 @@
 //   RUN_DB_INTEGRATION=1 node --experimental-vm-modules node_modules/jest/bin/jest.js \
 //     src/services/__tests__/ledger.integration.test.js
 //
-// Exit gate for PR 2: every legacy wallet reconciles to its ledger available.
+// Seeds funds through the V2 ledger (opening ADJUSTMENT) — the wallet row is a
+// currency/lock holder only after the read-flip.
 import prisma from '../../utils/db.js';
 import {
-  backfillAndReconcileAllWallets,
   postLedgerTransaction,
   getUserLedgerProjections,
+  ensureUserAccounts,
   ensureSystemAccount,
   UnbalancedPostingError
 } from '../ledgerService.js';
@@ -20,7 +21,26 @@ describeIntegration('LedgerService (real PostgreSQL)', () => {
   const createdUsers = [];
   const createdTxIds = [];
 
-  const makeEligibleUser = async (balanceMinorUnits) => {
+  const postOpening = async (userId, amountMinorUnits) => {
+    const result = await prisma.$transaction(async (tx) => {
+      const accounts = await ensureUserAccounts(tx, userId, 'NGN');
+      const clearing = await ensureSystemAccount(tx, 'SYSTEM_OPENING_CLEARING');
+      return postLedgerTransaction(tx, {
+        type: 'ADJUSTMENT',
+        description: 'test opening balance',
+        idempotencyKey: `opening-balance:u:${userId}`,
+        metadata: { source: 'ledger.integration.test' },
+        entries: [
+          { accountId: clearing.id, amountMinorUnits: -amountMinorUnits },
+          { accountId: accounts.PLAYER_AVAILABLE.id, amountMinorUnits: amountMinorUnits }
+        ]
+      });
+    });
+    createdTxIds.push(result.transaction.id);
+    return result;
+  };
+
+  const makeEligibleUser = async (initialBalance) => {
     const user = await prisma.user.create({
       data: {
         email: `ledger-${Date.now()}-${Math.random()}@test.local`,
@@ -32,21 +52,12 @@ describeIntegration('LedgerService (real PostgreSQL)', () => {
         }
       }
     });
-    const wallet = await prisma.wallet.create({
-      data: { userId: user.id, balanceMinorUnits }
-    });
+    const wallet = await prisma.wallet.create({ data: { userId: user.id } });
     createdUsers.push(user.id);
-    return { user, wallet };
-  };
-
-  // Backfills every wallet AND records each opening transaction so cleanup can
-  // remove the system-account entries without touching unrelated data.
-  const runBackfill = async () => {
-    const summary = await backfillAndReconcileAllWallets();
-    for (const row of summary.results) {
-      if (row.transactionId) createdTxIds.push(row.transactionId);
+    if (initialBalance > 0n) {
+      await postOpening(user.id, initialBalance);
     }
-    return summary;
+    return { user, wallet };
   };
 
   const cleanup = async () => {
@@ -60,7 +71,6 @@ describeIntegration('LedgerService (real PostgreSQL)', () => {
         await prisma.ledgerEntry.deleteMany({
           where: { accountId: { in: accounts.map((a) => a.id) } }
         });
-        await prisma.walletTransaction.deleteMany({ where: { walletId: wallet.id } });
         await prisma.wallet.delete({ where: { id: wallet.id } });
       }
       await prisma.ledgerAccount.deleteMany({ where: { userId } });
@@ -84,16 +94,8 @@ describeIntegration('LedgerService (real PostgreSQL)', () => {
     await prisma.$disconnect();
   });
 
-  it('backfills a wallet and the ledger available equals the legacy balance', async () => {
-    const { user, wallet } = await makeEligibleUser(250000n);
-
-    const result = await runBackfill();
-    const row = result.results.find((r) => r.walletId === wallet.id);
-
-    expect(row).toBeDefined();
-    expect(row.reconciled).toBe(true);
-    expect(row.available).toBe('250000');
-    createdTxIds.push(row.transactionId);
+  it('seeds a wallet balance via the ledger and projections reflect it', async () => {
+    const { user } = await makeEligibleUser(250000n);
 
     const projections = await getUserLedgerProjections(prisma, user.id);
     expect(projections.available).toBe('250000');
@@ -101,11 +103,10 @@ describeIntegration('LedgerService (real PostgreSQL)', () => {
     expect(projections.pending).toBe('0');
   });
 
-  it('re-run backfill is idempotent (no double credit)', async () => {
-    const { user, wallet } = await makeEligibleUser(100000n);
+  it('re-posting the opening balance is idempotent (no double credit)', async () => {
+    const { user } = await makeEligibleUser(100000n);
 
-    await runBackfill();
-    await runBackfill();
+    await postOpening(user.id, 100000n);
 
     const projections = await getUserLedgerProjections(prisma, user.id);
     expect(projections.available).toBe('100000');
@@ -122,7 +123,6 @@ describeIntegration('LedgerService (real PostgreSQL)', () => {
 
   it('a balanced STAKE_LOCK moves available -> locked and projections reflect it', async () => {
     const { user, wallet } = await makeEligibleUser(50000n);
-    await runBackfill();
 
     const accounts = await prisma.ledgerAccount.findMany({
       where: { userId: user.id }
@@ -171,7 +171,6 @@ describeIntegration('LedgerService (real PostgreSQL)', () => {
 
   it('rejects an unbalanced posting against real constraints', async () => {
     const { user, wallet } = await makeEligibleUser(10000n);
-    await runBackfill();
 
     const accounts = await prisma.ledgerAccount.findMany({
       where: { userId: user.id }

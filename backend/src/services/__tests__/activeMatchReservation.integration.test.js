@@ -10,7 +10,7 @@ const prisma = (await import('../../utils/db.js')).default;
 const redis = (await import('../../utils/redis.js')).default;
 const { ActiveMatchError, debitStakes } = await import('../matchService.js');
 const { PRETTERMINAL_STATUSES } = await import('../../modules/match/service.js');
-const { getUserLedgerProjections, backfillWalletOpeningBalance } = await import('../../services/ledgerService.js');
+const { getUserLedgerProjections, ensureUserAccounts, ensureSystemAccount, postLedgerTransaction } = await import('../../services/ledgerService.js');
 const { processGameActivationSweep } = await import('../../jobs/gameActivationSweep.js');
 const { settleGameWithRetry } = await import('../../sockets/settlement.js');
 
@@ -21,6 +21,25 @@ describeIntegration('One pre-terminal match per player (real PostgreSQL + Redis)
   const settings = { id: 'singleton', commissionPercent: 10 };
   const allUsers = [];
   const allMatches = [];
+
+  // Seeds a wallet's opening balance as a ledger ADJUSTMENT (same shape as the
+  // legacy backfill) so AVAILABLE == the balance everywhere below.
+  const postOpeningBalance = async (wallet, amountMinorUnits) => {
+    await prisma.$transaction(async (tx) => {
+      const accounts = await ensureUserAccounts(tx, wallet.userId, wallet.currency ?? 'NGN');
+      const clearing = await ensureSystemAccount(tx, 'SYSTEM_OPENING_CLEARING', wallet.currency ?? 'NGN');
+      await postLedgerTransaction(tx, {
+        type: 'ADJUSTMENT',
+        description: 'Opening balance carried over from legacy wallet',
+        idempotencyKey: `opening-balance:${wallet.id}`,
+        metadata: { walletId: wallet.id, source: 'legacy-wallet-backfill' },
+        entries: [
+          { accountId: clearing.id, amountMinorUnits: -amountMinorUnits },
+          { accountId: accounts.PLAYER_AVAILABLE.id, amountMinorUnits: amountMinorUnits }
+        ]
+      });
+    });
+  };
 
   const makeEligibleUser = async (suffix, balance = 10000000n) => {
     const user = await prisma.user.create({
@@ -35,7 +54,8 @@ describeIntegration('One pre-terminal match per player (real PostgreSQL + Redis)
         }
       }
     });
-    await prisma.wallet.create({ data: { userId: user.id, balanceMinorUnits: balance } });
+    const wallet = await prisma.wallet.create({ data: { userId: user.id } });
+    await postOpeningBalance(wallet, balance);
     allUsers.push(user.id);
     return user;
   };
@@ -47,8 +67,8 @@ describeIntegration('One pre-terminal match per player (real PostgreSQL + Redis)
   };
 
   const balance = async (userId) => {
-    const w = await prisma.wallet.findUnique({ where: { userId } });
-    return w.balanceMinorUnits;
+    const proj = await getUserLedgerProjections(prisma, userId);
+    return BigInt(proj.available);
   };
 
   const pointer = (userId) => redis.get(`user:${userId}:activeMatch`);
@@ -61,7 +81,8 @@ describeIntegration('One pre-terminal match per player (real PostgreSQL + Redis)
     // offline queue is disabled, so an immediate keys() would throw).
     await prisma.matchMove.deleteMany({});
     await prisma.match.deleteMany({});
-    await prisma.walletTransaction.deleteMany({});
+    await prisma.depositIntent.deleteMany({});
+    await prisma.withdrawal.deleteMany({});
     await prisma.wallet.deleteMany({});
     await prisma.callout.deleteMany({});
     // V2 ledger rows must go before users: user delete cascades LedgerAccount,
@@ -71,9 +92,10 @@ describeIntegration('One pre-terminal match per player (real PostgreSQL + Redis)
       where: { relatedMatchId: { in: allMatches } }
     });
     // Opening-balance backfill transactions carry no matchId; their entries sit
-    // in these users' accounts and would block the user delete.
+    // in these users' accounts and would block the user delete. Clear every
+    // user-scoped entry (system accounts carry cross-run history and stay).
     await prisma.ledgerEntry.deleteMany({
-      where: { account: { userId: { in: allUsers } } }
+      where: { account: { isNot: { userId: null } } }
     });
     await prisma.ledgerTransaction.deleteMany({
       where: { metadata: { path: ['source'], equals: 'legacy-wallet-backfill' } }
@@ -96,7 +118,8 @@ describeIntegration('One pre-terminal match per player (real PostgreSQL + Redis)
     await prisma.matchMove.deleteMany({});
     await prisma.match.deleteMany({});
     await prisma.gameOutbox.deleteMany({});
-    await prisma.walletTransaction.deleteMany({});
+    await prisma.depositIntent.deleteMany({});
+    await prisma.withdrawal.deleteMany({});
     await prisma.wallet.deleteMany({});
     await prisma.callout.deleteMany({});
     await prisma.ledgerTransaction.deleteMany({
@@ -105,7 +128,7 @@ describeIntegration('One pre-terminal match per player (real PostgreSQL + Redis)
     // Opening-balance backfill transactions carry no matchId; their entries sit
     // in these users' accounts and would also block the user delete.
     await prisma.ledgerEntry.deleteMany({
-      where: { account: { userId: { in: allUsers } } }
+      where: { account: { isNot: { userId: null } } }
     });
     await prisma.ledgerTransaction.deleteMany({
       where: { metadata: { path: ['source'], equals: 'legacy-wallet-backfill' } }
@@ -156,14 +179,6 @@ describeIntegration('One pre-terminal match per player (real PostgreSQL + Redis)
     const a = await makeEligibleUser('exit-a');
     const b = await makeEligibleUser('exit-b');
 
-    // Production backfills the legacy opening balance on startup; replicate it
-    // BEFORE the stake so AVAILABLE reads 10M - 1M (a post-game backfill would
-    // snap the already-debited balance and mis-leadger the "opening").
-    for (const user of [a, b]) {
-      const wallet = await prisma.wallet.findUnique({ where: { userId: user.id } });
-      await backfillWalletOpeningBalance(wallet);
-    }
-
     const match = await stakeAndFund(a, b);
 
     // One RESERVED stake reservation per player, at the authoritative amount.
@@ -183,10 +198,6 @@ describeIntegration('One pre-terminal match per player (real PostgreSQL + Redis)
       expect(proj.available).toBe('9000000');
       expect(proj.locked).toBe('1000000');
     }
-
-    // Legacy wallet is the live read source and agrees with AVAILABLE.
-    expect(await balance(a.id)).toBe(9000000n);
-    expect(await balance(b.id)).toBe(9000000n);
   });
 
   it('clears the pointer when the owning match settles, freeing both players', async () => {

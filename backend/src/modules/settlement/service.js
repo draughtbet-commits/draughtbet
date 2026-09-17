@@ -1,6 +1,5 @@
 import prisma from '../../utils/db.js';
 import logger from '../../utils/logger.js';
-import { lockWalletsInOrder, lockWalletForUpdate } from '../../services/matchService.js';
 import { postSettlementWin, postSettlementDraw } from '../../services/ledgerService.js';
 import { LIVE_STATUSES, isLiveStatus } from '../match/service.js';
 
@@ -15,9 +14,7 @@ import { LIVE_STATUSES, isLiveStatus } from '../match/service.js';
  *   3. posts the winner/draw settlement to the V2 ledger
  *      (`MATCH_SETTLEMENT:{matchId}` idempotency key — a retried settlement can
  *      never credit the winner twice)
- *   4. mirrors the legacy wallet/transaction rows in the same transaction
- *      (temporary bridge until the final read-flip)
- *   5. writes the terminal result record (`MatchSettlement`) and per-player
+ *   4. writes the terminal result record (`MatchSettlement`) and per-player
  *      `MatchReceipt` rows.
  *
  * A replay (match already SETTLED, record present) returns the existing result
@@ -218,7 +215,6 @@ export async function settleMatch(matchId, terminalResult) {
       payout: settledPayout,
       commission: settledCommission
     });
-    await mirrorLegacySettlement(tx, match, winnerId, settledPayout);
 
     await tx.stakeReservation.updateMany({
       where: { matchId },
@@ -291,47 +287,6 @@ async function postSettlement(tx, matchId, match, { kind, winnerId, payout, comm
     });
   }
   return postSettlementDraw(tx, matchId, { reservations });
-}
-
-/**
- * Legacy mirror (bridge until the final read-flip): the winner's wallet is
- * credited the net payout / both wallets the stake on a draw, with matching
- * WalletTransaction rows. Financial truth lives in the ledger posting issued
- * in the same transaction.
- */
-async function mirrorLegacySettlement(tx, match, winnerId, payout) {
-  if (winnerId) {
-    const winnerWallet = await lockWalletForUpdate(tx, winnerId);
-    await tx.wallet.update({
-      where: { id: winnerWallet.id },
-      data: { balanceMinorUnits: { increment: payout } }
-    });
-    await tx.walletTransaction.create({
-      data: {
-        walletId: winnerWallet.id,
-        type: 'PAYOUT',
-        amountMinorUnits: payout,
-        relatedMatchId: match.id
-      }
-    });
-    return;
-  }
-
-  const [w1, w2] = await lockWalletsInOrder(tx, match.playerLightId, match.playerDarkId);
-  for (const w of [w1, w2]) {
-    await tx.wallet.update({
-      where: { id: w.id },
-      data: { balanceMinorUnits: { increment: match.stakeMinorUnits } }
-    });
-    await tx.walletTransaction.create({
-      data: {
-        walletId: w.id,
-        type: 'REFUND',
-        amountMinorUnits: match.stakeMinorUnits,
-        relatedMatchId: match.id
-      }
-    });
-  }
 }
 
 /**

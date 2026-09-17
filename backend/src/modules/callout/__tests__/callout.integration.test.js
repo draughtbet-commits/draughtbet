@@ -28,6 +28,7 @@ jest.unstable_mockModule('../../../utils/redis.js', () => ({
 }));
 
 const prisma = (await import('../../../utils/db.js')).default;
+const { ensureSystemAccount } = await import('../../../services/ledgerService.js');
 const { finalizeMatchActivation } = await import('../../../services/gameActivationService.js');
 const { acceptCallout } = await import('../service.js');
 
@@ -54,7 +55,16 @@ describeIntegration('Call-out acceptance policy (real PostgreSQL)', () => {
         }
       }
     });
-    await prisma.wallet.create({ data: { userId: user.id, balanceMinorUnits: balance } });
+    await prisma.wallet.create({ data: { userId: user.id } });
+    const liability = await ensureSystemAccount(prisma, 'CUSTOMER_LIABILITY', 'NGN');
+    const available = await prisma.ledgerAccount.create({
+      data: { userId: user.id, type: 'PLAYER_AVAILABLE', currency: 'NGN' }
+    });
+    const seed = await prisma.ledgerTransaction.create({
+      data: { type: 'DEPOSIT_CREDIT', idempotencyKey: `callout:test:seed:${user.id}` }
+    });
+    await prisma.ledgerEntry.create({ data: { transactionId: seed.id, accountId: available.id, amountMinorUnits: balance } });
+    await prisma.ledgerEntry.create({ data: { transactionId: seed.id, accountId: liability.id, amountMinorUnits: -balance } });
     allUsers.push(user.id);
     return user;
   };
@@ -74,12 +84,22 @@ describeIntegration('Call-out acceptance policy (real PostgreSQL)', () => {
   };
 
   const assertWallet = async (userId, expectedBalance) => {
-    const w = await prisma.wallet.findUnique({ where: { userId } });
-    expect(w.balanceMinorUnits.toString()).toBe(expectedBalance.toString());
+    const accounts = await prisma.ledgerAccount.findMany({
+      where: { userId, type: 'PLAYER_AVAILABLE' }
+    });
+    if (accounts.length === 0) {
+      expect('0').toBe(expectedBalance.toString());
+      return;
+    }
+    const sum = await prisma.ledgerEntry.aggregate({
+      where: { accountId: { in: accounts.map((a) => a.id) } },
+      _sum: { amountMinorUnits: true }
+    });
+    expect((sum._sum.amountMinorUnits ?? 0n).toString()).toBe(expectedBalance.toString());
   };
 
   const countLedger = async (matchId) =>
-    prisma.walletTransaction.count({ where: { relatedMatchId: matchId } });
+    prisma.ledgerTransaction.count({ where: { relatedMatchId: matchId } });
 
   beforeEach(async () => {
     await prisma.platformSettings.upsert({
@@ -94,21 +114,23 @@ describeIntegration('Call-out acceptance policy (real PostgreSQL)', () => {
       await prisma.matchMove.deleteMany({ where: { matchId } });
       await prisma.match.delete({ where: { id: matchId } });
     }
-    await prisma.walletTransaction.deleteMany({
-      where: { wallet: { userId: { in: allUsers } } }
-    });
     await prisma.callout.deleteMany({ where: { id: { in: allCallouts } } });
     await prisma.wallet.deleteMany({ where: { userId: { in: allUsers } } });
     // V2 ledger rows must go before users: user delete cascades LedgerAccount,
     // but LedgerEntry.account is onDelete Restrict.
     await prisma.ledgerTransaction.deleteMany({
-      where: { relatedMatchId: { in: allMatches } }
+      where: {
+        OR: [
+          { relatedMatchId: { in: allMatches } },
+          { idempotencyKey: { startsWith: 'callout:test:seed:' } }
+        ]
+      }
     });
     await prisma.user.deleteMany({ where: { id: { in: allUsers } } });
     await prisma.$disconnect();
   });
 
-  it('accepts an eligible player: one match, two signed STAKE entries, callout ACCEPTED', async () => {
+  it('accepts an eligible player: one match, one STAKE_LOCK posting, callout ACCEPTED', async () => {
     const challenger = await makeUser('c');
     const acceptor = await makeUser('a');
     const callout = await makeCallout(challenger.id);
@@ -131,7 +153,8 @@ describeIntegration('Call-out acceptance policy (real PostgreSQL)', () => {
     expect(claimed.status).toBe('ACCEPTED');
     expect(claimed.acceptedBy).toBe(acceptor.id);
 
-    expect(await countLedger(payload.id)).toBe(2);
+    // ONE balanced STAKE_LOCK posting (both players' entries) per match.
+    expect(await countLedger(payload.id)).toBe(1);
     for (const userId of [challenger.id, acceptor.id]) {
       await assertWallet(userId, 9000000n);
     }
@@ -191,7 +214,7 @@ describeIntegration('Call-out acceptance policy (real PostgreSQL)', () => {
     expect([match.playerLightId, match.playerDarkId].filter(p => p === funded)).toHaveLength(1);
     expect([match.playerLightId, match.playerDarkId]).not.toContain(unfunded);
 
-    expect(await countLedger(resolved[0].id)).toBe(2);
+    expect(await countLedger(resolved[0].id)).toBe(1);
     await assertWallet(funded, 9000000n);
     await assertWallet(unfunded, 10000000n);
   });

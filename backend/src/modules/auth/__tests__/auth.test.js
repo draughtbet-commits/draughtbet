@@ -1,6 +1,7 @@
 import { jest } from '@jest/globals';
 
 // Clear env vars to prevent real connections via dotenv
+process.env.NODE_ENV = 'test';
 process.env.DATABASE_URL = '';
 process.env.REDIS_URL = '';
 
@@ -14,6 +15,12 @@ const mockPrisma = {
     findFirst: jest.fn(),
     create: jest.fn(),
     update: jest.fn()
+  },
+  ledgerAccount: {
+    findMany: jest.fn()
+  },
+  ledgerEntry: {
+    aggregate: jest.fn()
   }
 };
 
@@ -521,8 +528,9 @@ describe('Auth System', () => {
   describe('GET /auth/me', () => {
     it('returns profile including the predesigned avatar', async () => {
       const token = (await AuthService.issueTokens('user-id')).accessToken;
-      // Both requireAuth's lookup and getProfile hit findUnique, so mock the
-      // full profile as the persistent return value.
+      // requireAuth's lookup and getProfile both hit user.findUnique; mock the
+      // full profile as the persistent return value. The balance shown comes
+      // from the V2 ledger PLAYER_AVAILABLE net, not the Wallet row.
       mockPrisma.user.findUnique.mockResolvedValue({
         id: 'user-id',
         email: 'test@example.com',
@@ -531,8 +539,12 @@ describe('Auth System', () => {
         avatar: 'avatar_03',
         tier: 'AMATEUR',
         isBanned: false,
-        wallet: { balanceMinorUnits: 1000n },
+        wallet: { currency: 'NGN' },
         _count: { notifications: 2 }
+      });
+      mockPrisma.ledgerAccount.findMany.mockResolvedValue([{ id: 'acc-1' }]);
+      mockPrisma.ledgerEntry.aggregate.mockResolvedValue({
+        _sum: { amountMinorUnits: 1000n }
       });
 
       const res = await request(app)

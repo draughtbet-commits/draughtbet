@@ -12,7 +12,7 @@
 // must go before users because LedgerEntry.account is onDelete Restrict).
 //
 // Invariants checked:
-//   P1  win settlement: claim, money math, mirror, receipts, terminal record
+//   P1  win settlement: claim, money math, ledger postings, receipts, record
 //   P2  draw settlement: full refunds both ways, record netPayout = pot
 //   P3  replay of a settled match: no new money, no new rows, consistent payload
 //   P4  concurrent win/win: exactly one claim, one posting, one credit
@@ -21,8 +21,8 @@
 //   P7  non-settleable matches throw and write nothing
 //   P8  socket path end-to-end: Redis cleanup, exactly-once notifications
 //   P9  restart-replay: gate-fired cleanup credits nothing and does not duplicate
-//   P10 closed-book: every ledger transaction is zero-sum and reconciles to the
-//       signed legacy WalletTransaction deltas for each player
+//   P10 closed-book: every ledger transaction is zero-sum and the per-account
+//       postings match the expected settlement math
 
 import assert from 'node:assert/strict';
 import http from 'node:http';
@@ -33,7 +33,11 @@ import { finalizeMatchActivation } from '../../src/services/gameActivationServic
 import { settleGame, settleGameWithRetry } from '../../src/sockets/settlement.js';
 import { SettlementService } from '../../src/modules/settlement/service.js';
 import { initSocketServer } from '../../src/sockets/index.js';
-import { SYSTEM_ACCOUNT_ID, getAccountBalance } from '../../src/services/ledgerService.js';
+import {
+  SYSTEM_ACCOUNT_ID,
+  getAccountBalance,
+  postDepositCredit
+} from '../../src/services/ledgerService.js';
 
 // The socket path emits match_ended / wallet_updated and reads online presence
 // through Socket.IO; without a server, getIO() is undefined and every emit
@@ -70,9 +74,20 @@ async function makeUser(suffix) {
       }
     }
   });
-  await prisma.wallet.create({ data: { userId: user.id, balanceMinorUnits: 100_000n } });
+  await prisma.wallet.create({ data: { userId: user.id } });
+  await seedFunds(user.id);
   state.users.push(user.id);
   return user;
+}
+
+async function seedFunds(userId, amount = 100_000n) {
+  await postDepositCredit(prisma, {
+    userId,
+    amountMinorUnits: amount,
+    currency: 'NGN',
+    depositIntentId: `pr5-seed-${userId}`,
+    reference: `pr5:seed:${userId}`
+  });
 }
 
 async function freshPair() {
@@ -117,8 +132,11 @@ async function accountId(userId, type) {
   return a.id;
 }
 
-async function walletFor(userId) {
-  return prisma.wallet.findUnique({ where: { userId } });
+async function balance(userId, type = 'PLAYER_AVAILABLE') {
+  const a = await prisma.ledgerAccount.findUnique({
+    where: { userId_type_currency: { userId, type, currency: 'NGN' } }
+  });
+  return a ? getAccountBalance(prisma, a.id) : 0n;
 }
 
 function entrySumOf(tx, accountId) {
@@ -148,12 +166,9 @@ async function run(name, probe) {
 
 // ---------------------------------------------------------------------------
 
-await run('P1 win settlement: claim, math, mirror, receipts, record', async () => {
+await run('P1 win settlement: claim, math, ledger postings, receipts, record', async () => {
   await freshPair();
   const m = await fundMatch();
-
-  const preWinner = await walletFor(u1.id);
-  const preLoser = await walletFor(u2.id);
 
   const res = await SettlementService.settleMatch(m.id, {
     result: 'WIN', winnerId: u1.id, loserId: u2.id, endReason: 'RESIGN'
@@ -169,18 +184,9 @@ await run('P1 win settlement: claim, math, mirror, receipts, record', async () =
   assert.equal(match.endReason, 'RESIGN');
   assert.ok(match.endedAt);
 
-  // Money: winner wallet 100k -50k +90k = 140k; loser stays 50k.
-  const postWinner = await walletFor(u1.id);
-  const postLoser = await walletFor(u2.id);
-  assert.equal(postWinner.balanceMinorUnits - preWinner.balanceMinorUnits, PAYOUT);
-  assert.equal(postLoser.balanceMinorUnits, preLoser.balanceMinorUnits);
-
-  // Mirror: exactly one PAYOUT, on the winner's wallet only.
-  const payouts = await prisma.walletTransaction.findMany({
-    where: { relatedMatchId: m.id, type: 'PAYOUT' }
-  });
-  assert.equal(payouts.length, 1);
-  assert.equal(payouts[0].amountMinorUnits, PAYOUT);
+  // Money: winner 100k -50k stake +90k payout = 140k; loser 100k -50k = 50k.
+  assert.equal(await balance(u1.id), 140_000n);
+  assert.equal(await balance(u2.id), 50_000n);
 
   // Ledger: SETTLEMENT_PAYOUT entries break down +90k winner avail, -50k both
   // locks, +10k platform; idempotency key present.
@@ -238,16 +244,8 @@ await run('P2 draw settlement: full refund both, record netPayout = pot', async 
   assert.equal(res.payout, POT);          // total refunded
   assert.equal(res.commission, 0n);       // no platform cut on a draw
 
-  const post1 = await walletFor(u1.id);
-  const post2 = await walletFor(u2.id);
-  assert.equal(post1.balanceMinorUnits, 100_000n);
-  assert.equal(post2.balanceMinorUnits, 100_000n);
-
-  const refunds = await prisma.walletTransaction.findMany({
-    where: { relatedMatchId: m.id, type: 'REFUND' }
-  });
-  assert.equal(refunds.length, 2);
-  assert.ok(refunds.every((r) => r.amountMinorUnits === STAKE));
+  assert.equal(await balance(u1.id), 100_000n);
+  assert.equal(await balance(u2.id), 100_000n);
 
   const { txs, bad } = await zeroSumPerTx(m.id);
   assert.deepEqual(bad, []);
@@ -279,7 +277,7 @@ await run('P3 replay: no new money, no new rows, consistent payload', async () =
   const m = await fundMatch();
   await SettlementService.settleMatch(m.id, { result: 'WIN', winnerId: u1.id, endReason: 'RESIGN' });
 
-  const before = await walletFor(u1.id);
+  const before = await balance(u1.id);
   const txs = await ledgerRows(m.id);
   const txCount = txs.length;
 
@@ -296,8 +294,8 @@ await run('P3 replay: no new money, no new rows, consistent payload', async () =
   assert.equal(conflict.settlement.winnerId, u1.id);
   assert.equal(conflict.settlement.endReason, 'RESIGN');
 
-  const after = await walletFor(u1.id);
-  assert.equal(after.balanceMinorUnits, before.balanceMinorUnits);
+  const after = await balance(u1.id);
+  assert.equal(after, before);
   assert.equal((await ledgerRows(m.id)).length, txCount);
   assert.equal(await prisma.matchSettlement.count({ where: { matchId: m.id } }), 1);
   assert.equal(
@@ -325,12 +323,8 @@ await run('P4 concurrent win/win: one claim, one posting, one credit', async () 
     await prisma.ledgerTransaction.count({ where: { relatedMatchId: m.id, type: 'SETTLEMENT_PAYOUT' } }),
     1
   );
-  const payouts = await prisma.walletTransaction.findMany({ where: { relatedMatchId: m.id, type: 'PAYOUT' } });
-  assert.equal(payouts.length, 1);
-  const winnerWallet = await walletFor(winnerId);
-  assert.equal(winnerWallet.balanceMinorUnits, 140_000n);
-  const loserWallet = await walletFor(winnerId === u1.id ? u2.id : u1.id);
-  assert.equal(loserWallet.balanceMinorUnits, 50_000n);
+  assert.equal(await balance(winnerId), 140_000n);
+  assert.equal(await balance(winnerId === u1.id ? u2.id : u1.id), 50_000n);
 
   const { bad } = await zeroSumPerTx(m.id);
   assert.deepEqual(bad, []);
@@ -349,26 +343,27 @@ await run('P5 win vs draw race: single posting consistent with the committed kin
 
   const s = await prisma.matchSettlement.findUnique({ where: { matchId: m.id } });
   assert.ok(s);
-  const payouts = await prisma.walletTransaction.findMany({ where: { relatedMatchId: m.id, type: 'PAYOUT' } });
-  const refunds = await prisma.walletTransaction.findMany({ where: { relatedMatchId: m.id, type: 'REFUND' } });
   const { txs, bad } = await zeroSumPerTx(m.id);
   assert.deepEqual(bad, []);
   assert.equal(txs.filter((t) => t.type === 'SETTLEMENT_PAYOUT').length, 1);
+  const payoutTx = txs.find((t) => t.type === 'SETTLEMENT_PAYOUT');
 
   if (s.winnerId) {
-    // Committed as a win: exactly one payout, platform takes its cut, no refunds.
-    assert.equal(payouts.length, 1);
-    assert.equal(refunds.length, 0);
-    const winner = await walletFor(s.winnerId);
-    assert.equal(winner.balanceMinorUnits, 140_000n);
+    // Committed as a win: winner paid, platform takes its cut, loser just loses.
+    assert.equal(await balance(s.winnerId), 140_000n);
+    assert.equal(await balance(s.winnerId === u1.id ? u2.id : u1.id), 50_000n);
+    assert.equal(
+      entrySumOf(payoutTx, SYSTEM_ACCOUNT_ID('PLATFORM_REVENUE', 'NGN')),
+      COMMISSION
+    );
   } else {
-    // Committed as a draw: two refunds, no payout, no platform cut.
-    assert.equal(refunds.length, 2);
-    assert.equal(payouts.length, 0);
-    assert.equal(entrySumOf(
-      txs.find((t) => t.type === 'SETTLEMENT_PAYOUT'),
-      SYSTEM_ACCOUNT_ID('PLATFORM_REVENUE', 'NGN')
-    ), 0n);
+    // Committed as a draw: both refunded in full, no platform cut.
+    assert.equal(await balance(u1.id), 100_000n);
+    assert.equal(await balance(u2.id), 100_000n);
+    assert.equal(
+      entrySumOf(payoutTx, SYSTEM_ACCOUNT_ID('PLATFORM_REVENUE', 'NGN')),
+      0n
+    );
   }
 
   ok('P5 win vs draw race');
@@ -503,14 +498,12 @@ await run('P9 restart-replay: gate-fired cleanup credits nothing, no duplicate n
   const payload = await settleGameWithRetry(m.id, u1.id, u2.id, 'STALE_RETRY');
   assert.ok(payload);
 
-  const winner = await walletFor(u1.id);
-  assert.equal(winner.balanceMinorUnits, 140_000n);
+  const winner = await balance(u1.id);
+  assert.equal(winner, 140_000n);
   assert.equal(
     await prisma.ledgerTransaction.count({ where: { relatedMatchId: m.id, type: 'SETTLEMENT_PAYOUT' } }),
     1
   );
-  const payouts = await prisma.walletTransaction.findMany({ where: { relatedMatchId: m.id, type: 'PAYOUT' } });
-  assert.equal(payouts.length, 1);
 
   const wins = await prisma.notification.count({ where: { userId: u1.id, type: 'MATCH_ENDED_WIN' } });
   const losses = await prisma.notification.count({ where: { userId: u2.id, type: 'MATCH_ENDED_LOSS' } });
@@ -520,7 +513,7 @@ await run('P9 restart-replay: gate-fired cleanup credits nothing, no duplicate n
   ok('P9 restart-replay');
 });
 
-await run('P10 closed book: every tx zero-sum, mirror reconciles to wallet deltas', async () => {
+await run('P10 closed book: every tx zero-sum, per-account postings match settlement math', async () => {
   await freshPair();
   const m = await fundMatch();
   const preAvailBal = await getAccountBalance(prisma, await accountId(u1.id, 'PLAYER_AVAILABLE'));
@@ -533,22 +526,21 @@ await run('P10 closed book: every tx zero-sum, mirror reconciles to wallet delta
     ['SETTLEMENT_PAYOUT', 'STAKE_LOCK'].sort()
   );
 
-  // Per-player ledger delta over the whole match lifecycle == signed legacy
-  // WalletTransaction sum (STAKE -50000 then PAYOUT +90000 on the winner).
-  for (const u of [u1, u2]) {
-    const ledger = {};
-    for (const type of ['PLAYER_AVAILABLE', 'PLAYER_LOCKED']) {
-      const aId = await accountId(u.id, type);
-      const sum = txs.reduce((acc, t) => acc + entrySumOf(t, aId), 0n);
-      ledger[type] = sum;
-    }
-    const walletTxs = await prisma.walletTransaction.findMany({
-      where: { relatedMatchId: m.id, wallet: { userId: u.id } }
-    });
-    const signed = walletTxs.reduce((acc, r) => acc + r.amountMinorUnits, 0n);
-    // AVAILABLE - LOCKED = signed wallet movements for the match.
-    assert.equal(ledger.PLAYER_AVAILABLE - ledger.PLAYER_LOCKED, signed);
-  }
+  // Per-account deltas over the whole match lifecycle:
+  //   winner: AVAILABLE -50k stake +90k payout = +40k, LOCKED locks then clears
+  //   loser:  AVAILABLE -50k stake,                    LOCKED locks then clears
+  const delta = async (userId, type) => {
+    const aId = await accountId(userId, type);
+    return txs.reduce((acc, t) => acc + entrySumOf(t, aId), 0n);
+  };
+  assert.equal(await delta(u1.id, 'PLAYER_AVAILABLE'), 40_000n);
+  assert.equal(await delta(u1.id, 'PLAYER_LOCKED'), 0n);
+  assert.equal(await delta(u2.id, 'PLAYER_AVAILABLE'), -50_000n);
+  assert.equal(await delta(u2.id, 'PLAYER_LOCKED'), 0n);
+  assert.equal(
+    entrySumOf(txs.find((t) => t.type === 'SETTLEMENT_PAYOUT'), SYSTEM_ACCOUNT_ID('PLATFORM_REVENUE', 'NGN')),
+    COMMISSION
+  );
 
   // Winning AVAILABLE delta equals the payout exactly (50k out, 90k back).
   const postAvailBal = await getAccountBalance(prisma, await accountId(u1.id, 'PLAYER_AVAILABLE'));
@@ -567,11 +559,12 @@ console.log('='.repeat(64));
 const failed = results.filter((r) => !r.pass).length;
 console.log(`${results.length - failed}/${results.length} probes passed\n`);
 
-// Cleanup: match-scoped ledger/wallet rows before matches/users.
+// Cleanup: match-scoped ledger rows before matches/users. Ledger rows must go
+// before users: user delete cascades LedgerAccount, but LedgerEntry.account is
+// onDelete Restrict, so any remaining entry blocks the cascade.
 try {
   for (const matchId of state.matches) {
     await prisma.matchMove.deleteMany({ where: { matchId } });
-    await prisma.walletTransaction.deleteMany({ where: { relatedMatchId: matchId } });
     await prisma.ledgerTransaction.deleteMany({ where: { relatedMatchId: matchId } });
     await redis.del(`match:${matchId}`);
     await prisma.match.delete({ where: { id: matchId } });
@@ -581,7 +574,9 @@ try {
   });
   for (const userId of state.users) {
     await redis.del(`user:${userId}:activeMatch`);
-    await prisma.walletTransaction.deleteMany({ where: { wallet: { userId } } });
+    await prisma.ledgerTransaction.deleteMany({
+      where: { idempotencyKey: `deposit:credit:pr5:seed:${userId}` }
+    });
     await prisma.wallet.deleteMany({ where: { userId } });
     await prisma.user.deleteMany({ where: { id: userId } });
   }

@@ -108,9 +108,9 @@ export class WithdrawalService {
 
   /**
    * Creates a withdrawal request: eligibility + payout-destination gates first,
-   * then wallet-lock, funds check, reserve (PENDING_REVIEW + mirror debit) and
-   * the V2 ledger reservation — all in one transaction. A client idempotencyKey
-   * makes a replay return the original request untouched.
+   * then wallet-lock, ledger funds check, reserve (PENDING_REVIEW + V2 ledger
+   * reservation) — all in one transaction. A client idempotencyKey makes a
+   * replay return the original request untouched.
    */
   async requestWithdrawal(userId, amountMinorUnits, idempotencyKey, bankAccountId) {
     const amount = parseMinorUnits(amountMinorUnits);
@@ -137,12 +137,9 @@ export class WithdrawalService {
 
         // 2. Payout destination must be a provider-verified account.
         const bankAccount = await this.pickVerifiedBankAccount(tx, userId, bankAccountId);
-        if (BigInt(wallet.balanceMinorUnits) < amount) {
-          throw new InsufficientFundsError();
-        }
 
-        // V2 cross-check: the ledger PLAYER_AVAILABLE net must also cover the
-        // request (wallet and ledger agree by construction; fail loudly if not).
+        // 3. Ledger PLAYER_AVAILABLE net must cover the request. Debits are
+        //    serialized by the wallet lock above; credits only add funds.
         const userAccounts = await tx.ledgerAccount.findMany({
           where: { userId, type: 'PLAYER_AVAILABLE' }
         });
@@ -157,8 +154,7 @@ export class WithdrawalService {
         const reference = `wit-${crypto.randomUUID()}`;
         const currency = wallet.currency ?? 'NGN';
 
-        // 3. Reserve: create the V2 row + mirror both the legacy wallet debit
-        //    and the ledger reservation atomically.
+        // 4. Reserve: create the V2 row + ledger reservation atomically.
         const withdrawal = await tx.withdrawal.create({
           data: {
             userId,
@@ -169,22 +165,6 @@ export class WithdrawalService {
             bankAccountId: bankAccount.id,
             status: 'PENDING_REVIEW',
             ...(key !== undefined ? { idempotencyKey: key } : {})
-          }
-        });
-
-        await tx.wallet.update({
-          where: { id: wallet.id },
-          data: { balanceMinorUnits: { decrement: amount } }
-        });
-
-        await tx.walletTransaction.create({
-          data: {
-            walletId: wallet.id,
-            type: 'WITHDRAWAL',
-            amountMinorUnits: -amount,
-            gateway: bankAccount.gateway,
-            gatewayReference: reference,
-            status: 'PENDING'
           }
         });
 
@@ -529,10 +509,9 @@ export class WithdrawalService {
   /**
    * Releases a withdrawal that will never be paid (admin rejection or a failed
    * payout the operator chooses not to retry): PLAYER_WITHDRAWAL_PENDING ->
-   * PLAYER_AVAILABLE + wallet refund + REFUND transaction, all atomic, so the
-   * pending funds return exactly once. PROCESSING is deliberately NOT releasable
-   * (the provider may hold real money); the operator must first resolve the
-   * payout result, then release if it failed.
+   * PLAYER_AVAILABLE, atomic, so the pending funds return exactly once.
+   * PROCESSING is deliberately NOT releasable (the provider may hold real money);
+   * the operator must first resolve the payout result, then release if it failed.
    */
   async releaseWithdrawal(withdrawalId, { failureReason, adminId } = {}) {
     return await prisma.$transaction(async (tx) => {
@@ -547,30 +526,12 @@ export class WithdrawalService {
         );
       }
 
-      const wallet = await tx.wallet.findUnique({ where: { userId: w.userId } });
       const updated = await tx.withdrawal.update({
         where: { id: w.id },
         data: {
           status: 'RELEASED',
           ...(failureReason ? { failureReason } : {}),
           ...(adminId ? { reviewedBy: adminId, reviewedAt: new Date() } : {})
-        }
-      });
-
-      await tx.wallet.update({
-        where: { id: wallet.id },
-        data: { balanceMinorUnits: { increment: w.amountMinorUnits } }
-      });
-
-      await tx.walletTransaction.create({
-        data: {
-          walletId: wallet.id,
-          type: 'REFUND',
-          amountMinorUnits: w.amountMinorUnits,
-          gateway: w.gateway,
-          // Distinct from the reservation row's gatewayReference (unique index).
-          gatewayReference: `${w.reference}::refund`,
-          status: 'COMPLETED'
         }
       });
 
@@ -581,20 +542,25 @@ export class WithdrawalService {
         currency: w.currency
       });
 
-      await tx.outboxEvent.create({
-        data: {
-          aggregateType: 'Wallet',
-          aggregateId: wallet.id,
-          eventType: 'wallet.updated',
-          payload: {
-            userId: w.userId,
-            walletId: wallet.id,
-            currency: w.currency,
-            type: 'WITHDRAWAL_RELEASE',
-            amountMinorUnits: w.amountMinorUnits.toString()
+      // The Wallet row still owns the ordered-lock + currency contract, so the
+      // durable wallet.updated outbox row keeps using its id as the aggregateId.
+      const wallet = await tx.wallet.findUnique({ where: { userId: w.userId } });
+      if (wallet) {
+        await tx.outboxEvent.create({
+          data: {
+            aggregateType: 'Wallet',
+            aggregateId: wallet.id,
+            eventType: 'wallet.updated',
+            payload: {
+              userId: w.userId,
+              walletId: wallet.id,
+              currency: w.currency,
+              type: 'WITHDRAWAL_RELEASE',
+              amountMinorUnits: w.amountMinorUnits.toString()
+            }
           }
-        }
-      });
+        });
+      }
 
       await tx.notification.create({
         data: {

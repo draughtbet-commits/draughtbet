@@ -8,6 +8,7 @@ import {
   hasPreterminalMatchForPlayers
 } from '../modules/match/service.js';
 import { reserveBothStakes } from '../modules/stake/service.js';
+import { getLedgerAvailable } from './ledgerService.js';
 
 export class InsufficientFundsError extends Error {
   constructor(message = 'Insufficient funds') {
@@ -105,8 +106,12 @@ export const createMatchWithStakes = async (tx, player1Id, player2Id, stakeMinor
 
   const stakeAmount = BigInt(stakeMinorUnits);
 
-  // 3. Verify BOTH players can afford the stake
-  if (BigInt(w1.balanceMinorUnits) < stakeAmount || BigInt(w2.balanceMinorUnits) < stakeAmount) {
+  // 3. Verify BOTH players can afford the stake from the V2 ledger
+  //    (PLAYER_AVAILABLE), still under the wallet row locks so a concurrent
+  //    funding of the same player serializes against this check.
+  const available1 = await getLedgerAvailable(tx, player1Id, w1.currency ?? 'NGN');
+  const available2 = await getLedgerAvailable(tx, player2Id, w2.currency ?? 'NGN');
+  if (available1 < stakeAmount || available2 < stakeAmount) {
     throw new InsufficientFundsError('Insufficient funds for stake');
   }
 

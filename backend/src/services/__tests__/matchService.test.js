@@ -12,18 +12,17 @@ const mockPrisma = {
   wallet: {
     update: jest.fn()
   },
-  walletTransaction: {
-    create: jest.fn()
-  },
   ledgerAccount: {
-    upsert: jest.fn()
+    upsert: jest.fn(),
+    findMany: jest.fn()
   },
   ledgerTransaction: {
     create: jest.fn(),
     findUnique: jest.fn()
   },
   ledgerEntry: {
-    create: jest.fn()
+    create: jest.fn(),
+    aggregate: jest.fn()
   },
   match: {
     findFirst: jest.fn(),
@@ -44,17 +43,31 @@ jest.unstable_mockModule('../../utils/db.js', () => ({
   default: mockPrisma
 }));
 
-const { debitStakes, createMatchWithStakes, IdenticalPlayersError } = await import('../matchService.js');
+const { debitStakes, createMatchWithStakes, InsufficientFundsError, IdenticalPlayersError } = await import('../matchService.js');
 
 describe('matchService debitStakes', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockPrisma.$transaction.mockImplementation(async (cb) => cb(mockPrisma));
+    // Wallet rows are locked via FOR UPDATE; they no longer carry the balance.
     mockPrisma.$queryRaw
-      .mockResolvedValueOnce([{ id: 'w-a', userId: 'player-a', balanceMinorUnits: '100000', currency: 'NGN' }])
-      .mockResolvedValueOnce([{ id: 'w-b', userId: 'player-b', balanceMinorUnits: '100000', currency: 'NGN' }]);
-    // Ledger mirror mocks
-    mockPrisma.ledgerAccount.upsert.mockImplementation(async ({ create }) => ({ id: `acct:${create.type}:${create.userId}` }));
+      .mockResolvedValueOnce([{ id: 'w-a', userId: 'player-a', currency: 'NGN' }])
+      .mockResolvedValueOnce([{ id: 'w-b', userId: 'player-b', currency: 'NGN' }]);
+    // V2 ledger mocks: the affordability check reads PLAYER_AVAILABLE nets.
+    mockPrisma.ledgerAccount.findMany.mockImplementation(async ({ where }) => {
+      if (where.type === 'PLAYER_AVAILABLE') return [{ id: `acc:avail:${where.userId}` }];
+      return [];
+    });
+    mockPrisma.ledgerEntry.aggregate.mockResolvedValue({ _sum: { amountMinorUnits: 100000n } });
+    // Ledger accounts are created via atomic raw upserts (not Prisma upsert).
+    mockPrisma.$queryRaw.mockImplementation(async (_strings, ...values) => {
+      if (values.length === 4) {
+        const [id, userId, type, currency] = values;
+        return [{ id, userId, type, currency }];
+      }
+      const [id, type, currency] = values;
+      return [{ id, userId: null, type, currency }];
+    });
     mockPrisma.ledgerTransaction.findUnique.mockResolvedValue(null);
     mockPrisma.ledgerTransaction.create.mockResolvedValue({ id: 'ledger-tx-1', type: 'STAKE_LOCK' });
     mockPrisma.ledgerEntry.create.mockImplementation(async ({ data }) => ({ id: `entry:${data.accountId}` }));
@@ -111,12 +124,19 @@ describe('matchService debitStakes', () => {
     expect(mockPrisma.stakeReservation.create).toHaveBeenCalledTimes(2);
     expect(match).toEqual({ id: 'm-1', status: 'FUNDED' });
 
-    // Both wallets debited exactly once with a signed STAKE entry each
-    expect(mockPrisma.wallet.update).toHaveBeenCalledTimes(2);
-    expect(mockPrisma.walletTransaction.create).toHaveBeenCalledTimes(2);
-    expect(mockPrisma.walletTransaction.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({ type: 'STAKE', amountMinorUnits: -5000n })
+    // Affordability is read from the V2 ledger PLAYER_AVAILABLE net, under the
+    // wallet row locks (no wallet balance is consulted).
+    expect(mockPrisma.wallet.update).not.toHaveBeenCalled();
+    expect(mockPrisma.ledgerEntry.aggregate).toHaveBeenCalledTimes(2);
+
+    // ONE balanced STAKE_LOCK posting with a 4-entry net-zero set
+    // (AVAILABLE -5000 -> LOCKED +5000 for each player) in the same tx.
+    expect(mockPrisma.ledgerTransaction.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ type: 'STAKE_LOCK' })
     });
+    expect(mockPrisma.ledgerEntry.create).toHaveBeenCalledTimes(4);
+    const entryAmounts = mockPrisma.ledgerEntry.create.mock.calls.map(([c]) => c.data.amountMinorUnits);
+    expect(entryAmounts).toEqual([-5000n, 5000n, -5000n, 5000n]);
 
     // The durable activation record commits atomically with the reservations
     expect(mockPrisma.gameOutbox.create).toHaveBeenCalledWith({
@@ -129,21 +149,24 @@ describe('matchService debitStakes', () => {
         status: 'PENDING'
       })
     });
+  });
 
-    // V2 ledger mirror: one STAKE_LOCK tx with a balanced 4-entry posting
-    // (AVAILABLE -5000 -> LOCKED +5000 for each player) in the same tx.
-    expect(mockPrisma.ledgerTransaction.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({ type: 'STAKE_LOCK' })
-    });
-    expect(mockPrisma.ledgerEntry.create).toHaveBeenCalledTimes(4);
-    const entryAmounts = mockPrisma.ledgerEntry.create.mock.calls.map(([c]) => c.data.amountMinorUnits);
-    expect(entryAmounts).toEqual([-5000n, 5000n, -5000n, 5000n]);
-    // Both players' accounts were resolved for the posting
-    expect(mockPrisma.ledgerAccount.upsert).toHaveBeenCalledWith({
-      where: { userId_type_currency: { userId: 'player-a', type: 'PLAYER_AVAILABLE', currency: 'NGN' } },
-      create: { userId: 'player-a', type: 'PLAYER_AVAILABLE', currency: 'NGN' },
-      update: {}
-    });
+  it('refuses to fund when either player cannot cover the stake on the ledger', async () => {
+    mockPrisma.platformSettings.findUnique.mockResolvedValue({ commissionPercent: 10 });
+    mockPrisma.match.create.mockResolvedValue({ id: 'm-1', status: 'OPEN' });
+    // The first PLAYER_AVAILABLE read clears the stake; the second does not.
+    mockPrisma.ledgerEntry.aggregate
+      .mockResolvedValueOnce({ _sum: { amountMinorUnits: 100000n } })
+      .mockResolvedValueOnce({ _sum: { amountMinorUnits: 1000n } });
+
+    await expect(debitStakes('player-a', 'player-b', 5000n, 'AMATEUR'))
+      .rejects.toThrow(InsufficientFundsError);
+
+    // Nothing was committed: no match, no reservation, no ledger posting.
+    expect(mockPrisma.match.create).not.toHaveBeenCalled();
+    expect(mockPrisma.stakeReservation.create).not.toHaveBeenCalled();
+    expect(mockPrisma.ledgerTransaction.create).not.toHaveBeenCalled();
+    expect(mockPrisma.gameOutbox.create).not.toHaveBeenCalled();
   });
 
   it('refuses to fund a match without platform settings', async () => {
@@ -153,7 +176,6 @@ describe('matchService debitStakes', () => {
       .rejects.toThrow('Platform settings not configured');
 
     expect(mockPrisma.match.create).not.toHaveBeenCalled();
-    expect(mockPrisma.walletTransaction.create).not.toHaveBeenCalled();
     expect(mockPrisma.ledgerTransaction.create).not.toHaveBeenCalled();
   });
 
@@ -164,6 +186,7 @@ describe('matchService debitStakes', () => {
       .rejects.toThrow('Invalid commissionPercent');
 
     expect(mockPrisma.match.create).not.toHaveBeenCalled();
+    expect(mockPrisma.ledgerTransaction.create).not.toHaveBeenCalled();
   });
 
   it('rejects identical light/dark players before touching any wallet', async () => {
@@ -171,9 +194,8 @@ describe('matchService debitStakes', () => {
       .rejects.toThrow(IdenticalPlayersError);
 
     expect(mockPrisma.$queryRaw).not.toHaveBeenCalled();
-    expect(mockPrisma.wallet.update).not.toHaveBeenCalled();
-    expect(mockPrisma.walletTransaction.create).not.toHaveBeenCalled();
     expect(mockPrisma.match.create).not.toHaveBeenCalled();
+    expect(mockPrisma.ledgerTransaction.create).not.toHaveBeenCalled();
   });
 
   it('exposes the transaction core for reuse inside another transaction', async () => {
@@ -184,8 +206,8 @@ describe('matchService debitStakes', () => {
     const match = await createMatchWithStakes(mockPrisma, 'player-a', 'player-b', 5000n, 'AMATEUR');
 
     expect(match).toEqual({ id: 'm-shared', status: 'FUNDED' });
-    expect(mockPrisma.wallet.update).toHaveBeenCalledTimes(2);
-    expect(mockPrisma.walletTransaction.create).toHaveBeenCalledTimes(2);
+    expect(mockPrisma.stakeReservation.create).toHaveBeenCalledTimes(2);
+    expect(mockPrisma.ledgerTransaction.create).toHaveBeenCalledTimes(1);
     expect(mockPrisma.match.create).toHaveBeenCalledWith({
       data: expect.objectContaining({ settlementCommissionPercent: 15, timeControlSeconds: 60 })
     });
@@ -198,7 +220,7 @@ describe('matchService debitStakes', () => {
       .rejects.toThrow('Invalid timeControlSeconds');
 
     expect(mockPrisma.match.create).not.toHaveBeenCalled();
-    expect(mockPrisma.walletTransaction.create).not.toHaveBeenCalled();
+    expect(mockPrisma.ledgerTransaction.create).not.toHaveBeenCalled();
   });
 
   it('refuses to fund a match when either player fails KYC', async () => {
@@ -214,8 +236,8 @@ describe('matchService debitStakes', () => {
 
     // No wallet row is locked and no stake is taken for the failing pair
     expect(mockPrisma.$queryRaw).not.toHaveBeenCalled();
-    expect(mockPrisma.wallet.update).not.toHaveBeenCalled();
     expect(mockPrisma.match.create).not.toHaveBeenCalled();
+    expect(mockPrisma.ledgerTransaction.create).not.toHaveBeenCalled();
   });
 
   it('refuses to fund a match for a player with no country evidence', async () => {

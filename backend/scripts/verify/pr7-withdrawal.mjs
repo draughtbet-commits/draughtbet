@@ -137,7 +137,7 @@ async function makeUser(suffix, { balance = 10000n, withBank = true, kyc = 'VERI
     }
   });
   const wallet = await prisma.wallet.create({
-    data: { userId: user.id, balanceMinorUnits: balance }
+    data: { userId: user.id }
   });
   await seedWalletFunds(user.id, balance);
   if (withBank) {
@@ -182,9 +182,32 @@ async function run(name, probe) {
 }
 
 const bal = async (wallet) => {
-  const current = await prisma.wallet.findUnique({ where: { id: wallet.id } });
-  return current.balanceMinorUnits;
+  const accounts = await prisma.ledgerAccount.findMany({
+    where: { userId: wallet.userId, type: 'PLAYER_AVAILABLE' }
+  });
+  if (accounts.length === 0) return 0n;
+  const agg = await prisma.ledgerEntry.aggregate({
+    where: { accountId: { in: accounts.map((a) => a.id) } },
+    _sum: { amountMinorUnits: true }
+  });
+  return agg._sum.amountMinorUnits ?? 0n;
 };
+
+async function userPaths(userId) {
+  const accounts = await prisma.ledgerAccount.findMany({
+    where: { userId },
+    select: { id: true }
+  });
+  return accounts.map((a) => a.id);
+}
+
+async function userLedgerTxCount(userId, prefix) {
+  const accountIds = await userPaths(userId);
+  if (accountIds.length === 0) return 0;
+  return prisma.ledgerTransaction.count({
+    where: { idempotencyKey: { startsWith: prefix }, entries: { some: { accountId: { in: accountIds } } } }
+  });
+}
 
 async function sumType(userId, type, system = false) {
   const accounts = await prisma.ledgerAccount.findMany({
@@ -269,11 +292,8 @@ await run('P1 request over HTTP reserves atomically (PENDING_REVIEW, wallet + le
   assert.equal(await sumType(user.id, 'PLAYER_WITHDRAWAL_PENDING'), 8000n);
 
   const rows = await prisma.withdrawal.findMany({ where: { userId: user.id } });
-  const txns = await prisma.walletTransaction.count({
-    where: { walletId: wallet.id, type: 'WITHDRAWAL' }
-  });
   assert.equal(rows.length, 1);
-  assert.equal(txns, 1);
+  assert.equal(await userLedgerTxCount(user.id, 'withdrawal:reserve:'), 1);
   // Outbox row for the emitted wallet.updated is atomic with the reservation.
   const outbox = await prisma.outboxEvent.count({
     where: { aggregateId: wallet.id, eventType: 'wallet.updated' }
@@ -337,10 +357,7 @@ await run('P3 idempotent replay returns the original request, debits never twice
   assert.equal(second.withdrawalRequest.id, first.withdrawalRequest.id);
   assert.equal(await bal(wallet), 2000n);
   assert.equal(await prisma.withdrawal.count({ where: { userId: user.id } }), 1);
-  assert.equal(
-    await prisma.walletTransaction.count({ where: { walletId: wallet.id, type: 'WITHDRAWAL' } }),
-    1
-  );
+  assert.equal(await userLedgerTxCount(user.id, 'withdrawal:reserve:'), 1);
   // Only one durable outbox row despite the replay's ephemeral re-emit.
   assert.equal(
     await prisma.outboxEvent.count({ where: { aggregateId: wallet.id, eventType: 'wallet.updated' } }),
@@ -369,10 +386,7 @@ await run('P4 EXIT GATE: 2 concurrent 8000 requests on 10000 -> one 201, one 402
   assert.equal(await sumType(user.id, 'PLAYER_AVAILABLE'), 2000n);
   assert.equal(await sumType(user.id, 'PLAYER_WITHDRAWAL_PENDING'), 8000n);
   assert.equal(await prisma.withdrawal.count({ where: { userId: user.id } }), 1);
-  assert.equal(
-    await prisma.walletTransaction.count({ where: { walletId: wallet.id, type: 'WITHDRAWAL' } }),
-    1
-  );
+  assert.equal(await userLedgerTxCount(user.id, 'withdrawal:reserve:'), 1);
 
   ok('P4 EXIT GATE: 2 concurrent 8000 requests on 10000 -> one 201, one 402, ledger agrees');
 });
@@ -458,7 +472,7 @@ await run('P8 admin reject lifecycle: approve then release refunds exactly once,
   assert.equal(await bal(wallet), 10000n);
   assert.equal(await sumType(user.id, 'PLAYER_WITHDRAWAL_PENDING'), 0n);
   assert.equal(await sumType(user.id, 'PLAYER_AVAILABLE'), 10000n);
-  assert.equal(await prisma.walletTransaction.count({ where: { walletId: wallet.id, type: 'REFUND' } }), 1);
+  assert.equal(await userLedgerTxCount(user.id, 'withdrawal:release:'), 1);
   assert.equal(
     await prisma.notification.count({ where: { userId: user.id, type: 'WITHDRAWAL_REFUNDED' } }),
     1
@@ -467,7 +481,7 @@ await run('P8 admin reject lifecycle: approve then release refunds exactly once,
   // Re-release is a safe no-op: no second refund row or second credit.
   await api(`/admin/withdrawals/${id}/reject`, { method: 'POST', token: adminToken, body: { reason: 'again' } });
   assert.equal(await bal(wallet), 10000n);
-  assert.equal(await prisma.walletTransaction.count({ where: { walletId: wallet.id, type: 'REFUND' } }), 1);
+  assert.equal(await userLedgerTxCount(user.id, 'withdrawal:release:'), 1);
   assert.equal(
     await prisma.notification.count({ where: { userId: user.id, type: 'WITHDRAWAL_REFUNDED' } }),
     1
@@ -640,7 +654,7 @@ await run('P13 failed payout webhook keeps reserves; admin reject releases exact
   assert.equal(await sumType(user.id, 'PLAYER_WITHDRAWAL_PENDING'), 0n);
   assert.equal(await sumType(user.id, 'PLAYER_AVAILABLE'), 60000n);
   assert.equal(await sumType(null, 'CUSTOMER_LIABILITY', true), preLiability);
-  assert.equal(await prisma.walletTransaction.count({ where: { walletId: wallet.id, type: 'REFUND' } }), 1);
+  assert.equal(await userLedgerTxCount(user.id, 'withdrawal:release:'), 1);
   assert.equal(
     await prisma.notification.count({ where: { userId: user.id, type: 'WITHDRAWAL_REFUNDED' } }),
     1
@@ -913,10 +927,7 @@ await run('P21 concurrent same-idempotencyKey HTTP requests -> one row, one debi
   assert.equal(await bal(wallet), 2000n);
   assert.equal(await sumType(user.id, 'PLAYER_WITHDRAWAL_PENDING'), 8000n);
   assert.equal(await prisma.withdrawal.count({ where: { userId: user.id } }), 1);
-  assert.equal(
-    await prisma.walletTransaction.count({ where: { walletId: wallet.id, type: 'WITHDRAWAL' } }),
-    1
-  );
+  assert.equal(await userLedgerTxCount(user.id, 'withdrawal:reserve:'), 1);
 
   ok('P21 concurrent same-idempotencyKey HTTP requests -> one row, one debit');
 });
@@ -955,7 +966,6 @@ for (const userId of state.users) {
   await prisma.bankAccount.deleteMany({ where: { userId } });
   await prisma.notification.deleteMany({ where: { userId } });
   if (walletIds.length) {
-    await prisma.walletTransaction.deleteMany({ where: { walletId: { in: walletIds } } });
     await prisma.outboxEvent.deleteMany({ where: { aggregateId: { in: walletIds }, eventType: 'wallet.updated' } });
   }
   await prisma.wallet.deleteMany({ where: { userId } });

@@ -28,7 +28,7 @@ describeIntegration('Deposit intents (real PostgreSQL)', () => {
       }
     });
     const wallet = await prisma.wallet.create({
-      data: { userId: user.id, balanceMinorUnits: 0n }
+      data: { userId: user.id }
     });
     userId = user.id;
     walletId = wallet.id;
@@ -38,12 +38,9 @@ describeIntegration('Deposit intents (real PostgreSQL)', () => {
     prisma.depositIntent.count({ where: { userId, ...(status ? { status } : {}) } });
 
   const balance = async () => {
-    const w = await prisma.wallet.findUnique({ where: { userId } });
-    return w.balanceMinorUnits.toString();
+    const bal = await availableBalance();
+    return (bal.PLAYER_AVAILABLE ?? 0n).toString();
   };
-
-  const txCount = async () =>
-    prisma.walletTransaction.count({ where: { walletId, type: 'DEPOSIT' } });
 
   const ledgerCreditKey = (reference) => `deposit:credit:${reference}`;
 
@@ -85,7 +82,6 @@ describeIntegration('Deposit intents (real PostgreSQL)', () => {
         where: { metadata: { path: ['depositIntentId'], equals: id } }
       });
     }
-    await prisma.walletTransaction.deleteMany({ where: { walletId } });
     await prisma.outboxEvent.deleteMany({ where: { aggregateId: walletId } });
     await prisma.notification.deleteMany({ where: { userId } });
     await prisma.depositIntent.deleteMany({ where: { userId } });
@@ -119,14 +115,13 @@ describeIntegration('Deposit intents (real PostgreSQL)', () => {
     expect(result.handled).toBe(true);
     expect(result.alreadyApplied).toBe(false);
     expect(await balance()).toBe('50000');
-    expect(await txCount()).toBe(1);
 
     const stored = await prisma.depositIntent.findUnique({ where: { id: intent.id } });
     expect(stored.status).toBe('COMPLETED');
     expect(stored.appliedAt).not.toBeNull();
 
-    // V2 ledger mirror: the deposit posts a balanced DEPOSIT_CREDIT in the
-    // same transaction — PLAYER_AVAILABLE +amount, CUSTOMER_LIABILITY -amount.
+    // The deposit posts a balanced DEPOSIT_CREDIT in the same transaction —
+    // PLAYER_AVAILABLE +amount, CUSTOMER_LIABILITY -amount.
     expect(await ledgerCreditCount(intent.reference)).toBe(1);
     const ledgerBal = await availableBalance();
     expect(ledgerBal.PLAYER_AVAILABLE).toBe(50000n);
@@ -152,7 +147,7 @@ describeIntegration('Deposit intents (real PostgreSQL)', () => {
 
     expect(result).toMatchObject({ handled: false, reason: 'AMOUNT_MISMATCH' });
     expect(await balance()).toBe('0');
-    expect(await txCount()).toBe(0);
+    expect(await ledgerCreditCount(intent.reference)).toBe(0);
     expect(await intentCount('PENDING')).toBe(1);
 
     await cleanup();
@@ -230,7 +225,6 @@ describeIntegration('Deposit intents (real PostgreSQL)', () => {
     expect(second.handled).toBe(false);
     expect(second.alreadyApplied).toBe(true);
     expect(await balance()).toBe('50000');
-    expect(await txCount()).toBe(1);
     // Exactly-once everywhere: one ledger posting, one outbox row, one notice.
     expect(await ledgerCreditCount(intent.reference)).toBe(1);
     expect(await outboxCount()).toBe(1);
@@ -260,7 +254,6 @@ describeIntegration('Deposit intents (real PostgreSQL)', () => {
     expect(applied).toHaveLength(1);
     expect(duplicates).toHaveLength(1);
     expect(await balance()).toBe('50000');
-    expect(await txCount()).toBe(1);
     expect(await ledgerCreditCount(intent.reference)).toBe(1);
     expect(await outboxCount()).toBe(1);
     expect(await notificationCount()).toBe(1);
@@ -287,7 +280,7 @@ describeIntegration('Deposit intents (real PostgreSQL)', () => {
     expect(await ledgerCreditCount(intent.reference)).toBe(0);
 
     // A provider webhook that arrives LATE must still credit once: the guard
-    // against double-application is the unique gatewayReference, not a clock.
+    // against double-application is the intent-status CAS, not a clock.
     const late = await processDepositWebhook({
       reference: intent.reference,
       amountMinorUnits: 50000,
@@ -300,7 +293,6 @@ describeIntegration('Deposit intents (real PostgreSQL)', () => {
     const applied = await prisma.depositIntent.findUnique({ where: { id: intent.id } });
     expect(applied.status).toBe('COMPLETED');
     expect(await balance()).toBe('50000');
-    expect(await txCount()).toBe(1);
     expect(await ledgerCreditCount(intent.reference)).toBe(1);
     expect(await outboxCount()).toBe(1);
     expect(await notificationCount()).toBe(1);
@@ -335,7 +327,6 @@ describeIntegration('Deposit intents (real PostgreSQL)', () => {
     expect(summary.anomalies.some((a) => a.check === 'ledgerPostingMissing')).toBe(true);
     // Never auto-repair: the posting stays gone after the sweep.
     expect(await ledgerCreditCount(intent.reference)).toBe(0);
-    expect(await txCount()).toBe(1);
 
     await cleanup();
   });

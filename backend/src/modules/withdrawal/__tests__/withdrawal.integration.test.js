@@ -76,9 +76,7 @@ describeIntegration('Withdrawal V2 (real PostgreSQL concurrency + lifecycle)', (
         }
       }
     });
-    const wallet = await prisma.wallet.create({
-      data: { userId: user.id, balanceMinorUnits: balance }
-    });
+    const wallet = await prisma.wallet.create({ data: { userId: user.id } });
     await seedDeposit(user.id, balance);
     if (withBank) await addVerifiedBank(user.id);
     userId = user.id;
@@ -88,7 +86,6 @@ describeIntegration('Withdrawal V2 (real PostgreSQL concurrency + lifecycle)', (
   const cleanup = async () => {
     await prisma.withdrawal.deleteMany({ where: { userId } });
     await prisma.bankAccount.deleteMany({ where: { userId } });
-    await prisma.walletTransaction.deleteMany({ where: { walletId } });
     await prisma.outboxEvent.deleteMany({ where: { aggregateId: walletId, eventType: 'wallet.updated' } });
     await prisma.notification.deleteMany({ where: { userId } });
     await prisma.ledgerTransaction.deleteMany({
@@ -116,18 +113,25 @@ describeIntegration('Withdrawal V2 (real PostgreSQL concurrency + lifecycle)', (
     expect(rejected).toHaveLength(1);
     expect(rejected[0].reason.message).toMatch(/Insufficient funds/i);
 
-    const wallet = await prisma.wallet.findUnique({ where: { userId } });
-    expect(wallet.balanceMinorUnits.toString()).toBe('20');
-    // Ledger mirrors the wallet: exactly 80 moved to PLAYER_WITHDRAWAL_PENDING.
+    // Ledger drives the balance: exactly 80 moved to PLAYER_WITHDRAWAL_PENDING.
     expect(await sumAccount(userId, 'PLAYER_AVAILABLE')).toBe(20n);
     expect(await sumAccount(userId, 'PLAYER_WITHDRAWAL_PENDING')).toBe(80n);
 
     const withdrawals = await prisma.withdrawal.count({ where: { userId } });
-    const txns = await prisma.walletTransaction.count({
-      where: { walletId, type: 'WITHDRAWAL' }
-    });
     expect(withdrawals).toBe(1);
-    expect(txns).toBe(1);
+    // Scope the ledger count to this user's accounts: the shared DB carries a
+    // withdrawal history from other suites/owners that must not count here.
+    const accounts = await prisma.ledgerAccount.findMany({
+      where: { userId },
+      select: { id: true }
+    });
+    const reserves = await prisma.ledgerTransaction.count({
+      where: {
+        idempotencyKey: { startsWith: 'withdrawal:reserve:' },
+        entries: { some: { accountId: { in: accounts.map((a) => a.id) } } }
+      }
+    });
+    expect(reserves).toBe(1);
 
     await cleanup();
   });
@@ -141,15 +145,11 @@ describeIntegration('Withdrawal V2 (real PostgreSQL concurrency + lifecycle)', (
     ]);
     expect(a.id).toBe(b.id);
 
-    const wallet = await prisma.wallet.findUnique({ where: { userId } });
-    expect(wallet.balanceMinorUnits.toString()).toBe('20');
+    expect(await sumAccount(userId, 'PLAYER_AVAILABLE')).toBe(20n);
+    expect(await sumAccount(userId, 'PLAYER_WITHDRAWAL_PENDING')).toBe(80n);
 
     const withdrawals = await prisma.withdrawal.count({ where: { userId } });
-    const txns = await prisma.walletTransaction.count({
-      where: { walletId, type: 'WITHDRAWAL' }
-    });
     expect(withdrawals).toBe(1);
-    expect(txns).toBe(1);
 
     await cleanup();
   });
@@ -163,8 +163,7 @@ describeIntegration('Withdrawal V2 (real PostgreSQL concurrency + lifecycle)', (
     expect(replay.id).toBe(first.id);
     expect(replay.amountMinorUnits).toBe('30');
 
-    const wallet = await prisma.wallet.findUnique({ where: { userId } });
-    expect(wallet.balanceMinorUnits.toString()).toBe('70');
+    expect(await sumAccount(userId, 'PLAYER_AVAILABLE')).toBe(70n);
 
     await cleanup();
   });
@@ -176,8 +175,7 @@ describeIntegration('Withdrawal V2 (real PostgreSQL concurrency + lifecycle)', (
     await expect(service().requestWithdrawal(userId, 80n, 'op_no_kyc'))
       .rejects.toThrow('KYC verification is required');
 
-    const wallet = await prisma.wallet.findUnique({ where: { userId } });
-    expect(wallet.balanceMinorUnits.toString()).toBe('100');
+    expect(await sumAccount(userId, 'PLAYER_AVAILABLE')).toBe(100n);
 
     const withdrawals = await prisma.withdrawal.count({ where: { userId } });
     expect(withdrawals).toBe(0);
@@ -191,8 +189,7 @@ describeIntegration('Withdrawal V2 (real PostgreSQL concurrency + lifecycle)', (
     await expect(service().requestWithdrawal(userId, 10n, 'op_no_bank'))
       .rejects.toThrow(/verified bank account is required/);
 
-    const wallet = await prisma.wallet.findUnique({ where: { userId } });
-    expect(wallet.balanceMinorUnits.toString()).toBe('100');
+    expect(await sumAccount(userId, 'PLAYER_AVAILABLE')).toBe(100n);
     expect(await prisma.withdrawal.count({ where: { userId } })).toBe(0);
 
     await cleanup();
@@ -212,9 +209,8 @@ describeIntegration('Withdrawal V2 (real PostgreSQL concurrency + lifecycle)', (
         }
       }
     });
-    await prisma.wallet.create({
-      data: { userId: friend.id, balanceMinorUnits: 100000n }
-    });
+    await prisma.wallet.create({ data: { userId: friend.id } });
+    await seedDeposit(friend.id, 100000n);
     await prisma.platformSettings.upsert({
       where: { id: 'singleton' },
       create: { id: 'singleton', commissionPercent: 10 },
@@ -231,8 +227,7 @@ describeIntegration('Withdrawal V2 (real PostgreSQL concurrency + lifecycle)', (
     expect(rejected).toHaveLength(1);
     expect(rejected[0].reason.message).toMatch(/Insufficient funds/i);
 
-    const wallet = await prisma.wallet.findUnique({ where: { userId } });
-    expect(wallet.balanceMinorUnits.toString()).toBe('20');
+    expect(await sumAccount(userId, 'PLAYER_AVAILABLE')).toBe(20n);
 
     const withdrawals = await prisma.withdrawal.count({ where: { userId } });
     const matches = await prisma.match.count({
@@ -244,10 +239,20 @@ describeIntegration('Withdrawal V2 (real PostgreSQL concurrency + lifecycle)', (
       where: { OR: [{ playerLightId: userId }, { playerDarkId: userId }] }
     });
     if (match) {
-      await prisma.walletTransaction.deleteMany({ where: { relatedMatchId: match.id } });
       await prisma.ledgerTransaction.deleteMany({ where: { relatedMatchId: match.id } });
       await prisma.match.delete({ where: { id: match.id } });
     }
+    const friendAccounts = await prisma.ledgerAccount.findMany({
+      where: { userId: friend.id },
+      select: { id: true }
+    });
+    await prisma.ledgerEntry.deleteMany({
+      where: { accountId: { in: friendAccounts.map((a) => a.id) } }
+    });
+    await prisma.ledgerTransaction.deleteMany({
+      where: { idempotencyKey: `withdrawal:test:seed:${friend.id}` }
+    });
+    await prisma.ledgerAccount.deleteMany({ where: { userId: friend.id } });
     await prisma.wallet.delete({ where: { userId: friend.id } });
     await prisma.user.delete({ where: { id: friend.id } });
     await cleanup();
@@ -274,14 +279,11 @@ describeIntegration('Withdrawal V2 (real PostgreSQL concurrency + lifecycle)', (
     const w = await prisma.withdrawal.findUnique({ where: { id: reserved.id } });
     expect(w.status).toBe('COMPLETED');
 
-    // Funds were moved exactly once: pending back to 0, wallet stayed debited,
+    // Funds were moved exactly once: pending back to 0, available 0,
     // liability delta applied once.
     expect(await sumAccount(userId, 'PLAYER_WITHDRAWAL_PENDING')).toBe(0n);
     expect(await sumAccount(userId, 'PLAYER_AVAILABLE')).toBe(0n);
     expect(await sumAccount(userId, 'CUSTOMER_LIABILITY', true)).toBe(0n);
-
-    const wallet = await prisma.wallet.findUnique({ where: { userId } });
-    expect(wallet.balanceMinorUnits.toString()).toBe('0');
 
     const confirmations = await prisma.notification.count({
       where: { userId, type: 'WITHDRAWAL_CONFIRMED' }
@@ -312,17 +314,16 @@ describeIntegration('Withdrawal V2 (real PostgreSQL concurrency + lifecycle)', (
 
     // Funds still reserved — nothing returned yet.
     expect(await sumAccount(userId, 'PLAYER_WITHDRAWAL_PENDING')).toBe(100000n);
-    const afterFail = await prisma.wallet.findUnique({ where: { userId } });
-    expect(afterFail.balanceMinorUnits.toString()).toBe('0');
 
     await svc.releaseWithdrawal(failed.id, { failureReason: 'not retrying', adminId: 'admin-1' });
     // Releasing again is a no-op.
     await svc.releaseWithdrawal(failed.id, { failureReason: 'still not retrying' });
 
-    const w = await prisma.wallet.findUnique({ where: { userId } });
-    expect(w.balanceMinorUnits.toString()).toBe('100000');
+    expect(await sumAccount(userId, 'PLAYER_AVAILABLE')).toBe(100000n);
 
-    const refunds = await prisma.walletTransaction.count({ where: { walletId, type: 'REFUND' } });
+    const refunds = await prisma.ledgerTransaction.count({
+      where: { idempotencyKey: { startsWith: 'withdrawal:release:' } }
+    });
     expect(refunds).toBe(1);
 
     expect(await sumAccount(userId, 'PLAYER_WITHDRAWAL_PENDING')).toBe(0n);

@@ -7,6 +7,7 @@ import { jest } from '@jest/globals';
 
 const prisma = (await import('../../utils/db.js')).default;
 const redis = (await import('../../utils/redis.js')).default;
+const { ensureSystemAccount } = await import('../ledgerService.js');
 const { debitStakes } = await import('../matchService.js');
 const {
   finalizeMatchActivation,
@@ -35,7 +36,19 @@ describeIntegration('Durable game activation (real PostgreSQL + Redis)', () => {
         }
       }
     });
-    await prisma.wallet.create({ data: { userId: user.id, balanceMinorUnits: balance } });
+    await prisma.wallet.create({ data: { userId: user.id } });
+    // Seed the spendable balance on the V2 ledger (PLAYER_AVAILABLE + BALANCE,
+    // CUSTOMER_LIABILITY -BALANCE). The wallet row is a currency holder + lock
+    // serialization point only.
+    const liability = await ensureSystemAccount(prisma, 'CUSTOMER_LIABILITY', 'NGN');
+    const available = await prisma.ledgerAccount.create({
+      data: { userId: user.id, type: 'PLAYER_AVAILABLE', currency: 'NGN' }
+    });
+    const seed = await prisma.ledgerTransaction.create({
+      data: { type: 'DEPOSIT_CREDIT', idempotencyKey: `activation:test:seed:${user.id}` }
+    });
+    await prisma.ledgerEntry.create({ data: { transactionId: seed.id, accountId: available.id, amountMinorUnits: balance } });
+    await prisma.ledgerEntry.create({ data: { transactionId: seed.id, accountId: liability.id, amountMinorUnits: -balance } });
     allUsers.push(user.id);
     return user;
   };
@@ -50,11 +63,18 @@ describeIntegration('Durable game activation (real PostgreSQL + Redis)', () => {
     prisma.gameOutbox.findUnique({ where: { matchId } });
 
   const ledgerCount = async (matchId) =>
-    prisma.walletTransaction.count({ where: { relatedMatchId: matchId } });
+    prisma.ledgerTransaction.count({ where: { relatedMatchId: matchId } });
 
   const balance = async (userId) => {
-    const w = await prisma.wallet.findUnique({ where: { userId } });
-    return w.balanceMinorUnits;
+    const accounts = await prisma.ledgerAccount.findMany({
+      where: { userId, type: 'PLAYER_AVAILABLE' }
+    });
+    if (accounts.length === 0) return 0n;
+    const sum = await prisma.ledgerEntry.aggregate({
+      where: { accountId: { in: accounts.map((a) => a.id) } },
+      _sum: { amountMinorUnits: true }
+    });
+    return sum._sum.amountMinorUnits ?? 0n;
   };
 
   beforeEach(async () => {
@@ -74,14 +94,16 @@ describeIntegration('Durable game activation (real PostgreSQL + Redis)', () => {
     for (const userId of allUsers) {
       await redis.del(`user:${userId}:activeMatch`);
     }
-    await prisma.walletTransaction.deleteMany({
-      where: { wallet: { userId: { in: allUsers } } }
-    });
     await prisma.wallet.deleteMany({ where: { userId: { in: allUsers } } });
     // V2 ledger rows must go before users: user delete cascades LedgerAccount,
     // but LedgerEntry.account is onDelete Restrict.
     await prisma.ledgerTransaction.deleteMany({
-      where: { relatedMatchId: { in: allMatches } }
+      where: {
+        OR: [
+          { relatedMatchId: { in: allMatches } },
+          { idempotencyKey: { startsWith: 'activation:test:seed:' } }
+        ]
+      }
     });
     await prisma.user.deleteMany({ where: { id: { in: allUsers } } });
     await prisma.$disconnect();
@@ -91,8 +113,9 @@ describeIntegration('Durable game activation (real PostgreSQL + Redis)', () => {
     const p1 = await makeEligibleUser('p1');
     const p2 = await makeEligibleUser('p2');
 
-    // The funding transaction commits (debits + Match + outbox) but nothing
-    // initializes Redis: this is the crash-after-commit window.
+    // The funding transaction commits (stakes reserved on the ledger + Match +
+    // outbox) but nothing initializes Redis: this is the crash-after-commit
+    // window.
     const match = await stakeAndFund(p1, p2);
 
     const outbox = await outboxFor(match.id);
@@ -111,7 +134,8 @@ describeIntegration('Durable game activation (real PostgreSQL + Redis)', () => {
     expect(await redis.get(`user:${p2.id}:activeMatch`)).toBe(match.id);
     expect(await balance(p1.id)).toBe(9000000n);
     expect(await balance(p2.id)).toBe(9000000n);
-    expect(await ledgerCount(match.id)).toBe(2);
+    // ONE balanced STAKE_LOCK posting for the pair; activation never re-debits.
+    expect(await ledgerCount(match.id)).toBe(1);
 
     const state = await redis.hgetall(`match:${match.id}`);
     expect(state.board).toBeTruthy();
@@ -139,8 +163,8 @@ describeIntegration('Durable game activation (real PostgreSQL + Redis)', () => {
     expect(outbox.status).toBe('ACTIVATED');
     expect(outbox.claimToken).toBeNull();
     expect(await redis.exists(`match:${match.id}`)).toBe(1);
-    // Exactly the funding debits; activation never re-debits
-    expect(await ledgerCount(match.id)).toBe(2);
+    // Exactly the funding posting; activation never re-debits
+    expect(await ledgerCount(match.id)).toBe(1);
   });
 
   it('does not clobber a game Redis already made live', async () => {
@@ -162,7 +186,7 @@ describeIntegration('Durable game activation (real PostgreSQL + Redis)', () => {
     expect(outbox.status).toBe('ACTIVATED');
     // The live state was left intact
     expect(await redis.exists(`match:${match.id}`)).toBe(1);
-    expect(await ledgerCount(match.id)).toBe(2);
+    expect(await ledgerCount(match.id)).toBe(1);
   });
 
   it('releases a match that exhausted activation attempts: refunds exactly once', async () => {
@@ -189,14 +213,14 @@ describeIntegration('Durable game activation (real PostgreSQL + Redis)', () => {
     const dbMatch = await prisma.match.findUnique({ where: { id: match.id } });
     expect(dbMatch.status).toBe('RELEASED');
 
-    // Both stakes credited back; the funding debits are untouched
+    // Both stakes credited back; the funding posting is untouched
     expect(await balance(p1.id)).toBe(10000000n);
     expect(await balance(p2.id)).toBe(10000000n);
-    expect(await ledgerCount(match.id)).toBe(4); // 2 STAKE + 2 single REFUND
+    expect(await ledgerCount(match.id)).toBe(2); // STAKE_LOCK + one STAKE_RELEASE
 
     // A second sweep cannot refund again
     await processGameActivationSweep();
     expect(await balance(p1.id)).toBe(10000000n);
-    expect(await ledgerCount(match.id)).toBe(4);
+    expect(await ledgerCount(match.id)).toBe(2);
   });
 });

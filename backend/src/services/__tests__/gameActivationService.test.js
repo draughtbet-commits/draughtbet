@@ -9,7 +9,6 @@ const mockPrisma = {
     update: jest.fn()
   },
   wallet: { update: jest.fn() },
-  walletTransaction: { create: jest.fn() },
   ledgerAccount: { upsert: jest.fn() },
   ledgerTransaction: { create: jest.fn(), findUnique: jest.fn() },
   ledgerEntry: { create: jest.fn() },
@@ -121,7 +120,6 @@ describe('gameActivationService finalizeMatchActivation', () => {
       })
     });
     expect(mockPrisma.wallet.update).not.toHaveBeenCalled();
-    expect(mockPrisma.walletTransaction.create).not.toHaveBeenCalled();
     expect(mockPrisma.match.updateMany).not.toHaveBeenCalled();
   });
 });
@@ -131,8 +129,8 @@ describe('gameActivationService releaseMatch', () => {
     jest.clearAllMocks();
     mockPrisma.$queryRaw.mockResolvedValue([pendingRow]);
     lockWalletsInOrder.mockResolvedValue([
-      { id: 'w-a', userId: 'player-a', balanceMinorUnits: '9000', currency: 'NGN' },
-      { id: 'w-b', userId: 'player-b', balanceMinorUnits: '9000', currency: 'NGN' }
+      { id: 'w-a', userId: 'player-a', currency: 'NGN' },
+      { id: 'w-b', userId: 'player-b', currency: 'NGN' }
     ]);
     mockPrisma.$transaction.mockImplementation(async (fn) => fn(mockPrisma));
     mockTransitionMatch.mockResolvedValue({ id: 'match-1', status: 'RELEASED' });
@@ -155,8 +153,8 @@ describe('gameActivationService releaseMatch', () => {
       ],
       amountMinorUnits: 5000n,
       wallets: [
-        { id: 'w-a', userId: 'player-a', balanceMinorUnits: '9000', currency: 'NGN' },
-        { id: 'w-b', userId: 'player-b', balanceMinorUnits: '9000', currency: 'NGN' }
+        { id: 'w-a', userId: 'player-a', currency: 'NGN' },
+        { id: 'w-b', userId: 'player-b', currency: 'NGN' }
       ]
     });
     expect(mockPrisma.match.update).toHaveBeenCalledWith({

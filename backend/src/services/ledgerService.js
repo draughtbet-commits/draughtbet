@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import prisma from '../utils/db.js';
 import logger from '../utils/logger.js';
 
@@ -71,17 +72,25 @@ const assertAmount = (amount) => {
 
 /**
  * Resolves (create-if-missing) a single ledger account for a user.
- * The compound unique [userId, type, currency] makes concurrent creation safe.
+ *
+ * Uses a native `INSERT ... ON CONFLICT DO UPDATE ... RETURNING` rather than
+ * Prisma's `upsert`: inside concurrent interactive transactions Prisma's
+ * upsert can degrade to a check-then-insert and raise P2002 when two deposits
+ * for the same fresh user race to create the account. The native statement is
+ * atomic at the database level and always returns the surviving row.
  */
 export async function getOrCreateUserAccount(tx, userId, type, currency = 'NGN') {
   if (!PLAYER_ACCOUNT_TYPES.includes(type)) {
     throw new Error(`Cannot create ${type} as a user account`);
   }
-  return await tx.ledgerAccount.upsert({
-    where: { userId_type_currency: { userId, type, currency } },
-    create: { userId, type, currency },
-    update: {}
-  });
+  const rows = await tx.$queryRaw`
+    INSERT INTO "LedgerAccount" ("id", "userId", "type", "currency")
+    VALUES (${randomUUID()}, ${userId}, ${type}::"AccountType", ${currency}::"Currency")
+    ON CONFLICT ("userId", "type", "currency")
+    DO UPDATE SET "currency" = EXCLUDED."currency"
+    RETURNING *
+  `;
+  return rows[0];
 }
 
 export async function ensureUserAccounts(tx, userId, currency = 'NGN') {
@@ -97,18 +106,22 @@ export async function ensureUserAccounts(tx, userId, currency = 'NGN') {
  * Resolves (create-if-missing) a system singleton account. System accounts get
  * a deterministic id (`system:{TYPE}:{CURRENCY}`) because the schema's unique
  * [userId, type, currency] treats NULL user ids as distinct, so it cannot
- * enforce uniqueness by itself.
+ * enforce uniqueness by itself. Like user accounts, the insert is a native
+ * atomic upsert so concurrent first-time postings cannot race.
  */
 export async function ensureSystemAccount(tx, type, currency = 'NGN') {
   if (!SYSTEM_ACCOUNT_TYPES.includes(type)) {
     throw new Error(`Cannot create ${type} as a system account`);
   }
   const id = SYSTEM_ACCOUNT_ID(type, currency);
-  return await tx.ledgerAccount.upsert({
-    where: { id },
-    create: { id, type, currency, userId: null },
-    update: {}
-  });
+  const rows = await tx.$queryRaw`
+    INSERT INTO "LedgerAccount" ("id", "userId", "type", "currency")
+    VALUES (${id}, NULL, ${type}::"AccountType", ${currency}::"Currency")
+    ON CONFLICT ("id")
+    DO UPDATE SET "currency" = EXCLUDED."currency"
+    RETURNING *
+  `;
+  return rows[0];
 }
 
 function assertBalanced(entries) {
@@ -438,6 +451,114 @@ export async function getAccountBalance(client, accountId) {
 }
 
 /**
+ * Read-only projection of a user's spendable balance (PLAYER_AVAILABLE net).
+ * Unlike `getUserLedgerProjections` this NEVER creates accounts — a user with
+ * no ledger history reads as zero. Safe for GET paths and for affordability
+ * gates running under a wallet row lock (a read must not write).
+ */
+export async function getLedgerAvailable(client, userId, currency = 'NGN') {
+  const accounts = await client.ledgerAccount.findMany({
+    where: { userId, type: 'PLAYER_AVAILABLE', currency },
+    select: { id: true }
+  });
+  if (accounts.length === 0) return 0n;
+  const agg = await client.ledgerEntry.aggregate({
+    where: { accountId: { in: accounts.map((a) => a.id) } },
+    _sum: { amountMinorUnits: true }
+  });
+  return agg._sum.amountMinorUnits ?? 0n;
+}
+
+// Maps a user's PLAYER_AVAILABLE ledger entry (with its parent transaction) to
+// the legacy WalletTransaction payload shape the Flutter app renders. Only the
+// PLAYER_AVAILABLE leg of a posting is user-facing — locked/pending/internal
+// legs never appear in the wallet feed (they never had mirror rows either).
+const TX_TYPE = {
+  DEPOSIT_CREDIT: { type: 'DEPOSIT', status: 'COMPLETED' },
+  STAKE_LOCK: { type: 'STAKE', status: 'COMPLETED' },
+  STAKE_RELEASE: { type: 'REFUND', status: 'COMPLETED' },
+  WITHDRAWAL_RESERVE: { type: 'WITHDRAWAL', status: 'PENDING' },
+  WITHDRAWAL_RELEASE: { type: 'REFUND', status: 'COMPLETED' }
+};
+
+const LEGACY_EXCLUDED_LEDGER_TYPES = new Set(['ADJUSTMENT', 'WITHDRAWAL_COMPLETE']);
+
+function toWalletTransactionPayload(entry) {
+  if (LEGACY_EXCLUDED_LEDGER_TYPES.has(entry.transaction.type)) return null;
+  if (entry.transaction.type === 'SETTLEMENT_PAYOUT') {
+    // A decided match credits only the winner's available (PAYOUT); a draw
+    // credits both players' available (REFUND). The winnerId in metadata
+    // distinguishes them — same as the old mirror's PAYOUT vs REFUND rows.
+    return {
+      id: entry.id,
+      type: entry.transaction.metadata?.winnerId ? 'PAYOUT' : 'REFUND',
+      amountMinorUnits: entry.amountMinorUnits.toString(),
+      status: 'COMPLETED',
+      createdAt: entry.createdAt,
+      relatedMatchId: entry.transaction.relatedMatchId ?? null
+    };
+  }
+  const mapped = TX_TYPE[entry.transaction.type];
+  if (!mapped) return null;
+  return {
+    id: entry.id,
+    type: mapped.type,
+    amountMinorUnits: entry.amountMinorUnits.toString(),
+    status: mapped.status,
+    createdAt: entry.createdAt,
+    relatedMatchId: entry.transaction.relatedMatchId ?? null
+  };
+}
+
+/**
+ * Paginated projection of a user's wallet-feed transactions straight from the
+ * ledger (PLAYER_AVAILABLE entries). Replaces the legacy WalletTransaction read
+ * with the exact payload fields the Flutter app consumes
+ * (id, type, amountMinorUnits, status, createdAt, relatedMatchId). Sign and
+ * status match the legacy mirror convention (DEPOSIT +, STAKE -, PAYOUT +,
+ * REFUND +, WITHDRAWAL - PENDING). No accounts are created.
+ */
+export async function getLedgerTransactions(
+  client,
+  userId,
+  { page = 1, limit = 20, currency = 'NGN' } = {}
+) {
+  const accounts = await client.ledgerAccount.findMany({
+    where: { userId, type: 'PLAYER_AVAILABLE', currency },
+    select: { id: true }
+  });
+  if (accounts.length === 0) {
+    return { transactions: [], total: 0, page, totalPages: 0 };
+  }
+
+  const where = {
+    accountId: { in: accounts.map((a) => a.id) },
+    // ADJUSTMENT and WITHDRAWAL_COMPLETE legs are internal: opening backfills
+    // and payout-drain have no user-facing feed row (the legacy mirror never
+    // wrote them either). Filtered at the query so `total` matches the feed.
+    transaction: { type: { notIn: [...LEGACY_EXCLUDED_LEDGER_TYPES] } }
+  };
+  const skip = (page - 1) * limit;
+  const [rows, total] = await Promise.all([
+    client.ledgerEntry.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      skip,
+      take: limit,
+      include: { transaction: true }
+    }),
+    client.ledgerEntry.count({ where })
+  ]);
+
+  return {
+    transactions: rows.map(toWalletTransactionPayload).filter(Boolean),
+    total,
+    page,
+    totalPages: Math.ceil(total / limit)
+  };
+}
+
+/**
  * V2 projections for a user: available / locked / pending. Each is the net of
  * its account. All balances are returned as decimal strings (BigInt-exact).
  */
@@ -452,100 +573,5 @@ export async function getUserLedgerProjections(client, userId, currency = 'NGN')
     available: available.toString(),
     locked: locked.toString(),
     pending: pending.toString()
-  };
-}
-
-/**
- * Backfills one legacy wallet into the V2 ledger with an opening transaction:
- *   SYSTEM_OPENING_CLEARING  -amountMinorUnits
- *   PLAYER_AVAILABLE         +amountMinorUnits
- *
- * Idempotent per wallet (idempotencyKey = `opening-balance:{walletId}`), so a
- * re-run never double-credits. Zero-balance wallets skip the posting (nothing
- * to carry) but still get their accounts created.
- */
-export async function backfillWalletOpeningBalance(wallet) {
-  const currency = wallet.currency ?? 'NGN';
-  const amount = BigInt(wallet.balanceMinorUnits);
-  if (amount < 0n) throw new InvalidAmountError('Cannot backfill a negative wallet');
-
-  return await prisma.$transaction(async (tx) => {
-    const playerAccounts = await ensureUserAccounts(tx, wallet.userId, currency);
-    if (amount === 0n) {
-      return {
-        walletId: wallet.id,
-        posted: false,
-        reason: 'zero-balance'
-      };
-    }
-
-    const clearing = await ensureSystemAccount(tx, 'SYSTEM_OPENING_CLEARING', currency);
-    const { transaction, entries, replayed } = await postLedgerTransaction(tx, {
-      type: 'ADJUSTMENT',
-      description: 'Opening balance carried over from legacy wallet',
-      idempotencyKey: `opening-balance:${wallet.id}`,
-      metadata: { walletId: wallet.id, source: 'legacy-wallet-backfill' },
-      entries: [
-        { accountId: clearing.id, amountMinorUnits: -amount },
-        { accountId: playerAccounts.PLAYER_AVAILABLE.id, amountMinorUnits: amount }
-      ]
-    });
-
-    logger.info(
-      { walletId: wallet.id, amount: amount.toString(), replayed },
-      'Wallet opening balance backfilled into ledger'
-    );
-
-    return {
-      walletId: wallet.id,
-      posted: true,
-      replayed,
-      transactionId: transaction.id,
-      entries: entries.length
-    };
-  });
-}
-
-/**
- * Compares a legacy wallet's balance to its ledger PROJECTED available.
- * Also reports locked/pending so a partially-wired PR never hides a mismatch.
- */
-export async function reconcileWalletToLedger(client, wallet) {
-  const projections = await getUserLedgerProjections(client, wallet.userId, wallet.currency ?? 'NGN');
-  const expected = BigInt(wallet.balanceMinorUnits).toString();
-  return {
-    walletId: wallet.id,
-    userId: wallet.userId,
-    balanceMinorUnits: expected,
-    available: projections.available,
-    locked: projections.locked,
-    pending: projections.pending,
-    reconciled: expected === projections.available
-  };
-}
-
-/**
- * Backfills every legacy wallet and reconciles each one. Returns the summary;
- * the exit gate for PR 2 is `summary.allReconciled === true`.
- */
-export async function backfillAndReconcileAllWallets() {
-  const wallets = await prisma.wallet.findMany();
-  const results = [];
-
-  for (const wallet of wallets) {
-    const backfilled = await backfillWalletOpeningBalance(wallet);
-    results.push({
-      ...(await reconcileWalletToLedger(prisma, wallet)),
-      transactionId: backfilled.posted ? backfilled.transactionId : null
-    });
-  }
-
-  const reconciled = results.filter((r) => r.reconciled).length;
-  return {
-    total: results.length,
-    reconciled,
-    mismatched: results.length - reconciled,
-    allReconciled: results.length > 0 && reconciled === results.length,
-    results
   };
 }

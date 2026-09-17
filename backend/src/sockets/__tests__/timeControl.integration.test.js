@@ -10,6 +10,7 @@ const redis = (await import('../../utils/redis.js')).default;
 const { debitStakes } = await import('../../services/matchService.js');
 const { initializeGame, casScript } = await import('../gameManager.js');
 const { processTurnDeadlineSweep } = await import('../../jobs/turnDeadlineSweep.js');
+const { getUserLedgerProjections, ensureUserAccounts, ensureSystemAccount, postLedgerTransaction } = await import('../../services/ledgerService.js');
 
 const describeIntegration =
   process.env.RUN_REDIS_INTEGRATION === '1' ? describe : describe.skip;
@@ -18,6 +19,25 @@ describeIntegration('Turn deadlines (real PostgreSQL + Redis)', () => {
   const settings = { id: 'singleton', commissionPercent: 10, timeControlSeconds: 60 };
   const allUsers = [];
   const allMatches = [];
+
+  // Seeds a wallet's opening balance as a ledger ADJUSTMENT (same shape as the
+  // legacy backfill) so AVAILABLE == the balance everywhere below.
+  const postOpeningBalance = async (wallet, amountMinorUnits) => {
+    await prisma.$transaction(async (tx) => {
+      const accounts = await ensureUserAccounts(tx, wallet.userId, wallet.currency ?? 'NGN');
+      const clearing = await ensureSystemAccount(tx, 'SYSTEM_OPENING_CLEARING', wallet.currency ?? 'NGN');
+      await postLedgerTransaction(tx, {
+        type: 'ADJUSTMENT',
+        description: 'Opening balance carried over from legacy wallet',
+        idempotencyKey: `opening-balance:${wallet.id}`,
+        metadata: { walletId: wallet.id, source: 'legacy-wallet-backfill' },
+        entries: [
+          { accountId: clearing.id, amountMinorUnits: -amountMinorUnits },
+          { accountId: accounts.PLAYER_AVAILABLE.id, amountMinorUnits: amountMinorUnits }
+        ]
+      });
+    });
+  };
 
   const makeEligibleUser = async (suffix, balance = 10000000n) => {
     const user = await prisma.user.create({
@@ -32,7 +52,8 @@ describeIntegration('Turn deadlines (real PostgreSQL + Redis)', () => {
         }
       }
     });
-    await prisma.wallet.create({ data: { userId: user.id, balanceMinorUnits: balance } });
+    const wallet = await prisma.wallet.create({ data: { userId: user.id } });
+    await postOpeningBalance(wallet, balance);
     allUsers.push(user.id);
     return user;
   };
@@ -44,8 +65,8 @@ describeIntegration('Turn deadlines (real PostgreSQL + Redis)', () => {
   };
 
   const balance = async (userId) => {
-    const w = await prisma.wallet.findUnique({ where: { userId } });
-    return w.balanceMinorUnits;
+    const proj = await getUserLedgerProjections(prisma, userId);
+    return BigInt(proj.available);
   };
 
   beforeEach(async () => {
@@ -65,14 +86,17 @@ describeIntegration('Turn deadlines (real PostgreSQL + Redis)', () => {
     for (const userId of allUsers) {
       await redis.del(`user:${userId}:activeMatch`);
     }
-    await prisma.walletTransaction.deleteMany({
-      where: { wallet: { userId: { in: allUsers } } }
-    });
     await prisma.wallet.deleteMany({ where: { userId: { in: allUsers } } });
     // V2 ledger rows must go before users: user delete cascades LedgerAccount,
-    // but LedgerEntry.account is onDelete Restrict.
+    // but LedgerEntry.account is onDelete Restrict. Opening-balance postings
+    // (source: legacy-wallet-backfill) carry no matchId and must be removed too.
     await prisma.ledgerTransaction.deleteMany({
-      where: { relatedMatchId: { in: allMatches } }
+      where: {
+        OR: [
+          { relatedMatchId: { in: allMatches } },
+          { metadata: { path: ['source'], equals: 'legacy-wallet-backfill' } }
+        ]
+      }
     });
     await prisma.notification.deleteMany({ where: { userId: { in: allUsers } } });
     await prisma.user.deleteMany({ where: { id: { in: allUsers } } });

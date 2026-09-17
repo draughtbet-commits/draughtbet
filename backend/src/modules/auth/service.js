@@ -4,6 +4,7 @@ import { v4 as uuidv4 } from 'uuid';
 import _prisma from '../../utils/db.js';
 import _redis from '../../utils/redis.js';
 import { GeoService } from '../../services/geoService.js';
+import { getLedgerAvailable, ensureUserAccounts } from '../../services/ledgerService.js';
 
 let prisma = _prisma;
 let redis = _redis;
@@ -102,7 +103,6 @@ const user = await prisma.$transaction(async (tx) => {
           },
           wallet: {
             create: {
-              balanceMinorUnits: 0n,
               currency: 'NGN' // Phase 1 default
             }
           },
@@ -118,6 +118,10 @@ const user = await prisma.$transaction(async (tx) => {
           wallet: true
         }
       });
+      // V2 read flip: a new wallet starts with zero value in the ledger (the
+      // PLAYER_AVAILABLE / PLAYER_LOCKED / PLAYER_WITHDRAWAL_PENDING accounts),
+      // not as an opening-balance mirror. No ADJUSTMENT posting needed for 0.
+      await ensureUserAccounts(tx, newUser.id, 'NGN');
       return newUser;
     });
 
@@ -323,6 +327,14 @@ const user = await prisma.$transaction(async (tx) => {
 
     if (!user) throw new Error('User not found');
 
+    // V2 read flip: the profile's balance is the ledger PLAYER_AVAILABLE net,
+    // not the legacy Wallet balance column.
+    const available = await getLedgerAvailable(
+      prisma,
+      userId,
+      user.wallet?.currency ?? 'NGN'
+    );
+
     return {
       id: user.id,
       email: user.email,
@@ -330,7 +342,7 @@ const user = await prisma.$transaction(async (tx) => {
       fullName: user.fullName,
       avatar: user.avatar,
       tier: user.tier,
-      walletBalanceMinorUnits: user.wallet?.balanceMinorUnits.toString() || '0', // BigInt serialization
+      walletBalanceMinorUnits: available.toString(),
       unreadNotifications: user._count.notifications
     };
   }

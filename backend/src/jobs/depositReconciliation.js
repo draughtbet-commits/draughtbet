@@ -5,8 +5,8 @@ import logger from '../utils/logger.js';
 // A PENDING intent older than this is treated as a payment that never arrived
 // (checkout abandoned / webhook lost). It is parked as FAILED so dangling
 // intents stop accumulating; a provider webhook that arrives LATER against the
-// intent still credits normally (the unique gatewayReference guard makes any
-// double application impossible), flipping it back to COMPLETED.
+// intent still credits normally (the intent-status CAS makes any double
+// application impossible), flipping it back to COMPLETED.
 export const STALE_DEPOSIT_HOURS = 24;
 
 let isSweeping = false;
@@ -22,9 +22,8 @@ const DEPOSIT_CREDIT_KEY = (reference) => `deposit:credit:${reference}`;
  *
  * 2. INTEGRITY checks against the plan's financial exit invariant "every
  *    confirmed deposit has exactly one credit":
- *      - a COMPLETED intent must have exactly one DEPOSIT wallet transaction
- *        carrying its reference;
- *      - a COMPLETED intent must have exactly one ledger DEPOSIT_CREDIT posting;
+ *      - a COMPLETED intent must have exactly one ledger DEPOSIT_CREDIT
+ *        posting (committed atomically with the intent CAS);
  *      - a non-COMPLETED intent must have NO credit at all.
  *    Violations are logged as critical alerts and NEVER auto-repaired (the
  *    financial domain explicitly forbids silent repair).
@@ -50,7 +49,6 @@ export const reconcileDeposits = async () => {
       select: {
         id: true,
         userId: true,
-        walletId: true,
         reference: true,
         amountMinorUnits: true,
         status: true
@@ -61,23 +59,6 @@ export const reconcileDeposits = async () => {
 
     for (const intent of intents) {
       if (intent.status === 'COMPLETED') {
-        const credits = await prisma.walletTransaction.count({
-          where: {
-            walletId: intent.walletId,
-            gatewayReference: intent.reference,
-            type: 'DEPOSIT'
-          }
-        });
-        if (credits !== 1) {
-          anomalies.push({
-            intentId: intent.id,
-            check: 'walletCreditCount',
-            expected: 1,
-            actual: credits,
-            reference: intent.reference
-          });
-        }
-
         const ledger = await prisma.ledgerTransaction.findUnique({
           where: { idempotencyKey: DEPOSIT_CREDIT_KEY(intent.reference) },
           include: { entries: true }
@@ -109,18 +90,13 @@ export const reconcileDeposits = async () => {
         }
       } else {
         // FAILED intent: money must never have been booked.
-        const credits = await prisma.walletTransaction.count({
-          where: {
-            walletId: intent.walletId,
-            gatewayReference: intent.reference,
-            type: 'DEPOSIT'
-          }
+        const ledger = await prisma.ledgerTransaction.findUnique({
+          where: { idempotencyKey: DEPOSIT_CREDIT_KEY(intent.reference) }
         });
-        if (credits !== 0) {
+        if (ledger) {
           anomalies.push({
             intentId: intent.id,
             check: 'failedIntentHasCredit',
-            actual: credits,
             reference: intent.reference
           });
         }

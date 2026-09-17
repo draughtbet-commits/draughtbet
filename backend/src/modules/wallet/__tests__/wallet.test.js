@@ -5,10 +5,6 @@ const mockPrisma = {
   wallet: {
     findUnique: jest.fn()
   },
-  walletTransaction: {
-    findMany: jest.fn(),
-    count: jest.fn()
-  },
   depositIntent: {
     create: jest.fn()
   },

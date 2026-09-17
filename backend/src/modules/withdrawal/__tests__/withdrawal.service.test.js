@@ -1,11 +1,8 @@
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 
-const WALLET_BILLION = '1000000000';
-
-const makeWallet = (balance = WALLET_BILLION) => ({
+const makeWallet = () => ({
   id: 'wallet-1',
   userId: 'user-1',
-  balanceMinorUnits: BigInt(balance),
   currency: 'NGN'
 });
 
@@ -46,11 +43,7 @@ const mockPrisma = {
   $queryRaw: jest.fn(),
   $executeRaw: jest.fn(),
   user: { findUnique: jest.fn() },
-  wallet: {
-    findUnique: jest.fn(),
-    update: jest.fn()
-  },
-  walletTransaction: { create: jest.fn() },
+  wallet: { findUnique: jest.fn() },
   withdrawal: {
     findFirst: jest.fn(),
     findUnique: jest.fn(),
@@ -106,18 +99,27 @@ const instantiate = () => new WithdrawalService({
 
 const setupRequestDefaults = () => {
   mockPrisma.$transaction.mockImplementation(async (cb) => cb(mockPrisma));
-  mockPrisma.$queryRaw.mockResolvedValue([makeWallet()]);
+  // $queryRaw serves both the wallet FOR UPDATE lock (1 value) and the atomic
+  // ledger-account upserts (user = 4 values, system singleton = 3 values).
+  mockPrisma.$queryRaw.mockImplementation(async (_strings, ...values) => {
+    if (values.length === 4) {
+      const [id, userId, type, currency] = values;
+      return [{ id: `acc-${type}`, userId, type, currency }];
+    }
+    if (values.length === 3) {
+      const [id, type, currency] = values;
+      return [{ id: `system:${type}:${currency}`, userId: null, type, currency }];
+    }
+    return [makeWallet()];
+  });
   mockPrisma.user.findUnique.mockResolvedValue(eligibleUser);
   mockPrisma.bankAccount.findFirst.mockResolvedValue(verifiedBank);
   mockPrisma.ledgerAccount.findMany.mockResolvedValue([{ id: 'acc-avail', type: 'PLAYER_AVAILABLE' }]);
   mockPrisma.ledgerEntry.aggregate.mockResolvedValue({ _sum: { amountMinorUnits: 1000000000n } });
-  mockPrisma.ledgerAccount.upsert.mockImplementation(({ create }) => ({ id: `acc-${create.type}`, ...create }));
   mockPrisma.ledgerTransaction.findUnique.mockResolvedValue(null);
   mockPrisma.ledgerTransaction.create.mockResolvedValue({ id: 'ltx-1', entries: [] });
   mockPrisma.ledgerEntry.create.mockResolvedValue({ id: 'le-1' });
   mockPrisma.withdrawal.create.mockImplementation(({ data }) => ({ id: 'wd-1', ...data }));
-  mockPrisma.wallet.update.mockResolvedValue({ id: 'wallet-1' });
-  mockPrisma.walletTransaction.create.mockResolvedValue({ id: 'wt-1' });
   mockPrisma.outboxEvent.create.mockResolvedValue({ id: 'ob-1' });
 };
 
@@ -130,25 +132,18 @@ describe('WithdrawalService — request/reserve path', () => {
     service = instantiate();
   });
 
-  it('reserves funds atomically: PENDING_REVIEW row + wallet debit + ledger WITHDRAWAL_RESERVE + outbox', async () => {
+  it('reserves funds atomically: PENDING_REVIEW row + ledger WITHDRAWAL_RESERVE + outbox', async () => {
     const row = await service.requestWithdrawal('user-1', 100000n, 'op_key_abcdef');
 
     expect(row.status).toBe('PENDING_REVIEW');
     expect(row.amountMinorUnits).toBe('100000');
     expect(row.reference).toMatch(/^wit-/);
-    // wallet locked before the balance check
+    // wallet locked before the funds check
     expect(mockPrisma.$queryRaw).toHaveBeenCalled();
     // no double-check on idempotency when key absent? key present -> one findFirst
     expect(mockPrisma.withdrawal.findFirst).toHaveBeenCalledWith({
       where: { userId: 'user-1', idempotencyKey: 'op_key_abcdef' }
     });
-    expect(mockPrisma.wallet.update).toHaveBeenCalledWith({
-      where: { id: 'wallet-1' },
-      data: { balanceMinorUnits: { decrement: 100000n } }
-    });
-    expect(mockPrisma.walletTransaction.create).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ type: 'WITHDRAWAL', amountMinorUnits: -100000n }) })
-    );
     // ledger reserve posted with a per-withdrawal idempotency key
     expect(mockPrisma.ledgerTransaction.create).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ type: 'WITHDRAWAL_RESERVE', idempotencyKey: expect.stringMatching(/^withdrawal:reserve:/) }) })
@@ -165,17 +160,10 @@ describe('WithdrawalService — request/reserve path', () => {
     expect(mockPrisma.$queryRaw).not.toHaveBeenCalled();
   });
 
-  it('throws InsufficientFundsError and never debits when the wallet cannot cover it', async () => {
-    mockPrisma.$queryRaw.mockResolvedValue([makeWallet('50000')]);
-    await expect(service.requestWithdrawal('user-1', 100000n)).rejects.toThrow('Insufficient funds');
-    expect(mockPrisma.wallet.update).not.toHaveBeenCalled();
-    expect(mockPrisma.walletTransaction.create).not.toHaveBeenCalled();
-  });
-
-  it('fails loudly if the ledger PLAYER_AVAILABLE does not cover the amount', async () => {
+  it('fails loudly when the ledger PLAYER_AVAILABLE does not cover the amount', async () => {
     mockPrisma.ledgerEntry.aggregate.mockResolvedValue({ _sum: { amountMinorUnits: 40000n } });
     await expect(service.requestWithdrawal('user-1', 100000n)).rejects.toThrow('Insufficient funds');
-    expect(mockPrisma.wallet.update).not.toHaveBeenCalled();
+    expect(mockPrisma.withdrawal.create).not.toHaveBeenCalled();
   });
 
   it('blocks ineligible accounts (KYC) before locking the wallet', async () => {
@@ -187,24 +175,24 @@ describe('WithdrawalService — request/reserve path', () => {
   it('requires a verified payout destination', async () => {
     mockPrisma.bankAccount.findFirst.mockResolvedValue(null);
     await expect(service.requestWithdrawal('user-1', 100000n)).rejects.toThrow('A verified bank account is required');
-    expect(mockPrisma.wallet.update).not.toHaveBeenCalled();
+    expect(mockPrisma.withdrawal.create).not.toHaveBeenCalled();
   });
 
   it('rejects an unverified bank account even when present', async () => {
     mockPrisma.bankAccount.findFirst.mockResolvedValue({ ...verifiedBank, verifiedAt: null, recipientRef: null });
     await expect(service.requestWithdrawal('user-1', 100000n)).rejects.toThrow('has not been verified');
-    expect(mockPrisma.wallet.update).not.toHaveBeenCalled();
+    expect(mockPrisma.withdrawal.create).not.toHaveBeenCalled();
   });
 
-  it('returns the original request on an idempotent replay without re-debiting', async () => {
+  it('returns the original request on an idempotent replay without re-reserving', async () => {
     mockPrisma.withdrawal.findFirst.mockResolvedValue({ id: 'wd-orig', status: 'PENDING_REVIEW', amountMinorUnits: 100000n });
     const row = await service.requestWithdrawal('user-1', 100000n, 'op_key_abcdef');
     expect(row.id).toBe('wd-orig');
     expect(mockPrisma.withdrawal.create).not.toHaveBeenCalled();
-    expect(mockPrisma.wallet.update).not.toHaveBeenCalled();
+    expect(mockPrisma.ledgerTransaction.create).not.toHaveBeenCalled();
   });
 
-  it('resolves a (userId, idempotencyKey) race back to the winner without re-debiting', async () => {
+  it('resolves a (userId, idempotencyKey) race back to the winner without re-reserving', async () => {
     mockPrisma.withdrawal.findFirst
       .mockResolvedValueOnce(undefined) // in-tx check misses
       .mockResolvedValue({ id: 'wd-winner', status: 'PENDING_REVIEW', amountMinorUnits: 100000n });
@@ -212,7 +200,7 @@ describe('WithdrawalService — request/reserve path', () => {
 
     const row = await service.requestWithdrawal('user-1', 100000n, 'op_key_abcdef');
     expect(row.id).toBe('wd-winner');
-    expect(mockPrisma.wallet.update).not.toHaveBeenCalled();
+    expect(mockPrisma.ledgerTransaction.create).not.toHaveBeenCalled();
   });
 
   it('rejects malformed idempotency keys before any money code', async () => {
@@ -291,7 +279,6 @@ describe('WithdrawalService — provider-gated payout transitions', () => {
       .mockResolvedValueOnce(withdrawalRow({ status: 'PROCESSING' }))
       .mockResolvedValueOnce(withdrawalRow({ status: 'COMPLETED' }));
     mockPrisma.withdrawal.updateMany.mockResolvedValue({ count: 1 });
-    mockPrisma.ledgerAccount.upsert.mockImplementation(({ create }) => ({ id: `acc-${create.type}`, ...create }));
     mockPrisma.ledgerTransaction.findUnique.mockResolvedValue(null);
     mockPrisma.ledgerTransaction.create.mockResolvedValue({ id: 'ltx-2', entries: [] });
     mockPrisma.ledgerEntry.create.mockResolvedValue({ id: 'le-2' });
@@ -347,6 +334,6 @@ describe('WithdrawalService — provider-gated payout transitions', () => {
     mockPrisma.withdrawal.findUnique.mockResolvedValue({ id: 'wd-1', userId: 'user-1', amountMinorUnits: 100000n, status: 'PROCESSING', currency: 'NGN', gateway: 'PAYSTACK' });
 
     await expect(service.releaseWithdrawal('wd-1')).rejects.toThrow(/Resolve the payout result/);
-    expect(mockPrisma.wallet.update).not.toHaveBeenCalled();
+    expect(mockPrisma.ledgerTransaction.create).not.toHaveBeenCalled();
   });
 });

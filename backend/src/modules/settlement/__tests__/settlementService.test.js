@@ -1,8 +1,5 @@
 import { jest } from '@jest/globals';
 
-const mockWallet = { id: 'wallet-p1', currency: 'NGN', userId: 'p1', balanceMinorUnits: BigInt(5_000_000) };
-const mockWallet2 = { id: 'wallet-p2', currency: 'NGN', userId: 'p2', balanceMinorUnits: BigInt(5_000_000) };
-
 const mockPrisma = {
   $transaction: jest.fn(),
   match: {
@@ -13,9 +10,7 @@ const mockPrisma = {
   platformSettings: { findUnique: jest.fn() },
   matchSettlement: { findUnique: jest.fn(), create: jest.fn() },
   matchReceipt: { createMany: jest.fn() },
-  stakeReservation: { updateMany: jest.fn() },
-  wallet: { update: jest.fn() },
-  walletTransaction: { create: jest.fn() }
+  stakeReservation: { updateMany: jest.fn() }
 };
 
 jest.unstable_mockModule('../../../utils/db.js', () => ({
@@ -24,13 +19,6 @@ jest.unstable_mockModule('../../../utils/db.js', () => ({
 
 jest.unstable_mockModule('../../../utils/logger.js', () => ({
   default: { info: jest.fn(), warn: jest.fn(), error: jest.fn() }
-}));
-
-const mockLockWalletForUpdate = jest.fn().mockResolvedValue(mockWallet);
-const mockLockWalletsInOrder = jest.fn().mockResolvedValue([mockWallet, mockWallet2]);
-jest.unstable_mockModule('../../../services/matchService.js', () => ({
-  lockWalletForUpdate: mockLockWalletForUpdate,
-  lockWalletsInOrder: mockLockWalletsInOrder
 }));
 
 const mockPostSettlementWin = jest.fn().mockResolvedValue({ replayed: false });
@@ -94,16 +82,6 @@ describe('SettlementService', () => {
         })
       );
 
-      // legacy wallet mirror: winner credited
-      expect(mockLockWalletForUpdate).toHaveBeenCalledWith(mockPrisma, 'player-1');
-      expect(mockPrisma.wallet.update).toHaveBeenCalledWith({
-        where: { id: 'wallet-p1' },
-        data: { balanceMinorUnits: { increment: 180_000n } }
-      });
-      expect(mockPrisma.walletTransaction.create).toHaveBeenCalledWith({
-        data: expect.objectContaining({ type: 'PAYOUT', amountMinorUnits: 180_000n })
-      });
-
       // receipt
       expect(mockPrisma.matchReceipt.createMany).toHaveBeenCalledTimes(1);
       const receipts = mockPrisma.matchReceipt.createMany.mock.calls[0][0].data;
@@ -138,10 +116,6 @@ describe('SettlementService', () => {
 
       expect(mockPostSettlementDraw).toHaveBeenCalledTimes(1);
       expect(mockPostSettlementWin).not.toHaveBeenCalled();
-
-      // both wallets refunded
-      expect(mockLockWalletsInOrder).toHaveBeenCalledWith(mockPrisma, 'player-1', 'player-2');
-      expect(mockPrisma.wallet.update).toHaveBeenCalledTimes(2);
 
       // record carries the total returned (pot), not a win-style discounted value
       expect(mockPrisma.matchSettlement.create).toHaveBeenCalledWith(
@@ -216,7 +190,6 @@ describe('SettlementService', () => {
       expect(result.settlement).toBe(existing);
       // No financial writes
       expect(mockPostSettlementWin).not.toHaveBeenCalled();
-      expect(mockPrisma.wallet.update).not.toHaveBeenCalled();
     });
 
     it('returns replayed when match is already SETTLED (no live status)', async () => {
