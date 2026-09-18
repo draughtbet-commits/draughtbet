@@ -126,5 +126,47 @@ the stored result to the sender only — no room broadcast.
 - `durableMoveLog.integration.test.js` (real PostgreSQL + Redis): unique
   `(matchId, clientMoveId)`; `MatchMove` + `GameEvent` + `MatchGameState`
   persisted atomically through `move.submit`.
-- Full battery green: **40 unit suites / 301 tests + 10 integration suites / 60
+- Full battery green: **40 unit suites / 305 tests + 10 integration suites / 60
   tests**; harnesses `pr3` 9/9, `pr5` 10/10, `pr6` 16/16, `pr7` 22/22.
+
+## Deep verification (post-commit)
+
+A real Socket.IO + PostgreSQL + Redis harness,
+`backend/scripts/verify/pr8-game-protocol.mjs` (18 probes), was run against the
+running stack. It exercises the V2 accept/reject matrix, the durable log, the
+replay-to-Redis path, concurrent races and the closed-book invariant. It found
+two defects that were fixed on top of `f3feb69`:
+
+1. **`ReferenceError` in the `submitMove` catch path.** The authoritative
+   `state` was declared with `const` inside the `try`, but referenced by the
+   `catch` branches (`server_busy` after exhausted `VERSION_MISMATCH` retries,
+   `game_not_found`, `turn_expired`). Any of those produced an uncaught
+   `ReferenceError` and a generic socket `error` instead of a rejection — a
+   turn-expired race did not forfeit. Fixed by hoisting `let state = null;`
+   above the `try` and assigning `state = await getGameState(matchId)`.
+
+2. **P2002 could not distinguish a replay from a lost race.** On a unique
+   violation the handler treated the submission as an accepted replay. A
+   competing move that already held this `moveNumber` was therefore falsely
+   reported as accepted (`replayed: true`) even though it was never applied,
+   letting the client diverge from Redis. Fixed with `resolveUniqueConflict()`
+   (look up by `matchId_clientMoveId`, else by `matchId_moveNumber`) plus a
+   `sameMove` check: a colliding row that is not this exact move is refused with
+   `duplicate_move` and a canonical resync.
+
+The P12 probe was proven sensitive by temporarily reverting the `sameMove` guard
+(`if (false && !sameMove)`) — P12 failed with "a competing loser must not be
+replayed as accepted", then passed again once restored.
+
+Results after the fixes:
+
+- `pr8-game-protocol.mjs` **18/18 probes passed** (P1-P18), including P11
+  concurrent duplicate applies exactly once, P12 concurrent different moves →
+  one winner + refused loser with a log that replays to the live board, and
+  P13/P14 full-capture path refused when truncated and stored verbatim when
+  correct.
+- `moveProtocol.test.js` now **11 tests** (added regressions for both defects:
+  `server_busy`/`game_not_found`/`turn_expired` no longer `ReferenceError`, and
+  a competing `moveNumber` is refused rather than replayed).
+- Full battery green: **50 suites / 365 tests**; harnesses `pr3` 9/9, `pr5`
+  10/10, `pr6` 16/16, `pr7` 22/22, `pr8` 18/18.
