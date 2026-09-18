@@ -82,6 +82,29 @@ describe('socket event rejection safety (real server)', () => {
     }
   });
 
+  it('replies a V2 move.rejected to a null move.submit payload', async () => {
+    const socket = connect();
+    try {
+      await connectClient(socket);
+      const rejected = onceEvent(socket, 'move.rejected');
+      socket.emit('move.submit', null);
+      expect(await rejected).toEqual({ code: 'invalid_payload' });
+    } finally {
+      socket.close();
+    }
+  });
+
+  it('registers the V2 match.resign alias', async () => {
+    const socket = connect();
+    try {
+      await connectClient(socket);
+      socket.emit('match.resign', null);
+      expect((await onceEvent(socket, 'error')).message).toBe('Invalid payload');
+    } finally {
+      socket.close();
+    }
+  });
+
   it('replies controlled rejections to a null resign and join_match payload', async () => {
     const socket = connect();
     try {

@@ -1,6 +1,7 @@
 import { jest } from '@jest/globals';
 import {
   validateMoveAttempt,
+  validateMoveSubmit,
   validateMatchIdPayload,
   payloadTooLarge
 } from '../payloadGuard.js';
@@ -61,5 +62,60 @@ describe('payloadGuard', () => {
     expect(validateMoveAttempt({ matchId: big, from: 1, to: 6 }).ok).toBe(false);
     expect(validateMatchIdPayload({ matchId: big }).ok).toBe(false);
     expect(payloadTooLarge({ matchId: big })).toBe(true);
+  });
+});
+
+describe('payloadGuard — V2 move.submit', () => {
+  const base = { matchId: 'abc', clientMoveId: 'cm_12345678', from: 32, to: 12 };
+
+  it('accepts a simple move with an explicit to', () => {
+    const result = validateMoveSubmit(base);
+    expect(result.ok).toBe(true);
+    expect(result.data).toEqual(base);
+  });
+
+  it('accepts a multi-capture move expressed as a path without a to', () => {
+    const result = validateMoveSubmit({ matchId: 'abc', clientMoveId: 'cm_12345678', from: 32, path: [32, 21, 12] });
+    expect(result.ok).toBe(true);
+  });
+
+  it('accepts a full payload with expectedStateVersion and matching path', () => {
+    const result = validateMoveSubmit({ ...base, expectedStateVersion: 0, path: [32, 21, 12] });
+    expect(result.ok).toBe(true);
+  });
+
+  it('rejects a missing to and path', () => {
+    expect(validateMoveSubmit({ matchId: 'abc', clientMoveId: 'cm_12345678', from: 32 }).ok).toBe(false);
+  });
+
+  it('rejects a path that does not start at from or end at to', () => {
+    expect(validateMoveSubmit({ matchId: 'abc', clientMoveId: 'cm_12345678', from: 32, path: [31, 21, 12] }).ok).toBe(false);
+    expect(validateMoveSubmit({ matchId: 'abc', clientMoveId: 'cm_12345678', from: 32, to: 11, path: [32, 21, 12] }).ok).toBe(false);
+  });
+
+  it('rejects a path with repeated squares', () => {
+    expect(validateMoveSubmit({ matchId: 'abc', clientMoveId: 'cm_12345678', from: 32, path: [32, 21, 32] }).ok).toBe(false);
+  });
+
+  it('requires a valid clientMoveId', () => {
+    expect(validateMoveSubmit({ matchId: 'abc', from: 32, to: 12 }).ok).toBe(false);
+    expect(validateMoveSubmit({ ...base, clientMoveId: 'short' }).ok).toBe(false);
+    expect(validateMoveSubmit({ ...base, clientMoveId: 'has spaces here' }).ok).toBe(false);
+    expect(validateMoveSubmit({ ...base, clientMoveId: 'x'.repeat(65) }).ok).toBe(false);
+  });
+
+  it('rejects a negative or non-integer expectedStateVersion', () => {
+    expect(validateMoveSubmit({ ...base, expectedStateVersion: -1 }).ok).toBe(false);
+    expect(validateMoveSubmit({ ...base, expectedStateVersion: 1.5 }).ok).toBe(false);
+  });
+
+  it('rejects unknown fields (bounded schema)', () => {
+    expect(validateMoveSubmit({ ...base, extra: 1 }).ok).toBe(false);
+  });
+
+  it('rejects null/undefined/array payloads', () => {
+    expect(validateMoveSubmit(null).ok).toBe(false);
+    expect(validateMoveSubmit(undefined).ok).toBe(false);
+    expect(validateMoveSubmit([]).ok).toBe(false);
   });
 });

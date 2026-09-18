@@ -3,6 +3,7 @@ import prisma from '../utils/db.js';
 import { getIO } from './index.js';
 import { getActiveGameForUser, getGameState } from './gameManager.js';
 import { getLegalMoves } from '../modules/engine/index.js';
+import { buildStatePayload } from './gameProtocol.js';
 import { validateMatchIdPayload } from './payloadGuard.js';
 import logger from '../utils/logger.js';
 import { NotificationService } from '../modules/notification/service.js';
@@ -90,10 +91,14 @@ export async function handleJoinMatch(socket, payload) {
       const currentTurn = state.currentTurn;
       const legalMoves = getLegalMoves(board, currentTurn);
       
+      // Legacy `game_state` (raw Redis hash + legalMoves) plus the canonical
+      // V2 `match.state` resync payload. The app migrates to the latter.
       socket.emit('game_state', {
         ...state,
         legalMoves
       });
+      const canonical = buildStatePayload(matchId, state);
+      if (canonical) socket.emit('match.state', canonical);
     } else {
       socket.emit('error', { message: 'Game not found' });
       return;

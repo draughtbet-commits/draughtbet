@@ -2,8 +2,16 @@ import { jest } from '@jest/globals';
 
 const mockPrisma = {
   matchMove: {
+    create: jest.fn().mockResolvedValue({ id: 'move-row-id' }),
+    findUnique: jest.fn().mockResolvedValue(null)
+  },
+  gameEvent: {
     create: jest.fn().mockResolvedValue({})
-  }
+  },
+  matchGameState: {
+    upsert: jest.fn().mockResolvedValue({})
+  },
+  $transaction: jest.fn(async (fn) => fn(mockPrisma))
 };
 jest.unstable_mockModule('../../utils/db.js', () => ({
   default: mockPrisma
