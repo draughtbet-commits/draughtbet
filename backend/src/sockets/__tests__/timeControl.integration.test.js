@@ -119,7 +119,7 @@ describeIntegration('Turn deadlines (real PostgreSQL + Redis)', () => {
     // Non-ending transition on an expired turn is refused atomically.
     await expect(
       redis.eval(casScript, 1, key, '0', board, 'BLACK', 'b', '1', String(now),
-        JSON.stringify({}), '0', 'in_progress', '', String(now + 60000), '60')
+        JSON.stringify({}), '0', 'in_progress', '', String(now + 60000), '60', String(now))
     ).rejects.toThrow('TURN_EXPIRED');
 
     // A turn still inside its deadline lands, persists the deadline for the
@@ -128,7 +128,7 @@ describeIntegration('Turn deadlines (real PostgreSQL + Redis)', () => {
     const appliedDeadline = String(now + 119000);
     await expect(
       redis.eval(casScript, 1, key, '0', board, 'BLACK', 'b', '1', String(now),
-        JSON.stringify({}), '0', 'in_progress', '', appliedDeadline, '60')
+        JSON.stringify({}), '0', 'in_progress', '', appliedDeadline, '60', String(now))
     ).resolves.toBe('OK');
     const live = await redis.hgetall(key);
     expect(live.status).toBe('in_progress');
@@ -140,7 +140,7 @@ describeIntegration('Turn deadlines (real PostgreSQL + Redis)', () => {
     await redis.hset(key, { deadlineAt: String(now - 1000) });
     await expect(
       redis.eval(casScript, 1, key, '1', board, 'BLACK', 'b', '1', String(now),
-        JSON.stringify({}), '0', 'completed', 'a', '', '60')
+        JSON.stringify({}), '0', 'completed', 'a', '', '60', '')
     ).resolves.toBe('OK');
     const after = await redis.hgetall(key);
     expect(after.status).toBe('completed');

@@ -83,7 +83,7 @@ const settlementMocks = {
 };
 jest.unstable_mockModule('../settlement.js', () => settlementMocks);
 
-const { handleMoveSubmit } = await import('../gameManager.js');
+const { handleMoveSubmit, handleClockSync } = await import('../gameManager.js');
 const { EMPTY, WHITE_MAN, BLACK_MAN, COLOR_WHITE } = await import('../../modules/engine/board.js');
 const { createInitialBoard, getLegalMoves } = await import('../../modules/engine/index.js');
 
@@ -412,5 +412,58 @@ describe('move.submit V2 protocol', () => {
     expect(socket.emit).toHaveBeenCalledWith('move.rejected', { code: 'invalid_payload' });
     expect(socket.emit).toHaveBeenCalledWith('move_rejected', { reason: 'invalid_payload' });
     expect(mockPrisma.matchMove.create).not.toHaveBeenCalled();
+  });
+});
+
+describe('clock.sync', () => {
+  it('answers with the authoritative server clock, deadline and remaining time', async () => {
+    const board = buildEndgameBoard();
+    const deadline = Date.now() + 30000;
+    seedMatch('test-match', board, 'white-user', 'black-user', {
+      deadlineAt: String(deadline),
+      turnStartedAtServer: String(deadline - 30000)
+    });
+
+    const socket = { id: 'c1', user: { userId: 'white-user' }, emit: jest.fn() };
+    await handleClockSync(socket, { matchId: 'test-match', clientSentAt: 111 });
+
+    const payload = socket.emit.mock.calls.find(([e]) => e === 'clock.sync')?.[1];
+    expect(payload).toMatchObject({
+      matchId: 'test-match',
+      clientSentAt: 111,
+      version: '0',
+      status: 'in_progress',
+      deadlineAt: deadline,
+      timeControlSeconds: 60,
+      turnStartedAtServer: deadline - 30000
+    });
+    expect(Number.isFinite(payload.serverNowMs)).toBe(true);
+    expect(payload.remainingMs).toBeGreaterThan(0);
+    expect(payload.remainingMs).toBeLessThanOrEqual(30000);
+  });
+
+  it('echoes the client timestamp but derives serverNowMs from the server clock', async () => {
+    const board = buildEndgameBoard();
+    seedMatch('test-match', board, 'white-user', 'black-user');
+
+    const socket = { id: 'c2', user: { userId: 'white-user' }, emit: jest.fn() };
+    await handleClockSync(socket, { matchId: 'test-match', clientSentAt: 1 });
+
+    const payload = socket.emit.mock.calls.find(([e]) => e === 'clock.sync')?.[1];
+    expect(payload.clientSentAt).toBe(1);
+    expect(payload.serverNowMs).toBeGreaterThan(1);
+  });
+
+  it('refuses a non-participant and a malformed payload', async () => {
+    const board = buildEndgameBoard();
+    seedMatch('test-match', board, 'white-user', 'black-user');
+
+    const outsider = { id: 'c3', user: { userId: 'intruder' }, emit: jest.fn() };
+    await handleClockSync(outsider, { matchId: 'test-match' });
+    expect(outsider.emit).toHaveBeenCalledWith('error', { message: 'Not authorized' });
+
+    const bad = { id: 'c4', user: { userId: 'white-user' }, emit: jest.fn() };
+    await handleClockSync(bad, {});
+    expect(bad.emit).toHaveBeenCalledWith('error', { message: 'Invalid payload' });
   });
 });

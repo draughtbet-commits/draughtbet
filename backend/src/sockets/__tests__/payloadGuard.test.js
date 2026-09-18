@@ -3,6 +3,7 @@ import {
   validateMoveAttempt,
   validateMoveSubmit,
   validateMatchIdPayload,
+  validateClockSync,
   payloadTooLarge
 } from '../payloadGuard.js';
 
@@ -62,6 +63,16 @@ describe('payloadGuard', () => {
     expect(validateMoveAttempt({ matchId: big, from: 1, to: 6 }).ok).toBe(false);
     expect(validateMatchIdPayload({ matchId: big }).ok).toBe(false);
     expect(payloadTooLarge({ matchId: big })).toBe(true);
+  });
+
+  it('accepts clock sync with an optional non-negative clientSentAt only', () => {
+    expect(validateClockSync({ matchId: 'abc' }).ok).toBe(true);
+    expect(validateClockSync({ matchId: 'abc', clientSentAt: 0 }).ok).toBe(true);
+    expect(validateClockSync({ matchId: 'abc', clientSentAt: 1712345678000 }).ok).toBe(true);
+    expect(validateClockSync({ matchId: 'abc', clientSentAt: -1 }).ok).toBe(false);
+    expect(validateClockSync({ matchId: 'abc', clientSentAt: 1.5 }).ok).toBe(false);
+    expect(validateClockSync({ matchId: 'abc', serverNowMs: 1 }).ok).toBe(false);
+    expect(validateClockSync({}).ok).toBe(false);
   });
 });
 

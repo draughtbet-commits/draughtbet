@@ -2,7 +2,7 @@ import { Server } from 'socket.io';
 import logger from '../utils/logger.js';
 import { socketAuthMiddleware } from './middleware.js';
 import { handleDisconnect, handleJoinMatch } from './disconnectHandler.js';
-import { handleMoveAttempt, handleMoveSubmit, handleResign } from './gameManager.js';
+import { handleClockSync, handleMoveAttempt, handleMoveSubmit, handleResign } from './gameManager.js';
 import { consumeBudget, MAX_SOCKETS_PER_USER } from './budget.js';
 
 let io;
@@ -68,6 +68,8 @@ export const initSocketServer = (httpServer) => {
 
     socket.on('match.join', guardSocketHandler(socket, handleJoinMatch, 'match.join'));
     socket.on('join_match', guardSocketHandler(socket, handleJoinMatch, 'join_match'));
+
+    socket.on('clock.sync', guardSocketHandler(socket, handleClockSync, 'clock.sync'));
   });
 
   return io;

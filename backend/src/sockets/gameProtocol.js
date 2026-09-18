@@ -1,4 +1,5 @@
 import { getLegalMoves } from '../modules/engine/index.js';
+import { resolveDisconnectGraceMs, remainingMs } from './timeControl.js';
 
 // Engine colors (WHITE/BLACK) and the durable MatchSide enum (LIGHT/DARK) do
 // not share spelling; the durable projection needs the enum value.
@@ -30,7 +31,7 @@ export const MOVE_ERROR = Object.freeze({
  * `match.state` on join and alongside `move.rejected` whenever the client is
  * stale.
  */
-export const buildStatePayload = (matchId, state) => {
+export const buildStatePayload = (matchId, state, nowMs = null) => {
   if (!state) return null;
   let board;
   try {
@@ -40,6 +41,9 @@ export const buildStatePayload = (matchId, state) => {
   }
   const status = state.status || 'in_progress';
   const currentTurn = state.currentTurn;
+  const deadlineAt = state.deadlineAt ? Number(state.deadlineAt) : null;
+  const parsedNow = nowMs === null || nowMs === undefined || nowMs === '' ? NaN : Number(nowMs);
+  const serverNowMs = Number.isFinite(parsedNow) ? parsedNow : null;
   return {
     matchId,
     version: String(state.version ?? '0'),
@@ -49,8 +53,15 @@ export const buildStatePayload = (matchId, state) => {
     status,
     winnerId: state.winnerId || null,
     moveCount: Number.parseInt(state.moveCount ?? '0', 10) || 0,
-    deadlineAt: state.deadlineAt ? Number(state.deadlineAt) : null,
+    deadlineAt,
     timeControlSeconds: state.timeControlSeconds ? Number(state.timeControlSeconds) : null,
+    // Official clock; `serverNowMs`/`remainingMs` only when known.
+    turnStartedAtServer: Number(state.turnStartedAtServer) > 0
+      ? Number(state.turnStartedAtServer)
+      : null,
+    serverNowMs,
+    remainingMs: serverNowMs === null ? null : remainingMs(deadlineAt, serverNowMs),
+    disconnectGraceMs: resolveDisconnectGraceMs(state),
     legalMoves: status === 'in_progress' && currentTurn ? getLegalMoves(board, currentTurn) : []
   };
 };
@@ -71,11 +82,19 @@ export const emitMoveRejected = (socket, code, extra = {}) => {
  * carries the clientIdempotency key. `replayed` marks a duplicate submission
  * whose result is being returned without re-applying it.
  */
-export const emitMoveAccepted = (io, matchId, { move, replayed = false, clientMoveId = null }) => {
+export const emitMoveAccepted = (io, matchId, { move, replayed = false, clientMoveId = null, clock = null }) => {
   const {
     from, to, path, captured, promoted,
     nextTurn, ended, reason, legalMoves, newBoard, version
   } = move;
+  const clockFields = clock
+    ? {
+        serverNowMs: clock.serverNowMs ?? null,
+        turnStartedAtServer: clock.turnStartedAtServer ?? null,
+        deadlineAt: clock.deadlineAt ?? null,
+        remainingMs: clock.remainingMs ?? null
+      }
+    : {};
 
   // Legacy Flutter event — unchanged shape plus the new idempotency echo.
   io.to(`match:${matchId}`).emit('move_applied', {
@@ -88,7 +107,8 @@ export const emitMoveAccepted = (io, matchId, { move, replayed = false, clientMo
     gameEnded: ended,
     reason,
     legalMoves,
-    board: newBoard
+    board: newBoard,
+    ...clockFields
   });
 
   io.to(`match:${matchId}`).emit('move.accepted', {
@@ -102,7 +122,8 @@ export const emitMoveAccepted = (io, matchId, { move, replayed = false, clientMo
     reason,
     legalMoves,
     board: newBoard,
-    replayed
+    replayed,
+    ...clockFields
   });
 };
 

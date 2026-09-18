@@ -52,6 +52,30 @@ describe('gameProtocol', () => {
     expect(payload.legalMoves.length).toBeGreaterThan(0);
   });
 
+  it('carries the official clock and the per-match grace, and fills serverNow when given', () => {
+    const state = {
+      board: JSON.stringify(createInitialBoard()),
+      currentTurn: COLOR_WHITE,
+      status: 'in_progress',
+      moveCount: '3',
+      version: '3',
+      deadlineAt: '123456',
+      turnStartedAtServer: '120456',
+      timeControlSeconds: '60',
+      disconnectGraceMs: '45000'
+    };
+
+    const withoutNow = buildStatePayload('m1', state);
+    expect(withoutNow.turnStartedAtServer).toBe(120456);
+    expect(withoutNow.serverNowMs).toBeNull();
+    expect(withoutNow.remainingMs).toBeNull();
+    expect(withoutNow.disconnectGraceMs).toBe(45000);
+
+    const withNow = buildStatePayload('m1', state, 100456);
+    expect(withNow.serverNowMs).toBe(100456);
+    expect(withNow.remainingMs).toBe(23000);
+  });
+
   it('omits legal moves once the game is no longer in progress', () => {
     const payload = buildStatePayload('m1', {
       board: JSON.stringify(createInitialBoard()),
@@ -99,5 +123,29 @@ describe('gameProtocol', () => {
       stateVersion: 2,
       replayed: false
     });
+  });
+
+  it('emitMoveAccepted broadcasts the official clock when supplied', () => {
+    const emit = jest.fn();
+    const io = { to: jest.fn(() => ({ emit })) };
+    emitMoveAccepted(io, 'm1', {
+      clientMoveId: 'cm_12345678',
+      move: {
+        from: 32, to: 12, path: [32, 21, 12], captured: [], promoted: false,
+        nextTurn: 'BLACK', ended: false, reason: null,
+        legalMoves: [], newBoard: [], version: 3
+      },
+      clock: { serverNowMs: 900000, turnStartedAtServer: 900000, deadlineAt: 960000, remainingMs: 60000 }
+    });
+
+    for (const event of ['move_applied', 'move.accepted']) {
+      const payload = emit.mock.calls.find(([e]) => e === event)[1];
+      expect(payload).toMatchObject({
+        serverNowMs: 900000,
+        turnStartedAtServer: 900000,
+        deadlineAt: 960000,
+        remainingMs: 60000
+      });
+    }
   });
 });

@@ -1,6 +1,6 @@
 import redis from '../utils/redis.js';
 import logger from '../utils/logger.js';
-import { validateMatchIdPayload, validateMoveAttempt, validateMoveSubmit } from './payloadGuard.js';
+import { validateClockSync, validateMatchIdPayload, validateMoveAttempt, validateMoveSubmit } from './payloadGuard.js';
 import { createInitialBoard, getLegalMoves, applyMove, checkGameEnd, COLOR_WHITE, COLOR_BLACK, isKing } from '../modules/engine/index.js';
 import { settleGame, settleGameDraw, settleGameWithRetry, settleGameDrawWithRetry } from './settlement.js';
 import {
@@ -11,7 +11,12 @@ import {
   SIDE_BY_COLOR
 } from './gameProtocol.js';
 import { getIO } from './index.js';
-import { DEFAULT_TIME_CONTROL_SECONDS, TURN_EXPIRED_REASON } from './timeControl.js';
+import {
+  DEFAULT_TIME_CONTROL_SECONDS,
+  TURN_EXPIRED_REASON,
+  disconnectGraceMs,
+  remainingMs
+} from './timeControl.js';
 import prisma from '../utils/db.js';
 import { transitionMatchWhere } from '../modules/match/service.js';
 import * as Sentry from '@sentry/node';
@@ -56,7 +61,8 @@ redis.call('HSET', key,
   'status',                 ARGV[9],
   'winnerId',               ARGV[10],
   'deadlineAt',             ARGV[11],
-  'timeControlSeconds',     ARGV[12]
+  'timeControlSeconds',     ARGV[12],
+  'turnStartedAtServer',    ARGV[13]
 )
 return 'OK'
 `;
@@ -66,7 +72,7 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // Authoritative server clock (Redis TIME), echoing the guard embedded in the
 // CAS script so the pre-persist expiry check agrees with the atomic one.
-const authoritativeNowMs = async () => {
+export const authoritativeNowMs = async () => {
   const [seconds, microseconds] = await redis.time();
   return Number(seconds) * 1000 + Math.floor(Number(microseconds) / 1000);
 };
@@ -84,8 +90,8 @@ const refuseExpiredTurn = (socket, matchId, state, userId) => {
 
 // Emits the canonical resync payload so a stale client can rebuild its board
 // from the authoritative projection instead of guessing.
-const emitResync = (socket, matchId, state) => {
-  const payload = buildStatePayload(matchId, state);
+const emitResync = (socket, matchId, state, nowMs = null) => {
+  const payload = buildStatePayload(matchId, state, nowMs);
   if (payload) socket.emit('match.state', payload);
 };
 
@@ -306,7 +312,10 @@ export const initializeGame = async (matchId, player1Id, player2Id, stakeTier) =
     consecutiveKingMoves: 0,
     lastMoveTs: now,
     deadlineAt: now + timeControlSeconds * 1000,
-    timeControlSeconds
+    timeControlSeconds,
+    // Server-owned turn start and grace snapshot (client-clock independent).
+    turnStartedAtServer: now,
+    disconnectGraceMs: disconnectGraceMs()
   };
   
   try {
@@ -380,7 +389,8 @@ export const handleResign = async (socket, payload) => {
         'completed',
         opponentId,
         '', // deadlineAt — no future deadline on an ended game
-        resignTc.toString()
+        resignTc.toString(),
+        '' // turnStartedAtServer — no running turn on an ended game
       );
 
       success = true;
@@ -685,7 +695,10 @@ const submitMove = async (socket, move) => {
         newStatus,
         winnerId,
         deadlineAt,
-        timeControlSeconds.toString()
+        timeControlSeconds.toString(),
+        // The next turn's official start is the same server instant that opened
+        // its deadline; an ended game carries no running turn.
+        newStatus === 'in_progress' ? nowMs.toString() : ''
       );
 
       success = true;
@@ -725,6 +738,12 @@ const submitMove = async (socket, move) => {
           legalMoves: nextLegalMoves,
           newBoard,
           version: nextVersion
+        },
+        clock: {
+          serverNowMs: nowMs,
+          turnStartedAtServer: newStatus === 'in_progress' ? nowMs : null,
+          deadlineAt: Number(deadlineAt) > 0 ? Number(deadlineAt) : null,
+          remainingMs: newStatus === 'in_progress' ? remainingMs(deadlineAt, nowMs) : null
         }
       });
 
@@ -783,4 +802,49 @@ export const handleMoveAttempt = async (socket, payload) => {
   }
   const { matchId, from, to } = validated.data;
   await submitMove(socket, { matchId, from, to, path: undefined, clientMoveId: null });
+};
+
+// Official clock sync. Answers with the server clock so a client can compute a
+// skew offset and render the authoritative remaining time; never trusts a
+// client-provided time.
+export const handleClockSync = async (socket, payload) => {
+  const userId = socket.user?.userId;
+  if (!userId) return;
+
+  const validated = validateClockSync(payload);
+  if (!validated.ok) {
+    socket.emit('error', { message: 'Invalid payload' });
+    return;
+  }
+  const { matchId, clientSentAt } = validated.data;
+
+  const state = await getGameState(matchId);
+  if (!state) {
+    socket.emit('error', { message: 'Game not found' });
+    return;
+  }
+  if (state.player1 !== userId && state.player2 !== userId) {
+    socket.emit('error', { message: 'Not authorized' });
+    return;
+  }
+
+  const nowMs = await authoritativeNowMs();
+  const deadlineAt = Number(state.deadlineAt) > 0 ? Number(state.deadlineAt) : null;
+  socket.emit('clock.sync', {
+    matchId,
+    serverNowMs: nowMs,
+    clientSentAt: clientSentAt ?? null,
+    version: String(state.version ?? '0'),
+    status: state.status || 'in_progress',
+    currentTurn: state.currentTurn ?? null,
+    currentTurnUserId: state.currentTurnUserId ?? null,
+    turnStartedAtServer: Number(state.turnStartedAtServer) > 0
+      ? Number(state.turnStartedAtServer)
+      : null,
+    deadlineAt,
+    timeControlSeconds: Number(state.timeControlSeconds) > 0
+      ? Number(state.timeControlSeconds)
+      : null,
+    remainingMs: remainingMs(deadlineAt, nowMs)
+  });
 };

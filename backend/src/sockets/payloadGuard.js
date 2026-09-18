@@ -54,6 +54,13 @@ export const matchIdPayloadSchema = z.strictObject({
   matchId
 });
 
+// Clock sync carries the client's own send timestamp only so it can measure
+// round-trip time; the server time in the reply is always authoritative.
+export const clockSyncSchema = z.strictObject({
+  matchId,
+  clientSentAt: z.number().int().min(0).optional()
+});
+
 export const payloadTooLarge = (payload) => {
   if (payload === null || payload === undefined) return false;
   try {
@@ -81,4 +88,9 @@ export const validateMoveSubmit = (payload) => {
 export const validateMatchIdPayload = (payload) => {
   if (payloadTooLarge(payload)) return { ok: false };
   return parse(matchIdPayloadSchema, payload);
+};
+
+export const validateClockSync = (payload) => {
+  if (payloadTooLarge(payload)) return { ok: false };
+  return parse(clockSyncSchema, payload);
 };

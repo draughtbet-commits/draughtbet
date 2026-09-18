@@ -25,6 +25,7 @@ const DEFAULT_BUDGETS = {
   resign: { max: 10, windowMs: 60 * 1000 },
   'match.join': { max: 30, windowMs: 60 * 1000 },
   join_match: { max: 30, windowMs: 60 * 1000 },
+  'clock.sync': { max: 30, windowMs: 60 * 1000 },
 };
 
 const envMax = (eventName) => {

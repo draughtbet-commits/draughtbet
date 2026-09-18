@@ -21,6 +21,7 @@ import { startCalloutExpirySweep } from './jobs/calloutExpiry.js';
 import { startGameActivationSweep } from './jobs/gameActivationSweep.js';
 import { startTurnDeadlineSweep } from './jobs/turnDeadlineSweep.js';
 import { startDepositReconciliationSweep } from './jobs/depositReconciliation.js';
+import { startGameRecovery } from './sockets/gameRecovery.js';
 
 const app = express();
 // Prisma initialized in utils/db.js
@@ -104,6 +105,7 @@ if (process.env.NODE_ENV !== 'test') {
   startGameActivationSweep();
   startTurnDeadlineSweep();
   startDepositReconciliationSweep();
+  startGameRecovery();
 }
 
 export default app;
