@@ -10,7 +10,15 @@ const mockPrisma = {
   platformSettings: { findUnique: jest.fn() },
   matchSettlement: { findUnique: jest.fn(), create: jest.fn() },
   matchReceipt: { createMany: jest.fn() },
-  stakeReservation: { updateMany: jest.fn() }
+  stakeReservation: { updateMany: jest.fn() },
+  notification: {
+    create: jest.fn(({ data }) => ({ id: 'notif-1', ...data, createdAt: new Date() }))
+  },
+  wallet: { findUnique: jest.fn(() => ({ id: 'wallet-1', currency: 'NGN' })) },
+  outboxEvent: {
+    create: jest.fn(({ data }) => ({ id: 'ob-1', ...data })),
+    findUnique: jest.fn(() => null)
+  }
 };
 
 jest.unstable_mockModule('../../../utils/db.js', () => ({
@@ -97,6 +105,14 @@ describe('SettlementService', () => {
         where: { matchId: 'm1' },
         data: { status: 'SETTLED' }
       });
+
+      // durable delivery events for the drainer: win/loss notifications +
+      // winner wallet.updated, atomic with the claim
+      const enqueued = mockPrisma.outboxEvent.create.mock.calls.map(([args]) => args.data);
+      expect(enqueued.length).toBe(3);
+      expect(enqueued).toContainEqual(expect.objectContaining({ eventType: 'wallet.updated', dedupeKey: 'wallet:settle:m1:player-1' }));
+      expect(enqueued).toContainEqual(expect.objectContaining({ eventType: 'notification', dedupeKey: 'notify:settle:m1:player-1:MATCH_ENDED_WIN' }));
+      expect(enqueued).toContainEqual(expect.objectContaining({ eventType: 'notification', dedupeKey: 'notify:settle:m1:player-2:MATCH_ENDED_LOSS' }));
     });
   });
 
@@ -130,6 +146,13 @@ describe('SettlementService', () => {
         where: { matchId: 'm1' },
         data: { status: 'SETTLED' }
       });
+
+      // draw refunds both players via durable wallet.updated events (no notices)
+      const enqueued = mockPrisma.outboxEvent.create.mock.calls.map(([args]) => args.data);
+      expect(enqueued.length).toBe(2);
+      expect(enqueued.every((e) => e.eventType === 'wallet.updated')).toBe(true);
+      expect(enqueued).toContainEqual(expect.objectContaining({ dedupeKey: 'wallet:settle:m1:player-1' }));
+      expect(enqueued).toContainEqual(expect.objectContaining({ dedupeKey: 'wallet:settle:m1:player-2' }));
     });
   });
 

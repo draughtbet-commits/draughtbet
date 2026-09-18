@@ -4,7 +4,6 @@ import { PaystackGateway } from './PaystackGateway.js';
 import { FlutterwaveGateway } from './FlutterwaveGateway.js';
 import { WithdrawalService } from '../withdrawal/service.js';
 import logger from '../../utils/logger.js';
-import { getIO } from '../../sockets/index.js';
 
 export const webhookRouter = express.Router();
 
@@ -22,20 +21,11 @@ webhookRouter.use(express.raw({ type: 'application/json' }));
 // Post-credit events are derived from the DURABLE ledger record returned by
 // the service, never from the raw webhook body, and only fire for a newly
 // applied webhook — a duplicate delivery is acknowledged but emits nothing.
-// The durable DepositIntent COMPLETED transition, ledger mirror, outbox row and
-// notification are all written by the service in the same transaction; the
-// socket push here is ephemeral (no at-least-once guarantee needed).
+// The durable DepositIntent COMPLETED transition, ledger mirror, outbox rows
+// (wallet.updated + notification) are all written by the service in the same
+// transaction; the socket push is the outbox drainer's job, never inline here.
 const handleDepositResult = async (res, result, userId) => {
   if (result.handled && !result.alreadyApplied) {
-    const credited = result.transaction.amountMinorUnits.toString();
-    try {
-      getIO().to(`user:${userId}`).emit('wallet_updated', {
-        balanceChange: credited,
-        type: 'DEPOSIT'
-      });
-    } catch (e) {
-      logger.warn({ e, userId }, 'Failed to emit socket event after deposit');
-    }
     return res.status(200).send('OK');
   }
 

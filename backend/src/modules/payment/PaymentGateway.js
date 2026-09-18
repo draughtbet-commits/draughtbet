@@ -84,4 +84,18 @@ export class PaymentGateway {
   async processRefund(reference, amountMinorUnits) {
     throw new Error('Not implemented');
   }
+
+  /**
+   * Queries the provider for the current status of an initiated payout, so the
+   * follow-up sweep can resolve withdrawals stuck in PROCESSING when no webhook
+   * ever arrived.
+   * @param {{ reference: string, providerRef: string|null }} input - Our server
+   *   reference and the provider's payout id (transfer_code / transfer id).
+   * @returns {Promise<{ status: 'success'|'failed'|'processing' }>} the provider
+   *   verdict. Throws PaymentGatewayError only on transport/provider errors
+   *   (the sweep then leaves the withdrawal untouched and retries later).
+   */
+  async verifyPayoutStatus({ reference, providerRef }) {
+    throw new Error('Not implemented');
+  }
 }

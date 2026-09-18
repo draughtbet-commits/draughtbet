@@ -106,7 +106,8 @@ export const processMatchmakingQueues = async () => {
               'MATCH_FOUND',
               'Match Found!',
               'An opponent has been found. Your match is starting.',
-              `/match/${match.id}`
+              `/match/${match.id}`,
+              match.id
             );
           };
           try {

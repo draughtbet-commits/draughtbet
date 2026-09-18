@@ -3,7 +3,6 @@ import prisma from '../utils/db.js';
 import redis from '../utils/redis.js';
 import { getIO } from './index.js';
 import * as Sentry from '@sentry/node';
-import { NotificationService } from '../modules/notification/service.js';
 import {
   SettlementService,
   DEFAULT_SETTLEMENT_RETRIES,
@@ -42,6 +41,11 @@ const deleteActiveMatchPointer = async (userId, matchId) => {
 //   - redis.del on a missing key = 0 (no-op)
 //   - duplicate socket emits are harmless (client handles gracefully)
 // So calling them more than once is always safe.
+//
+// Durable post-settlement events (wallet.updated pushes, gaming notifications)
+// are written into the settlement transaction itself (see settlement/service.js
+// enqueueSettlementEvents) and delivered by the outbox drainer — this layer only
+// clears live-state and tells the room the match ended.
 // ─────────────────────────────────────────────────────────────
 
 /**
@@ -60,31 +64,6 @@ async function notifyAndCleanupWin(matchId, winnerId, playerLightId, playerDarkI
       reason,
       payout: payout.toString()
     });
-    io.to(`user:${winnerId}`).emit('wallet_updated', {
-      balanceChange: payout.toString(),
-      matchId
-    });
-
-    const loserId = winnerId === playerLightId ? playerDarkId : playerLightId;
-
-    // Trigger WIN/LOSS notifications
-    await NotificationService.create(
-      winnerId,
-      'MATCH_ENDED_WIN',
-      'You Won!',
-      `You won match ${matchId.slice(0, 8)}. Payout: ${payout} credited.`,
-      `/results`,
-      matchId
-    );
-
-    await NotificationService.create(
-      loserId,
-      'MATCH_ENDED_LOSS',
-      'You Lost',
-      `You lost match ${matchId.slice(0, 8)}. Better luck next time!`,
-      `/results`,
-      matchId
-    );
   } catch (e) {
     logger.warn({ e, matchId }, 'Socket emit after settlement failed');
   }
@@ -104,14 +83,6 @@ async function notifyAndCleanupDraw(matchId, playerLightId, playerDarkId, refund
       winnerId: null,
       reason,
       payout: refundAmount.toString()
-    });
-    io.to(`user:${playerLightId}`).emit('wallet_updated', {
-      balanceChange: refundAmount.toString(),
-      matchId
-    });
-    io.to(`user:${playerDarkId}`).emit('wallet_updated', {
-      balanceChange: refundAmount.toString(),
-      matchId
     });
   } catch (e) {
     logger.warn({ e, matchId }, 'Socket emit after draw settlement failed');

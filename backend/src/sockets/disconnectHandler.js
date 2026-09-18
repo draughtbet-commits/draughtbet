@@ -60,7 +60,8 @@ export async function handleDisconnect(socket) {
       'DISCONNECT_WARNING',
       'Connection Lost',
       `You have ${Math.round(grace / 1000)} seconds to reconnect before forfeiting your match.`,
-      `/match/${matchId}`
+      `/match/${matchId}`,
+      matchId
     );
 
     logger.info({ userId, matchId, graceMs: grace },

@@ -23,6 +23,9 @@ import { startCalloutExpirySweep } from './jobs/calloutExpiry.js';
 import { startGameActivationSweep } from './jobs/gameActivationSweep.js';
 import { startTurnDeadlineSweep } from './jobs/turnDeadlineSweep.js';
 import { startDepositReconciliationSweep } from './jobs/depositReconciliation.js';
+import { startOutboxDrainer } from './jobs/outboxDrainer.js';
+import { startProviderFollowUp } from './jobs/providerFollowUp.js';
+import { startFinancialReconciliation } from './jobs/financialReconciliation.js';
 import { startGameRecovery } from './sockets/gameRecovery.js';
 
 const app = express();
@@ -109,6 +112,9 @@ if (process.env.NODE_ENV !== 'test') {
   startGameActivationSweep();
   startTurnDeadlineSweep();
   startDepositReconciliationSweep();
+  startOutboxDrainer();
+  startProviderFollowUp();
+  startFinancialReconciliation();
   startGameRecovery();
 }
 

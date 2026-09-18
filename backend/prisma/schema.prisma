@@ -648,6 +648,7 @@ model Withdrawal {
   reviewedBy        String?
   reviewedAt        DateTime?
   processedAt       DateTime?
+  followUpCheckAt   DateTime?       // when the payout follow-up sweep last probed this row
   failureReason     String?
   idempotencyKey    String?           // client-supplied operation key; replay returns the original row
   createdAt         DateTime          @default(now())
@@ -990,6 +991,14 @@ model OutboxEvent {
   status         OutboxEventStatus @default(PENDING)
   attempts       Int              @default(0)
   lastError      String?
+  // Drainer lease: a PENDING row is claimed with a token + expiry and only the
+  // claimer marks it SENT/FAILED; a crash mid-delivery leaves the lease to
+  // expire so the next drain cycle reclaims it (at-least-once, restart-safe).
+  claimToken     String?          @unique
+  claimExpiresAt DateTime?
+  // Exactly-once enqueue guard for replay/recovery paths (e.g. settlement).
+  // Writers pass a natural business key; a duplicate insert is a no-op.
+  dedupeKey      String?          @unique
   createdAt      DateTime         @default(now())
   updatedAt      DateTime         @updatedAt
 

@@ -180,4 +180,40 @@ export class FlutterwaveGateway extends PaymentGateway {
       throw new PaymentGatewayError('Payment provider unavailable, try again', error);
     }
   }
+
+  /**
+   * Queries Flutterwave Transfers for the payout's current status. The lookup
+   * key is the provider's transfer id (our stored providerRef, set at
+   * initiation); a payout with no providerRef yet cannot be verified this way.
+   */
+  async verifyPayoutStatus({ reference, providerRef }) {
+    if (!providerRef) {
+      throw new PaymentGatewayError('Cannot verify a Flutterwave payout without its transfer id');
+    }
+    try {
+      const data = await this.fetchWithRetry(
+        `https://api.flutterwave.com/v3/transfers/${encodeURIComponent(providerRef)}`,
+        {
+          method: 'GET',
+          headers: { 'Authorization': `Bearer ${this.secretKey}` }
+        }
+      );
+      const status = data?.data?.status ?? '';
+      return { status: mapFlutterwaveTransferStatus(status) };
+    } catch (error) {
+      logger.warn({ error: error.message, providerRef }, 'Flutterwave payout status verification failed');
+      throw new PaymentGatewayError('Unable to verify payout status', error);
+    }
+  }
+}
+
+/**
+ * Maps a Flutterwave transfer status to the follow-up verdict.
+ *   SUCCESSFUL -> 'success'; FAILED -> 'failed'; everything else 'processing'.
+ */
+export function mapFlutterwaveTransferStatus(status) {
+  const normalized = typeof status === 'string' ? status.toUpperCase() : '';
+  if (normalized === 'SUCCESSFUL') return 'success';
+  if (normalized === 'FAILED') return 'failed';
+  return 'processing';
 }

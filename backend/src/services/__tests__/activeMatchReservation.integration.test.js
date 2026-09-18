@@ -133,6 +133,9 @@ describeIntegration('One pre-terminal match per player (real PostgreSQL + Redis)
     await prisma.ledgerTransaction.deleteMany({
       where: { metadata: { path: ['source'], equals: 'legacy-wallet-backfill' } }
     });
+    // Matches the beforeEach wipe: settlement creates durable notification rows
+    // (with a userId FK) that otherwise block the user teardown below.
+    await prisma.notification.deleteMany({});
     await prisma.user.deleteMany({});
     await prisma.$disconnect();
   });

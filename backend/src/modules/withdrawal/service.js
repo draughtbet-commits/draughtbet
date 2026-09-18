@@ -9,6 +9,7 @@ import {
   postWithdrawalRelease
 } from '../../services/ledgerService.js';
 import { parseMinorUnits, parseIdempotencyKey } from '../wallet/service.js';
+import { enqueueWalletUpdated, enqueueNotificationDelivery } from '../../services/outboxService.js';
 import { PaymentGatewayError } from '../payment/PaymentGateway.js';
 
 export class BankAccountRequiredError extends Error {
@@ -179,19 +180,13 @@ export class WithdrawalService {
         });
 
         // Durable wallet.updated outbox row, atomic with the debit.
-        await tx.outboxEvent.create({
-          data: {
-            aggregateType: 'Wallet',
-            aggregateId: wallet.id,
-            eventType: 'wallet.updated',
-            payload: {
-              userId,
-              walletId: wallet.id,
-              currency,
-              type: 'WITHDRAWAL',
-              amountMinorUnits: amount.toString()
-            }
-          }
+        await enqueueWalletUpdated(tx, {
+          userId,
+          walletId: wallet.id,
+          currency,
+          type: 'WITHDRAWAL',
+          amountMinorUnits: amount,
+          dedupeKey: `wallet:withdrawal:${withdrawal.id}`
         });
 
         logger.info({ withdrawalId: withdrawal.id, userId, amount: amount.toString() }, 'Withdrawal requested and reserved');
@@ -490,7 +485,7 @@ export class WithdrawalService {
           amountMinorUnits: w.amountMinorUnits,
           currency: w.currency
         });
-        await tx.notification.create({
+        const confirmed = await tx.notification.create({
           data: {
             userId: w.userId,
             type: 'WITHDRAWAL_CONFIRMED',
@@ -498,6 +493,9 @@ export class WithdrawalService {
             message: `Your withdrawal of ₦${RELATIVE_TO_MAJOR_UNITS(w.amountMinorUnits)} has been paid out.`,
             link: '/wallet'
           }
+        });
+        await enqueueNotificationDelivery(tx, confirmed, {
+          dedupeKey: `notify:withdrawal:${w.id}`
         });
         logger.info({ withdrawalId: w.id, userId: w.userId }, 'Withdrawal completed');
       } else {
@@ -507,6 +505,18 @@ export class WithdrawalService {
       const updated = await tx.withdrawal.findUnique({ where: { id: w.id } });
       return toPayload(updated);
     });
+  }
+
+  /**
+   * Records when the follow-up sweep last probed a PROCESSING withdrawal, so
+   * each run only re-probes rows that are actually due.
+   */
+  async noteFollowUpCheck(withdrawalId) {
+    const { count } = await prisma.withdrawal.updateMany({
+      where: { id: withdrawalId, status: 'PROCESSING' },
+      data: { followUpCheckAt: new Date() }
+    });
+    return count === 1;
   }
 
   /**
@@ -549,23 +559,17 @@ export class WithdrawalService {
       // durable wallet.updated outbox row keeps using its id as the aggregateId.
       const wallet = await tx.wallet.findUnique({ where: { userId: w.userId } });
       if (wallet) {
-        await tx.outboxEvent.create({
-          data: {
-            aggregateType: 'Wallet',
-            aggregateId: wallet.id,
-            eventType: 'wallet.updated',
-            payload: {
-              userId: w.userId,
-              walletId: wallet.id,
-              currency: w.currency,
-              type: 'WITHDRAWAL_RELEASE',
-              amountMinorUnits: w.amountMinorUnits.toString()
-            }
-          }
+        await enqueueWalletUpdated(tx, {
+          userId: w.userId,
+          walletId: wallet.id,
+          currency: w.currency,
+          type: 'WITHDRAWAL_RELEASE',
+          amountMinorUnits: w.amountMinorUnits,
+          dedupeKey: `wallet:withdrawal-release:${w.id}`
         });
       }
 
-      await tx.notification.create({
+      const refunded = await tx.notification.create({
         data: {
           userId: w.userId,
           type: 'WITHDRAWAL_REFUNDED',
@@ -573,6 +577,9 @@ export class WithdrawalService {
           message: `₦${RELATIVE_TO_MAJOR_UNITS(w.amountMinorUnits)} from your pending withdrawal has been returned to your wallet.`,
           link: '/wallet'
         }
+      });
+      await enqueueNotificationDelivery(tx, refunded, {
+        dedupeKey: `notify:withdrawal:${w.id}`
       });
 
       logger.info({ withdrawalId: w.id, userId: w.userId, reason: failureReason }, 'Withdrawal released back to player');

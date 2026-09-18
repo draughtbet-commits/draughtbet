@@ -115,7 +115,8 @@ describe('settlement socket layer', () => {
       await settlement.settleGame('m1', 'p1', 'p2', 'NO_LEGAL_MOVES');
 
       expect(mockPrisma.matchSettlement.findUnique).toHaveBeenCalledWith({ where: { matchId: 'm1' } });
-      expect(mockEmit).toHaveBeenCalledWith('wallet_updated', expect.objectContaining({ balanceChange: '180000' }));
+      expect(mockTo).toHaveBeenCalledWith('match:m1');
+      expect(mockEmit).toHaveBeenCalledWith('match_ended', expect.objectContaining({ winnerId: 'p1' }));
     });
   });
 
@@ -130,8 +131,10 @@ describe('settlement socket layer', () => {
       await settlement.settleGameWithRetry('m1', 'p1', 'p2', 'resign', 3);
 
       expect(mockSettleMatch).toHaveBeenCalledTimes(3);
-      // Notified exactly once: match_ended room broadcast + winner wallet_updated.
-      expect(mockEmit).toHaveBeenCalledTimes(2);
+      // Ephemeral match_ended broadcast, exactly once. Durable wallet_updated +
+      // notifications are enqueued inside the settlement tx and delivered by
+      // the outbox drainer — not emitted from this layer.
+      expect(mockEmit).toHaveBeenCalledTimes(1);
       expect(mockEmit).toHaveBeenCalledWith('match_ended', expect.objectContaining({ winnerId: 'p1' }));
     });
 

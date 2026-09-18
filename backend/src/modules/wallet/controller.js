@@ -14,7 +14,6 @@ import { EligibilityService } from '../eligibility/service.js';
 import prisma from '../../utils/db.js';
 import logger from '../../utils/logger.js';
 import { parsePagination } from '../../utils/pagination.js';
-import { getIO } from '../../sockets/index.js';
 
 export const walletRouter = express.Router();
 
@@ -181,17 +180,6 @@ walletRouter.post('/withdrawal-request', requireAuth, async (req, res, next) => 
     }
 
     const request = await withdrawalService.requestWithdrawal(userId, amountMinorUnits, idempotencyKey);
-
-    // Ephemeral socket push; the durable wallet.updated outbox row was written
-    // inside the reservation transaction.
-    try {
-      getIO().to(`user:${userId}`).emit('wallet_updated', {
-        balanceChange: `-${request.amountMinorUnits}`,
-        type: 'WITHDRAWAL'
-      });
-    } catch (e) {
-      logger.warn({ e, userId }, 'Failed to emit socket event after withdrawal request');
-    }
 
     res.status(201).json({
       withdrawalRequest: {

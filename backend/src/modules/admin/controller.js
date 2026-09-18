@@ -64,17 +64,6 @@ const audit = (req, action, { targetType = null, targetId = null, metadata = nul
     requestId: req.id
   }).catch((err) => logger.warn({ err, action }, 'Failed to write admin audit row'));
 
-const emitWalletUpdated = (row) => {
-  try {
-    getIO().to(`user:${row.userId}`).emit('wallet_updated', {
-      balanceChange: `${row.available}`,
-      type: 'ADJUSTMENT'
-    });
-  } catch (e) {
-    logger.warn({ e }, 'Failed to emit wallet_updated after admin adjustment');
-  }
-};
-
 // ---------------------------------------------------------------------------
 // Account status (SUPPORT / SUPER_ADMIN)
 // ---------------------------------------------------------------------------
@@ -235,17 +224,6 @@ adminRouter.post(
         targetId: row.id,
         metadata: { reason: req.body?.reason ?? null }
       });
-      // Funds returned to the player — push the refreshed balance over the socket
-      // (the durable wallet.updated outbox row was written inside the release tx).
-      try {
-        getIO().to(`user:${row.userId}`).emit('wallet_updated', {
-          balanceChange: `+${row.amountMinorUnits}`,
-          type: 'WITHDRAWAL_RELEASE',
-          withdrawalId: row.id
-        });
-      } catch (e) {
-        logger.warn({ e, withdrawalId: row.id }, 'Failed to emit socket event after withdrawal release');
-      }
       res.json({ withdrawal: row });
     } catch (error) {
       if (error.name === 'WithdrawalNotFoundError') return res.status(404).json({ error: error.message });
@@ -661,7 +639,6 @@ adminRouter.post(
         reference: reference.trim(),
         actorId: req.user.id
       });
-      emitWalletUpdated({ userId, available: result.available });
       await audit(req, 'ledger.adjustment', {
         targetType: 'user',
         targetId: userId,

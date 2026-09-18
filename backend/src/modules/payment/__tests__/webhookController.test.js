@@ -72,7 +72,7 @@ describe('webhookController (S08: credit only from verified stored intents)', ()
     ioMock.to.mockReturnThis();
   });
 
-  it('Paystack: a valid, correctly-signed event credits once and emits once from the verified result', async () => {
+  it('Paystack: a valid, correctly-signed event credits once and acknowledges with 200', async () => {
     mockProcessDepositWebhook.mockResolvedValue({
       handled: true,
       alreadyApplied: false,
@@ -93,8 +93,9 @@ describe('webhookController (S08: credit only from verified stored intents)', ()
       gateway: 'PAYSTACK',
       userId: 'user-1'
     });
-    expect(ioMock.to).toHaveBeenCalledWith('user:user-1');
-    expect(ioMock.emit).toHaveBeenCalledTimes(1);
+    // Socket delivery is durable: enqueued in the credit tx and published by
+    // the outbox drainer, so the webhook layer emits nothing.
+    expect(ioMock.emit).not.toHaveBeenCalled();
   });
 
   it('Paystack: rejects a bad signature with 401 before anything else', async () => {

@@ -1,8 +1,6 @@
 import prisma from '../../utils/db.js';
-import {
-  postAdjustment,
-  getLedgerAvailable
-} from '../../services/ledgerService.js';
+import { postAdjustment, getLedgerAvailable } from '../../services/ledgerService.js';
+import { enqueueWalletUpdated } from '../../services/outboxService.js';
 
 /**
  * Admin money corrections. The ONLY sanctioned path to move a player's money
@@ -37,19 +35,13 @@ export class AdminService {
         update: { currency }
       });
       const wallet = await tx.wallet.findUnique({ where: { userId } });
-      await tx.outboxEvent.create({
-        data: {
-          aggregateType: 'Wallet',
-          aggregateId: wallet.id,
-          eventType: 'wallet.updated',
-          payload: {
-            userId,
-            walletId: wallet.id,
-            currency,
-            type: 'ADJUSTMENT',
-            amountMinorUnits: amountMinorUnits.toString()
-          }
-        }
+      await enqueueWalletUpdated(tx, {
+        userId,
+        walletId: wallet.id,
+        currency,
+        type: 'ADJUSTMENT',
+        amountMinorUnits,
+        dedupeKey: `wallet:adjustment:${transaction.id}`
       });
 
       const available = await getLedgerAvailable(tx, userId, currency);

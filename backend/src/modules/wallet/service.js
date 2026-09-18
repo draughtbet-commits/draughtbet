@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import prisma from '../../utils/db.js';
 import logger from '../../utils/logger.js';
 import { postDepositCredit, getLedgerAvailable, getLedgerTransactions } from '../../services/ledgerService.js';
+import { enqueueWalletUpdated, enqueueNotificationDelivery } from '../../services/outboxService.js';
 
 // Canonical money contract: a non-negative bounded minor-unit integer accepted
 // as a plain-digit string or number. Rejects floats, signs, exponent notation,
@@ -167,26 +168,20 @@ export const processDepositWebhook = async ({ reference, amountMinorUnits, curre
       });
 
       // Durable wallet.updated outbox row, atomic with the credit.
-      await tx.outboxEvent.create({
-        data: {
-          aggregateType: 'Wallet',
-          aggregateId: wallet.id,
-          eventType: 'wallet.updated',
-          payload: {
-            userId: intent.userId,
-            walletId: wallet.id,
-            currency: intent.currency,
-            type: 'DEPOSIT',
-            amountMinorUnits: intent.amountMinorUnits.toString()
-          }
-        }
+      await enqueueWalletUpdated(tx, {
+        userId: intent.userId,
+        walletId: wallet.id,
+        currency: intent.currency,
+        type: 'DEPOSIT',
+        amountMinorUnits: intent.amountMinorUnits,
+        dedupeKey: `wallet:deposit:${intent.id}`
       });
 
-      // 8. Deposit notification, atomic with the credit (the unique
-      //    [userId, matchId, type] index allows one per deposit; matchId is
-      //    NULL here so different deposits never dedup into one).
+      // 8. Deposit notification + its durable delivery event, atomic with the
+      //    credit (the unique [userId, matchId, type] index allows one per
+      //    deposit; matchId is NULL here so different deposits never dedup).
       const amountMajor = `${intent.amountMinorUnits / 100n}.${(intent.amountMinorUnits % 100n).toString().padStart(2, '0')}`;
-      await tx.notification.create({
+      const depositNotif = await tx.notification.create({
         data: {
           userId: intent.userId,
           type: 'DEPOSIT_CONFIRMED',
@@ -194,6 +189,9 @@ export const processDepositWebhook = async ({ reference, amountMinorUnits, curre
           message: `Your deposit of ₦${amountMajor} has been credited to your wallet.`,
           link: '/wallet'
         }
+      });
+      await enqueueNotificationDelivery(tx, depositNotif, {
+        dedupeKey: `notify:deposit:${intent.id}`
       });
 
       logger.info({ reference, gateway }, 'Deposit webhook processed against stored intent');

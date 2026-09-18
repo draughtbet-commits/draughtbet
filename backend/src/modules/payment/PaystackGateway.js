@@ -180,4 +180,41 @@ export class PaystackGateway extends PaymentGateway {
       throw new PaymentGatewayError('Payment provider unavailable, try again', error);
     }
   }
+
+  /**
+   * Queries Paystack Transfers for the payout's current status. We initiated
+   * every payout with OUR `reference`, which /transfer/verify accepts as the
+   * lookup key. Only an explicit success/failure verdict drives the follow-up;
+   * any in-flight status is 'processing' and gets re-checked on the next pass.
+   */
+  async verifyPayoutStatus({ reference, providerRef }) {
+    try {
+      const key = encodeURIComponent(reference || providerRef || '');
+      const data = await this.fetchWithRetry(
+        `https://api.paystack.co/transfer/verify/${key}`,
+        {
+          method: 'GET',
+          headers: { 'Authorization': `Bearer ${this.secretKey}` }
+        }
+      );
+      const status = data?.data?.status ?? '';
+      return { status: mapPaystackTransferStatus(status) };
+    } catch (error) {
+      logger.warn({ error: error.message, reference }, 'Paystack payout status verification failed');
+      throw new PaymentGatewayError('Unable to verify payout status', error);
+    }
+  }
+}
+
+/**
+ * Maps a Paystack transfer status to the follow-up verdict.
+ *   success                      -> 'success'  (only terminal good)
+ *   failed | reversed            -> 'failed'   (only terminal bad)
+ *   pending | otp | processing | abandoned | paused ...
+ *                                -> 'processing' (keep waiting)
+ */
+export function mapPaystackTransferStatus(status) {
+  if (status === 'success') return 'success';
+  if (status === 'failed' || status === 'reversed') return 'failed';
+  return 'processing';
 }

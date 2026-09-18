@@ -117,3 +117,19 @@ integration suites / 72 tests** green (admin 11, refresh 3, callout 6,
 depositIntent 11, withdrawal 8, activeMatchReservation 5, gameActivation 4,
 ledger 4, durableMoveLog 6, settlement 10, timeControl 4). DB and Redis were
 wiped again after the battery, so the repo is left pristine.
+
+## Deep verification (post-commit)
+
+A follow-up fix landed in `91351ee` for a latent rate-limit bug the harness
+kept surfacing as `Redis rate-limit store unavailable; falling back to
+per-process memory`. The shared Redis limiter (used by **all** HTTP routes,
+not just admin) was silently running on per-process memory: `rate-limit-redis`
+only sets `windowMs` and loads its Lua scripts in `init()`, but
+express-rate-limit calls `init()` on our wrapper store, so the lazily-created
+RedisStore never got initialized and every increment threw at
+`windowMs.toString()`. The resilient store now initializes the RedisStore once
+Redis is ready (retrying on failure). Verified end-to-end: two independent
+store instances share one monotonic Redis-backed counter (real `rl:` key, TTL
+= window), a full PR 11 harness run logs **zero** fallback warnings, and the
+full battery is green on a wiped DB: **48 unit suites / 417 tests** + **11
+integration suites / 72 tests**.

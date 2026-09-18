@@ -1,6 +1,7 @@
 import prisma from '../../utils/db.js';
 import logger from '../../utils/logger.js';
 import { postSettlementWin, postSettlementDraw } from '../../services/ledgerService.js';
+import { enqueueNotificationDelivery, enqueueWalletUpdated } from '../../services/outboxService.js';
 import { LIVE_STATUSES, isLiveStatus } from '../match/service.js';
 
 /**
@@ -137,6 +138,76 @@ async function loadSettlementOrThrow(tx, matchId) {
   return existing;
 }
 
+/**
+ * Durable post-settlement delivery events, written in the SAME transaction as
+ * the claim so a crash after commit cannot lose them: the drainer later pushes
+ * wallet.updated + notifications. Rows are created only on the winning claim
+ * (a replay returns early), so they are exactly-once by construction; the
+ * dedupeKeys keep a genuinely repeated claim from ever stacking a duplicate.
+ */
+async function enqueueSettlementEvents(tx, { match, matchId, winnerId, payout }) {
+  const loserId = winnerId === match.playerLightId ? match.playerDarkId : match.playerLightId;
+
+  if (winnerId) {
+    const winNotif = await tx.notification.create({
+      data: {
+        userId: winnerId,
+        matchId,
+        type: 'MATCH_ENDED_WIN',
+        title: 'You Won!',
+        message: `You won match ${matchId.slice(0, 8)}. Payout: ${payout} credited.`,
+        link: '/results'
+      }
+    });
+    await enqueueNotificationDelivery(tx, winNotif, {
+      dedupeKey: `notify:settle:${matchId}:${winnerId}:MATCH_ENDED_WIN`
+    });
+    const lossNotif = await tx.notification.create({
+      data: {
+        userId: loserId,
+        matchId,
+        type: 'MATCH_ENDED_LOSS',
+        title: 'You Lost',
+        message: `You lost match ${matchId.slice(0, 8)}. Better luck next time!`,
+        link: '/results'
+      }
+    });
+    await enqueueNotificationDelivery(tx, lossNotif, {
+      dedupeKey: `notify:settle:${matchId}:${loserId}:MATCH_ENDED_LOSS`
+    });
+
+    const winnerWallet = await tx.wallet.findUnique({ where: { userId: winnerId } });
+    if (winnerWallet) {
+      await enqueueWalletUpdated(tx, {
+        userId: winnerId,
+        walletId: winnerWallet.id,
+        currency: winnerWallet.currency ?? 'NGN',
+        type: 'PAYOUT',
+        amountMinorUnits: payout,
+        matchId,
+        dedupeKey: `wallet:settle:${matchId}:${winnerId}`
+      });
+    }
+    return;
+  }
+
+  // Draw: refund both players.
+  for (const uid of [match.playerLightId, match.playerDarkId]) {
+    const wallet = await tx.wallet.findUnique({ where: { userId: uid } });
+    if (wallet) {
+      await enqueueWalletUpdated(tx, {
+        userId: uid,
+        walletId: wallet.id,
+        currency: wallet.currency ?? 'NGN',
+        type: 'REFUND',
+        amountMinorUnits: BigInt(match.stakeMinorUnits),
+        matchId,
+        dedupeKey: `wallet:settle:${matchId}:${uid}`
+      });
+    }
+  }
+}
+
 async function readMatch(tx, matchId) {
   return tx.match.findUnique({
     where: { id: matchId },
@@ -235,6 +306,13 @@ export async function settleMatch(matchId, terminalResult) {
 
     await tx.matchReceipt.createMany({
       data: receiptsFor(match, winnerId, settledPayout, settledCommission)
+    });
+
+    await enqueueSettlementEvents(tx, {
+      match,
+      matchId,
+      winnerId,
+      payout: settledPayout
     });
 
     logger.info({ matchId, winnerId: winnerId ?? null, payout: settledPayout.toString(), feeBps }, 'Match settled');

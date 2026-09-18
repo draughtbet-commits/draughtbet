@@ -238,7 +238,8 @@ export const acceptCallout = async (userId, calloutId) => {
     'CALLOUT_ACCEPTED',
     'Challenge Accepted!',
     'Your callout has been accepted. The match is starting.',
-    `/match/${match.id}`
+    `/match/${match.id}`,
+    match.id
   );
 
   logger.info({ calloutId, matchId: match.id, p1: callout.challengerId, p2: userId }, 'Callout accepted, match created');

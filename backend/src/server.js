@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import app from './app.js';
 import logger from './utils/logger.js';
+import cron from 'node-cron';
 import { initSocketServer } from './sockets/index.js';
 import { waitForRateLimitRedis } from './middleware/rateLimit.js';
 
@@ -17,11 +18,28 @@ const server = app.listen(PORT, () => {
 // Initialize Socket.IO
 initSocketServer(server);
 
-// Graceful shutdown
-process.on('SIGTERM', () => {
-  logger.info('SIGTERM signal received: closing HTTP server');
+// Graceful shutdown: stop the cron sweeps (they are all restart-safe — every
+// sweep is idempotent, cheap to re-run and carries no in-memory state that
+// would be lost), then close the HTTP server and exit. Committed money/events
+// are never at risk: a kill mid-sweep is recovered on the next boot by the
+// same sweeps.
+let shuttingDown = false;
+const shutdown = (signal) => {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  logger.info(`${signal} signal received: stopping jobs and closing HTTP server`);
+  try {
+    cron.getTasks().forEach((task) => task?.stop?.());
+  } catch (err) {
+    logger.warn({ err }, 'Failed to stop cron jobs during shutdown');
+  }
   server.close(() => {
     logger.info('HTTP server closed');
     process.exit(0);
   });
-});
+  // Safety net: never hang the container on a stalled connection.
+  setTimeout(() => process.exit(0), 5000).unref();
+};
+
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));

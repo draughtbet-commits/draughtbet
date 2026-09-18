@@ -21,10 +21,11 @@ const mockPrisma = {
     create: jest.fn()
   },
   outboxEvent: {
-    create: jest.fn()
+    create: jest.fn(({ data }) => ({ id: 'ob-1', ...data })),
+    findUnique: jest.fn(() => null)
   },
   notification: {
-    create: jest.fn()
+    create: jest.fn(({ data }) => ({ id: 'notif-1', ...data, createdAt: new Date() }))
   }
 };
 
@@ -111,12 +112,21 @@ describe('Deposit Webhook Processing (stored-intent verified)', () => {
         amountMinorUnits: BigInt(50000)
       })
     });
-    // Durable wallet.updated outbox row + notification, atomic with the credit.
+    // Durable wallet.updated outbox row + notification delivery event, atomic
+    // with the credit (the drainer publishes them).
     expect(mockPrisma.outboxEvent.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         aggregateType: 'Wallet',
         aggregateId: 'wallet-1',
-        eventType: 'wallet.updated'
+        eventType: 'wallet.updated',
+        dedupeKey: 'wallet:deposit:intent-1'
+      })
+    });
+    expect(mockPrisma.outboxEvent.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        aggregateType: 'Notification',
+        eventType: 'notification',
+        dedupeKey: 'notify:deposit:intent-1'
       })
     });
     expect(mockPrisma.notification.create).toHaveBeenCalledWith({

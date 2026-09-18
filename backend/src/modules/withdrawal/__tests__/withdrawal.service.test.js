@@ -72,7 +72,7 @@ const mockPrisma = {
     findUnique: jest.fn(),
     create: jest.fn()
   },
-  outboxEvent: { create: jest.fn() },
+  outboxEvent: { create: jest.fn(), findUnique: jest.fn(() => null) },
   notification: { create: jest.fn() }
 };
 
