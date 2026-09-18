@@ -1,6 +1,7 @@
 import { jest } from '@jest/globals';
 
 jest.unstable_mockModule('../../../utils/db.js', () => ({ default: mockDb }));
+jest.unstable_mockModule('../../mfa/service.js', () => ({ AdminMfaService: mockAdminMfaService }));
 jest.unstable_mockModule('../../audit/service.js', () => ({
   recordAdminAction: jest.fn().mockResolvedValue(undefined)
 }));
@@ -16,6 +17,13 @@ const mockDb = {
     upsert: jest.fn(),
     deleteMany: jest.fn()
   }
+};
+
+const mockAdminMfaService = {
+  getStatus: jest.fn(),
+  isLocked: jest.fn(),
+  verify: jest.fn(),
+  recordFailure: jest.fn()
 };
 
 const {
@@ -221,32 +229,65 @@ describe('rbac requireAdminMfa', () => {
     jest.clearAllMocks();
     delete process.env.ADMIN_MFA_ENFORCED;
     delete process.env.ADMIN_MFA_CODE;
+    mockAdminMfaService.getStatus.mockResolvedValue({ provisioned: true, enabled: true });
+    mockAdminMfaService.isLocked.mockResolvedValue(false);
+    mockAdminMfaService.verify.mockResolvedValue(true);
   });
 
-  it('passes through when MFA is not enforced', () => {
+  it('passes through when MFA is not enforced', async () => {
     const { req, res, next } = make();
-    requireAdminMfa(req, res, next);
+    await requireAdminMfa(req, res, next);
     expect(next).toHaveBeenCalled();
     expect(recordAdminAction).not.toHaveBeenCalled();
   });
 
-  it('denies a missing code when MFA is enforced and audits DENIED', () => {
+  it('denies an unprovisioned admin and audits DENIED', async () => {
     process.env.ADMIN_MFA_ENFORCED = 'true';
-    process.env.ADMIN_MFA_CODE = '123456';
+    mockAdminMfaService.getStatus.mockResolvedValue({ provisioned: false, enabled: false });
     const { req, res, next } = make();
-    requireAdminMfa(req, res, next);
+    await requireAdminMfa(req, res, next);
     expect(res.status).toHaveBeenCalledWith(403);
-    expect(res.json).toHaveBeenCalledWith({ error: 'Admin MFA code required' });
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ error: expect.stringContaining('MFA') }));
     expect(next).not.toHaveBeenCalled();
     expect(recordAdminAction).toHaveBeenCalledWith(expect.objectContaining({ outcome: 'DENIED' }));
   });
 
-  it('accepts the code and audits SUCCESS', () => {
+  it('denies MFA that is provisioned but not enabled', async () => {
     process.env.ADMIN_MFA_ENFORCED = 'true';
-    process.env.ADMIN_MFA_CODE = '123456';
+    mockAdminMfaService.getStatus.mockResolvedValue({ provisioned: true, enabled: false });
+    const { req, res, next } = make();
+    await requireAdminMfa(req, res, next);
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(recordAdminAction).toHaveBeenCalledWith(expect.objectContaining({ outcome: 'DENIED' }));
+  });
+
+  it('denies a locked admin', async () => {
+    process.env.ADMIN_MFA_ENFORCED = 'true';
+    mockAdminMfaService.isLocked.mockResolvedValue(true);
+    const { req, res, next } = make();
+    await requireAdminMfa(req, res, next);
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(recordAdminAction).toHaveBeenCalledWith(expect.objectContaining({ outcome: 'DENIED' }));
+  });
+
+  it('denies a wrong code, records the failure and audits DENIED', async () => {
+    process.env.ADMIN_MFA_ENFORCED = 'true';
+    mockAdminMfaService.verify.mockResolvedValue(false);
+    const { req, res, next } = make();
+    req.get = (h) => (h === 'x-admin-mfa-code' ? '000000' : undefined);
+    await requireAdminMfa(req, res, next);
+    expect(mockAdminMfaService.verify).toHaveBeenCalledWith('admin-1', '000000');
+    expect(mockAdminMfaService.recordFailure).toHaveBeenCalledWith('admin-1');
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(recordAdminAction).toHaveBeenCalledWith(expect.objectContaining({ outcome: 'DENIED' }));
+  });
+
+  it('accepts a valid code and audits SUCCESS', async () => {
+    process.env.ADMIN_MFA_ENFORCED = 'true';
     const { req, res, next } = make();
     req.get = (h) => (h === 'x-admin-mfa-code' ? '123456' : undefined);
-    requireAdminMfa(req, res, next);
+    await requireAdminMfa(req, res, next);
+    expect(mockAdminMfaService.verify).toHaveBeenCalledWith('admin-1', '123456');
     expect(next).toHaveBeenCalled();
     expect(recordAdminAction).toHaveBeenCalledWith(expect.objectContaining({ outcome: 'SUCCESS' }));
   });

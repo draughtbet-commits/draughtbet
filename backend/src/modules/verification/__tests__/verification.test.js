@@ -34,7 +34,10 @@ const {
   KycInProgressError,
   KycRejectedError,
   VerificationCaseNotFoundError,
-  VerificationCaseNotReviewableError
+  VerificationCaseNotReviewableError,
+  sanitizeProviderResponse,
+  maskEmail,
+  maskName
 } = await import('../service.js');
 
 class FakePassProvider {
@@ -266,5 +269,57 @@ describe('verification admin review', () => {
 
     expect(out.replayed).toBe(true);
     expect(mockPrisma.user.update).not.toHaveBeenCalled();
+  });
+});
+
+describe('PII guardrails', () => {
+  it('keeps only verdict-shaped keys from a provider payload', () => {
+    const raw = {
+      status: 'PASSED',
+      providerReference: 'ref-1',
+      passportNumber: 'A123456',
+      address: { line1: '1 Main St', country: 'NG' },
+      selfieUrl: 'https://cdn.example.com/id/photo.jpg',
+      checks: ['document', 'liveness'],
+      score: 95,
+      extras: { any: 'thing' }
+    };
+    expect(sanitizeProviderResponse(raw)).toEqual({
+      status: 'PASSED',
+      providerReference: 'ref-1',
+      checks: ['document', 'liveness'],
+      score: 95
+    });
+  });
+
+  it('drops URL/data/blob/email/base64-looking string values even under safe keys', () => {
+    const raw = {
+      status: 'PASSED',
+      reference: 'https://evil.example/payload',
+      verdict: 'data:image/png;base64,AAAA',
+      message: 'user@example.com',
+      provider: 'x'.repeat(50)
+    };
+    expect(sanitizeProviderResponse(raw)).toEqual({ status: 'PASSED' });
+  });
+
+  it('normalizes null and non-objects away', () => {
+    expect(sanitizeProviderResponse(null)).toBeNull();
+    expect(sanitizeProviderResponse('plain')).toBeNull();
+    expect(sanitizeProviderResponse([{ status: 'PASSED' }, null, 'junk'])).toEqual([
+      { status: 'PASSED' }
+    ]);
+  });
+
+  it('masks emails down to the first three local characters', () => {
+    expect(maskEmail('ada@example.com')).toBe('ada*@example.com');
+    expect(maskEmail('a@example.com')).toBe('a*@example.com');
+    expect(maskEmail('not-an-email')).toBe('not-an-email');
+  });
+
+  it('masks names to first name and initial', () => {
+    expect(maskName('Ada Lovelace')).toBe('Ada L.');
+    expect(maskName('Zed')).toBe('Z***');
+    expect(maskName('')).toBe('');
   });
 });

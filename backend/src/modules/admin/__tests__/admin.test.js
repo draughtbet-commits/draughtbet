@@ -46,6 +46,15 @@ const mockPrisma = {
   },
   ledgerEntry: {
     aggregate: jest.fn()
+  },
+  userSession: {
+    create: jest.fn(),
+    findUnique: jest.fn(),
+    update: jest.fn(),
+    updateMany: jest.fn()
+  },
+  securityEvent: {
+    create: jest.fn()
   }
 };
 

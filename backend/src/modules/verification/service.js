@@ -50,6 +50,68 @@ export const KYC_STATUSES = Object.freeze([
   'EXPIRED'
 ]);
 
+// ---------------------------------------------------------------------------
+// PII guardrails. Verification provider payloads can carry the most
+// sensitive data in the system — ID numbers, addresses, document/photos. We
+// persist only a curated projection and never echo documents or PII anywhere.
+// ---------------------------------------------------------------------------
+
+// Keep only verdict-shaped keys; anything else that could hold PII is dropped.
+const ALLOWED_RESULT_KEYS = new Set([
+  'status',
+  'providerReference',
+  'reference',
+  'verdict',
+  'checks',
+  'passedChecks',
+  'failedChecks',
+  'score',
+  'message',
+  'provider'
+]);
+
+// Value-level sniffer: URLs, data/blob URIs, long base64 blobs, email-shaped
+// strings never get persisted even if a provider recurses one under a safe key.
+const PII_VALUE_SNIFFER = /^(https?:|data:|blob:)\S+|^[A-Za-z0-9+/=]{40,}$|^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+export const sanitizeProviderResponse = (result) => {
+  if (!result || typeof result !== 'object') return null;
+  if (Array.isArray(result)) {
+    return result.map((item) => sanitizeProviderResponse(item)).filter((item) => item !== null);
+  }
+  const out = {};
+  for (const [key, value] of Object.entries(result)) {
+    if (!ALLOWED_RESULT_KEYS.has(key)) continue;
+    if (typeof value === 'string' && PII_VALUE_SNIFFER.test(value.trim())) continue;
+    if (Array.isArray(value)) {
+      const safe = value
+        .map((item) => (typeof item === 'string' ? item : sanitizeProviderResponse(item)))
+        .filter((item) => item !== null);
+      if (safe.length) out[key] = safe;
+    } else if (value && typeof value === 'object') {
+      const nested = sanitizeProviderResponse(value);
+      if (nested !== null) out[key] = nested;
+    } else {
+      out[key] = value;
+    }
+  }
+  return out;
+};
+
+export const maskEmail = (email) => {
+  if (!email || !email.includes('@')) return email;
+  const [local, domain] = email.split('@');
+  const head = local.slice(0, Math.min(3, local.length));
+  return `${head}${'*'.repeat(Math.max(1, local.length - 3))}@${domain}`;
+};
+
+export const maskName = (name) => {
+  if (!name) return name;
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 1) return `${parts[0].slice(0, 1)}***`;
+  return `${parts[0]} ${parts[1].slice(0, 1)}.`;
+};
+
 export const kycStatusView = (user) => {
   const latest = user.verificationCases?.[0] ?? null;
   return {
@@ -156,7 +218,7 @@ export const startVerification = async (
       data: {
         status: 'PASSED',
         verifiedAt: new Date(),
-        providerResponse: result
+        providerResponse: sanitizeProviderResponse(result)
       }
     });
     await dbp.verificationCase.update({
@@ -173,7 +235,7 @@ export const startVerification = async (
 
   await dbp.verificationCheck.update({
     where: { id: check.id },
-    data: { status: 'FAILED', providerResponse: result }
+    data: { status: 'FAILED', providerResponse: sanitizeProviderResponse(result) }
   });
   await dbp.verificationCase.update({
     where: { id: caseRow.id },
@@ -219,15 +281,35 @@ export const listVerificationCases = async ({
       orderBy: { updatedAt: 'desc' },
       skip,
       take: limit,
-      include: {
-        checks: { orderBy: { createdAt: 'asc' } },
+      select: {
+        id: true,
+        status: true,
+        provider: true,
+        metadata: true,
+        createdAt: true,
+        updatedAt: true,
+        checks: {
+          orderBy: { createdAt: 'asc' },
+          select: { id: true, type: true, status: true, verifiedAt: true }
+        },
         user: { select: { id: true, email: true, fullName: true, kycStatus: true } }
       }
     }),
     dbp.verificationCase.count({ where })
   ]);
+  const cases = rows.map((row) => ({
+    ...row,
+    user: row.user
+      ? {
+          ...row.user,
+          // Never surface raw PII in an admin list view.
+          email: maskEmail(row.user.email),
+          fullName: maskName(row.user.fullName)
+        }
+      : row.user
+  }));
   return {
-    cases: rows,
+    cases,
     total,
     page,
     totalPages: Math.ceil(total / limit)

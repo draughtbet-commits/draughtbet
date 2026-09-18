@@ -27,6 +27,8 @@ import {
   getUserRoles
 } from '../rbac/service.js';
 import { recordAdminAction } from '../audit/service.js';
+import { AdminMfaService } from '../mfa/service.js';
+import { adminMfaRateLimiter } from '../../middleware/rateLimit.js';
 import { auditRouter } from '../audit/controller.js';
 import {
   listVerificationCases,
@@ -47,8 +49,6 @@ const withdrawalService = new WithdrawalService({
 });
 
 adminRouter.use(requireAuth);
-adminRouter.use(requireAdminMfa);
-adminRouter.use('/audit', auditRouter);
 
 // Helper to write the audit row for a completed admin action.
 const audit = (req, action, { targetType = null, targetId = null, metadata = null, outcome = 'SUCCESS' } = {}) =>
@@ -62,7 +62,78 @@ const audit = (req, action, { targetType = null, targetId = null, metadata = nul
     ip: req.ip,
     userAgent: req.get('user-agent'),
     requestId: req.id
-  }).catch((err) => logger.warn({ err, action }, 'Failed to write admin audit row'));
+  });
+
+// ---------------------------------------------------------------------------
+// Admin MFA bootstrap — registered BEFORE the MFA gate so an admin can
+// provision/enable/disable their TOTP. SUPER_ADMIN-only (ROLES_ADMIN grant).
+// ---------------------------------------------------------------------------
+const mfaBootstrap = express.Router();
+
+mfaBootstrap.get('/status', adminMfaRateLimiter, requirePermission(PERMISSIONS.AUDIT_READ), async (req, res, next) => {
+  try {
+    const status = await AdminMfaService.getStatus(req.user.id);
+    res.json({ userId: req.user.id, ...status });
+  } catch (error) {
+    next(error);
+  }
+});
+
+mfaBootstrap.post('/setup', adminMfaRateLimiter, requirePermission(PERMISSIONS.ROLES_ADMIN), async (req, res, next) => {
+  try {
+    const result = await AdminMfaService.provision(req.user.id);
+    await audit(req, 'admin.mfa.setup', {
+      targetType: 'user', targetId: req.user.id,
+      metadata: { reenrolled: true }
+    });
+    // Secret + otpauth returned exactly once. Never log them.
+    res.status(201).json(result);
+  } catch (error) {
+    next(error);
+  }
+});
+
+mfaBootstrap.post('/verify', adminMfaRateLimiter, requirePermission(PERMISSIONS.ROLES_ADMIN), async (req, res, next) => {
+  try {
+    const { code } = req.body ?? {};
+    await AdminMfaService.enable(req.user.id, code);
+    await audit(req, 'admin.mfa.enable', {
+      targetType: 'user', targetId: req.user.id
+    });
+    res.json({ enabled: true });
+  } catch (error) {
+    if (error?.name === 'AdminMfaCodeError') {
+      return res.status(403).json({ error: error.message });
+    }
+    if (error?.name === 'AdminMfaStateError') {
+      return res.status(409).json({ error: error.message });
+    }
+    if (error?.name === 'AdminMfaNotFoundError') {
+      return res.status(404).json({ error: error.message });
+    }
+    next(error);
+  }
+});
+
+mfaBootstrap.post('/disable', adminMfaRateLimiter, requirePermission(PERMISSIONS.ROLES_ADMIN), async (req, res, next) => {
+  try {
+    const { code } = req.body ?? {};
+    await AdminMfaService.disable(req.user.id, code);
+    await audit(req, 'admin.mfa.disable', {
+      targetType: 'user', targetId: req.user.id
+    });
+    res.json({ disabled: true });
+  } catch (error) {
+    if (error?.name === 'AdminMfaCodeError' || error?.name === 'AdminMfaNotFoundError') {
+      return res.status(error.name === 'AdminMfaCodeError' ? 403 : 404).json({ error: error.message });
+    }
+    next(error);
+  }
+});
+
+adminRouter.use('/mfa', mfaBootstrap);
+adminRouter.use(requireAdminMfa);
+adminRouter.use('/audit', auditRouter);
 
 // ---------------------------------------------------------------------------
 // Account status (SUPPORT / SUPER_ADMIN)

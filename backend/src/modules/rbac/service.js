@@ -1,6 +1,7 @@
 import prisma from '../../utils/db.js';
 import logger from '../../utils/logger.js';
 import { recordAdminAction } from '../audit/service.js';
+import { AdminMfaService } from '../mfa/service.js';
 import {
   ADMIN_ROLES,
   ROLE_DESCRIPTIONS,
@@ -126,30 +127,62 @@ export const requirePermission = (permission) => async (req, res, next) => {
 };
 
 /**
- * Admin MFA hook (placeholder). When ADMIN_MFA_ENFORCED=true every admin
- * request needs `x-admin-mfa-code` = ADMIN_MFA_CODE or it is denied+audited.
- * Off by default; a real TOTP provider slots in here later.
+ * Admin MFA gate — RFC-6238 TOTP (per-admin secret, encrypted at rest),
+ * enforced by default in production. Every admin request carries the current
+ * six-digit code in the `x-admin-mfa-code` header. Failures (missing,
+ * unprovisioned, unlocked, wrong code) are denied and audited; repeated wrong
+ * codes trip a per-admin lock held in Redis.
+ *
+ * Enforced when ADMIN_MFA_ENFORCED=true, or in production unless it is
+ * explicitly set to "false" (e.g. during a bootstrap window).
  */
-export const requireAdminMfa = (req, res, next) => {
-  const enforced = process.env.ADMIN_MFA_ENFORCED === 'true';
+export const requireAdminMfa = async (req, res, next) => {
+  const enforced =
+    process.env.ADMIN_MFA_ENFORCED === 'true' ||
+    (process.env.NODE_ENV === 'production' && process.env.ADMIN_MFA_ENFORCED !== 'false');
   if (!enforced) return next();
 
-  const code = req.get('x-admin-mfa-code');
-  const pass = typeof code === 'string' && code === process.env.ADMIN_MFA_CODE;
-  recordAdminAction({
-    adminId: req.user?.id ?? 'unknown',
-    action: 'admin.mfa',
-    outcome: pass ? 'SUCCESS' : 'DENIED',
-    targetType: 'admin',
-    targetId: req.user?.id ?? null,
-    metadata: { route: `${req.method} ${req.originalUrl || req.path}` },
-    ip: req.ip,
-    userAgent: req.get('user-agent'),
-    requestId: req.id
-  }).catch((err) => logger.warn({ err }, 'Failed to write MFA audit row'));
+  const userId = req.user?.id;
+  const audit = (outcome, metadata = {}) =>
+    recordAdminAction({
+      adminId: userId ?? 'unknown',
+      action: 'admin.mfa',
+      outcome,
+      targetType: 'admin',
+      targetId: userId ?? null,
+      metadata: { route: `${req.method} ${req.originalUrl || req.path}`, ...metadata },
+      ip: req.ip,
+      userAgent: req.get('user-agent'),
+      requestId: req.id
+    }).catch((err) => logger.warn({ err }, 'Failed to write MFA audit row'));
 
-  if (!pass) {
-    return res.status(403).json({ error: 'Admin MFA code required' });
+  if (!userId) return next();
+
+  try {
+    const status = await AdminMfaService.getStatus(userId);
+    if (!status.provisioned) {
+      await audit('DENIED', { reason: 'not_provisioned' });
+      return res.status(403).json({ error: 'Admin MFA must be provisioned before admin access.' });
+    }
+    if (!status.enabled) {
+      await audit('DENIED', { reason: 'not_enabled' });
+      return res.status(403).json({ error: 'Admin MFA is provisioned but not enabled yet.' });
+    }
+    if (await AdminMfaService.isLocked(userId)) {
+      await audit('DENIED', { reason: 'locked' });
+      return res.status(403).json({ error: 'Too many failed admin MFA attempts. Try again later.' });
+    }
+
+    const code = req.get('x-admin-mfa-code');
+    const ok = await AdminMfaService.verify(userId, code);
+    if (!ok) {
+      await AdminMfaService.recordFailure(userId);
+      await audit('DENIED', { reason: 'bad_code' });
+      return res.status(403).json({ error: 'Invalid admin MFA code.' });
+    }
+    await audit('SUCCESS');
+    next();
+  } catch (err) {
+    next(err);
   }
-  next();
 };

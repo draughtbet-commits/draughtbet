@@ -165,4 +165,42 @@ describe('rate limiter store selection', () => {
     expect(first[0]).toBe('SCRIPT');
     expect(first[1]).toBe('LOAD');
   });
+
+  it('exposes distinct per-route limiters with their own stored budgets', async () => {
+    redisReady = true;
+    const app = express();
+    app.use(mod.adminRateLimiter);
+    app.use(mod.adminMfaRateLimiter);
+    app.use(mod.withdrawalRateLimiter);
+    app.use(mod.depositRateLimiter);
+    app.use(mod.verificationRateLimiter);
+    app.use(mod.saferPlayRateLimiter);
+    app.use(mod.walletRateLimiter);
+    app.use(mod.matchRateLimiter);
+    app.use(mod.calloutRateLimiter);
+    app.use(mod.matchmakingRateLimiter);
+    app.use(mod.notificationRateLimiter);
+    app.get('/', (req, res) => res.json({ ok: true }));
+
+    expect((await hit(app)).status).toBe(200);
+
+    const prefixes = createdStores.map((s) => s.prefix).sort();
+    for (const prefix of [
+      'rl:http:admin:',
+      'rl:http:admin:mfa:',
+      'rl:http:withdrawal:',
+      'rl:http:deposit:',
+      'rl:http:verification:',
+      'rl:http:saferplay:',
+      'rl:http:wallet:',
+      'rl:http:match:',
+      'rl:http:callout:',
+      'rl:http:matchmaking:',
+      'rl:http:notification:',
+    ]) {
+      expect(prefixes).toContain(prefix);
+    }
+    // exactly the eleven route buckets, each with its own budget
+    expect(new Set(prefixes).size).toBe(11);
+  });
 });
