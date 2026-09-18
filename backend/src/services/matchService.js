@@ -86,10 +86,14 @@ export const createMatchWithStakes = async (tx, player1Id, player2Id, stakeMinor
   }
 
   // Eligibility is checked before any wallet is locked: each player must have
-  // server-verified country evidence, be an adult, and have passed KYC. This
-  // covers both matchmaking (queued worker) and call-out acceptances.
-  await assertEligibleForMoney(tx, player1Id);
-  await assertEligibleForMoney(tx, player2Id);
+  // server-verified country evidence, be an adult, not be banned or
+  // self-excluded, not be on a timeout, and stay within their safer-play stake
+  // limit. This covers both matchmaking (queued worker) and call-out
+  // acceptances. KYC is deliberately NOT required here — it gates only money
+  // leaving the platform.
+  const stakeAmount = BigInt(stakeMinorUnits);
+  await assertEligibleForMoney(tx, player1Id, { enforceTimeout: true, stakeMinorUnits: stakeAmount });
+  await assertEligibleForMoney(tx, player2Id, { enforceTimeout: true, stakeMinorUnits: stakeAmount });
 
   // 1. Lock both wallets (ordered by ascending userId to prevent deadlocks)
   const [w1, w2] = await lockWalletsInOrder(tx, player1Id, player2Id);
@@ -103,8 +107,6 @@ export const createMatchWithStakes = async (tx, player1Id, player2Id, stakeMinor
   if (await hasPreterminalMatchForPlayers(tx, [player1Id, player2Id])) {
     throw new ActiveMatchError('A player already has an active match');
   }
-
-  const stakeAmount = BigInt(stakeMinorUnits);
 
   // 3. Verify BOTH players can afford the stake from the V2 ledger
   //    (PLAYER_AVAILABLE), still under the wallet row locks so a concurrent

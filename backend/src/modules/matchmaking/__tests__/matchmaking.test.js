@@ -82,16 +82,57 @@ describe('Matchmaking smoke', () => {
     expect(mockRedis.zadd).not.toHaveBeenCalled();
   });
 
-  it('blocks queue join for an account without KYC verification', async () => {
+  it('allows queue join without KYC verification (KYC gates money-out only)', async () => {
     mockPrisma.user.findUnique.mockResolvedValue({
       id: 'user-1',
       tier: 'AMATEUR',
       countryCode: 'NG',
       kycStatus: 'NONE',
+      isBanned: false,
       eligibility: { id: 'elig-1', countryAllowed: true, ageVerified: true }
     });
     const res = await request(app).post('/matchmaking/join').send({ stakeMinorUnits: 50000 });
+    expect(res.status).toBe(200);
+    expect(mockRedis.zadd).toHaveBeenCalled();
+  });
+
+  it('blocks queue join while a break (timeout) is active, server-side across devices', async () => {
+    mockPrisma.user.findUnique.mockResolvedValue({
+      id: 'user-1',
+      tier: 'AMATEUR',
+      countryCode: 'NG',
+      kycStatus: 'VERIFIED',
+      isBanned: false,
+      eligibility: { id: 'elig-1', countryAllowed: true, ageVerified: true },
+      saferPlayProfile: {
+        stakeLimitMinorUnits: null,
+        timeoutUntil: new Date(Date.now() + 60 * 60 * 1000),
+        selfExcludedUntil: null
+      }
+    });
+    const res = await request(app).post('/matchmaking/join').send({ stakeMinorUnits: 50000 });
     expect(res.status).toBe(403);
+    expect(res.body.error).toContain('break is active');
+    expect(mockRedis.zadd).not.toHaveBeenCalled();
+  });
+
+  it('blocks queue join for a self-excluded player', async () => {
+    mockPrisma.user.findUnique.mockResolvedValue({
+      id: 'user-1',
+      tier: 'AMATEUR',
+      countryCode: 'NG',
+      kycStatus: 'VERIFIED',
+      isBanned: false,
+      eligibility: { id: 'elig-1', countryAllowed: true, ageVerified: true },
+      saferPlayProfile: {
+        stakeLimitMinorUnits: null,
+        timeoutUntil: null,
+        selfExcludedUntil: new Date(Date.now() + 7 * 86_400_000)
+      }
+    });
+    const res = await request(app).post('/matchmaking/join').send({ stakeMinorUnits: 50000 });
+    expect(res.status).toBe(403);
+    expect(res.body.error).toContain('Self-exclusion');
     expect(mockRedis.zadd).not.toHaveBeenCalled();
   });
 

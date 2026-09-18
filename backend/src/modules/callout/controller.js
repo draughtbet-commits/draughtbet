@@ -1,6 +1,7 @@
 import express from 'express';
 import { requireAuth } from '../../middleware/auth.js';
 import { requireValidStake } from '../../middleware/tierEnforcement.js';
+import { EligibilityService } from '../eligibility/service.js';
 import { 
   createCallout, 
   getOpenCallouts, 
@@ -8,6 +9,7 @@ import {
 } from './service.js';
 
 export const calloutRouter = express.Router();
+const eligibilityService = new EligibilityService();
 
 // Fetch open callouts that the user is tier-eligible to accept
 calloutRouter.get('/open', requireAuth, async (req, res, next) => {
@@ -25,10 +27,18 @@ calloutRouter.post('/', requireAuth, requireValidStake(true), async (req, res, n
   try {
     const { id: userId, tier } = req.user;
     const { stakeMinorUnits } = req.body;
-    
+
+    // Server-owned play eligibility: account state, timeout and self-exclusion
+    // precede opening a call-out with real money behind it.
+    await eligibilityService.canCreateMatch(userId, { stakeMinorUnits });
+
     const callout = await createCallout(userId, tier, stakeMinorUnits);
     res.status(201).json({ callout });
   } catch (err) {
+    const status = EligibilityService.statusCode(err);
+    if (status !== 500) {
+      return res.status(status).json({ error: err.message });
+    }
     next(err);
   }
 });
@@ -51,6 +61,9 @@ calloutRouter.post('/:id/accept', requireAuth, async (req, res, next) => {
       case 'SelfAcceptError':
       case 'TierMismatchError':
         return res.status(400).json({ error: err.message });
+      case 'SelfExcludedError':
+      case 'TimeoutActiveError':
+      case 'AccountRestrictedError':
       case 'NotEligibleError':
       case 'EligibilityRequiredError':
       case 'CountryNotAllowedError':

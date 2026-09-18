@@ -44,6 +44,11 @@ jest.unstable_mockModule('../../utils/db.js', () => ({
 }));
 
 const { debitStakes, createMatchWithStakes, InsufficientFundsError, IdenticalPlayersError } = await import('../matchService.js');
+const {
+  SelfExcludedError,
+  TimeoutActiveError,
+  StakeLimitExceededError
+} = await import('../eligibilityService.js');
 
 describe('matchService debitStakes', () => {
   beforeEach(() => {
@@ -223,21 +228,90 @@ describe('matchService debitStakes', () => {
     expect(mockPrisma.ledgerTransaction.create).not.toHaveBeenCalled();
   });
 
-  it('refuses to fund a match when either player fails KYC', async () => {
+  it('allows funding a match without KYC (KYC gates money-out only)', async () => {
+    mockPrisma.platformSettings.findUnique.mockResolvedValue({ commissionPercent: 10 });
+    mockPrisma.match.create.mockResolvedValue({ id: 'm-1', status: 'OPEN' });
     mockPrisma.user.findUnique
       .mockResolvedValueOnce({
         countryCode: 'NG',
         kycStatus: 'NONE',
+        isBanned: false,
         eligibility: { id: 'elig-1', countryAllowed: true, ageVerified: true }
       });
 
-    await expect(debitStakes('player-a', 'player-b', 5000n, 'AMATEUR'))
-      .rejects.toThrow('KYC verification is required');
+    const match = await debitStakes('player-a', 'player-b', 5000n, 'AMATEUR');
 
-    // No wallet row is locked and no stake is taken for the failing pair
+    expect(match).toEqual({ id: 'm-1', status: 'FUNDED' });
+    // No wallet row is locked for the failing pair up front — the player is
+    // allowed to play without KYC, so funding proceeds normally.
+    expect(mockPrisma.stakeReservation.create).toHaveBeenCalledTimes(2);
+  });
+
+  it('refuses to fund a match when either player is self-excluded', async () => {
+    mockPrisma.platformSettings.findUnique.mockResolvedValue({ commissionPercent: 10 });
+    mockPrisma.match.create.mockResolvedValue({ id: 'm-1', status: 'OPEN' });
+    mockPrisma.user.findUnique.mockResolvedValueOnce({
+      countryCode: 'NG',
+      kycStatus: 'VERIFIED',
+      isBanned: false,
+      eligibility: { id: 'elig-1', countryAllowed: true, ageVerified: true },
+      saferPlayProfile: {
+        stakeLimitMinorUnits: null,
+        timeoutUntil: null,
+        selfExcludedUntil: new Date(Date.now() + 7 * 86_400_000)
+      }
+    });
+
+    await expect(debitStakes('player-a', 'player-b', 5000n, 'AMATEUR'))
+      .rejects.toThrow(SelfExcludedError);
+
     expect(mockPrisma.$queryRaw).not.toHaveBeenCalled();
     expect(mockPrisma.match.create).not.toHaveBeenCalled();
     expect(mockPrisma.ledgerTransaction.create).not.toHaveBeenCalled();
+  });
+
+  it('refuses to fund a match while either player is on a timeout', async () => {
+    mockPrisma.platformSettings.findUnique.mockResolvedValue({ commissionPercent: 10 });
+    mockPrisma.match.create.mockResolvedValue({ id: 'm-1', status: 'OPEN' });
+    mockPrisma.user.findUnique.mockResolvedValueOnce({
+      countryCode: 'NG',
+      kycStatus: 'VERIFIED',
+      isBanned: false,
+      eligibility: { id: 'elig-1', countryAllowed: true, ageVerified: true },
+      saferPlayProfile: {
+        stakeLimitMinorUnits: null,
+        timeoutUntil: new Date(Date.now() + 60 * 60 * 1000),
+        selfExcludedUntil: null
+      }
+    });
+
+    await expect(debitStakes('player-a', 'player-b', 5000n, 'AMATEUR'))
+      .rejects.toThrow(TimeoutActiveError);
+
+    expect(mockPrisma.$queryRaw).not.toHaveBeenCalled();
+    expect(mockPrisma.match.create).not.toHaveBeenCalled();
+  });
+
+  it('refuses to fund a match when a stake exceeds the player safer-play limit', async () => {
+    mockPrisma.platformSettings.findUnique.mockResolvedValue({ commissionPercent: 10 });
+    mockPrisma.match.create.mockResolvedValue({ id: 'm-1', status: 'OPEN' });
+    mockPrisma.user.findUnique.mockResolvedValueOnce({
+      countryCode: 'NG',
+      kycStatus: 'VERIFIED',
+      isBanned: false,
+      eligibility: { id: 'elig-1', countryAllowed: true, ageVerified: true },
+      saferPlayProfile: {
+        stakeLimitMinorUnits: 1000n,
+        timeoutUntil: null,
+        selfExcludedUntil: null
+      }
+    });
+
+    await expect(debitStakes('player-a', 'player-b', 5000n, 'AMATEUR'))
+      .rejects.toThrow(StakeLimitExceededError);
+
+    expect(mockPrisma.$queryRaw).not.toHaveBeenCalled();
+    expect(mockPrisma.match.create).not.toHaveBeenCalled();
   });
 
   it('refuses to fund a match for a player with no country evidence', async () => {

@@ -121,7 +121,10 @@ export class WithdrawalService {
     }
     const key = parseIdempotencyKey(idempotencyKey);
 
-    await assertEligibleForMoney(prisma, userId);
+    // Money-OUT gate: account state + verified KYC + self-exclusion. The
+    // verified-KYC requirement is enforced at withdrawals (not deposits or
+    // match creation), per the safer-play scope.
+    await assertEligibleForMoney(prisma, userId, { requireKyc: true });
 
     try {
       return await prisma.$transaction(async (tx) => {

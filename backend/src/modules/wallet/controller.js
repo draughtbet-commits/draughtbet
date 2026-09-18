@@ -10,6 +10,7 @@ import { PaystackGateway } from '../payment/PaystackGateway.js';
 import { FlutterwaveGateway } from '../payment/FlutterwaveGateway.js';
 import { WithdrawalService, BankAccountNotFoundError } from '../withdrawal/service.js';
 import { PaymentGatewayError } from '../payment/PaymentGateway.js';
+import { EligibilityService } from '../eligibility/service.js';
 import prisma from '../../utils/db.js';
 import logger from '../../utils/logger.js';
 import { parsePagination } from '../../utils/pagination.js';
@@ -22,6 +23,7 @@ const flutterwaveGateway = new FlutterwaveGateway();
 const withdrawalService = new WithdrawalService({
   providers: { PAYSTACK: paystackGateway, FLUTTERWAVE: flutterwaveGateway }
 });
+const eligibilityService = new EligibilityService();
 
 walletRouter.get('/balance', requireAuth, async (req, res, next) => {
   try {
@@ -114,7 +116,12 @@ walletRouter.post('/deposit-intent', requireAuth, async (req, res, next) => {
       return res.status(400).json({ error: 'Invalid gateway specified' });
     }
 
-    // 1. Persist the server-owned intent BEFORE any checkout is exposed. The
+    // 1. Eligibility + safer-play gates decide before the server owns an
+    //    intent: account state, self-exclusion, and the rolling 24h deposit
+    //    limit are enforced server-side across every device.
+    await eligibilityService.canDeposit(userId, amount);
+
+    // 2. Persist the server-owned intent BEFORE any checkout is exposed. The
     //    webhook can then only be authorized against this record, and the
     //    amount/currency/wallet are never taken from the raw webhook body.
     intent = await createDepositIntent(userId, amount, gatewayKey, email || 'user@example.com');
@@ -153,6 +160,10 @@ walletRouter.post('/deposit-intent', requireAuth, async (req, res, next) => {
       }
       // Specifically catch the Gateway Error and surface a clear message to the client
       return res.status(503).json({ error: error.message });
+    }
+    const status = EligibilityService.statusCode(error);
+    if (status !== 500) {
+      return res.status(status).json({ error: error.message });
     }
     next(error);
   }
@@ -198,7 +209,7 @@ walletRouter.post('/withdrawal-request', requireAuth, async (req, res, next) => 
     if (['BankAccountRequiredError', 'BankAccountNotVerifiedError', 'BankAccountNotFoundError'].includes(error.name)) {
       return res.status(422).json({ error: error.message });
     }
-    if (['EligibilityRequiredError', 'CountryNotAllowedError', 'AgeNotVerifiedError', 'KycRequiredError'].includes(error.name)) {
+    if (['EligibilityRequiredError', 'CountryNotAllowedError', 'AgeNotVerifiedError', 'KycRequiredError', 'AccountRestrictedError', 'SelfExcludedError'].includes(error.name)) {
       return res.status(403).json({ error: error.message });
     }
     next(error);

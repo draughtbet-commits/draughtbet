@@ -1,13 +1,14 @@
 import express from 'express';
 import { requireAuth } from '../../middleware/auth.js';
 import { requireValidStake } from '../../middleware/tierEnforcement.js';
-import { assertEligibleForMoney } from '../../services/eligibilityService.js';
+import { EligibilityService } from '../eligibility/service.js';
 import { hasPreterminalMatchForPlayers } from '../match/service.js';
 import prisma from '../../utils/db.js';
 import redis from '../../utils/redis.js';
 import logger from '../../utils/logger.js';
 
 export const matchmakingRouter = express.Router();
+const eligibilityService = new EligibilityService();
 
 // Join the matchmaking queue
 matchmakingRouter.post('/join', requireAuth, requireValidStake(false), async (req, res, next) => {
@@ -15,9 +16,10 @@ matchmakingRouter.post('/join', requireAuth, requireValidStake(false), async (re
     const { id: userId, tier } = req.user;
     const { stakeMinorUnits } = req.body;
 
-    // Eligibility is enforced here so ineligible users never reach a queue,
-    // and again inside debitStakes when the worker matches the pair.
-    await assertEligibleForMoney(prisma, userId);
+    // Server-owned play eligibility: account state, timeout and self-exclusion
+    // are enforced here so an ineligible player never reaches a queue, and again
+    // at funding time inside the atomic debit transaction.
+    await eligibilityService.canJoinMatch(userId, { stakeMinorUnits });
 
     // A player may only be in one game at a time. Refuse to enqueue anyone
     // already holding a pre-terminal match (DRAFT/OPEN/FUNDED/READY/IN_PLAY,
@@ -38,8 +40,9 @@ matchmakingRouter.post('/join', requireAuth, requireValidStake(false), async (re
     
     res.status(200).json({ status: 'queued', queueKey });
   } catch (err) {
-    if (['EligibilityRequiredError', 'CountryNotAllowedError', 'AgeNotVerifiedError', 'KycRequiredError'].includes(err.name)) {
-      return res.status(403).json({ error: err.message });
+    const status = EligibilityService.statusCode(err);
+    if (status !== 500) {
+      return res.status(status).json({ error: err.message });
     }
     next(err);
   }
