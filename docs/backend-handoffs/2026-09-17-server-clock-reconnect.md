@@ -121,3 +121,33 @@ Changing the phone clock cannot change the official timeout: the turn guard in
 the atomic CAS script compares `deadlineAt` against Redis `TIME`, the pre-persist
 check uses `authoritativeNowMs()` (Redis `TIME`), and every emitted clock value
 is server-derived.
+
+## Deep verification (post-commit)
+
+A real Socket.IO + PostgreSQL + Redis harness,
+`backend/scripts/verify/pr9-server-clock-reconnect.mjs` (18 probes), was run
+against the running stack (P1-P18). It found one defect, fixed on top of
+`214e260`:
+
+1. **`recoverLiveGames` ordered live matches by a field that does not exist**
+   (`Match.updatedAt`). The Prisma query was rejected at runtime, so boot
+   recovery threw and never rehydrated a single projection or participant
+   pointer — the exact restart path this PR is meant to guarantee. Fixed by
+   ordering on `Match.createdAt`. A real-PostgreSQL integration test
+   (`timeControl.integration.test.js`, "boot recovery rehydrates a live match
+   from durable state") now exercises the unmocked query so the regression
+   cannot return.
+
+Results after the fix:
+
+- `pr9-server-clock-reconnect.mjs` **18/18 probes passed**, including the exit
+  gate (P5: a client claiming ten hours of turn time is still expired and
+  forfeited by the server deadline), authoritative `clock.sync` (P3/P4), stale
+  and missing projection reconcile (P6/P7), an un-replayable durable log never
+  projected (P8), boot rehydrate/re-arm (P9/P10), last-socket grace (P11),
+  reconnect clearing the timer with durable `RECONNECTED` evidence (P12),
+  per-match pinned grace (P13), forfeit/draw/validity/suspension sweep
+  decisions (P14-P17), and the closed-book ledger invariant (P18).
+- Regression harnesses re-run green: pr3 9/9, pr5 10/10, pr6 16/16, pr7 22/22,
+  pr8 18/18.
+- Full battery green: **51 suites / 385 tests**.

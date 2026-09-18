@@ -196,7 +196,7 @@ const rearmPendingDisconnects = async () => {
 export const recoverLiveGames = async ({ limit = 200 } = {}) => {
   const matches = await prisma.match.findMany({
     where: { status: { in: LIVE_MATCH_STATUSES } },
-    orderBy: { updatedAt: 'desc' },
+    orderBy: { createdAt: 'desc' },
     take: limit,
     select: { id: true }
   });

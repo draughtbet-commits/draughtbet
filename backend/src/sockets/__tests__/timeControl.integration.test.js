@@ -10,6 +10,8 @@ const redis = (await import('../../utils/redis.js')).default;
 const { debitStakes } = await import('../../services/matchService.js');
 const { initializeGame, casScript } = await import('../gameManager.js');
 const { processTurnDeadlineSweep } = await import('../../jobs/turnDeadlineSweep.js');
+const { recoverLiveGames } = await import('../gameRecovery.js');
+const { createInitialBoard } = await import('../../modules/engine/index.js');
 const { getUserLedgerProjections, ensureUserAccounts, ensureSystemAccount, postLedgerTransaction } = await import('../../services/ledgerService.js');
 
 const describeIntegration =
@@ -186,5 +188,32 @@ describeIntegration('Turn deadlines (real PostgreSQL + Redis)', () => {
     const active = await prisma.match.findUnique({ where: { id: match.id } });
     expect(active.status).toBe('IN_PLAY');
     expect(await redis.exists(`match:${match.id}`)).toBe(1);
+  });
+
+  it('boot recovery rehydrates a live match from durable state', async () => {
+    const p1 = await makeEligibleUser('recover-1');
+    const p2 = await makeEligibleUser('recover-2');
+    const match = await stakeAndFund(p1, p2);
+    await initializeGame(match.id, p1.id, p2.id, 'PRO');
+    await prisma.matchGameState.create({
+      data: {
+        matchId: match.id,
+        boardState: createInitialBoard(),
+        currentTurn: 'LIGHT',
+        stateVersion: 0
+      }
+    });
+
+    // A restart lost the projection and the participant pointers.
+    await redis.del(`match:${match.id}`);
+    await redis.del(`user:${p1.id}:activeMatch`);
+    await redis.del(`user:${p2.id}:activeMatch`);
+
+    const result = await recoverLiveGames();
+
+    expect(result.scanned).toBeGreaterThanOrEqual(1);
+    expect(await redis.exists(`match:${match.id}`)).toBe(1);
+    expect(await redis.get(`user:${p1.id}:activeMatch`)).toBe(match.id);
+    expect(await redis.get(`user:${p2.id}:activeMatch`)).toBe(match.id);
   });
 });
