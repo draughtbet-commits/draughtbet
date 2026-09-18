@@ -26,27 +26,46 @@ const LIMITER_DEFAULTS = {
 export const createResilientStore = (prefix) => {
   const memory = new MemoryStore();
   let redisStore = null;
+  let redisStoreInit = null;
+  let options = null;
+
+  const createRedisStore = async () => {
+    const candidate = new RedisStore({
+      // rate-limit-redis unwraps its command array and calls our function with
+      // the command name + args as positional arguments.
+      sendCommand: (...args) => redis.call(...args),
+      prefix: `${REDIS_KEY_PREFIX}${prefix}`,
+    });
+    // The RedisStore must be initialized (windowMs + Lua scripts) before its
+    // first use; express-rate-limit only calls init on this wrapper, so we
+    // initialize here once the connection is ready.
+    await candidate.init(options);
+    redisStore = candidate;
+    logger.info({ prefix: `${REDIS_KEY_PREFIX}${prefix}` }, 'Rate limiter using shared Redis store');
+    return candidate;
+  };
 
   const getRedisStore = () => {
-    if (redisStore) return redisStore;
-    if (isRedisReady(redis)) {
-      redisStore = new RedisStore({
-        sendCommand: (...args) => redis.call(...args),
-        prefix: `${REDIS_KEY_PREFIX}${prefix}`,
-      });
-      logger.info({ prefix: `${REDIS_KEY_PREFIX}${prefix}` }, 'Rate limiter using shared Redis store');
-    }
-    return redisStore;
+    if (redisStore) return Promise.resolve(redisStore);
+    if (!isRedisReady(redis) || !options) return Promise.resolve(null);
+    redisStoreInit ??= createRedisStore();
+    return redisStoreInit.catch((err) => {
+      redisStoreInit = null;
+      throw err;
+    });
   };
 
   const store = {
     localKeys: false,
-    init(options) {
-      store.options = options;
-      memory.init(options);
+    init(limiterOptions) {
+      options = limiterOptions;
+      memory.init(limiterOptions);
     },
     async increment(key) {
-      const remote = getRedisStore();
+      let remote = null;
+      try {
+        remote = await getRedisStore();
+      } catch { /* RedisStore init failed; degrade to memory */ }
       if (remote) {
         try {
           return await remote.increment(key);
@@ -61,7 +80,10 @@ export const createResilientStore = (prefix) => {
       return memory.increment(key);
     },
     async decrement(key) {
-      const remote = getRedisStore();
+      let remote = null;
+      try {
+        remote = await getRedisStore();
+      } catch { /* RedisStore init failed; degrade to memory */ }
       if (remote) {
         try {
           return await remote.decrement(key);
@@ -72,7 +94,10 @@ export const createResilientStore = (prefix) => {
       return memory.decrement(key);
     },
     async resetKey(key) {
-      const remote = getRedisStore();
+      let remote = null;
+      try {
+        remote = await getRedisStore();
+      } catch { /* RedisStore init failed; degrade to memory */ }
       if (remote) {
         try {
           return await remote.resetKey(key);
@@ -83,7 +108,10 @@ export const createResilientStore = (prefix) => {
       return memory.resetKey(key);
     },
     async resetAll() {
-      const remote = getRedisStore();
+      let remote = null;
+      try {
+        remote = await getRedisStore();
+      } catch { /* RedisStore init failed; degrade to memory */ }
       if (remote) {
         try {
           return await remote.resetAll();
