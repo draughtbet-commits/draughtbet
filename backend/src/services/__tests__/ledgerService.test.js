@@ -22,12 +22,14 @@ jest.unstable_mockModule('../../utils/db.js', () => ({
 
 const {
   postLedgerTransaction,
+  postAdjustment,
   getAccountBalance,
   getUserLedgerProjections,
   ensureUserAccounts,
   ensureSystemAccount,
   UnbalancedPostingError,
   InvalidAmountError,
+  InsufficientFundsError,
   SYSTEM_ACCOUNT_ID
 } = await import('../ledgerService.js');
 
@@ -228,5 +230,112 @@ describe('ledgerService balance', () => {
   it('returns 0n for an account with no entries', async () => {
     mockPrisma.ledgerEntry.aggregate.mockResolvedValue({ _sum: { amountMinorUnits: null } });
     expect(await getAccountBalance(tx, 'acct-empty')).toBe(0n);
+  });
+});
+
+describe('ledgerService postAdjustment', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockPrisma.ledgerAccount.findMany = jest.fn().mockResolvedValue([]);
+    mockPrisma.$queryRaw.mockImplementation(async (_strings, ...values) => {
+      if (values.length === 4) {
+        const [id, userId, type, currency] = values;
+        return [{ id: `${type}-${userId}`, userId, type, currency }];
+      }
+      const [id, type, currency] = values;
+      return [{ id, userId: null, type, currency }];
+    });
+    mockPrisma.ledgerTransaction.findUnique.mockResolvedValue(null);
+    mockPrisma.ledgerTransaction.create.mockResolvedValue({ id: 'lt-adj', type: 'ADJUSTMENT' });
+    mockPrisma.ledgerEntry.create
+      .mockResolvedValueOnce({ id: 'le-1' })
+      .mockResolvedValueOnce({ id: 'le-2' });
+  });
+
+  const base = {
+    userId: 'user-1',
+    amountMinorUnits: 10000n,
+    reference: 'adj-ref-1',
+    reason: 'customer refund',
+    actorId: 'admin-1'
+  };
+
+  it('credits the player via CUSTOMER_LIABILITY write-down', async () => {
+    await postAdjustment(tx, { ...base, direction: 'CREDIT' });
+
+    expect(mockPrisma.ledgerTransaction.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        type: 'ADJUSTMENT',
+        idempotencyKey: 'adjustment:adj-ref-1',
+        metadata: expect.objectContaining({
+          userId: 'user-1',
+          direction: 'CREDIT',
+          actorId: 'admin-1',
+          reference: 'adj-ref-1'
+        })
+      })
+    });
+    const entries = mockPrisma.ledgerEntry.create.mock.calls.map((c) => c[0].data);
+    expect(entries[0]).toEqual({
+      transactionId: 'lt-adj',
+      accountId: 'system:CUSTOMER_LIABILITY:NGN',
+      amountMinorUnits: -10000n
+    });
+    expect(entries[1]).toEqual({
+      transactionId: 'lt-adj',
+      accountId: 'PLAYER_AVAILABLE-user-1',
+      amountMinorUnits: 10000n
+    });
+    // A credit never consults the affordable balance.
+    expect(mockPrisma.ledgerAccount.findMany).not.toHaveBeenCalled();
+  });
+
+  it('debits the player against CUSTOMER_LIABILITY when balance is sufficient', async () => {
+    mockPrisma.ledgerAccount.findMany.mockResolvedValue([{ id: 'PLAYER_AVAILABLE-user-1' }]);
+    mockPrisma.ledgerEntry.aggregate.mockResolvedValue({ _sum: { amountMinorUnits: 15000n } });
+
+    await postAdjustment(tx, { ...base, direction: 'DEBIT' });
+
+    const entries = mockPrisma.ledgerEntry.create.mock.calls.map((c) => c[0].data);
+    expect(entries[0]).toEqual({
+      transactionId: 'lt-adj',
+      accountId: 'PLAYER_AVAILABLE-user-1',
+      amountMinorUnits: -10000n
+    });
+    expect(entries[1]).toEqual({
+      transactionId: 'lt-adj',
+      accountId: 'system:CUSTOMER_LIABILITY:NGN',
+      amountMinorUnits: 10000n
+    });
+  });
+
+  it('refuses a debit that would overdraw the spendable balance', async () => {
+    mockPrisma.ledgerAccount.findMany.mockResolvedValue([{ id: 'PLAYER_AVAILABLE-user-1' }]);
+    mockPrisma.ledgerEntry.aggregate.mockResolvedValue({ _sum: { amountMinorUnits: 5000n } });
+
+    await expect(postAdjustment(tx, { ...base, direction: 'DEBIT' })).rejects.toThrow(
+      InsufficientFundsError
+    );
+    expect(mockPrisma.ledgerTransaction.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects an unknown direction', async () => {
+    await expect(
+      postAdjustment(tx, { ...base, direction: 'MOVED' })
+    ).rejects.toThrow(InvalidAmountError);
+    expect(mockPrisma.ledgerTransaction.create).not.toHaveBeenCalled();
+  });
+
+  it('is idempotent per reference and reports the replay', async () => {
+    mockPrisma.ledgerTransaction.findUnique.mockResolvedValue({
+      id: 'lt-existing',
+      type: 'ADJUSTMENT',
+      entries: [{ id: 'le-x' }]
+    });
+
+    const result = await postAdjustment(tx, { ...base, direction: 'CREDIT' });
+
+    expect(result.replayed).toBe(true);
+    expect(mockPrisma.ledgerTransaction.create).not.toHaveBeenCalled();
   });
 });

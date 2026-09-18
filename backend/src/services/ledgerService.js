@@ -63,6 +63,13 @@ export class UnbalancedPostingError extends Error {
   }
 }
 
+export class InsufficientFundsError extends Error {
+  constructor(message = 'Insufficient available balance') {
+    super(message);
+    this.name = 'InsufficientFundsError';
+  }
+}
+
 const assertAmount = (amount) => {
   if (typeof amount !== 'bigint' || amount === 0n) {
     throw new InvalidAmountError();
@@ -219,7 +226,7 @@ export async function postLedgerTransaction(
  *   PLAYER_LOCKED     +amount   (each player)
  * Net zero across the two users. Idempotent per match via `stake-lock:{matchId}`.
  * This is the V2 reservation mirror; the legacy Wallet decrement stays as the
- * read-source bridge until the final read-flip PR.
+ * read-source bridge until the final read-flip milestone.
  */
 export async function postStakeReservation(tx, matchId, reservations) {
   const entries = [];
@@ -338,7 +345,7 @@ export async function postSettlementDraw(tx, matchId, { reservations }) {
  * Net zero. Idempotent per deposit reference via `deposit:credit:{reference}`,
  * so a replayed or concurrent webhook delivery can never double-post. This is
  * the V2 mirror of the legacy Wallet increment; the legacy Wallet stays the
- * read source until the final read-flip PR.
+ * read source until the final read-flip milestone.
  */
 export async function postDepositCredit(
   tx,
@@ -436,6 +443,61 @@ export async function postWithdrawalRelease(
       { accountId: accounts.PLAYER_WITHDRAWAL_PENDING.id, amountMinorUnits: -amount },
       { accountId: accounts.PLAYER_AVAILABLE.id, amountMinorUnits: amount }
     ]
+  });
+}
+
+/**
+ * Sanctioned admin money correction (the only sanctioned money-in/out without
+ * a deposit/withdrawal/game event):
+ *   CREDIT  CUSTOMER_LIABILITY -amount | PLAYER_AVAILABLE +amount  (money in)
+ *   DEBIT   PLAYER_AVAILABLE   -amount | CUSTOMER_LIABILITY +amount  (money out)
+ * Balanced, idempotent per reference, and a DEBIT never overdraws spendable
+ * balance. Attributed to the acting admin in metadata.actorId, with a matching
+ * admin-audit + wallet.updated outbox row in the same transaction.
+ */
+export async function postAdjustment(
+  tx,
+  {
+    userId,
+    amountMinorUnits,
+    direction,
+    reason,
+    reference,
+    actorId = null,
+    currency = 'NGN'
+  }
+) {
+  if (direction !== 'CREDIT' && direction !== 'DEBIT') {
+    throw new InvalidAmountError('Adjustment direction must be CREDIT or DEBIT');
+  }
+  const amount = assertAmount(amountMinorUnits);
+  const accounts = await ensureUserAccounts(tx, userId, currency);
+  const liability = await ensureSystemAccount(tx, 'CUSTOMER_LIABILITY', currency);
+
+  if (direction === 'DEBIT') {
+    const available = await getLedgerAvailable(tx, userId, currency);
+    if (available < amount) {
+      throw new InsufficientFundsError();
+    }
+  }
+
+  const entries =
+    direction === 'CREDIT'
+      ? [
+          { accountId: liability.id, amountMinorUnits: -amount },
+          { accountId: accounts.PLAYER_AVAILABLE.id, amountMinorUnits: amount }
+        ]
+      : [
+          { accountId: accounts.PLAYER_AVAILABLE.id, amountMinorUnits: -amount },
+          { accountId: liability.id, amountMinorUnits: amount }
+        ];
+
+  return postLedgerTransaction(tx, {
+    type: 'ADJUSTMENT',
+    description: `Admin ${direction.toLowerCase()} adjustment for ${userId}: ${reason ?? reference}`,
+    idempotencyKey: `adjustment:${reference}`,
+    metadata: { userId, direction, reason, actorId, reference },
+    entries
   });
 }
 

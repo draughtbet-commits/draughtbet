@@ -256,13 +256,27 @@ model DeviceFingerprint {
   lastSeen        DateTime @default(now())
 }
 
+enum AdminAuditOutcome {
+  SUCCESS
+  FAILURE
+  DENIED
+}
+
 model AdminAuditLog {
-  id          String   @id @default(uuid())
-  adminId     String
-  action      String
-  targetId    String?
-  metadata    Json?
-  createdAt   DateTime @default(now())
+  id         String            @id @default(uuid())
+  adminId    String
+  action     String
+  targetId   String?
+  targetType String?
+  outcome    AdminAuditOutcome @default(SUCCESS)
+  ip         String?
+  userAgent  String?
+  requestId  String?
+  metadata   Json?
+  createdAt  DateTime          @default(now())
+
+  @@index([adminId])
+  @@index([createdAt])
 }
 
 model PlatformSettings {
@@ -926,6 +940,8 @@ model DisputeCase {
   status      DisputeStatus @default(OPEN)
   reason      String
   resolution  String?
+  decidedBy   String?
+  decidedAt   DateTime?
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
 

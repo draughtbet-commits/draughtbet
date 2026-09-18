@@ -21,6 +21,14 @@ const mockPrisma = {
   },
   ledgerEntry: {
     aggregate: jest.fn()
+  },
+  adminRoleAssignment: {
+    findMany: jest.fn()
+  },
+  adminAuditLog: {
+    create: jest.fn(),
+    findMany: jest.fn(),
+    count: jest.fn()
   }
 };
 
@@ -62,6 +70,8 @@ beforeEach(() => {
   jest.clearAllMocks();
   // requireAuth looks up the user by id for every protected request.
   mockPrisma.user.findUnique.mockResolvedValue(authedUser);
+  // Default: no admin roles -> the RBAC gate denies (403) any admin route.
+  mockPrisma.adminRoleAssignment.findMany.mockResolvedValue([]);
 });
 
 describe('Auth System', () => {
@@ -458,6 +468,9 @@ describe('Auth System', () => {
       mockPrisma.user.findUnique
         .mockResolvedValueOnce({ id: 'admin', isAdmin: true, isBanned: false })
         .mockResolvedValueOnce({ id: 'target', isBanned: false });
+      mockPrisma.adminRoleAssignment.findMany.mockResolvedValue([
+        { role: { name: 'SUPER_ADMIN' } }
+      ]);
       mockPrisma.user.update.mockResolvedValueOnce({ id: 'target', email: 't@t', isBanned: true });
       mockRedis.scanStream.mockImplementation(() => ({
         [Symbol.asyncIterator]: async function* () { yield ['refresh:target:t1']; }
@@ -483,6 +496,9 @@ describe('Auth System', () => {
       mockPrisma.user.findUnique
         .mockResolvedValueOnce({ id: 'admin', isAdmin: true, isBanned: false })
         .mockResolvedValueOnce(null);
+      mockPrisma.adminRoleAssignment.findMany.mockResolvedValue([
+        { role: { name: 'SUPER_ADMIN' } }
+      ]);
 
       const res = await request(app)
         .patch('/admin/users/missing/ban')
@@ -498,6 +514,9 @@ describe('Auth System', () => {
       mockPrisma.user.findUnique
         .mockResolvedValueOnce({ id: 'admin', isAdmin: true, isBanned: false })
         .mockResolvedValueOnce({ id: 'target', isBanned: true });
+      mockPrisma.adminRoleAssignment.findMany.mockResolvedValue([
+        { role: { name: 'SUPER_ADMIN' } }
+      ]);
       mockPrisma.user.update.mockResolvedValueOnce({ id: 'target', isBanned: false });
 
       const res = await request(app)

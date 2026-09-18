@@ -27,9 +27,14 @@ jest.unstable_mockModule('../../../utils/logger.js', () => ({
 const {
   startVerification,
   getKycStatus,
+  listVerificationCases,
+  approveVerificationCase,
+  rejectVerificationCase,
   KycAlreadyVerifiedError,
   KycInProgressError,
-  KycRejectedError
+  KycRejectedError,
+  VerificationCaseNotFoundError,
+  VerificationCaseNotReviewableError
 } = await import('../service.js');
 
 class FakePassProvider {
@@ -138,5 +143,128 @@ describe('verification service', () => {
     expect(view.kycStatus).toBe('VERIFIED');
     expect(view.case.status).toBe('VERIFIED');
     expect(view.case.checks[0]).toMatchObject({ type: 'ID_DOCUMENT', status: 'PASSED' });
+  });
+});
+
+describe('verification admin review', () => {
+  const openCase = {
+    id: 'case-admin',
+    userId: 'u1',
+    status: 'UNDER_REVIEW',
+    metadata: { provider: 'simulated' }
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockPrisma.$transaction = jest.fn();
+    mockPrisma.$transaction.mockImplementation(async (cb) => cb(mockPrisma));
+    mockPrisma.verificationCase.findUnique = jest.fn().mockResolvedValue(openCase);
+    mockPrisma.verificationCase.findMany = jest.fn();
+    mockPrisma.verificationCase.count = jest.fn();
+    mockPrisma.verificationCase.update = jest.fn().mockImplementation(async ({ data }) => ({
+      ...openCase,
+      ...data
+    }));
+    mockPrisma.verificationCheck.updateMany = jest.fn().mockResolvedValue({ count: 1 });
+    mockPrisma.user.update = jest.fn().mockImplementation(async ({ data }) => ({
+      id: 'u1',
+      ...data
+    }));
+  });
+
+  it('lists cases newest-first with status filter and pagination', async () => {
+    mockPrisma.verificationCase.findMany.mockResolvedValue([openCase]);
+    mockPrisma.verificationCase.count.mockResolvedValue(25);
+
+    const out = await listVerificationCases({ page: 2, limit: 20, status: 'UNDER_REVIEW', dbp: mockPrisma });
+
+    expect(mockPrisma.verificationCase.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { status: 'UNDER_REVIEW' }, skip: 20, take: 20 })
+    );
+    expect(out.totalPages).toBe(2);
+  });
+
+  it('approve passes open checks, marks the case verified and projects onto the user', async () => {
+    const out = await approveVerificationCase('case-admin', { adminId: 'admin-1', note: 'docs ok', dbp: mockPrisma });
+
+    expect(mockPrisma.verificationCheck.updateMany).toHaveBeenCalledWith({
+      where: { caseId: 'case-admin', status: { in: ['PENDING', 'FAILED'] } },
+      data: { status: 'PASSED', verifiedAt: expect.any(Date) }
+    });
+    expect(mockPrisma.verificationCase.update).toHaveBeenCalledWith({
+      where: { id: 'case-admin' },
+      data: expect.objectContaining({
+        status: 'VERIFIED',
+        metadata: expect.objectContaining({ reviewedBy: 'admin-1', note: 'docs ok' })
+      })
+    });
+    expect(mockPrisma.user.update).toHaveBeenCalledWith({
+      where: { id: 'u1' },
+      data: { kycStatus: 'VERIFIED', ageVerified: true }
+    });
+    expect(out.replayed).toBe(false);
+  });
+
+  it('approve replays on an already-verified case without writes', async () => {
+    mockPrisma.verificationCase.findUnique.mockResolvedValue({ ...openCase, status: 'VERIFIED' });
+
+    const out = await approveVerificationCase('case-admin', { adminId: 'admin-1', dbp: mockPrisma });
+
+    expect(out.replayed).toBe(true);
+    expect(mockPrisma.verificationCheck.updateMany).not.toHaveBeenCalled();
+    expect(mockPrisma.user.update).not.toHaveBeenCalled();
+  });
+
+  it('approve rejects a missing or non-reviewable case', async () => {
+    mockPrisma.verificationCase.findUnique.mockResolvedValueOnce(null);
+    await expect(
+      approveVerificationCase('ghost', { dbp: mockPrisma })
+    ).rejects.toThrow(VerificationCaseNotFoundError);
+
+    mockPrisma.verificationCase.findUnique.mockResolvedValue({ ...openCase, status: 'PROCESSING' });
+    await expect(
+      approveVerificationCase('case-admin', { dbp: mockPrisma })
+    ).rejects.toThrow(VerificationCaseNotReviewableError);
+  });
+
+  it('reject fails still-open checks and returns the user to PENDING', async () => {
+    const out = await rejectVerificationCase('case-admin', { adminId: 'admin-1', reason: 'blurred doc', dbp: mockPrisma });
+
+    expect(mockPrisma.verificationCheck.updateMany).toHaveBeenCalledWith({
+      where: { caseId: 'case-admin', status: { in: ['PENDING'] } },
+      data: { status: 'FAILED' }
+    });
+    expect(mockPrisma.verificationCase.update).toHaveBeenCalledWith({
+      where: { id: 'case-admin' },
+      data: expect.objectContaining({ status: 'REJECTED' })
+    });
+    expect(mockPrisma.user.update).toHaveBeenCalledWith({
+      where: { id: 'u1' },
+      data: { kycStatus: 'PENDING' }
+    });
+    expect(out.replayed).toBe(false);
+  });
+
+  it('reject refuses a verified case unless the override env is set', async () => {
+    delete process.env.ADMIN_KYC_OVERRIDE_VERIFIED;
+    mockPrisma.verificationCase.findUnique.mockResolvedValue({ ...openCase, status: 'VERIFIED' });
+
+    await expect(
+      rejectVerificationCase('case-admin', { adminId: 'admin-1', dbp: mockPrisma })
+    ).rejects.toThrow('A verified case cannot be rejected');
+
+    process.env.ADMIN_KYC_OVERRIDE_VERIFIED = 'true';
+    const out = await rejectVerificationCase('case-admin', { adminId: 'admin-1', dbp: mockPrisma });
+    expect(out.replayed).toBe(false);
+    delete process.env.ADMIN_KYC_OVERRIDE_VERIFIED;
+  });
+
+  it('reject replays on an already-rejected case', async () => {
+    mockPrisma.verificationCase.findUnique.mockResolvedValue({ ...openCase, status: 'REJECTED' });
+
+    const out = await rejectVerificationCase('case-admin', { dbp: mockPrisma });
+
+    expect(out.replayed).toBe(true);
+    expect(mockPrisma.user.update).not.toHaveBeenCalled();
   });
 });

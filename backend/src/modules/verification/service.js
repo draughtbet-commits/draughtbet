@@ -182,3 +182,138 @@ export const startVerification = async (
   logger.warn({ userId, caseId: caseRow.id }, 'KYC rejected by provider');
   throw new KycRejectedError();
 };
+
+// ---------------------------------------------------------------------------
+// Admin KYC review (RISK_COMPLIANCE / SUPER_ADMIN)
+// ---------------------------------------------------------------------------
+
+export class VerificationCaseNotFoundError extends Error {
+  constructor(message = 'Verification case not found') {
+    super(message);
+    this.name = 'VerificationCaseNotFoundError';
+  }
+}
+
+export class VerificationCaseNotReviewableError extends Error {
+  constructor(message = 'Verification case is not reviewable in its current state') {
+    super(message);
+    this.name = 'VerificationCaseNotReviewableError';
+  }
+}
+
+// A case an operator may still close by hand. VERIFIED is terminal and can
+// never be re-reviewed.
+const REVIEWABLE_CASE_STATUSES = ['STARTED', 'PENDING', 'UNDER_REVIEW', 'REJECTED', 'EXPIRED'];
+
+export const listVerificationCases = async ({
+  page = 1,
+  limit = 20,
+  status = null,
+  dbp = prisma
+} = {}) => {
+  const where = status ? { status } : {};
+  const skip = (page - 1) * limit;
+  const [rows, total] = await Promise.all([
+    dbp.verificationCase.findMany({
+      where,
+      orderBy: { updatedAt: 'desc' },
+      skip,
+      take: limit,
+      include: {
+        checks: { orderBy: { createdAt: 'asc' } },
+        user: { select: { id: true, email: true, fullName: true, kycStatus: true } }
+      }
+    }),
+    dbp.verificationCase.count({ where })
+  ]);
+  return {
+    cases: rows,
+    total,
+    page,
+    totalPages: Math.ceil(total / limit)
+  };
+};
+
+/**
+ * Admin approve (overrides a provider rejection / manual review). Flips case +
+ * open checks to VERIFIED and projects the pass onto the user, attributed to
+ * the reviewing admin in case metadata.
+ */
+export const approveVerificationCase = async (
+  caseId,
+  { adminId = null, note = null, dbp = prisma } = {}
+) => {
+  return dbp.$transaction(async (tx) => {
+    const vc = await tx.verificationCase.findUnique({ where: { id: caseId } });
+    if (!vc) throw new VerificationCaseNotFoundError();
+    if (vc.status === 'VERIFIED') {
+      logger.info({ caseId, adminId }, 'KYC approve replayed on already-verified case');
+      return { case: vc, replayed: true };
+    }
+    if (!REVIEWABLE_CASE_STATUSES.includes(vc.status)) {
+      throw new VerificationCaseNotReviewableError();
+    }
+
+    const now = new Date();
+    await tx.verificationCheck.updateMany({
+      where: { caseId, status: { in: ['PENDING', 'FAILED'] } },
+      data: { status: 'PASSED', verifiedAt: now }
+    });
+    const updated = await tx.verificationCase.update({
+      where: { id: caseId },
+      data: {
+        status: 'VERIFIED',
+        metadata: { ...(vc.metadata ?? {}), reviewedBy: adminId, reviewedAt: now.toISOString(), note }
+      }
+    });
+    await tx.user.update({
+      where: { id: vc.userId },
+      data: { kycStatus: 'VERIFIED', ageVerified: true }
+    });
+    logger.info({ caseId, adminId, userId: vc.userId }, 'KYC case approved by admin');
+    return { case: updated, replayed: false };
+  });
+};
+
+/**
+ * Admin reject. Only still-open checks are failed (provider pass provenance is
+ * never rewritten); the case carries the reviewer + reason. A later case still
+ * decides the user's KYC status.
+ */
+export const rejectVerificationCase = async (
+  caseId,
+  { adminId = null, reason = null, dbp = prisma } = {}
+) => {
+  return dbp.$transaction(async (tx) => {
+    const vc = await tx.verificationCase.findUnique({ where: { id: caseId } });
+    if (!vc) throw new VerificationCaseNotFoundError();
+    if (vc.status === 'REJECTED') {
+      return { case: vc, replayed: true };
+    }
+    if (!REVIEWABLE_CASE_STATUSES.includes(vc.status) && vc.status !== 'VERIFIED') {
+      throw new VerificationCaseNotReviewableError();
+    }
+    if (vc.status === 'VERIFIED' && !(process.env.ADMIN_KYC_OVERRIDE_VERIFIED === 'true')) {
+      throw new VerificationCaseNotReviewableError('A verified case cannot be rejected');
+    }
+
+    const now = new Date();
+    await tx.verificationCheck.updateMany({
+      where: { caseId, status: { in: ['PENDING'] } },
+      data: { status: 'FAILED' }
+    });
+    const updated = await tx.verificationCase.update({
+      where: { id: caseId },
+      data: {
+        status: 'REJECTED',
+        metadata: { ...(vc.metadata ?? {}), reviewedBy: adminId, reviewedAt: now.toISOString(), reason }
+      }
+    });
+    await tx.user.update({
+      where: { id: vc.userId },
+      data: { kycStatus: 'PENDING' }
+    });
+    logger.info({ caseId, adminId, userId: vc.userId, reason }, 'KYC case rejected by admin');
+    return { case: updated, replayed: false };
+  });
+};

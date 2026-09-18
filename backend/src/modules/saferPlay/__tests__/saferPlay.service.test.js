@@ -221,3 +221,83 @@ describe('saferPlay service', () => {
     expect(mockPrisma.depositIntent.aggregate).not.toHaveBeenCalled();
   });
 });
+
+describe('saferPlay admin lifts', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockPrisma.saferPlayProfile.update = jest.fn();
+    mockPrisma.saferPlayEvent.create = jest.fn();
+  });
+
+  it('clears an active timeout and records a LIFTED event', async () => {
+    mockPrisma.saferPlayProfile.findUnique.mockResolvedValue({
+      userId: 'u1',
+      timeoutUntil: new Date('2099-01-01T00:00:00Z')
+    });
+    mockPrisma.saferPlayProfile.update.mockImplementation(async ({ data }) => ({
+      userId: 'u1',
+      timeoutUntil: null
+    }));
+
+    const updated = await service.clearTimeoutByAdmin('u1', { dbp: mockPrisma });
+
+    expect(mockPrisma.saferPlayProfile.update).toHaveBeenCalledWith({
+      where: { userId: 'u1' },
+      data: { timeoutUntil: null }
+    });
+    expect(mockPrisma.saferPlayEvent.create).toHaveBeenCalledWith({
+      data: {
+        userId: 'u1',
+        action: 'LIFTED',
+        field: 'timeoutUntil',
+        oldValue: '2099-01-01T00:00:00.000Z',
+        newValue: null
+      }
+    });
+    expect(updated.timeoutUntil).toBeNull();
+  });
+
+  it('is a no-op when no timeout is set', async () => {
+    mockPrisma.saferPlayProfile.findUnique.mockResolvedValue({ userId: 'u1', timeoutUntil: null });
+
+    expect(await service.clearTimeoutByAdmin('u1', { dbp: mockPrisma })).toBeNull();
+    expect(mockPrisma.saferPlayProfile.update).not.toHaveBeenCalled();
+    expect(mockPrisma.saferPlayEvent.create).not.toHaveBeenCalled();
+  });
+
+  it('ends a self-exclusion and records a LIFTED event', async () => {
+    mockPrisma.saferPlayProfile.findUnique.mockResolvedValue({
+      userId: 'u1',
+      selfExcludedUntil: new Date('2099-01-01T00:00:00Z')
+    });
+    mockPrisma.saferPlayProfile.update.mockImplementation(async ({ data }) => ({
+      userId: 'u1',
+      selfExcludedUntil: null
+    }));
+
+    await service.endSelfExclusionByAdmin('u1', { dbp: mockPrisma });
+
+    expect(mockPrisma.saferPlayProfile.update).toHaveBeenCalledWith({
+      where: { userId: 'u1' },
+      data: { selfExcludedUntil: null }
+    });
+    expect(mockPrisma.saferPlayEvent.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        userId: 'u1',
+        action: 'LIFTED',
+        field: 'selfExcludedUntil',
+        newValue: null
+      })
+    });
+  });
+
+  it('is a no-op when the user is not self-excluded', async () => {
+    mockPrisma.saferPlayProfile.findUnique.mockResolvedValue({
+      userId: 'u1',
+      selfExcludedUntil: null
+    });
+
+    expect(await service.endSelfExclusionByAdmin('u1', { dbp: mockPrisma })).toBeNull();
+    expect(mockPrisma.saferPlayEvent.create).not.toHaveBeenCalled();
+  });
+});

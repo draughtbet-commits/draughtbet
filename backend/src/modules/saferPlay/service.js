@@ -445,6 +445,52 @@ export const extendSelfExclusion = async (
 };
 
 // ---------------------------------------------------------------------------
+// Admin lifts (the player-visible side is extend-only; ending is admin-only)
+// ---------------------------------------------------------------------------
+
+export const clearTimeoutByAdmin = async (userId, { actorId = null, dbp = prisma } = {}) => {
+  const profile = await dbp.saferPlayProfile.findUnique({ where: { userId } });
+  const existing = profile?.timeoutUntil ? new Date(profile.timeoutUntil) : null;
+  if (!existing) return null;
+
+  const updated = await dbp.saferPlayProfile.update({
+    where: { userId },
+    data: { timeoutUntil: null }
+  });
+  await dbp.saferPlayEvent.create({
+    data: {
+      userId,
+      action: 'LIFTED',
+      field: 'timeoutUntil',
+      oldValue: existing.toISOString(),
+      newValue: null
+    }
+  });
+  return updated;
+};
+
+export const endSelfExclusionByAdmin = async (userId, { actorId = null, dbp = prisma } = {}) => {
+  const profile = await dbp.saferPlayProfile.findUnique({ where: { userId } });
+  const existing = profile?.selfExcludedUntil ? new Date(profile.selfExcludedUntil) : null;
+  if (!existing) return null;
+
+  const updated = await dbp.saferPlayProfile.update({
+    where: { userId },
+    data: { selfExcludedUntil: null }
+  });
+  await dbp.saferPlayEvent.create({
+    data: {
+      userId,
+      action: 'LIFTED',
+      field: 'selfExcludedUntil',
+      oldValue: existing.toISOString(),
+      newValue: null
+    }
+  });
+  return updated;
+};
+
+// ---------------------------------------------------------------------------
 // Deposit limit enforcement
 // ---------------------------------------------------------------------------
 
