@@ -237,6 +237,18 @@ describe('move.submit V2 protocol', () => {
     seedMatch('test-match', board, 'white-user', 'black-user');
     fakeRedis.pushRead({ moveCount: '1', version: '1' });
     mockPrisma.matchMove.create.mockRejectedValue(p2002());
+    // Pre-check sees no prior row; the P2002 resolver finds OUR row by key.
+    mockPrisma.matchMove.findUnique
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({
+        moveNumber: 1,
+        clientMoveId: 'cm_race_001',
+        fromSquare: 32,
+        toSquare: 12,
+        path: [32, 21, 12],
+        capturedSquares: [27, 17],
+        isKingMove: false
+      });
 
     const socket = { id: 's4', user: { userId: 'white-user' }, emit: jest.fn() };
     await handleMoveSubmit(socket, {
@@ -250,6 +262,101 @@ describe('move.submit V2 protocol', () => {
     expect(mockTo).not.toHaveBeenCalled();
     const replayed = socket.emit.mock.calls.find(([e]) => e === 'move.accepted')?.[1];
     expect(replayed).toMatchObject({ clientMoveId: 'cm_race_001', replayed: true });
+  });
+
+  it('refuses a competing move that merely holds the same moveNumber (no false accept)', async () => {
+    const board = buildEndgameBoard();
+    seedMatch('test-match', board, 'white-user', 'black-user');
+    mockPrisma.matchMove.create.mockRejectedValue(p2002());
+    mockPrisma.matchMove.findUnique.mockImplementation(async ({ where }) => {
+      if (where.matchId_moveNumber) {
+        return {
+          moveNumber: 1,
+          clientMoveId: 'cm_other_player',
+          fromSquare: 32,
+          toSquare: 21,
+          capturedSquares: [],
+          isKingMove: false
+        };
+      }
+      return null;
+    });
+
+    const socket = { id: 's4b', user: { userId: 'white-user' }, emit: jest.fn() };
+    await handleMoveSubmit(socket, {
+      matchId: 'test-match',
+      clientMoveId: 'cm_loser_001',
+      expectedStateVersion: 0,
+      from: 32,
+      path: [32, 21, 12]
+    });
+
+    expect(mockTo).not.toHaveBeenCalled();
+    expect(socket.emit.mock.calls.find(([e]) => e === 'move.accepted')).toBeUndefined();
+    expect(socket.emit).toHaveBeenCalledWith('move.rejected', { code: 'duplicate_move' });
+    expect(socket.emit).toHaveBeenCalledWith('move_rejected', { reason: 'duplicate_move' });
+    expect(socket.emit.mock.calls.find(([e]) => e === 'match.state')).toBeDefined();
+  });
+
+  it('surfaces server_busy (not a ReferenceError) after exhausting CAS version retries', async () => {
+    const board = buildEndgameBoard();
+    seedMatch('test-match', board, 'white-user', 'black-user');
+    const realEval = fakeRedis.eval;
+    fakeRedis.eval = () => { throw new Error('VERSION_MISMATCH'); };
+    try {
+      const socket = { id: 's4c', user: { userId: 'white-user' }, emit: jest.fn() };
+      await handleMoveSubmit(socket, {
+        matchId: 'test-match',
+        clientMoveId: 'cm_busy_001',
+        expectedStateVersion: 0,
+        from: 32,
+        path: [32, 21, 12]
+      });
+      expect(socket.emit).toHaveBeenCalledWith('move.rejected', { code: 'server_busy' });
+    } finally {
+      fakeRedis.eval = realEval;
+    }
+  });
+
+  it('settles the mover and rejects turn_expired when the CAS clock guard fires', async () => {
+    const board = buildEndgameBoard();
+    seedMatch('test-match', board, 'white-user', 'black-user');
+    const realEval = fakeRedis.eval;
+    fakeRedis.eval = () => { throw new Error('TURN_EXPIRED'); };
+    try {
+      const socket = { id: 's4d', user: { userId: 'white-user' }, emit: jest.fn() };
+      await handleMoveSubmit(socket, {
+        matchId: 'test-match',
+        clientMoveId: 'cm_expire_1',
+        expectedStateVersion: 0,
+        from: 32,
+        path: [32, 21, 12]
+      });
+      expect(socket.emit).toHaveBeenCalledWith('move.rejected', { code: 'turn_expired' });
+      expect(settlementMocks.settleGameWithRetry).toHaveBeenCalledTimes(1);
+    } finally {
+      fakeRedis.eval = realEval;
+    }
+  });
+
+  it('rejects game_already_ended (not a ReferenceError) when the CAS reports a vanished game', async () => {
+    const board = buildEndgameBoard();
+    seedMatch('test-match', board, 'white-user', 'black-user');
+    const realEval = fakeRedis.eval;
+    fakeRedis.eval = () => { throw new Error('GAME_NOT_FOUND'); };
+    try {
+      const socket = { id: 's4e', user: { userId: 'white-user' }, emit: jest.fn() };
+      await handleMoveSubmit(socket, {
+        matchId: 'test-match',
+        clientMoveId: 'cm_gone_001',
+        expectedStateVersion: 0,
+        from: 32,
+        path: [32, 21, 12]
+      });
+      expect(socket.emit).toHaveBeenCalledWith('move.rejected', { code: 'game_already_ended' });
+    } finally {
+      fakeRedis.eval = realEval;
+    }
   });
 
   it('forces a stale client to resync: version mismatch rejects with match.state', async () => {

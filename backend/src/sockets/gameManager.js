@@ -106,13 +106,37 @@ const findMoveByClientId = async (matchId, clientMoveId) => {
   });
 };
 
+// Resolves the row behind a P2002 unique violation. A row carrying this exact
+// clientMoveId is our own replayed move; otherwise the colliding row (if any)
+// merely occupies our moveNumber and belongs to a competing move.
+async function resolveUniqueConflict(moveData) {
+  if (moveData.clientMoveId) {
+    const mine = await prisma.matchMove.findUnique({
+      where: {
+        matchId_clientMoveId: {
+          matchId: moveData.matchId,
+          clientMoveId: moveData.clientMoveId
+        }
+      }
+    });
+    if (mine) return mine;
+  }
+  return prisma.matchMove.findUnique({
+    where: {
+      matchId_moveNumber: { matchId: moveData.matchId, moveNumber: moveData.moveNumber }
+    }
+  });
+}
+
 // Durable acceptance of a move. A move is not authoritative until this
 // transaction commits: the immutable move row, the durable GameEvent (audit
 // trail) and the MatchGameState projection are written atomically. The
 // (matchId, moveNumber) and (matchId, clientMoveId) unique constraints make a
 // concurrent or replayed submission unable to create a second row — the loser
-// gets P2002 and is reported as `alreadyExists`. Throws when the write could
-// not be completed after retries — in that case the move is NOT accepted.
+// gets P2002 and is reported as `alreadyExists` with the colliding row
+// (`existing`) so the caller can tell its own replay from a competing move.
+// Throws when the write could not be completed after retries — in that case
+// the move is NOT accepted.
 async function persistAcceptedMove(moveData, durableState, retries = 3) {
   let lastErr = null;
   for (let attempt = 1; attempt <= retries; attempt++) {
@@ -147,7 +171,10 @@ async function persistAcceptedMove(moveData, durableState, retries = 3) {
     } catch (err) {
       lastErr = err;
       if (err && err.code === 'P2002') {
-        return { alreadyExists: true };
+        // A P2002 may originate from either unique key. Resolve which row
+        // actually collided so the caller can tell a replay of THIS move from a
+        // competing move that merely holds the same moveNumber.
+        return { alreadyExists: true, existing: await resolveUniqueConflict(moveData) };
       }
       logger.warn({ err, attempt, matchId: moveData.matchId, moveNumber: moveData.moveNumber },
         'Durable move persist failed, retrying');
@@ -478,8 +505,12 @@ const submitMove = async (socket, move) => {
   let success = false;
 
   while (retries >= 0 && !success) {
+    // Declared outside the try so the catch below can attach the authoritative
+    // state to a resync-capable rejection (server_busy / game_already_ended /
+    // turn_expired) instead of throwing a ReferenceError.
+    let state = null;
     try {
-      const state = await getGameState(matchId);
+      state = await getGameState(matchId);
 
       // Idempotency check FIRST: a replayed client move must return the prior
       // result without touching the engine, the log or the projection. A null
@@ -596,6 +627,27 @@ const submitMove = async (socket, move) => {
       }
 
       if (persisted.alreadyExists) {
+        const existing = persisted.existing ?? null;
+
+        // Only a row carrying this exact idempotency key (or, for legacy moves,
+        // the same from/to/captured) is a replay of THIS move. A row that
+        // merely occupies our moveNumber belongs to a competing move: this
+        // submission lost the race and was never applied, so it must be refused
+        // with a resync rather than falsely reported as accepted.
+        const sameMove = clientMoveId != null
+          ? existing?.clientMoveId === clientMoveId
+          : Boolean(
+              existing
+              && existing.fromSquare === from
+              && existing.toSquare === to
+              && JSON.stringify(existing.capturedSquares ?? []) === JSON.stringify(captured)
+            );
+
+        if (!sameMove) {
+          rejectMove(socket, matchId, await getGameState(matchId), MOVE_ERROR.DUPLICATE_MOVE);
+          return;
+        }
+
         // A previous delivery already recorded this exact move. If the
         // projection has advanced past it, this is a duplicate delivery of an
         // accepted move — idempotent, no second broadcast. Otherwise a process
