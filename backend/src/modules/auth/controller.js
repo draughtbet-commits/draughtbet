@@ -4,6 +4,7 @@ import { AuthService } from './service.js';
 import { GeoService } from '../../services/geoService.js';
 import { requireAuth } from '../../middleware/auth.js';
 import { authRateLimiter, checkRateLimiter } from '../../middleware/rateLimit.js';
+import { requireAppVersion } from '../../middleware/appVersion.js';
 import { getIO } from '../../sockets/index.js';
 
 export const authRouter = express.Router();
@@ -72,7 +73,7 @@ const availabilitySchema = z.object({
   value: z.string().min(1)
 });
 
-authRouter.post('/register', authRateLimiter, async (req, res, next) => {
+authRouter.post('/register', authRateLimiter, requireAppVersion, async (req, res, next) => {
   try {
     const data = registerSchema.parse(req.body);
     const user = await AuthService.register({
@@ -113,7 +114,7 @@ authRouter.post('/register', authRateLimiter, async (req, res, next) => {
   }
 });
 
-authRouter.post('/login', authRateLimiter, async (req, res, next) => {
+authRouter.post('/login', authRateLimiter, requireAppVersion, async (req, res, next) => {
   try {
     const data = loginSchema.parse(req.body);
     const identifier = data.email || data.phone;
@@ -168,7 +169,7 @@ authRouter.post('/check-availability', checkRateLimiter, async (req, res, next) 
   }
 });
 
-authRouter.post('/refresh', authRateLimiter, async (req, res, next) => {
+authRouter.post('/refresh', authRateLimiter, requireAppVersion, async (req, res, next) => {
   try {
     // Both userId and refreshToken should ideally come from the request
     const { userId, refreshToken } = req.body;

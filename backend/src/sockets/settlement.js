@@ -154,9 +154,9 @@ async function runCleanupFromDbForDraw(matchId) {
 // ─────────────────────────────────────────────────────────────
 
 /**
- * Idempotent win settlement. Financial movement (ledger + legacy mirror +
- * MatchSettlement + MatchReceipt) is delegated to SettlementService; the
- * socket layer keeps the post-settlement notification/cleanup concept.
+ * Idempotent win settlement. Financial movement (ledger + MatchSettlement +
+ * MatchReceipt) is delegated to SettlementService; the socket layer keeps the
+ * post-settlement notification/cleanup concept.
  *
  * Returns { payout, commission, match } on the first successful claim (the
  * established Flutter-facing result payload), or the same shape for a replay.
