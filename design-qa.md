@@ -95,3 +95,34 @@
 - Live balances, lock/release progress, eligibility, ready state, room codes, challenges, and opponent presence still require authoritative backend payloads. Production screens do not manufacture those values.
 
 final result: passed
+
+## PR7 withdrawal UI extension
+
+**Approved sources reviewed**
+
+- `04-wallet-deposits-transactions-043-054.png` for Withdraw Money and Select Bank Account.
+- `07-gameplay-results-settlement-079-090.png` for the visible Pending Review, Provider Processing, Confirmed, and Reversed withdrawal variants.
+- `13-money-lifecycle-extra-states.png`, `14-withdrawal-status-variants.png`, and `10-empty-loading-error-states-108-119.png` for review, bank-verification failure, and supporting state patterns.
+- `FLOW-06-withdrawal` and the state/contract manifests for behavior only. The incorrectly named withdrawal/KYC board was not treated as visual truth because its checked-in contents show unrelated screens.
+
+**Rendered evidence**
+
+- Twelve deterministic 412 x 915 captures are stored in `app/test/goldens/withdrawal_flow/`.
+- Captures cover Withdraw Money, Select Bank Account, Add Bank Account, Verifying Bank Account, Withdrawal Review, Verification Required, Pending Review, Processing, Successful, Reversed, Limit Reached, and Saved Bank Accounts.
+- Each capture was opened at rendered resolution after golden generation. The focused visual suite was then rerun without `--update-goldens` to prove stable output.
+
+**Findings and resolution**
+
+1. The implementation follows the approved black background, navy card surfaces, emerald primary actions, gold pending treatment, red reversal treatment, outlined secondary actions, rounded geometry, and Sora/Inter hierarchy.
+2. The initial amount capture exposed a missing Naira glyph in the input prefix. The prefix now explicitly uses bundled Inter and was re-captured.
+3. Status cards were expanded to show only server-returned amount, provider fee, net/requested amount, destination, masked reference, status, and available balance. No fee, payout, limit, or balance is calculated in Flutter.
+4. Exact dedicated frames for several middle withdrawal states are absent from the usable approved board checked into this repository. Those states use the approved component language and the manifest-defined hierarchy without inventing a second visual direction.
+5. No Flutter exception or render overflow remains in the focused standard-phone and small-phone/text-scaling checks.
+
+**Contract boundary**
+
+- Production uses `POST /withdrawals/quote`, `GET /bank-accounts`, `POST /bank-accounts/verify`, `POST /withdrawals`, and safe status reads from the existing withdrawal reference.
+- The current backend does not yet expose those V2 routes. The UI therefore shows approved unavailable or pending states and never falls back to local financial truth.
+- A create response never implies success; only a server-returned terminal status can show Confirmed or Reversed. Polling is bounded, cancelable, and cannot submit another withdrawal.
+
+final result: passed

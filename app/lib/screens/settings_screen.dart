@@ -250,6 +250,17 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 style: AppTypography.labelBold.copyWith(color: _tierColor),
               ),
             ),
+            const SizedBox(height: 8),
+            _tile(
+              icon: LucideIcons.landmark,
+              title: 'Saved bank accounts',
+              subtitle: 'Verified withdrawal destinations',
+              trailing: const Icon(
+                LucideIcons.chevronRight,
+                color: AppColors.textMuted,
+              ),
+              onTap: () => context.push('/profile/saved-bank-accounts'),
+            ),
             _sectionLabel('Notifications'),
             if (_loadedPrefs) ...[
               _tile(

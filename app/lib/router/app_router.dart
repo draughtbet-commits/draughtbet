@@ -23,6 +23,8 @@ import '../screens/wallet_read_screens.dart';
 import '../models/wallet_read.dart';
 import '../screens/deposit_flow_screens.dart';
 import '../providers/deposit_provider.dart';
+import '../providers/withdrawal_provider.dart';
+import '../screens/withdrawal_flow_screens.dart';
 import '../screens/settings_screen.dart';
 import '../screens/results_screen.dart';
 import '../widgets/main_layout.dart';
@@ -119,6 +121,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: '/profile',
             builder: (context, state) => const SettingsScreen(),
+          ),
+          GoRoute(
+            path: '/profile/saved-bank-accounts',
+            builder: (context, state) => const SavedBankAccountsScreen(),
           ),
         ],
       ),
@@ -318,6 +324,61 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         path: '/wallet/deposit-pending',
         builder: (context, state) =>
             const DepositStatusScreen(requestedPhase: DepositFlowPhase.pending),
+      ),
+      GoRoute(
+        path: '/wallet/withdraw/withdraw-money',
+        builder: (context, state) => const WithdrawMoneyScreen(),
+      ),
+      GoRoute(
+        path: '/wallet/withdraw/select-bank-account',
+        builder: (context, state) => const SelectBankAccountScreen(),
+      ),
+      GoRoute(
+        path: '/wallet/withdraw/add-bank-account',
+        builder: (context, state) => const AddBankAccountScreen(),
+      ),
+      GoRoute(
+        path: '/wallet/withdraw/verifying-bank-account',
+        builder: (context, state) => const VerifyingBankAccountScreen(),
+      ),
+      GoRoute(
+        path: '/wallet/withdraw/withdrawal-review',
+        builder: (context, state) => const WithdrawalReviewScreen(),
+      ),
+      GoRoute(
+        path: '/wallet/withdraw/verification-required',
+        builder: (context, state) => const WithdrawalGateScreen(
+          phase: WithdrawalFlowPhase.verificationRequired,
+        ),
+      ),
+      GoRoute(
+        path: '/wallet/withdraw/withdrawal-limit-reached',
+        builder: (context, state) =>
+            const WithdrawalGateScreen(phase: WithdrawalFlowPhase.limitReached),
+      ),
+      GoRoute(
+        path: '/wallet/withdraw/withdrawal-pending-review',
+        builder: (context, state) => const WithdrawalStatusScreen(
+          requestedPhase: WithdrawalFlowPhase.pendingReview,
+        ),
+      ),
+      GoRoute(
+        path: '/wallet/withdraw/withdrawal-processing',
+        builder: (context, state) => const WithdrawalStatusScreen(
+          requestedPhase: WithdrawalFlowPhase.processing,
+        ),
+      ),
+      GoRoute(
+        path: '/wallet/withdraw/withdrawal-successful',
+        builder: (context, state) => const WithdrawalStatusScreen(
+          requestedPhase: WithdrawalFlowPhase.successful,
+        ),
+      ),
+      GoRoute(
+        path: '/wallet/withdraw/withdrawal-reversed',
+        builder: (context, state) => const WithdrawalStatusScreen(
+          requestedPhase: WithdrawalFlowPhase.reversed,
+        ),
       ),
     ],
   );
