@@ -126,3 +126,36 @@ final result: passed
 - A create response never implies success; only a server-returned terminal status can show Confirmed or Reversed. Polling is bounded, cancelable, and cannot submit another withdrawal.
 
 final result: passed
+
+## PR8 game protocol UI extension
+
+**Approved sources reviewed**
+
+- `00-core-foundations-screens-001-018.jpeg` for Match Room, Live Match, Move Selection, multi-capture/flying-king, King Promotion, and Opponent Thinking.
+- The board visibly containing screens 79-90 for Offer Draw, Draw Rejected, and Resign confirmation treatments.
+- `12-postgame-disputes-safer-play-extra.png` for the paired-turn Move History table.
+- Gameplay contracts were used for behavior only: Flutter sends intentions and renders canonical server state; it never determines legal moves, applies a board mutation, or decides a result locally.
+
+**Rendered evidence**
+
+- Existing captures `11_match_room.png` through `16_opponent_thinking.png` continue to cover the approved core gameplay states.
+- Nine new deterministic 390 x 844 captures are stored in `app/test/goldens/home_flow/pr8_*.png`.
+- New captures cover Mandatory Capture, Illegal Move, State Resync, Draw Offer Received, Draw Offer Rejected, Offer Draw confirmation, Resign confirmation, Match Menu, and Move History.
+- The visual suite passed after golden generation and again without `--update-goldens`.
+
+**Findings and resolution**
+
+1. Draw and resign dialog screenshots initially excluded Flutter's overlay layer. Capture targeting was corrected so the full modal and bottom-sheet treatment is verified.
+2. Move History initially rendered one accepted move per row. It now follows the approved paired-turn layout while remaining sourced exclusively from the durable server move log.
+3. Illegal/stale move feedback now uses the approved centered gameplay card instead of a floating action button. Stable server rejection codes provide safe copy; a state-version conflict blocks input and requests canonical state without retrying the move.
+4. Mandatory capture and full multi-capture paths are visually distinct, accessible, and server-provided. Promotion remains driven only by an accepted server event.
+5. V1 and V2 Socket.IO names coexist during migration. Read-only room joins may use both names; every state-changing move, draw, or resign command selects exactly one protocol path, preventing duplicate mutations.
+6. Standard-phone and 320 x 568 small-screen checks show no Flutter exception or render overflow.
+
+**Contract boundary**
+
+- The checked-in backend currently exposes the legacy gameplay event names and a V1 canonical state read. V2 dotted events, draw actions, stable rejection codes, and durable accepted move history must be supplied by the PR8 backend before every production state can be live.
+- The current `GET /matches/:id/state` response does not expose the durable accepted-move log required by Move History. The screen therefore shows an approved unavailable/empty state rather than reconstructing moves in Flutter.
+- PR9 owns authoritative clocks, low-time warnings, reconnect timing, app-resume recovery, and disconnect-forfeit rules. PR8 does not infer or implement those outcomes.
+
+final result: passed

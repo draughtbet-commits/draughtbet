@@ -63,6 +63,12 @@ void main() {
         () => mockSocketService.onMatchEnded,
       ).thenAnswer((_) => matchEndedController.stream);
       when(
+        () => mockSocketService.onDrawOffer,
+      ).thenAnswer((_) => const Stream.empty());
+      when(
+        () => mockSocketService.onDrawResponse,
+      ).thenAnswer((_) => const Stream.empty());
+      when(
         () => mockSocketService.attemptMove(any(), any(), any()),
       ).thenReturn(null);
 

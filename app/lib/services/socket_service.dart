@@ -31,6 +31,10 @@ class SocketService {
       StreamController<Map<String, dynamic>>.broadcast();
   final _notificationController =
       StreamController<Map<String, dynamic>>.broadcast();
+  final _drawOfferController =
+      StreamController<Map<String, dynamic>>.broadcast();
+  final _drawResponseController =
+      StreamController<Map<String, dynamic>>.broadcast();
 
   Stream<Map<String, dynamic>> get onMatchFound => _matchFoundController.stream;
   Stream<Map<String, dynamic>> get onGameState => _gameStateController.stream;
@@ -52,6 +56,9 @@ class SocketService {
       _walletUpdatedController.stream;
   Stream<Map<String, dynamic>> get onNotification =>
       _notificationController.stream;
+  Stream<Map<String, dynamic>> get onDrawOffer => _drawOfferController.stream;
+  Stream<Map<String, dynamic>> get onDrawResponse =>
+      _drawResponseController.stream;
 
   Future<void> initSocket() async {
     if (_socket != null) {
@@ -86,14 +93,33 @@ class SocketService {
         _gameStateController.add(Map<String, dynamic>.from(data));
       }
     });
+    _socket!.on('match.state', (data) {
+      if (data is Map) {
+        final payload = Map<String, dynamic>.from(data);
+        payload['_protocolVersion'] = 2;
+        _gameStateController.add(payload);
+      }
+    });
 
     _socket!.on('move_applied', (data) {
       if (data is Map) {
         _moveAppliedController.add(Map<String, dynamic>.from(data));
       }
     });
+    _socket!.on('move.accepted', (data) {
+      if (data is Map) {
+        final payload = Map<String, dynamic>.from(data);
+        payload['_protocolVersion'] = 2;
+        _moveAppliedController.add(payload);
+      }
+    });
 
     _socket!.on('move_rejected', (data) {
+      if (data is Map) {
+        _moveRejectedController.add(Map<String, dynamic>.from(data));
+      }
+    });
+    _socket!.on('move.rejected', (data) {
       if (data is Map) {
         _moveRejectedController.add(Map<String, dynamic>.from(data));
       }
@@ -108,6 +134,22 @@ class SocketService {
     _socket!.on('match_ended', (data) {
       if (data is Map) {
         _matchEndedController.add(Map<String, dynamic>.from(data));
+      }
+    });
+    _socket!.on('match.finished', (data) {
+      if (data is Map) {
+        _matchEndedController.add(Map<String, dynamic>.from(data));
+      }
+    });
+
+    _socket!.on('draw.offer', (data) {
+      if (data is Map) {
+        _drawOfferController.add(Map<String, dynamic>.from(data));
+      }
+    });
+    _socket!.on('draw.responded', (data) {
+      if (data is Map) {
+        _drawResponseController.add(Map<String, dynamic>.from(data));
       }
     });
 
@@ -149,6 +191,8 @@ class SocketService {
   }
 
   void joinMatch(String matchId) {
+    // Joining is non-mutating, so both names can coexist during migration.
+    _socket?.emit('match.join', {'matchId': matchId});
     _socket?.emit('join_match', {'matchId': matchId});
   }
 
@@ -156,8 +200,62 @@ class SocketService {
     _socket?.emit('move_attempt', {'matchId': matchId, 'from': from, 'to': to});
   }
 
+  void submitMoveV2({
+    required String matchId,
+    required String clientMoveId,
+    required int expectedStateVersion,
+    required int from,
+    required List<int> path,
+  }) {
+    _socket?.emit('move.submit', {
+      'matchId': matchId,
+      'clientMoveId': clientMoveId,
+      'expectedStateVersion': expectedStateVersion,
+      'from': from,
+      'path': path,
+    });
+  }
+
   void resign(String matchId) {
     _socket?.emit('resign', {'matchId': matchId});
+  }
+
+  void resignV2({
+    required String matchId,
+    required String actionId,
+    required int expectedStateVersion,
+  }) {
+    _socket?.emit('match.resign', {
+      'matchId': matchId,
+      'actionId': actionId,
+      'expectedStateVersion': expectedStateVersion,
+    });
+  }
+
+  void offerDraw({
+    required String matchId,
+    required String actionId,
+    required int expectedStateVersion,
+  }) {
+    _socket?.emit('draw.offer', {
+      'matchId': matchId,
+      'actionId': actionId,
+      'expectedStateVersion': expectedStateVersion,
+    });
+  }
+
+  void respondToDraw({
+    required String matchId,
+    required String actionId,
+    required String offerId,
+    required String response,
+  }) {
+    _socket?.emit('draw.respond', {
+      'matchId': matchId,
+      'actionId': actionId,
+      'offerId': offerId,
+      'response': response,
+    });
   }
 
   void disconnect() {
@@ -179,6 +277,8 @@ class SocketService {
     _calloutCreatedController.close();
     _walletUpdatedController.close();
     _notificationController.close();
+    _drawOfferController.close();
+    _drawResponseController.close();
     disconnect();
   }
 }

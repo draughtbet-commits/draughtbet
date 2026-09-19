@@ -527,7 +527,7 @@ void main() {
       find.text('Opponent disconnected · waiting for reconnect'),
       findsOneWidget,
     );
-    expect(find.text('State refreshed'), findsOneWidget);
+    expect(find.text('STATE RESYNC'), findsOneWidget);
     expect(find.text('Opponent’s turn'), findsOneWidget);
     expect(find.text('OPPONENT DISCONNECTED'), findsOneWidget);
     expect(find.text('60'), findsOneWidget);

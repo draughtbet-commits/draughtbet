@@ -27,6 +27,7 @@ import '../providers/withdrawal_provider.dart';
 import '../screens/withdrawal_flow_screens.dart';
 import '../screens/settings_screen.dart';
 import '../screens/results_screen.dart';
+import '../screens/game_move_history_screen.dart';
 import '../widgets/main_layout.dart';
 
 final appRouterProvider = Provider<GoRouter>((ref) {
@@ -290,6 +291,11 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           final matchId = state.pathParameters['id']!;
           return MatchScreen(matchId: matchId);
         },
+      ),
+      GoRoute(
+        path: '/matches/:id/moves',
+        builder: (context, state) =>
+            GameMoveHistoryScreen(matchId: state.pathParameters['id']!),
       ),
       GoRoute(
         path: '/wallet/add-money',
