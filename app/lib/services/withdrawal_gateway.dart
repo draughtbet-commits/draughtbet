@@ -5,31 +5,17 @@ import '../models/withdrawal_flow.dart';
 import 'api_client.dart';
 
 class WithdrawalGateway {
-  WithdrawalGateway(this._dio);
-
-  final Dio _dio;
+  WithdrawalGateway(Dio _);
 
   Future<WithdrawalQuote?> createQuote(int amountMinorUnits) async {
-    final response = await _dio.post<dynamic>(
-      '/withdrawals/quote',
-      data: {'amountMinorUnits': amountMinorUnits},
-    );
-    return WithdrawalQuote.tryFromServer(response.data);
+    // The active backend has no withdrawal quote/read contract. The legacy
+    // amount-only request cannot safely power the approved bank-destination
+    // flow, so Flutter must show unavailable rather than invent fees/limits.
+    return null;
   }
 
   Future<List<WithdrawalBankAccount>?> fetchBankAccounts() async {
-    final response = await _dio.get<dynamic>('/bank-accounts');
-    final data = response.data;
-    final values = data is List
-        ? data
-        : data is Map
-        ? data['bankAccounts'] ?? data['accounts'] ?? data['data']
-        : null;
-    if (values is! List) return null;
-    return values
-        .map(WithdrawalBankAccount.tryFromServer)
-        .whereType<WithdrawalBankAccount>()
-        .toList(growable: false);
+    return null;
   }
 
   Future<WithdrawalBankAccount?> verifyBankAccount({
@@ -38,55 +24,24 @@ class WithdrawalGateway {
     required String accountNumber,
     String? idempotencyKey,
   }) async {
-    final response = await _dio.post<dynamic>(
-      '/bank-accounts/verify',
-      data: {
-        'bankCode': bankCode,
-        'bankName': bankName,
-        'accountNumber': accountNumber,
-        'idempotencyKey': ?idempotencyKey,
-      },
-    );
-    final data = response.data;
-    final raw = data is Map && data['bankAccount'] is Map
-        ? data['bankAccount']
-        : data;
-    if (raw is! Map) return null;
-    final verified =
-        raw['verified'] == true ||
-        raw['status']?.toString().toUpperCase() == 'VERIFIED' ||
-        raw['verifiedAt'] != null;
-    return verified ? WithdrawalBankAccount.tryFromServer(raw) : null;
+    return null;
   }
 
   Future<WithdrawalData?> createWithdrawal({
     required WithdrawalQuote quote,
     required WithdrawalBankAccount bankAccount,
   }) async {
-    final response = await _dio.post<dynamic>(
-      '/withdrawals',
-      data: {
-        'quoteId': quote.id,
-        'bankAccountId': bankAccount.id,
-        if (quote.idempotencyKey != null)
-          'idempotencyKey': quote.idempotencyKey,
-      },
-    );
-    return WithdrawalData.tryFromServer(
-      response.data,
-      quote: quote,
-      bankAccount: bankAccount,
-    );
+    // Do not fall back to POST /wallet/withdrawal-request: it accepts no bank
+    // account and exposes no status read, so doing so would reserve funds from
+    // a UI that cannot verify the destination or recover an ambiguous result.
+    return null;
   }
 
   Future<WithdrawalData?> fetchStatus(
     String reference, {
     WithdrawalData? previous,
   }) async {
-    final response = await _dio.get<dynamic>(
-      '/withdrawals/${Uri.encodeComponent(reference)}',
-    );
-    return WithdrawalData.tryFromServer(response.data, previous: previous);
+    return null;
   }
 }
 

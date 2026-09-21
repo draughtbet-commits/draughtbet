@@ -179,6 +179,22 @@ void setPhoneViewport(WidgetTester tester, {Size size = const Size(412, 915)}) {
 }
 
 void main() {
+  test('active backend gaps do not issue unsafe withdrawal requests', () async {
+    final gateway = WithdrawalGateway(Dio());
+
+    expect(await gateway.createQuote(200000), isNull);
+    expect(await gateway.fetchBankAccounts(), isNull);
+    expect(
+      await gateway.verifyBankAccount(
+        bankCode: '000',
+        bankName: 'Bank',
+        accountNumber: '0123456789',
+      ),
+      isNull,
+    );
+    expect(await gateway.fetchStatus('withdrawal-reference'), isNull);
+  });
+
   test(
     'quote parser preserves server financial values without calculation',
     () {
