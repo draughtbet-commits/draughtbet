@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:dio/dio.dart';
 import '../models/wallet.dart';
@@ -15,6 +17,8 @@ class WalletState {
   final bool isLoadingMore;
   final bool hasMore;
   final int transactionPage;
+  final int? totalTransactions;
+  final int? totalPages;
   final String? error;
 
   const WalletState({
@@ -27,6 +31,8 @@ class WalletState {
     this.isLoadingMore = false,
     this.hasMore = true,
     this.transactionPage = 0,
+    this.totalTransactions,
+    this.totalPages,
     this.error,
   });
 
@@ -42,6 +48,8 @@ class WalletState {
     bool? isLoadingMore,
     bool? hasMore,
     int? transactionPage,
+    int? totalTransactions,
+    int? totalPages,
     String? error,
   }) {
     return WalletState(
@@ -54,6 +62,8 @@ class WalletState {
       isLoadingMore: isLoadingMore ?? this.isLoadingMore,
       hasMore: hasMore ?? this.hasMore,
       transactionPage: transactionPage ?? this.transactionPage,
+      totalTransactions: totalTransactions ?? this.totalTransactions,
+      totalPages: totalPages ?? this.totalPages,
       error: error,
     );
   }
@@ -62,30 +72,44 @@ class WalletState {
 class WalletNotifier extends StateNotifier<WalletState> {
   final SocketService _socketService;
   final Dio _dio;
+  StreamSubscription<Map<String, dynamic>>? _walletUpdatedSubscription;
+  bool _walletEventRefreshInFlight = false;
+  bool _balanceRequestInFlight = false;
+  bool _transactionsRequestInFlight = false;
 
   WalletNotifier(this._socketService, this._dio) : super(const WalletState()) {
     _initListeners();
   }
 
   void _initListeners() {
-    _socketService.onWalletUpdated.listen((data) {
-      if (data['balance'] != null) {
-        final payload = Map<String, dynamic>.from(data);
-        state = state.copyWith(
-          projection: WalletProjection.fromJson(payload),
-          walletPhase: WalletLoadPhase.ready,
-        );
-      }
-      // Re-fetch transactions to get the new entry
-      fetchTransactions();
+    _walletUpdatedSubscription = _socketService.onWalletUpdated.listen((_) {
+      unawaited(_refreshAfterWalletUpdate());
     });
   }
 
-  Future<void> fetchBalance() async {
+  Future<void> _refreshAfterWalletUpdate() async {
+    if (_walletEventRefreshInFlight) return;
+    _walletEventRefreshInFlight = true;
+    try {
+      await Future.wait([
+        fetchBalance(silent: true),
+        fetchTransactions(silent: true),
+      ]);
+    } finally {
+      _walletEventRefreshInFlight = false;
+    }
+  }
+
+  Future<void> fetchBalance({bool silent = false}) async {
+    if (_balanceRequestInFlight) return;
+    _balanceRequestInFlight = true;
+    final hasVerifiedBalance = state.projection != null;
     try {
       state = state.copyWith(
-        isLoading: true,
-        walletPhase: WalletLoadPhase.loading,
+        isLoading: !silent && !hasVerifiedBalance,
+        walletPhase: !silent && !hasVerifiedBalance
+            ? WalletLoadPhase.loading
+            : state.walletPhase,
         error: null,
       );
       final response = await _dio.get('/wallet/balance');
@@ -99,7 +123,7 @@ class WalletNotifier extends StateNotifier<WalletState> {
           walletPhase: WalletLoadPhase.ready,
         );
       }
-    } catch (e) {
+    } catch (_) {
       state = state.copyWith(
         isLoading: false,
         walletPhase: state.projection == null
@@ -107,6 +131,8 @@ class WalletNotifier extends StateNotifier<WalletState> {
             : WalletLoadPhase.ready,
         error: 'Balances could not be verified.',
       );
+    } finally {
+      _balanceRequestInFlight = false;
     }
   }
 
@@ -118,16 +144,21 @@ class WalletNotifier extends StateNotifier<WalletState> {
         final tierLimits = TierLimits.fromJson(response.data);
         state = state.copyWith(tierLimits: tierLimits);
       }
-    } catch (e) {
-      print('Failed to fetch tier limits: $e');
-    }
+    } catch (_) {}
   }
 
-  Future<void> fetchTransactions({int page = 1, int limit = 20}) async {
+  Future<void> fetchTransactions({
+    int page = 1,
+    int limit = 20,
+    bool silent = false,
+  }) async {
+    if (_transactionsRequestInFlight) return;
     if (page > 1 && (state.isLoadingMore || !state.hasMore)) return;
+    _transactionsRequestInFlight = true;
+    final hasTransactions = state.transactions.isNotEmpty;
     try {
       state = state.copyWith(
-        transactionsPhase: page == 1
+        transactionsPhase: page == 1 && !silent && !hasTransactions
             ? WalletLoadPhase.loading
             : state.transactionsPhase,
         isLoadingMore: page > 1,
@@ -138,34 +169,51 @@ class WalletNotifier extends StateNotifier<WalletState> {
       );
 
       if (response.statusCode == 200) {
-        final List<dynamic> data = response.data['transactions'] ?? [];
+        final body = Map<String, dynamic>.from(response.data as Map);
+        final List<dynamic> data = body['transactions'] is List
+            ? body['transactions'] as List
+            : const [];
         final incoming = data
             .whereType<Map>()
             .map(
               (json) => WalletEntry.fromJson(Map<String, dynamic>.from(json)),
             )
             .toList();
-        final transactions = page == 1
-            ? incoming
-            : [...state.transactions, ...incoming];
+        final byId = <String, WalletEntry>{};
+        if (page > 1) {
+          for (final entry in state.transactions) {
+            byId[entry.id] = entry;
+          }
+        }
+        for (final entry in incoming) {
+          byId[entry.id] = entry;
+        }
+        final transactions = byId.values.toList(growable: false);
+        final totalPages = (body['totalPages'] as num?)?.toInt() ?? page;
+        final total = (body['total'] as num?)?.toInt();
+        final serverPage = (body['page'] as num?)?.toInt() ?? page;
         state = state.copyWith(
           transactions: transactions,
           transactionsPhase: transactions.isEmpty
               ? WalletLoadPhase.empty
               : WalletLoadPhase.ready,
-          transactionPage: page,
-          hasMore: incoming.length >= limit,
+          transactionPage: serverPage,
+          totalTransactions: total,
+          totalPages: totalPages,
+          hasMore: serverPage < totalPages,
           isLoadingMore: false,
         );
       }
-    } catch (e) {
+    } catch (_) {
       state = state.copyWith(
-        transactionsPhase: page == 1
+        transactionsPhase: page == 1 && state.transactions.isEmpty
             ? WalletLoadPhase.failure
             : state.transactionsPhase,
         isLoadingMore: false,
         error: 'Transactions could not be loaded.',
       );
+    } finally {
+      _transactionsRequestInFlight = false;
     }
   }
 
@@ -224,6 +272,12 @@ class WalletNotifier extends StateNotifier<WalletState> {
       state = state.copyWith(isLoading: false, error: errorMessage);
       return false;
     }
+  }
+
+  @override
+  void dispose() {
+    _walletUpdatedSubscription?.cancel();
+    super.dispose();
   }
 }
 

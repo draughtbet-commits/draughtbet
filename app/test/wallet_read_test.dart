@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:dio/dio.dart';
 import 'package:draughts_arena/models/wallet_read.dart';
 import 'package:draughts_arena/providers/wallet_provider.dart';
@@ -7,9 +9,11 @@ import 'package:draughts_arena/theme/app_theme.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mocktail/mocktail.dart';
 
 final walletProjectionFixture = WalletProjection(
   availableMinorUnits: 3245000,
+  currency: 'NGN',
   lockedMinorUnits: 200000,
   pendingMinorUnits: 0,
   verifiedAt: DateTime.utc(2026, 9, 16, 9, 41),
@@ -66,13 +70,52 @@ class StaticWalletNotifier extends WalletNotifier {
   }
 
   @override
-  Future<void> fetchBalance() async {}
+  Future<void> fetchBalance({bool silent = false}) async {}
 
   @override
-  Future<void> fetchTransactions({int page = 1, int limit = 20}) async {}
+  Future<void> fetchTransactions({
+    int page = 1,
+    int limit = 20,
+    bool silent = false,
+  }) async {}
 
   @override
   Future<void> loadMoreTransactions({int limit = 20}) async {}
+}
+
+class MockDio extends Mock implements Dio {}
+
+class WalletEventSocket extends SocketService {
+  final updates = StreamController<Map<String, dynamic>>.broadcast();
+
+  @override
+  Stream<Map<String, dynamic>> get onWalletUpdated => updates.stream;
+
+  Future<void> closeUpdates() => updates.close();
+}
+
+Response<dynamic> response(String path, Map<String, dynamic> data) => Response(
+  requestOptions: RequestOptions(path: path),
+  statusCode: 200,
+  data: data,
+);
+
+Map<String, dynamic> transactionJson({
+  required String id,
+  String type = 'DEPOSIT',
+  int amountMinorUnits = 200000,
+  String status = 'COMPLETED',
+  String? relatedMatchId,
+}) {
+  final json = <String, dynamic>{
+    'id': id,
+    'type': type,
+    'amountMinorUnits': amountMinorUnits,
+    'status': status,
+    'createdAt': '2026-09-20T10:00:00.000Z',
+  };
+  if (relatedMatchId != null) json['relatedMatchId'] = relatedMatchId;
+  return json;
 }
 
 Widget walletTestApp(Widget child, WalletState state) => ProviderScope(
@@ -83,19 +126,216 @@ Widget walletTestApp(Widget child, WalletState state) => ProviderScope(
 );
 
 void main() {
-  test('wallet projection safely accepts missing optional V2 fields', () {
-    final projection = WalletProjection.fromJson({'balance': '3245000'});
-    expect(projection.availableMinorUnits, 3245000);
+  test('wallet projection parses the authoritative nested balance', () {
+    final projection = WalletProjection.fromJson({
+      'balance': {'currency': 'NGN', 'balanceMinorUnits': 12345},
+    });
+    expect(projection.availableMinorUnits, 12345);
+    expect(projection.currency, 'NGN');
     expect(projection.lockedMinorUnits, isNull);
     expect(projection.pendingMinorUnits, isNull);
     expect(projection.lockedFunds, isEmpty);
   });
 
-  test('wallet projection refuses to invent an available balance', () {
-    expect(
-      () => WalletProjection.fromJson({'lockedBalanceMinorUnits': '500'}),
-      throwsFormatException,
+  test('wallet projection rejects every invalid authoritative shape', () {
+    final invalid = <Map<String, dynamic>>[
+      const {},
+      {'balance': '12345'},
+      {
+        'balance': {'currency': 'NGN'},
+      },
+      {
+        'balance': {'currency': 'NGN', 'balanceMinorUnits': '12.34'},
+      },
+      {
+        'balance': {'balanceMinorUnits': 12345},
+      },
+    ];
+    for (final payload in invalid) {
+      expect(
+        () => WalletProjection.fromJson(payload),
+        throwsFormatException,
+        reason: '$payload must not become a fake balance',
+      );
+    }
+  });
+
+  test('invalid balance response enters the safe unavailable state', () async {
+    final socket = WalletEventSocket();
+    addTearDown(socket.closeUpdates);
+    final dio = MockDio();
+    when(
+      () => dio.get('/wallet/balance'),
+    ).thenAnswer((_) async => response('/wallet/balance', const {}));
+    final notifier = WalletNotifier(socket, dio);
+    addTearDown(notifier.dispose);
+
+    await notifier.fetchBalance();
+
+    expect(notifier.state.projection, isNull);
+    expect(notifier.state.walletPhase, WalletLoadPhase.unavailable);
+    expect(notifier.state.error, 'Balances could not be verified.');
+  });
+
+  test('transaction parser uses only authoritative ledger fields', () {
+    final entry = WalletEntry.fromJson(
+      transactionJson(
+        id: 'ledger-entry-id',
+        type: 'REFUND',
+        amountMinorUnits: 5100,
+        status: 'COMPLETED',
+        relatedMatchId: 'match-7',
+      ),
     );
+
+    expect(entry.id, 'ledger-entry-id');
+    expect(entry.kind, WalletEntryKind.refund);
+    expect(entry.amountMinorUnits, 5100);
+    expect(entry.status, 'COMPLETED');
+    expect(entry.createdAt, DateTime.parse('2026-09-20T10:00:00.000Z'));
+    expect(entry.relatedMatchId, 'match-7');
+    expect(entry.authoritativeReference, 'ledger-entry-id');
+    expect(entry.feeMinorUnits, isNull);
+    expect(entry.balanceImpactMinorUnits, isNull);
+  });
+
+  test(
+    'wallet.updated refetches truth and preserves the verified balance',
+    () async {
+      final socket = WalletEventSocket();
+      addTearDown(socket.closeUpdates);
+      final dio = MockDio();
+      final balanceCompleter = Completer<Response<dynamic>>();
+      final transactionsCompleter = Completer<Response<dynamic>>();
+      when(
+        () => dio.get('/wallet/balance'),
+      ).thenAnswer((_) => balanceCompleter.future);
+      when(
+        () => dio.get('/wallet/transactions?page=1&limit=20'),
+      ).thenAnswer((_) => transactionsCompleter.future);
+      final notifier = WalletNotifier(socket, dio);
+      addTearDown(notifier.dispose);
+      notifier.state = notifier.state.copyWith(
+        projection: const WalletProjection(
+          availableMinorUnits: 5000,
+          currency: 'NGN',
+        ),
+        walletPhase: WalletLoadPhase.ready,
+      );
+
+      socket.updates.add({'balanceChange': '-2000'});
+      socket.updates.add({'balanceChange': '-2000'});
+      await Future<void>.delayed(Duration.zero);
+
+      expect(notifier.state.projection?.availableMinorUnits, 5000);
+      expect(notifier.state.walletPhase, WalletLoadPhase.ready);
+      expect(notifier.state.isLoading, isFalse);
+      verify(() => dio.get('/wallet/balance')).called(1);
+      verify(() => dio.get('/wallet/transactions?page=1&limit=20')).called(1);
+
+      balanceCompleter.complete(
+        response('/wallet/balance', {
+          'balance': {'currency': 'NGN', 'balanceMinorUnits': 12345},
+        }),
+      );
+      transactionsCompleter.complete(
+        response('/wallet/transactions', {
+          'transactions': [transactionJson(id: 'entry-1')],
+          'total': 1,
+          'page': 1,
+          'totalPages': 1,
+        }),
+      );
+      await Future<void>.delayed(Duration.zero);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(notifier.state.projection?.availableMinorUnits, 12345);
+      expect(notifier.state.transactions.single.id, 'entry-1');
+      verifyNever(() => dio.get('/wallet'));
+    },
+  );
+
+  test(
+    'pagination respects totalPages, de-duplicates, and refreshes',
+    () async {
+      final socket = WalletEventSocket();
+      addTearDown(socket.closeUpdates);
+      final dio = MockDio();
+      var firstPageCalls = 0;
+      when(() => dio.get('/wallet/transactions?page=1&limit=2')).thenAnswer((
+        _,
+      ) async {
+        firstPageCalls += 1;
+        return response('/wallet/transactions', {
+          'transactions': firstPageCalls == 1
+              ? [transactionJson(id: 'entry-1'), transactionJson(id: 'entry-2')]
+              : [transactionJson(id: 'entry-4')],
+          'total': firstPageCalls == 1 ? 3 : 1,
+          'page': 1,
+          'totalPages': firstPageCalls == 1 ? 2 : 1,
+        });
+      });
+      when(() => dio.get('/wallet/transactions?page=2&limit=2')).thenAnswer(
+        (_) async => response('/wallet/transactions', {
+          'transactions': [
+            transactionJson(id: 'entry-2'),
+            transactionJson(id: 'entry-3'),
+          ],
+          'total': 3,
+          'page': 2,
+          'totalPages': 2,
+        }),
+      );
+      final notifier = WalletNotifier(socket, dio);
+      addTearDown(notifier.dispose);
+
+      await notifier.fetchTransactions(limit: 2);
+      expect(notifier.state.hasMore, isTrue);
+      expect(notifier.state.totalTransactions, 3);
+      expect(notifier.state.totalPages, 2);
+
+      await notifier.loadMoreTransactions(limit: 2);
+      expect(notifier.state.transactions.map((entry) => entry.id), [
+        'entry-1',
+        'entry-2',
+        'entry-3',
+      ]);
+      expect(notifier.state.hasMore, isFalse);
+      expect(notifier.state.transactionPage, 2);
+
+      await notifier.fetchTransactions(page: 2, limit: 2);
+      verify(() => dio.get('/wallet/transactions?page=2&limit=2')).called(1);
+
+      await notifier.fetchTransactions(limit: 2);
+      expect(notifier.state.transactions.single.id, 'entry-4');
+      expect(notifier.state.transactionPage, 1);
+      expect(notifier.state.hasMore, isFalse);
+    },
+  );
+
+  test('failed pagination preserves verified transactions', () async {
+    final socket = WalletEventSocket();
+    addTearDown(socket.closeUpdates);
+    final dio = MockDio();
+    when(() => dio.get('/wallet/transactions?page=2&limit=20')).thenThrow(
+      DioException(
+        requestOptions: RequestOptions(path: '/wallet/transactions'),
+      ),
+    );
+    final notifier = WalletNotifier(socket, dio);
+    addTearDown(notifier.dispose);
+    notifier.state = notifier.state.copyWith(
+      transactions: [walletEntriesFixture.first],
+      transactionsPhase: WalletLoadPhase.ready,
+      transactionPage: 1,
+      hasMore: true,
+    );
+
+    await notifier.loadMoreTransactions();
+
+    expect(notifier.state.transactions, [walletEntriesFixture.first]);
+    expect(notifier.state.transactionsPhase, WalletLoadPhase.ready);
+    expect(notifier.state.isLoadingMore, isFalse);
   });
 
   testWidgets('wallet unavailable disables financial actions', (tester) async {
@@ -128,5 +368,41 @@ void main() {
     expect(find.text('deposit'), findsOneWidget);
     expect(find.text('PENDING'), findsOneWidget);
     expect(find.text('Apply filters'), findsOneWidget);
+  });
+
+  testWidgets('transaction details fall back to the ledger entry id', (
+    tester,
+  ) async {
+    final entry = WalletEntry.fromJson(transactionJson(id: 'ledger-entry-id'));
+    await tester.pumpWidget(
+      walletTestApp(
+        WalletTransactionDetailScreen(entry: entry),
+        const WalletState(),
+      ),
+    );
+
+    expect(find.text('ledger-entry-id'), findsOneWidget);
+    expect(find.text('Unavailable'), findsNothing);
+  });
+
+  testWidgets('locked and pending balances remain visibly deferred', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      walletTestApp(
+        const LockedFundsScreen(),
+        const WalletState(
+          projection: WalletProjection(
+            availableMinorUnits: 12345,
+            currency: 'NGN',
+          ),
+          walletPhase: WalletLoadPhase.ready,
+        ),
+      ),
+    );
+
+    expect(find.text('Locked funds unavailable'), findsOneWidget);
+    expect(find.textContaining('No amount has been estimated'), findsOneWidget);
+    expect(find.text('₦0'), findsNothing);
   });
 }
