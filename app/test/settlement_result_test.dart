@@ -1,4 +1,3 @@
-import 'package:dio/dio.dart';
 import 'package:draughts_arena/models/match_flow.dart';
 import 'package:draughts_arena/providers/settlement_provider.dart';
 import 'package:draughts_arena/screens/match_result_screen.dart';
@@ -9,14 +8,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
-import 'package:mocktail/mocktail.dart';
 
 import 'settlement_fixtures.dart';
 
-class MockDio extends Mock implements Dio {}
-
 class FixtureSettlementGateway extends SettlementGateway {
-  FixtureSettlementGateway({this.result, this.receipt}) : super(Dio());
+  FixtureSettlementGateway({this.result, this.receipt});
 
   final MatchResultViewData? result;
   final MatchReceiptData? receipt;
@@ -98,38 +94,35 @@ void main() {
   });
 
   test(
-    'settlement gateway performs a read and never posts settlement',
+    'active backend settlement and receipt reads stay unavailable',
     () async {
-      final dio = MockDio();
-      when(() => dio.get<dynamic>('/settlements/DB241567')).thenAnswer(
-        (_) async => Response<dynamic>(
-          requestOptions: RequestOptions(path: '/settlements/DB241567'),
-          data: {
-            'kind': 'draw',
-            'matchId': 'DB241567',
-            'opponent': {'id': 'player-2', 'username': 'KingMoves'},
-            'settlementStatus': 'processing',
-          },
-        ),
-      );
-      final gateway = SettlementGateway(dio);
+      const gateway = SettlementGateway();
 
-      await gateway.fetchStatus('DB241567');
-
-      verify(() => dio.get<dynamic>('/settlements/DB241567')).called(1);
-      verifyNever(
-        () => dio.post<dynamic>(
-          any(),
-          data: any(named: 'data'),
-          queryParameters: any(named: 'queryParameters'),
-          options: any(named: 'options'),
-          cancelToken: any(named: 'cancelToken'),
-          onSendProgress: any(named: 'onSendProgress'),
-          onReceiveProgress: any(named: 'onReceiveProgress'),
-        ),
-      );
+      expect(await gateway.fetchStatus('DB241567'), isNull);
+      expect(await gateway.fetchReceipt('DB241567'), isNull);
     },
   );
+
+  test('active match_ended payload maps only server-supplied money', () {
+    final winner = MatchResultViewData.tryFromActiveMatchEnded(
+      {'winnerId': 'player-1', 'reason': 'NO_LEGAL_MOVES', 'payout': '376543'},
+      matchId: 'DB241567',
+      currentUserId: 'player-1',
+      opponentId: 'player-2',
+    );
+    final loser = MatchResultViewData.tryFromActiveMatchEnded(
+      {'winnerId': 'player-1', 'reason': 'NO_LEGAL_MOVES', 'payout': '376543'},
+      matchId: 'DB241567',
+      currentUserId: 'player-2',
+      opponentId: 'player-1',
+    );
+
+    expect(winner?.kind, ResultKind.victory);
+    expect(winner?.settlement, SettlementPhase.confirmed);
+    expect(winner?.payoutMinorUnits, 376543);
+    expect(loser?.kind, ResultKind.defeat);
+    expect(loser?.payoutMinorUnits, isNull);
+  });
 
   for (final entry in <ResultKind, String>{
     ResultKind.victory: 'VICTORY',

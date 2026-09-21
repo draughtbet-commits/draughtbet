@@ -140,11 +140,17 @@ class MatchNotifier extends StateNotifier<MatchState> {
 
   bool _isReconnecting = false;
   int _actionSequence = 0;
+  String? _currentUserId;
   final List<StreamSubscription<Map<String, dynamic>>> _subscriptions = [];
   StreamSubscription<List<ConnectivityResult>>? _connectivitySubscription;
 
   MatchNotifier(this._socketService, this._dio) : super(const MatchState()) {
+    unawaited(_loadCurrentUserId());
     _initListeners();
+  }
+
+  Future<void> _loadCurrentUserId() async {
+    _currentUserId = await _storage.userId;
   }
 
   void _initListeners() {
@@ -324,7 +330,21 @@ class MatchNotifier extends StateNotifier<MatchState> {
       _socketService.onMatchEnded.listen((data) {
         final current = state.gameState;
         if (current == null) return;
-        final result = MatchResultViewData.tryFromServer(data);
+        final currentUserId = _currentUserId;
+        final matchId = state.currentMatchId;
+        final opponentId = currentUserId == current.player1
+            ? current.player2
+            : current.player1;
+        final result =
+            MatchResultViewData.tryFromServer(data) ??
+            (currentUserId == null || matchId == null
+                ? null
+                : MatchResultViewData.tryFromActiveMatchEnded(
+                    data,
+                    matchId: matchId,
+                    currentUserId: currentUserId,
+                    opponentId: opponentId,
+                  ));
         state = state.copyWith(
           gameState: current.copyWith(
             status: result == null ? 'settling' : 'completed',

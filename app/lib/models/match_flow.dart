@@ -361,6 +361,58 @@ class MatchResultViewData {
     );
   }
 
+  /// Adapts the active backend's post-settlement `match_ended` event.
+  ///
+  /// The backend emits this only after its settlement transaction completes.
+  /// The client maps the authoritative winner to the current player's view,
+  /// but never calculates a winner or payout. The event does not expose an
+  /// opponent profile or receipt/ledger identifiers, so those remain absent.
+  static MatchResultViewData? tryFromActiveMatchEnded(
+    Map<dynamic, dynamic> raw, {
+    required String matchId,
+    required String currentUserId,
+    required String opponentId,
+  }) {
+    final body = Map<String, dynamic>.from(raw);
+    final winnerId = body['winnerId']?.toString().trim();
+    final reason = body['reason']?.toString().trim();
+    final payout = _minorUnits(body['payout']);
+    if (matchId.trim().isEmpty ||
+        currentUserId.trim().isEmpty ||
+        opponentId.trim().isEmpty ||
+        reason == null ||
+        reason.isEmpty ||
+        payout == null) {
+      return null;
+    }
+
+    final normalizedReason = reason.toLowerCase();
+    final isDraw = winnerId == null || winnerId.isEmpty;
+    final playerWon = !isDraw && winnerId == currentUserId;
+    final kind = isDraw
+        ? ResultKind.draw
+        : normalizedReason == 'resign' && playerWon
+        ? ResultKind.resignation
+        : normalizedReason == 'timeout_forfeit' && !playerWon
+        ? ResultKind.timeout
+        : normalizedReason == 'forfeit_disconnect' && playerWon
+        ? ResultKind.disconnectForfeit
+        : playerWon
+        ? ResultKind.victory
+        : ResultKind.defeat;
+
+    return MatchResultViewData(
+      kind: kind,
+      opponent: MatchPlayer(id: opponentId, name: 'Opponent'),
+      matchId: matchId,
+      reason: reason,
+      settlement: SettlementPhase.confirmed,
+      payoutMinorUnits: playerWon ? payout : null,
+      refundMinorUnits: isDraw ? payout : null,
+      serverVerified: true,
+    );
+  }
+
   /// Deliberately excludes money, wallet balances, ledger references and
   /// receipt identifiers from user-shareable content.
   String privacySafeShareText() {

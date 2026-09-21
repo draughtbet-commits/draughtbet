@@ -1,5 +1,3 @@
-import 'package:dio/dio.dart';
-
 import '../models/match_flow.dart';
 
 /// Read-only access to authoritative settlement projections.
@@ -7,21 +5,17 @@ import '../models/match_flow.dart';
 /// This gateway intentionally exposes no POST/PATCH method. Flutter may refresh
 /// status and receipt data, but it cannot start or retry money movement.
 class SettlementGateway {
-  const SettlementGateway(this._dio);
-
-  final Dio _dio;
+  const SettlementGateway();
 
   Future<MatchResultViewData?> fetchStatus(String matchId) async {
-    final response = await _dio.get('/settlements/$matchId');
-    final body = response.data;
-    if (body is! Map) return null;
-    return MatchResultViewData.tryFromServer(body);
+    // The active backend exposes no settlement-status read endpoint. Returning
+    // null keeps the approved pending/unavailable state honest and avoids a
+    // request to the roadmap-only `/settlements/:matchId` contract.
+    return null;
   }
 
   Future<MatchReceiptData?> fetchReceipt(String matchId) async {
-    final response = await _dio.get('/matches/$matchId/receipt');
-    final body = response.data;
-    if (body is! Map) return null;
-    return MatchReceiptData.tryFromServer(body);
+    // Match receipts are not yet exposed by the active backend.
+    return null;
   }
 }
