@@ -16,8 +16,8 @@ class CreateMatchScreen extends ConsumerStatefulWidget {
 class _CreateMatchScreenState extends ConsumerState<CreateMatchScreen> {
   int _stake = 200000;
   static const _timeControl = 'Server configured';
-  static const _gameType = 'Server configured';
-  static const _board = 'Server configured';
+  static const _gameType = 'Classic';
+  static const _board = '10×10 (International)';
   static const _visibility = 'Same tier';
 
   void _review() {
@@ -91,56 +91,16 @@ class _CreateMatchScreenState extends ConsumerState<CreateMatchScreen> {
               ),
               const SizedBox(height: 13),
               _fieldLabel('Time Control'),
-              DropdownButtonFormField<String>(
-                isExpanded: true,
-                initialValue: _timeControl,
-                items: const [_timeControl]
-                    .map(
-                      (value) =>
-                          DropdownMenuItem(value: value, child: Text(value)),
-                    )
-                    .toList(),
-                onChanged: null,
-              ),
+              const _ServerConfiguredField(value: _timeControl),
               const SizedBox(height: 13),
               _fieldLabel('Game Type'),
-              DropdownButtonFormField<String>(
-                isExpanded: true,
-                initialValue: _gameType,
-                items: const [_gameType]
-                    .map(
-                      (value) =>
-                          DropdownMenuItem(value: value, child: Text(value)),
-                    )
-                    .toList(),
-                onChanged: null,
-              ),
+              const _ServerConfiguredField(value: _gameType),
               const SizedBox(height: 13),
               _fieldLabel('Board'),
-              DropdownButtonFormField<String>(
-                isExpanded: true,
-                initialValue: _board,
-                items: const [_board]
-                    .map(
-                      (value) =>
-                          DropdownMenuItem(value: value, child: Text(value)),
-                    )
-                    .toList(),
-                onChanged: null,
-              ),
+              const _ServerConfiguredField(value: _board),
               const SizedBox(height: 13),
               _fieldLabel('Who can join?'),
-              DropdownButtonFormField<String>(
-                isExpanded: true,
-                initialValue: _visibility,
-                items: const [_visibility]
-                    .map(
-                      (value) =>
-                          DropdownMenuItem(value: value, child: Text(value)),
-                    )
-                    .toList(),
-                onChanged: null,
-              ),
+              const _ServerConfiguredField(value: _visibility),
               const SizedBox(height: 10),
               Material(
                 color: AppColors.transparent,
@@ -188,6 +148,38 @@ class _CreateMatchScreenState extends ConsumerState<CreateMatchScreen> {
               const SizedBox(height: 16),
               PrimaryActionButton(label: 'Review Match', onPressed: _review),
             ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ServerConfiguredField extends StatelessWidget {
+  const _ServerConfiguredField({required this.value});
+
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      readOnly: true,
+      value: value,
+      child: InputDecorator(
+        decoration: const InputDecoration(
+          suffixIcon: Icon(
+            Icons.lock_outline_rounded,
+            size: 18,
+            color: AppColors.textSecondary,
+          ),
+        ),
+        child: Text(
+          value,
+          style: const TextStyle(
+            fontFamily: 'Inter',
+            color: AppColors.textPrimary,
+            fontSize: 16,
+            fontWeight: FontWeight.w600,
           ),
         ),
       ),
