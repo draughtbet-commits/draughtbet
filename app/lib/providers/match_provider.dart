@@ -145,12 +145,13 @@ class MatchNotifier extends StateNotifier<MatchState> {
   StreamSubscription<List<ConnectivityResult>>? _connectivitySubscription;
 
   MatchNotifier(this._socketService, this._dio) : super(const MatchState()) {
-    unawaited(_loadCurrentUserId());
     _initListeners();
   }
 
-  Future<void> _loadCurrentUserId() async {
-    _currentUserId = await _storage.userId;
+  void setCurrentUserId(String? userId) {
+    if (userId != null && userId.trim().isNotEmpty) {
+      _currentUserId = userId;
+    }
   }
 
   void _initListeners() {
@@ -198,6 +199,12 @@ class MatchNotifier extends StateNotifier<MatchState> {
 
     _subscriptions.add(
       _socketService.onMoveApplied.listen((data) {
+        final eventMatchId = data['matchId']?.toString();
+        if (eventMatchId != null &&
+            eventMatchId.isNotEmpty &&
+            eventMatchId != state.currentMatchId) {
+          return;
+        }
         MoveAppliedEvent event;
         try {
           event = MoveAppliedEvent.fromJson(data);
@@ -212,6 +219,20 @@ class MatchNotifier extends StateNotifier<MatchState> {
           return;
         }
         if (state.gameState == null) return;
+
+        final currentVersion = state.gameState!.stateVersion;
+        final incomingVersion = event.stateVersion;
+        if (incomingVersion != null && incomingVersion <= currentVersion) {
+          // Duplicate or stale accepted event. The canonical board already
+          // includes it, so never apply it a second time.
+          return;
+        }
+        if (incomingVersion != null && incomingVersion > currentVersion + 1) {
+          state = state.copyWith(syncState: MatchSyncState.syncing);
+          final matchId = state.currentMatchId;
+          if (matchId != null) unawaited(fetchGameState(matchId));
+          return;
+        }
 
         final pendingId = state.pendingClientMoveId;
         if (event.clientMoveId != null &&
@@ -236,6 +257,8 @@ class MatchNotifier extends StateNotifier<MatchState> {
         final newState = state.gameState!.copyWith(
           board: event.board,
           currentTurn: event.nextTurn,
+          stateVersion: incomingVersion ?? currentVersion + 1,
+          moveCount: incomingVersion ?? state.gameState!.moveCount + 1,
           // `move_applied` intentionally does not include winner/payout truth.
           // Keep the UI in a terminal-pending state until `match_ended` arrives.
           status: event.gameEnded ? 'settling' : 'in_progress',

@@ -204,6 +204,61 @@ void main() {
     expect(conflict.title, 'STATE RESYNC');
     expect(capture.requiresResync, isFalse);
     expect(capture.message, contains('capture is available'));
+    expect(
+      MoveRejection.fromServer({'reason': 'turn_expired'}).code,
+      GameRejectionCode.turnExpired,
+    );
+    expect(
+      MoveRejection.fromServer({'reason': 'persist_failed'}).requiresResync,
+      isTrue,
+    );
+  });
+
+  test('active move events ignore duplicates and resync across gaps', () async {
+    final socket = ProtocolSocket();
+    final notifier = ProtocolNotifier(socket, Dio());
+    notifier.state = notifier.state.copyWith(
+      currentMatchId: 'legacy-match',
+      gameState: game(protocolVersion: 1),
+    );
+    final acceptedBoard = List<int>.filled(50, 0)..[20] = 1;
+
+    socket.moveApplied.add({
+      'matchId': 'legacy-match',
+      'version': '13',
+      'from': 31,
+      'to': 26,
+      'board': acceptedBoard,
+      'nextTurn': 'BLACK',
+    });
+    await Future<void>.delayed(Duration.zero);
+    expect(notifier.state.gameState?.stateVersion, 13);
+    expect(notifier.state.gameState?.board, acceptedBoard);
+
+    final staleBoard = List<int>.filled(50, 9);
+    socket.moveApplied.add({
+      'matchId': 'legacy-match',
+      'version': '13',
+      'from': 31,
+      'to': 26,
+      'board': staleBoard,
+      'nextTurn': 'WHITE',
+    });
+    await Future<void>.delayed(Duration.zero);
+    expect(notifier.state.gameState?.board, acceptedBoard);
+
+    socket.moveApplied.add({
+      'matchId': 'legacy-match',
+      'version': '15',
+      'from': 20,
+      'to': 15,
+      'board': staleBoard,
+      'nextTurn': 'WHITE',
+    });
+    await Future<void>.delayed(Duration.zero);
+    expect(notifier.fetchCount, 1);
+    expect(notifier.state.syncState, MatchSyncState.syncing);
+    expect(notifier.state.gameState?.board, acceptedBoard);
   });
 
   test('V2 move sends full path once and never applies a board locally', () {

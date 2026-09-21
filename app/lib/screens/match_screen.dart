@@ -36,7 +36,10 @@ class _MatchScreenState extends ConsumerState<MatchScreen> {
   void initState() {
     super.initState();
     SecureStorageService().userId.then((value) {
-      if (mounted) setState(() => _userId = value);
+      if (mounted) {
+        ref.read(matchProvider.notifier).setCurrentUserId(value);
+        setState(() => _userId = value);
+      }
     });
     WidgetsBinding.instance.addPostFrameCallback((_) {
       ref.read(matchProvider.notifier).joinMatch(widget.matchId);

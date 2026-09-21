@@ -50,7 +50,13 @@ class _GameMoveHistoryScreenState extends ConsumerState<GameMoveHistoryScreen> {
       if (!mounted) return;
       final data = response.data;
       if (data is! Map) throw const FormatException('Invalid match state');
-      final game = GameState.fromJson(Map<String, dynamic>.from(data));
+      final json = Map<String, dynamic>.from(data);
+      if (!json.containsKey('moveHistory') &&
+          !json.containsKey('acceptedMoves') &&
+          !json.containsKey('moves')) {
+        throw const FormatException('Accepted move log unavailable');
+      }
+      final game = GameState.fromJson(json);
       setState(() => _moves = game.moveHistory);
     } catch (_) {
       if (mounted) {

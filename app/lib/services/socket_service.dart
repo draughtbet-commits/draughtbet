@@ -191,8 +191,8 @@ class SocketService {
   }
 
   void joinMatch(String matchId) {
-    // Joining is non-mutating, so both names can coexist during migration.
-    _socket?.emit('match.join', {'matchId': matchId});
+    // The active backend registers only `join_match`. Emitting the roadmap V2
+    // alias as well caused two join attempts against mixed deployments.
     _socket?.emit('join_match', {'matchId': matchId});
   }
 

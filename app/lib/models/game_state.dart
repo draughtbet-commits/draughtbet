@@ -132,5 +132,8 @@ Map<String, dynamic> _normalizeMoveApplied(Map<String, dynamic> json) {
   normalized['board'] ??= const <dynamic>[];
   normalized['nextTurn'] ??= json['sideToMove'] ?? '';
   normalized['gameEnded'] ??= false;
+  normalized['stateVersion'] ??= int.tryParse(
+    json['version']?.toString() ?? '',
+  );
   return normalized;
 }
