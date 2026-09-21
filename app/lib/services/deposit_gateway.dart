@@ -10,11 +10,10 @@ class DepositGateway {
   final Dio _dio;
 
   Future<DepositQuote?> createQuote(int amountMinorUnits) async {
-    final response = await _dio.post<dynamic>(
-      '/deposits/quote',
-      data: {'amountMinorUnits': amountMinorUnits},
-    );
-    return DepositQuote.tryFromServer(response.data);
+    // The active backend does not expose a deposit quote/payment-method read.
+    // Do not call the roadmap-only `/deposits/quote` endpoint or invent a
+    // gateway list in Flutter. The notifier renders its unavailable state.
+    return null;
   }
 
   Future<DepositIntentData?> createIntent({
@@ -25,7 +24,7 @@ class DepositGateway {
       '/wallet/deposit-intent',
       data: {
         'amountMinorUnits': quote.amountMinorUnits,
-        'gateway': method.id,
+        'gateway': method.id.toLowerCase(),
         'quoteId': quote.id,
         if (quote.idempotencyKey != null)
           'idempotencyKey': quote.idempotencyKey,
@@ -43,10 +42,10 @@ class DepositGateway {
     String reference, {
     DepositIntentData? previous,
   }) async {
-    final response = await _dio.get<dynamic>(
-      '/deposits/${Uri.encodeComponent(reference)}',
-    );
-    return DepositIntentData.tryFromServer(response.data, previous: previous);
+    // Deposit completion is currently delivered only through the webhook and
+    // wallet projection. There is no authenticated deposit-status read route,
+    // so a provider return must remain pending rather than imply success.
+    return null;
   }
 }
 

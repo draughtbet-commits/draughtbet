@@ -175,6 +175,13 @@ void setPhoneViewport(WidgetTester tester, {Size size = const Size(412, 915)}) {
 }
 
 void main() {
+  test('active backend gaps do not call nonexistent deposit reads', () async {
+    final gateway = DepositGateway(Dio());
+
+    expect(await gateway.createQuote(200000), isNull);
+    expect(await gateway.fetchStatus('deposit-reference'), isNull);
+  });
+
   test(
     'quote parser preserves server totals and never calculates a payout',
     () {
