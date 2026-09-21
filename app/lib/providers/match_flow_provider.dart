@@ -34,6 +34,7 @@ class MatchFlowState {
     String? currentMatchId,
     MatchLifecycleSnapshot? lifecycle,
     String? message,
+    bool clearCurrentMatchId = false,
     bool clearMessage = false,
   }) {
     return MatchFlowState(
@@ -42,7 +43,9 @@ class MatchFlowState {
       actionPhase: actionPhase ?? this.actionPhase,
       searchPhase: searchPhase ?? this.searchPhase,
       currentIntent: currentIntent ?? this.currentIntent,
-      currentMatchId: currentMatchId ?? this.currentMatchId,
+      currentMatchId: clearCurrentMatchId
+          ? null
+          : currentMatchId ?? this.currentMatchId,
       lifecycle: lifecycle ?? this.lifecycle,
       message: clearMessage ? null : message ?? this.message,
     );
@@ -82,6 +85,8 @@ class MatchFlowNotifier extends StateNotifier<MatchFlowState> {
     state = state.copyWith(
       currentIntent: intent,
       actionPhase: MatchActionPhase.idle,
+      searchPhase: SearchPhase.idle,
+      clearCurrentMatchId: true,
       clearMessage: true,
     );
   }
@@ -100,7 +105,9 @@ class MatchFlowNotifier extends StateNotifier<MatchFlowState> {
           intent.openMatchId != null) {
         id = await _gateway.acceptOpenMatch(intent.openMatchId!);
       } else if (intent.kind == MatchEntryKind.created) {
-        id = await _gateway.createOpenMatch(intent.terms);
+        // The active backend returns a callout ID here, not a match ID. A
+        // match exists only after `match_found` supplies its authoritative ID.
+        await _gateway.createOpenMatch(intent.terms);
       } else {
         await _gateway.joinQueue(intent.terms);
       }
@@ -179,6 +186,7 @@ class MatchFlowNotifier extends StateNotifier<MatchFlowState> {
     state = state.copyWith(
       actionPhase: MatchActionPhase.idle,
       searchPhase: SearchPhase.idle,
+      clearCurrentMatchId: true,
       clearMessage: true,
     );
   }

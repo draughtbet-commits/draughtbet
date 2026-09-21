@@ -51,6 +51,18 @@ class TimeoutGateway extends MatchFlowGateway {
   );
 }
 
+class CreatedCalloutGateway extends MatchFlowGateway {
+  CreatedCalloutGateway() : super(Dio());
+
+  var calls = 0;
+
+  @override
+  Future<String?> createOpenMatch(MatchTerms terms) async {
+    calls += 1;
+    return 'callout-not-a-match';
+  }
+}
+
 void main() {
   test(
     'timed-out stake mutation remains unknown and is not reported failed',
@@ -65,6 +77,31 @@ void main() {
       await notifier.confirm();
       expect(notifier.state.actionPhase, MatchActionPhase.unknown);
       expect(notifier.state.message, contains('unknown'));
+    },
+  );
+
+  test(
+    'created callout waits for match_found before exposing a match ID',
+    () async {
+      final gateway = CreatedCalloutGateway();
+      final notifier = MatchFlowNotifier(gateway);
+      notifier.review(
+        const MatchFlowIntent(
+          kind: MatchEntryKind.created,
+          terms: lifecycleTerms,
+        ),
+      );
+
+      final returnedId = await notifier.confirm();
+
+      expect(gateway.calls, 1);
+      expect(returnedId, isNull);
+      expect(notifier.state.currentMatchId, isNull);
+      expect(notifier.state.searchPhase, SearchPhase.searching);
+
+      notifier.matchFound('authoritative-match');
+      expect(notifier.state.currentMatchId, 'authoritative-match');
+      expect(notifier.state.searchPhase, SearchPhase.found);
     },
   );
 

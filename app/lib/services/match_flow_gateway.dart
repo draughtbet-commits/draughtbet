@@ -19,10 +19,25 @@ class MatchFlowGateway {
           final playerJson = challenger is Map
               ? Map<String, dynamic>.from(challenger)
               : const <String, dynamic>{};
+          final id = json['id']?.toString().trim() ?? '';
+          final challengerId = json['challengerId']?.toString().trim() ?? '';
+          final stakeMinorUnits = int.tryParse(
+            json['stakeMinorUnits']?.toString() ?? '',
+          );
+          final expiresAt = DateTime.tryParse(
+            json['expiresAt']?.toString() ?? '',
+          );
+          if (id.isEmpty ||
+              challengerId.isEmpty ||
+              stakeMinorUnits == null ||
+              stakeMinorUnits <= 0 ||
+              expiresAt == null) {
+            return null;
+          }
           return OpenMatch(
-            id: json['id']?.toString() ?? '',
+            id: id,
             host: MatchPlayer(
-              id: json['challengerId']?.toString() ?? '',
+              id: challengerId,
               name:
                   playerJson['username']?.toString() ??
                   playerJson['displayName']?.toString() ??
@@ -35,16 +50,17 @@ class MatchFlowGateway {
               level: int.tryParse(playerJson['level']?.toString() ?? ''),
             ),
             terms: MatchTerms(
-              stakeMinorUnits:
-                  int.tryParse(json['stakeMinorUnits']?.toString() ?? '') ?? 0,
-              timeControl: json['timeControl']?.toString() ?? '10 minutes',
-              gameType: json['gameType']?.toString() ?? 'Classic',
+              stakeMinorUnits: stakeMinorUnits,
+              timeControl:
+                  json['timeControl']?.toString() ?? 'Server configured',
+              gameType: json['gameType']?.toString() ?? 'Server configured',
+              board: json['board']?.toString() ?? 'Server configured',
               serverQuoted: false,
             ),
-            expiresAt: DateTime.tryParse(json['expiresAt']?.toString() ?? ''),
+            expiresAt: expiresAt,
           );
         })
-        .where((match) => match.id.isNotEmpty)
+        .whereType<OpenMatch>()
         .toList(growable: false);
   }
 
