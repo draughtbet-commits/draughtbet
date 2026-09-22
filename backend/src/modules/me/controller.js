@@ -34,3 +34,27 @@ meRouter.patch('/', requireAuth, async (req, res, next) => {
     next(err);
   }
 });
+
+meRouter.get('/sessions', requireAuth, async (req, res, next) => {
+  try {
+    const sessions = await AuthService.listSessions(req.user.id, { currentSessionId: req.sessionId });
+    res.json({ data: sessions });
+  } catch (err) {
+    next(err);
+  }
+});
+
+meRouter.delete('/sessions/:sessionId', requireAuth, async (req, res, next) => {
+  try {
+    const result = await AuthService.revokeSession(req.user.id, req.params.sessionId, {
+      ip: req.ip,
+      userAgent: req.get('user-agent')
+    });
+    res.json({ data: result });
+  } catch (err) {
+    if (err && err.name === 'VerificationChallengeError') {
+      return res.status(err.status ?? 400).json({ error: { code: err.code, message: err.message } });
+    }
+    next(err);
+  }
+});

@@ -1,9 +1,10 @@
 import express from 'express';
 import { z } from 'zod';
 import { AuthService } from './service.js';
+import { isVerificationChallengeError } from './verificationChallengeService.js';
 import { GeoService } from '../../services/geoService.js';
 import { requireAuth } from '../../middleware/auth.js';
-import { authRateLimiter, checkRateLimiter } from '../../middleware/rateLimit.js';
+import { authRateLimiter, checkRateLimiter, verificationRateLimiter } from '../../middleware/rateLimit.js';
 import { requireAppVersion } from '../../middleware/appVersion.js';
 import { getIO } from '../../sockets/index.js';
 
@@ -66,6 +67,30 @@ const geolocateSchema = z.object({
 const availabilitySchema = z.object({
   type: z.enum(['email', 'phone', 'username']),
   value: z.string().min(1)
+});
+
+const verifyStartSchema = z.object({
+  channel: z.enum(['email', 'phone']),
+  destination: z.string().trim().min(1).optional()
+});
+
+const verifyConfirmSchema = z.object({
+  challengeId: z.string().trim().min(1),
+  code: z.string().regex(/^\d{6}$/, 'Code must be exactly 6 digits')
+});
+
+const forgotPasswordSchema = z.object({
+  identifier: z.string().trim().min(3)
+});
+
+const resetPasswordSchema = z.object({
+  challengeId: z.string().trim().min(1),
+  code: z.string().regex(/^\d{6}$/, 'Code must be exactly 6 digits'),
+  newPassword: z.string()
+    .min(8)
+    .regex(/[A-Z]/, 'Password must contain at least one uppercase letter')
+    .regex(/[a-z]/, 'Password must contain at least one lowercase letter')
+    .regex(/[0-9]/, 'Password must contain at least one digit')
 });
 
 authRouter.post('/register', authRateLimiter, requireAppVersion, async (req, res, next) => {
@@ -205,6 +230,78 @@ authRouter.post('/logout', requireAuth, async (req, res, next) => {
     }
     res.json({ message: 'Logged out successfully' });
   } catch (err) {
+    next(err);
+  }
+});
+
+// Contact verification (contract §3: /auth/verify/start + /auth/verify/confirm)
+authRouter.post('/verify/start', requireAuth, verificationRateLimiter, async (req, res, next) => {
+  try {
+    const data = verifyStartSchema.parse(req.body);
+    const result = await AuthService.startContactVerification(req.user.id, {
+      channel: data.channel,
+      destination: data.destination
+    });
+    res.json({ data: result });
+  } catch (err) {
+    if (isVerificationChallengeError(err)) {
+      return res.status(err.status ?? 400).json({ error: { code: err.code, message: err.message, ...(err.resendAfterSeconds ? { resendAfterSeconds: err.resendAfterSeconds } : {}) } });
+    }
+    if (err && err.name === 'ZodError') {
+      return res.status(400).json({ errors: err.errors || err.issues });
+    }
+    next(err);
+  }
+});
+
+authRouter.post('/verify/confirm', requireAuth, verificationRateLimiter, async (req, res, next) => {
+  try {
+    const data = verifyConfirmSchema.parse(req.body);
+    const result = await AuthService.confirmContactVerification(req.user.id, { challengeId: data.challengeId, code: data.code });
+    res.json({ data: result });
+  } catch (err) {
+    if (isVerificationChallengeError(err)) {
+      return res.status(err.status ?? 400).json({ error: { code: err.code, message: err.message } });
+    }
+    if (err && err.name === 'ZodError') {
+      return res.status(400).json({ errors: err.errors || err.issues });
+    }
+    next(err);
+  }
+});
+
+// Password recovery (contract §3: /auth/forgot-password + /auth/reset-password)
+authRouter.post('/forgot-password', checkRateLimiter, async (req, res, next) => {
+  try {
+    const data = forgotPasswordSchema.parse(req.body);
+    const result = await AuthService.forgotPassword({ identifier: data.identifier });
+    res.json({ data: result });
+  } catch (err) {
+    if (err && err.name === 'ZodError') {
+      return res.status(400).json({ errors: err.errors || err.issues });
+    }
+    next(err);
+  }
+});
+
+authRouter.post('/reset-password', authRateLimiter, async (req, res, next) => {
+  try {
+    const data = resetPasswordSchema.parse(req.body);
+    const result = await AuthService.resetPassword({
+      challengeId: data.challengeId,
+      code: data.code,
+      newPassword: data.newPassword,
+      ip: req.ip,
+      userAgent: req.get('user-agent')
+    });
+    res.json({ data: result });
+  } catch (err) {
+    if (isVerificationChallengeError(err)) {
+      return res.status(err.status ?? 400).json({ error: { code: err.code, message: err.message } });
+    }
+    if (err && err.name === 'ZodError') {
+      return res.status(400).json({ errors: err.errors || err.issues });
+    }
     next(err);
   }
 });

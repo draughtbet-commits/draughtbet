@@ -22,6 +22,8 @@ model User {
   tier              Tier     @default(AMATEUR)
   ageVerified       Boolean  @default(false)
   kycStatus         KycStatus @default(NONE)
+  emailVerified     Boolean  @default(false)
+  phoneVerified     Boolean  @default(false)
   countryCode       String?  // ISO 3166-1 alpha-2, from the server-side geo evidence at registration
   dateOfBirth       DateTime? // persisted claimed date of birth; ageVerified is derived from it
   fcmToken          String?  // Firebase Cloud Messaging token for push notifications
@@ -408,8 +410,9 @@ model VerificationChallenge {
 }
 
 enum ChallengeType {
-  EMAIL
-  PHONE
+  EMAIL_VERIFY
+  PHONE_VERIFY
+  PASSWORD_RESET
 }
 
 model ConsentRecord {

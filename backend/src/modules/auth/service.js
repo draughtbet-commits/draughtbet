@@ -6,6 +6,14 @@ import _prisma from '../../utils/db.js';
 import _redis from '../../utils/redis.js';
 import { GeoService } from '../../services/geoService.js';
 import { getLedgerAvailable, ensureUserAccounts } from '../../services/ledgerService.js';
+import {
+  createVerificationChallenge,
+  verifyVerificationChallenge,
+  CONTACT_VERIFY_PURPOSES,
+  RESET_PURPOSE,
+  VerificationChallengeError
+} from './verificationChallengeService.js';
+import { getDeliveryProvider } from './deliveryProvider.js';
 
 let prisma = _prisma;
 let redis = _redis;
@@ -236,32 +244,33 @@ const user = await prisma.$transaction(async (tx) => {
   }
 
   static async issueTokens(userId, { family = null, ip = null, userAgent = null, deviceInfo = null } = {}) {
-    const accessToken = jwt.sign({ userId }, jwtSecret, { expiresIn: ACCESS_TOKEN_EXPIRY });
     const refreshTokenId = uuidv4();
+
+    // Durable session row (reuse-detection spine): only the token hash is
+    // stored. Each rotation moves the family forward and revokes the old row.
+    const session = prisma
+      ? await prisma.userSession.create({
+          data: {
+            userId,
+            refreshTokenHash: hashRefreshToken(refreshTokenId),
+            family: family ?? uuidv4(),
+            lastRotatedAt: new Date(),
+            deviceInfo: deviceInfo ?? undefined,
+            ipAddress: ip ?? undefined,
+            userAgent: userAgent ?? undefined,
+            status: 'ACTIVE',
+            expiresAt: new Date(Date.now() + REFRESH_TOKEN_TTL_SECONDS * 1000)
+          }
+        })
+      : null;
+
+    const accessToken = jwt.sign({ userId, sessionId: session?.id }, jwtSecret, { expiresIn: ACCESS_TOKEN_EXPIRY });
 
     // Key: refresh:{userId}:{tokenId} -> value doesn't matter much, TTL is the focus
     const redisKey = `refresh:${userId}:${refreshTokenId}`;
 
     if (redis) {
       await redis.set(redisKey, 'valid', 'EX', REFRESH_TOKEN_TTL_SECONDS);
-    }
-
-    // Durable session row (reuse-detection spine): only the token hash is
-    // stored. Each rotation moves the family forward and revokes the old row.
-    if (prisma) {
-      await prisma.userSession.create({
-        data: {
-          userId,
-          refreshTokenHash: hashRefreshToken(refreshTokenId),
-          family: family ?? uuidv4(),
-          lastRotatedAt: new Date(),
-          deviceInfo: deviceInfo ?? undefined,
-          ipAddress: ip ?? undefined,
-          userAgent: userAgent ?? undefined,
-          status: 'ACTIVE',
-          expiresAt: new Date(Date.now() + REFRESH_TOKEN_TTL_SECONDS * 1000)
-        }
-      });
     }
 
     return {
@@ -405,6 +414,159 @@ const user = await prisma.$transaction(async (tx) => {
       });
     }
     return true;
+  }
+
+  // -------------------------------------------------------------------------
+  // Contact verification, password reset, sessions
+  // -------------------------------------------------------------------------
+
+  // Delivery selection: an explicit caller-provided deliver fn wins (tests).
+  // Otherwise the registered provider (OTP_DELIVERY) serves the code; the
+  // registry handles dev mailbox / discard / production email or fail-closed.
+  static selectDeliver(providers = {}) {
+    const { deliver, mailboxDeliver: boxDeliver } = providers;
+    if (deliver) return deliver;
+    const provider = getDeliveryProvider();
+    return (args) => provider.deliver(args);
+  }
+
+  static async startContactVerification(userId, { channel, destination, dbp = prisma, deliver, generate } = {}) {
+    if (channel !== 'email' && channel !== 'phone') {
+      throw new VerificationChallengeError('Unsupported verification channel', { status: 400, code: 'INVALID_CHANNEL' });
+    }
+    const purpose = channel === 'email' ? 'EMAIL_VERIFY' : 'PHONE_VERIFY';
+    const account = await dbp.user.findUnique({
+      where: { id: userId },
+      select: { id: true, email: true, phone: true }
+    });
+    if (!account) {
+      throw new VerificationChallengeError('User not found', { status: 404, code: 'USER_NOT_FOUND' });
+    }
+    const expected = channel === 'email' ? account.email : account.phone;
+    if (destination && expected && destination.trim().toLowerCase() !== expected.trim().toLowerCase()) {
+      throw new VerificationChallengeError('Destination does not match the account contact', {
+        status: 400,
+        code: 'DESTINATION_MISMATCH'
+      });
+    }
+    if (!expected) {
+      throw new VerificationChallengeError(`No ${channel} on file to verify`, {
+        status: 400,
+        code: 'NO_CONTACT_ON_FILE'
+      });
+    }
+    return createVerificationChallenge(userId, purpose, {
+      dbp,
+      generate,
+      destination: expected,
+      deliver: this.selectDeliver({ deliver })
+    });
+  }
+
+  /**
+   * Confirms a contact-verify challenge and marks the bound contact verified.
+   * Exposes the "OTP_INVALID/OTP_EXPIRED/OTP_ATTEMPTS_EXCEEDED" contract
+   * surface; only EMAIL_VERIFY/PHONE_VERIFY challenges can be confirmed here —
+   * a PASSWORD_RESET code can never verify a contact.
+   */
+  static async confirmContactVerification(userId, { challengeId, code, dbp = prisma, now } = {}) {
+    const { user, challenge } = await verifyVerificationChallenge(challengeId, code, {
+      dbp,
+      now,
+      purposes: CONTACT_VERIFY_PURPOSES
+    });
+    if (user.id !== userId) {
+      throw new VerificationChallengeError('Challenge does not belong to this user', { status: 403, code: 'FORBIDDEN' });
+    }
+    const isEmail = challenge.type === 'EMAIL_VERIFY';
+    await dbp.user.update({
+      where: { id: userId },
+      data: isEmail ? { emailVerified: true } : { phoneVerified: true }
+    });
+    return {
+      verified: true,
+      channel: isEmail ? 'email' : 'phone'
+    };
+  }
+
+  /**
+   * Starts a password reset. Always answers `{accepted: true}` (no account
+   * enumeration); if an account exists for the identifier a PASSWORD_RESET
+   * challenge is issued. Consumers must use a dedicated limiter to stop code
+   * spraying.
+   */
+  static async forgotPassword({ identifier, dbp = prisma, deliver, generate } = {}) {
+    const where = identifier.includes('@')
+      ? { email: identifier.trim().toLowerCase() }
+      : { phone: normalizePhone(identifier) };
+    const account = await dbp.user.findUnique({ where, select: { id: true, isBanned: true } });
+    if (account && !account.isBanned) {
+      try {
+        await createVerificationChallenge(account.id, RESET_PURPOSE, {
+          dbp,
+          generate,
+          destination: identifier,
+          deliver: this.selectDeliver({ deliver })
+        });
+      } catch (err) {
+        // Anti-enumeration: the public answer is ALWAYS `{accepted:true}` even
+        // when delivery is unavailable/failed (a 503 here would reveal which
+        // identifiers are real accounts). The failure surfaces loudly in logs
+        // instead. Verification-path callers still get the fail-closed 503.
+        logger.error({ userId: account.id, identifier, error: err.message, name: err.name }, 'Password-reset OTP delivery failed; code not sent');
+      }
+    }
+    return { accepted: true };
+  }
+
+  /**
+   * Completes a password reset from a PASSWORD_RESET challenge. Rejects verify
+   * challenges outright (purpose guard). On success every session for the
+   * account is revoked so all refresh tokens are dead.
+   */
+  static async resetPassword({ challengeId, code, newPassword, dbp = prisma, ip = null, userAgent = null, now } = {}) {
+    const { user } = await verifyVerificationChallenge(challengeId, code, {
+      dbp,
+      now,
+      purposes: [RESET_PURPOSE]
+    });
+    const passwordHash = await bcrypt.hash(newPassword, 12);
+    await dbp.user.update({
+      where: { id: user.id },
+      data: { passwordHash }
+    });
+    const revoked = await this.revokeAllRefreshTokens(user.id);
+    await this.recordSecurityEvent(user.id, 'PASSWORD_CHANGED', { via: 'reset' }, ip, userAgent);
+    return { reset: true, sessionsRevoked: true };
+  }
+
+  static async listSessions(userId, { currentSessionId = null, dbp = prisma } = {}) {
+    const rows = await dbp.userSession.findMany({
+      where: { userId, status: 'ACTIVE' },
+      orderBy: { lastRotatedAt: 'desc' }
+    });
+    return rows.map((row) => ({
+      sessionId: row.id,
+      deviceName: row.deviceInfo?.model ?? row.deviceInfo?.os ?? 'Unknown device',
+      lastUsedAt: row.lastRotatedAt.toISOString(),
+      current: currentSessionId != null && row.id === currentSessionId
+    }));
+  }
+
+  static async revokeSession(userId, sessionId, { dbp = prisma, ip = null, userAgent = null } = {}) {
+    const session = await dbp.userSession.findUnique({ where: { id: sessionId } });
+    if (!session) {
+      throw new VerificationChallengeError('Session not found', { status: 404, code: 'SESSION_NOT_FOUND' });
+    }
+    if (session.userId !== userId) {
+      throw new VerificationChallengeError('Forbidden', { status: 403, code: 'FORBIDDEN' });
+    }
+    if (session.status !== 'ACTIVE') {
+      return { revoked: true, alreadyRevoked: true };
+    }
+    await dbp.userSession.update({ where: { id: sessionId }, data: { status: 'REVOKED' } });
+    await this.recordSecurityEvent(userId, 'SESSION_REVOKED', { sessionId }, ip, userAgent);
+    return { revoked: true, alreadyRevoked: false };
   }
 
   static async getProfile(userId) {
