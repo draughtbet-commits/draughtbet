@@ -116,7 +116,7 @@ const user = await prisma.$transaction(async (tx) => {
           },
           wallet: {
             create: {
-              currency: 'NGN' // Phase 1 default
+              currency: 'NGN' // default currency
             }
           },
           devices: fingerprintHash

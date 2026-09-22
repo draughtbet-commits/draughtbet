@@ -9,7 +9,7 @@ import http from 'node:http';
 const prisma = (await import('../../utils/db.js')).default;
 const redis = (await import('../../utils/redis.js')).default;
 const { debitStakes } = await import('../../services/matchService.js');
-const { reconstructMoveHistory, initializeGame, handleMoveSubmit } = await import('../gameManager.js');
+const { reconstructMoveHistory, initializeGame, handleMoveSubmit, startMatchGame } = await import('../gameManager.js');
 const { initSocketServer } = await import('../index.js');
 const { settleGame, InvalidSettlementError } = await import('../settlement.js');
 const { createInitialBoard, applyMove, getLegalMoves, COLOR_WHITE } = await import('../../modules/engine/index.js');
@@ -255,12 +255,15 @@ describeIntegration('Durable move log (real PostgreSQL + Redis)', () => {
     const p2 = await makeEligibleUser('evid-2');
     const match = await stakeAndFund(p1, p2);
 
-    // Settlement is only legal once the match is live: FUNDED -> IN_PLAY (the
-    // server-authoritative start), leaving the durable log empty.
+    // Settlement is only legal once the match is live: activation stages the
+    // holding projection, then startMatchGame performs the server-authoritative
+    // start (FUNDED/READY -> IN_PLAY + live clock), leaving the durable log
+    // empty.
     const { finalizeMatchActivation } = await import('../../services/gameActivationService.js');
     await finalizeMatchActivation(
       (await prisma.gameOutbox.findUnique({ where: { matchId: match.id } })).id
     );
+    await startMatchGame(match.id);
 
     await expect(
       settleGame(match.id, p1.id, p2.id, 'NO_LEGAL_MOVES')

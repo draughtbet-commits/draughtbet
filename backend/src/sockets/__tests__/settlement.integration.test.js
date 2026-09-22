@@ -8,6 +8,7 @@ import redis from '../../utils/redis.js';
 import http from 'node:http';
 import { debitStakes, InsufficientFundsError } from '../../services/matchService.js';
 import { finalizeMatchActivation } from '../../services/gameActivationService.js';
+import { startMatchGame } from '../gameManager.js';
 import { settleGame, settleGameDraw } from '../settlement.js';
 import { initSocketServer } from '../index.js';
 import { SYSTEM_ACCOUNT_ID, getUserLedgerProjections, ensureUserAccounts, ensureSystemAccount, postLedgerTransaction } from '../../services/ledgerService.js';
@@ -71,14 +72,16 @@ describeIntegration('Settlement gate (real PostgreSQL)', () => {
     });
     const match = await debitStakes(u1.id, u2.id, 50000n, 'AMATEUR');
     allMatches.push(match.id);
-    // Settlement is only legal once the match is LIVE. Activate (server-
-    // authoritative start) so the row advances FUNDED -> IN_PLAY exactly as
-    // production does; a never-started match must NOT be settlable.
+    // Settlement is only legal once the match is LIVE. Activate (stage the
+    // holding projection), then start it through the same server-authoritative
+    // path the two-player ready gate uses (FUNDED/READY -> IN_PLAY + live
+    // clock); a never-started match must NOT be settlable.
     const outbox = await prisma.gameOutbox.findUnique({
       where: { matchId: match.id },
       select: { id: true }
     });
     await finalizeMatchActivation(outbox.id);
+    await startMatchGame(match.id);
     return match;
   };
 

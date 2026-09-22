@@ -14,7 +14,7 @@
  *   LIVE         — the running-game set: IN_PLAY (post-refactor) and the legacy
  *                  ACTIVE value that pre-refactor matches were created with.
  *   Terminal     — SETTLED, COMPLETED, FORFEITED, DISPUTED, CANCELLED, EXPIRED,
- *                  RELEASED (settlement keeps writing COMPLETED this PR).
+ *                  RELEASED (the settlement path keeps writing COMPLETED for back-compat).
  */
 
 export const LIVE_STATUSES = Object.freeze(['ACTIVE', 'IN_PLAY']);
@@ -178,7 +178,7 @@ export async function hasPreterminalMatchForPlayers(client, playerIds) {
  * Only a match that is still pre-play can be readied: FUNDED advances to READY;
  * an already-READY retry is an idempotent no-op. Anything else (already live,
  * released, cancelled, expired) refuses. The explicit two-player ready gate and
- * its timeout are coordinated with the socket layer in WS5.5 — this REST
+ * its timeout are coordinated with the socket layer — this REST
  * endpoint records the server-visible readiness state only.
  */
 export async function markReady(client, matchId, userId) {

@@ -21,6 +21,9 @@ return { current, redis.call("PTTL", KEYS[1]) }
 const DEFAULT_BUDGETS = {
   'move.submit': { max: 60, windowMs: 60 * 1000 },
   move_attempt: { max: 60, windowMs: 60 * 1000 },
+  'player.ready': { max: 10, windowMs: 60 * 1000 },
+  'draw.offer': { max: 10, windowMs: 60 * 1000 },
+  'draw.respond': { max: 10, windowMs: 60 * 1000 },
   'match.resign': { max: 10, windowMs: 60 * 1000 },
   resign: { max: 10, windowMs: 60 * 1000 },
   'match.join': { max: 30, windowMs: 60 * 1000 },

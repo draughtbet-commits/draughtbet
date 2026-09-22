@@ -15,6 +15,7 @@ import { startOutboxDrainer } from './jobs/outboxDrainer.js';
 import { startProviderFollowUp } from './jobs/providerFollowUp.js';
 import { startFinancialReconciliation } from './jobs/financialReconciliation.js';
 import { startGameRecovery } from './sockets/gameRecovery.js';
+import { startReadyGateSweep } from './jobs/readyGateSweep.js';
 
 const PORT = process.env.PORT || 3000;
 
@@ -34,6 +35,7 @@ const startBackgroundJobs = () => {
   startProviderFollowUp();
   startFinancialReconciliation();
   startGameRecovery();
+  startReadyGateSweep();
 };
 
 // Wait (bounded) for Redis so the shared rate limiter is in service before the

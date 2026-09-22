@@ -139,7 +139,10 @@ describeIntegration('Durable game activation (real PostgreSQL + Redis)', () => {
 
     const state = await redis.hgetall(`match:${match.id}`);
     expect(state.board).toBeTruthy();
-    expect(state.status).toBe('in_progress');
+    // Activation only stages the holding projection; the game goes live later
+    // through the two-player ready gate (startMatchGame opens the clock).
+    expect(state.status).toBe('ready_pending');
+    expect(state.deadlineAt).toBe('');
   });
 
   it('reclaims a stale ACTIVATING lease and finishes the activation', async () => {

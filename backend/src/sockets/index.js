@@ -2,7 +2,7 @@ import { Server } from 'socket.io';
 import logger from '../utils/logger.js';
 import { socketAuthMiddleware } from './middleware.js';
 import { handleDisconnect, handleJoinMatch } from './disconnectHandler.js';
-import { handleClockSync, handleMoveAttempt, handleMoveSubmit, handleResign } from './gameManager.js';
+import { handleClockSync, handleMoveAttempt, handleMoveSubmit, handleResign, handlePlayerReady, handleDrawOffer, handleDrawRespond } from './gameManager.js';
 import { consumeBudget, MAX_SOCKETS_PER_USER } from './budget.js';
 
 let io;
@@ -62,6 +62,11 @@ export const initSocketServer = (httpServer) => {
     // Flutter client during the transition (see sockets/gameProtocol.js).
     socket.on('move.submit', guardSocketHandler(socket, handleMoveSubmit, 'move.submit'));
     socket.on('move_attempt', guardSocketHandler(socket, handleMoveAttempt, 'move_attempt'));
+
+    socket.on('player.ready', guardSocketHandler(socket, handlePlayerReady, 'player.ready'));
+
+    socket.on('draw.offer', guardSocketHandler(socket, handleDrawOffer, 'draw.offer'));
+    socket.on('draw.respond', guardSocketHandler(socket, handleDrawRespond, 'draw.respond'));
 
     socket.on('match.resign', guardSocketHandler(socket, handleResign, 'match.resign'));
     socket.on('resign', guardSocketHandler(socket, handleResign, 'resign'));

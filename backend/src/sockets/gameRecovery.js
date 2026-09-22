@@ -193,31 +193,56 @@ const rearmPendingDisconnects = async () => {
 
 // Boot recovery: rehydrate every live match's projection and participant
 // pointers from durable state, then clear stale pointers for finished matches.
+// A live match that the durable replay cannot account for (Redis fully lost
+// before any move was written, or a crash between the durable FUNDED/READY ->
+// IN_PLAY flip and the Redis upgrade) is re-staged server-authoritatively via
+// gameManager's idempotent startMatchGame. The import is lazy (dynamic) because
+// gameManager pulls the live game protocol and would otherwise create a
+// circular static dependency with this recovery module.
 export const recoverLiveGames = async ({ limit = 200 } = {}) => {
   const matches = await prisma.match.findMany({
     where: { status: { in: LIVE_MATCH_STATUSES } },
     orderBy: { createdAt: 'desc' },
     take: limit,
-    select: { id: true }
+    select: { id: true, status: true, timeControlSeconds: true }
   });
 
   let recovered = 0;
-  for (const { id } of matches) {
+  let restaged = 0;
+  for (const row of matches) {
     try {
-      const state = await reconcileRedisWithDurable(id);
+      let state = await reconcileRedisWithDurable(row.id);
+
+      if (state && state.status === 'ready_pending') {
+        // Staged but never started (crash between the DB flip and the Redis
+        // upgrade, or the sweep raced) — start it with a live clock.
+        const { startMatchGame } = await import('./gameManager.js');
+        const started = await startMatchGame(row.id);
+        state = started.state ?? state;
+        restaged++;
+        recovered++;
+      } else if (!state) {
+        // Redis projection gone and no durable log to replay — re-stage the
+        // live match with a fresh clock so the players can rejoin.
+        const { startMatchGame } = await import('./gameManager.js');
+        const started = await startMatchGame(row.id);
+        state = started.state;
+        restaged++;
+      }
+
       if (state) {
-        await redis.set(`user:${state.player1}:activeMatch`, id);
-        await redis.set(`user:${state.player2}:activeMatch`, id);
+        await redis.set(`user:${state.player1}:activeMatch`, row.id);
+        await redis.set(`user:${state.player2}:activeMatch`, row.id);
         recovered++;
       }
     } catch (err) {
-      logger.error({ err, matchId: id }, 'Boot recovery failed for match');
+      logger.error({ err, matchId: row.id }, 'Boot recovery failed for match');
     }
   }
 
   const rearmed = await rearmPendingDisconnects();
-  logger.info({ scanned: matches.length, recovered, rearmed }, 'Game state recovery complete');
-  return { scanned: matches.length, recovered, rearmed };
+  logger.info({ scanned: matches.length, recovered, restaged, rearmed }, 'Game state recovery complete');
+  return { scanned: matches.length, recovered, restaged, rearmed };
 };
 
 export const startGameRecovery = () => {

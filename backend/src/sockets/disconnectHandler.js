@@ -20,6 +20,23 @@ import { isLiveStatus } from '../modules/match/service.js';
 // so this is the cap on the personal room plus match rooms.
 const MAX_ROOMS_PER_CONNECTION = 5;
 
+// Records a participant's presence on the live projection so `match.state`
+// exposes `connection` states synchronously. Authority remains the `disconnects`
+// zset (consumed by the disconnect sweep); this is a best-effort projection.
+const recordPresence = async (matchId, state, userId, status, graceEndsAt = null) => {
+  const side = state && state.player1 === userId ? 'LIGHT' : state && state.player2 === userId ? 'DARK' : null;
+  if (!side) return;
+  const field = `conn${side}`;
+  const value = status === 'disconnected'
+    ? JSON.stringify({ status, graceEndsAt: graceEndsAt ?? null })
+    : JSON.stringify({ status });
+  try {
+    await redis.hset(`match:${matchId}`, { [field]: value });
+  } catch (err) {
+    logger.warn({ err, matchId, userId }, 'Record presence failed');
+  }
+};
+
 export async function handleDisconnect(socket) {
   const userId = socket.user?.userId;
   if (!userId) return;
@@ -42,9 +59,16 @@ export async function handleDisconnect(socket) {
 
     await redis.zadd('disconnects', Date.now() + grace, `${matchId}:${userId}`);
 
+    await recordPresence(matchId, state, userId, 'disconnected', Date.now() + grace);
+
     socket.to(`match:${matchId}`).emit('opponent_disconnected', {
       userId,
       gracePeriodMs: grace
+    });
+    socket.to(`match:${matchId}`).emit('opponent.connection', {
+      userId,
+      status: 'disconnected',
+      graceEndsAt: Date.now() + grace
     });
 
     await recordConnectionEvent({ matchId, userId, state: 'DISCONNECTED', socket });
@@ -133,7 +157,12 @@ export async function handleJoinMatch(socket, payload) {
     if (canonical) socket.emit('match.state', canonical);
 
     if (isLiveStatus(match.status)) {
+      await recordPresence(matchId, state, userId, 'connected');
       socket.to(`match:${matchId}`).emit('opponent_reconnected', { userId });
+      socket.to(`match:${matchId}`).emit('opponent.connection', {
+        userId,
+        status: 'connected'
+      });
       await recordConnectionEvent({ matchId, userId, state: 'RECONNECTED', socket });
     }
     logger.info({ userId, matchId }, 'Player reconnected and joined match room');

@@ -2,12 +2,14 @@ import { jest } from '@jest/globals';
 
 const mockPrisma = {
   match: { findUnique: jest.fn() },
-  matchSettlement: { findUnique: jest.fn() }
+  matchSettlement: { findUnique: jest.fn() },
+  matchReceipt: { findUnique: jest.fn().mockResolvedValue({ id: 'r1' }) }
 };
 
 const mockRedis = {
   del: jest.fn().mockResolvedValue(1),
-  eval: jest.fn().mockResolvedValue(1)
+  eval: jest.fn().mockResolvedValue(1),
+  hget: jest.fn().mockResolvedValue('3')
 };
 
 jest.unstable_mockModule('../../utils/db.js', () => ({
@@ -131,11 +133,23 @@ describe('settlement socket layer', () => {
       await settlement.settleGameWithRetry('m1', 'p1', 'p2', 'resign', 3);
 
       expect(mockSettleMatch).toHaveBeenCalledTimes(3);
-      // Ephemeral match_ended broadcast, exactly once. Durable wallet_updated +
-      // notifications are enqueued inside the settlement tx and delivered by
-      // the outbox drainer — not emitted from this layer.
-      expect(mockEmit).toHaveBeenCalledTimes(1);
+      // Terminal events are broadcast exactly once per settled match:
+      // legacy match_ended + V2 match.finished + settlement.completed (the
+      // durable wallet_updated + notifications live in the outbox, not here).
+      expect(mockEmit).toHaveBeenCalledTimes(3);
       expect(mockEmit).toHaveBeenCalledWith('match_ended', expect.objectContaining({ winnerId: 'p1' }));
+      expect(mockEmit).toHaveBeenCalledWith('match.finished', expect.objectContaining({
+        matchId: 'm1',
+        result: 'WIN',
+        terminalReason: 'resign',
+        stateVersion: 3,
+        settlementStatus: 'settled',
+        winnerId: 'p1'
+      }));
+      expect(mockEmit).toHaveBeenCalledWith('settlement.completed', {
+        matchId: 'm1',
+        receiptId: 'r1'
+      });
     });
 
     it('does not retry on validated-rejectable errors', async () => {

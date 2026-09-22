@@ -90,7 +90,7 @@ describe('gameActivationService finalizeMatchActivation', () => {
     await expect(finalizeMatchActivation('outbox-1')).resolves.toBe('ACTIVATED');
 
     expect(mockPrisma.$queryRaw).toHaveBeenCalledTimes(1);
-    expect(mockInitializeGame).toHaveBeenCalledWith('match-1', 'player-a', 'player-b', 'AMATEUR');
+    expect(mockInitializeGame).toHaveBeenCalledWith('match-1', 'player-a', 'player-b', 'AMATEUR', { pending: true });
     expect(mockPrisma.gameOutbox.updateMany).toHaveBeenCalledWith({
       where: { id: 'outbox-1', claimToken: expect.any(String) },
       data: expect.objectContaining({ status: 'ACTIVATED' })

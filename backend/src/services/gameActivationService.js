@@ -78,12 +78,12 @@ export const finalizeMatchActivation = async (outboxId) => {
   if (!outbox) return currentStatus(outboxId);
 
   try {
-    // initializeGame is idempotent: it reconstructs fresh Redis state when the
-    // key is absent and only repairs the participant pointers when it exists.
-    // It also performs the server-authoritative start: the Match row advances
-    // FUNDED/READY -> IN_PLAY (idempotent CAS), so the game clock and the
-    // settlement gate agree the match is live.
-    await initializeGame(outbox.matchId, outbox.player1Id, outbox.player2Id, outbox.tier);
+    // initializeGame (pending) is idempotent: it writes the holding projection
+    // (status ready_pending, no running clock) when absent and repairs the
+    // participant pointers when it exists. The actual server-authoritative
+    // start (FUNDED/READY -> IN_PLAY + live clock) waits for both players to
+    // ready up in the socket layer (the two-player ready gate).
+    await initializeGame(outbox.matchId, outbox.player1Id, outbox.player2Id, outbox.tier, { pending: true });
     await markActivated(outbox);
     return 'ACTIVATED';
   } catch (err) {

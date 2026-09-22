@@ -27,9 +27,10 @@ export const MOVE_ERROR = Object.freeze({
 /**
  * Canonical resync payload. This is the single shape a client should trust to
  * rebuild its board: it is derived from the authoritative Redis projection and
- * carries the current state version, clock deadline and legal moves. Emitted as
- * `match.state` on join and alongside `move.rejected` whenever the client is
- * stale.
+ * carries the current state version, clock deadline, legal moves, participants
+ * (readiness), connection states, any pending draw offer and the settlement
+ * status. Emitted as `match.state` on join, on ready/draw/connection changes and
+ * alongside `move.rejected` whenever the client is stale.
  */
 export const buildStatePayload = (matchId, state, nowMs = null) => {
   if (!state) return null;
@@ -44,9 +45,53 @@ export const buildStatePayload = (matchId, state, nowMs = null) => {
   const deadlineAt = state.deadlineAt ? Number(state.deadlineAt) : null;
   const parsedNow = nowMs === null || nowMs === undefined || nowMs === '' ? NaN : Number(nowMs);
   const serverNowMs = Number.isFinite(parsedNow) ? parsedNow : null;
+  const version = Number.parseInt(state.version ?? '0', 10) || 0;
+
+  // Presence and readiness snapshot per participant, derived from the live
+  // projection fields the socket layer maintains (see disconnectHandler).
+  const parsePresence = (raw) => {
+    if (!raw) return null;
+    try {
+      const value = JSON.parse(raw);
+      return value && typeof value === 'object' ? value : null;
+    } catch {
+      return null;
+    }
+  };
+  const participants = [
+    { userId: state.player1 ?? null, side: 'LIGHT', ready: Boolean(state.readyLight) },
+    { userId: state.player2 ?? null, side: 'DARK', ready: Boolean(state.readyDark) }
+  ];
+  const connection = [state.player1, state.player2].map((userId, idx) => {
+    if (!userId) return null;
+    const side = idx === 0 ? 'LIGHT' : 'DARK';
+    const pres = parsePresence(state[`conn${side}`]);
+    return {
+      userId,
+      side,
+      status: pres?.status ?? 'connected',
+      graceEndsAt: pres?.status === 'disconnected' && Number.isFinite(Number(pres.graceEndsAt))
+        ? Number(pres.graceEndsAt)
+        : null
+    };
+  }).filter(Boolean);
+
+  let pendingDrawOffer = null;
+  if (state.pendingDrawOffer) {
+    try {
+      pendingDrawOffer = JSON.parse(state.pendingDrawOffer);
+    } catch {
+      pendingDrawOffer = null;
+    }
+  }
+
   return {
     matchId,
-    version: String(state.version ?? '0'),
+    version: String(version),
+    stateVersion: version,
+    sideToMove: status === 'in_progress' && currentTurn
+      ? { color: currentTurn, userId: state.currentTurnUserId ?? null }
+      : null,
     board,
     currentTurn,
     currentTurnUserId: state.currentTurnUserId ?? null,
@@ -62,7 +107,13 @@ export const buildStatePayload = (matchId, state, nowMs = null) => {
     serverNowMs,
     remainingMs: serverNowMs === null ? null : remainingMs(deadlineAt, serverNowMs),
     disconnectGraceMs: resolveDisconnectGraceMs(state),
-    legalMoves: status === 'in_progress' && currentTurn ? getLegalMoves(board, currentTurn) : []
+    legalMoves: status === 'in_progress' && currentTurn ? getLegalMoves(board, currentTurn) : [],
+    participants,
+    connection,
+    pendingDrawOffer,
+    // A terminal Redis status predates the ledger commit that settles the
+    // match; the settled state is announced by match.finished/settlement.completed.
+    settlementStatus: status === 'completed' || status === 'draw' ? 'pending' : null
   };
 };
 

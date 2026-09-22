@@ -3,6 +3,7 @@ import cron from 'node-cron';
 import prisma from '../utils/db.js';
 import logger from '../utils/logger.js';
 import { getIO } from '../sockets/index.js';
+import { getUserLedgerProjections } from '../services/ledgerService.js';
 import {
   OUTBOX_LEASE_MS,
   OUTBOX_MAX_ATTEMPTS,
@@ -29,7 +30,41 @@ import {
 export const deliverEvent = async (event) => {
   if (event.eventType === 'wallet.updated') {
     const p = event.payload;
-    getIO().to(`user:${p.userId}`).emit('wallet_updated', {
+    const io = getIO();
+    const userRoom = `user:${p.userId}`;
+
+    // Contract projections (availableMinor/lockedMinor/withdrawalPendingMinor)
+    // are resolved from the ledger at delivery time so the pushed balance is
+    // always authoritative and post-event. Best-effort: a read failure degrades
+    // to nulls rather than failing the delivery (the legacy payload still has
+    // the signed change).
+    const projections = { availableMinor: null, lockedMinor: null, withdrawalPendingMinor: null };
+    try {
+      const wallet = await prisma.wallet.findUnique({
+        where: { userId: p.userId },
+        select: { currency: true }
+      });
+      if (wallet) {
+        const g = await getUserLedgerProjections(prisma, p.userId, wallet.currency ?? 'NGN');
+        projections.availableMinor = g.available;
+        projections.lockedMinor = g.locked;
+        projections.withdrawalPendingMinor = g.pending;
+      }
+    } catch (err) {
+      logger.warn({ err, userId: p.userId }, 'Wallet projections read failed; delivering legacy payload');
+    }
+
+    // V2 contract event (socket contract v1 line 29) + the legacy alias the
+    // deployed Flutter client still listens for.
+    io.to(userRoom).emit('wallet.updated', {
+      userId: p.userId,
+      reason: p.type,
+      ...projections,
+      balanceChange: p.balanceChange,
+      type: p.type,
+      matchId: p.matchId ?? null
+    });
+    io.to(userRoom).emit('wallet_updated', {
       balanceChange: p.balanceChange,
       type: p.type,
       matchId: p.matchId ?? null

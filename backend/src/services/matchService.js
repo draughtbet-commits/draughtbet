@@ -148,7 +148,7 @@ export const createMatchWithStakes = async (tx, player1Id, player2Id, stakeMinor
   });
 
   // 7. Reserve both stakes: StakeReservation rows + legacy Wallet debit (the
-  //    live read source until the final read-flip PR) + V2 ledger STAKE_LOCK
+  //    live read source until the final read-flip) + V2 ledger STAKE_LOCK
   //    mirror, all in the same tx so a partial match is impossible.
   await reserveBothStakes(tx, {
     matchId,

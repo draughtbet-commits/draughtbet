@@ -49,9 +49,15 @@ const deleteActiveMatchPointer = async (userId, matchId) => {
 // ─────────────────────────────────────────────────────────────
 
 /**
- * Cleans up Redis keys and emits socket events after a win settlement.
+ * Cleans up Redis keys and emits terminal + settlement events after a win
+ * settlement. Legacy `match_ended` stays for the ported Flutter client; the
+ * V2 `match.finished` (terminal outcome) and `settlement.completed` (receipt
+ * reference) are the contract signals (socket contract v1 lines 28-30).
  */
 async function notifyAndCleanupWin(matchId, winnerId, playerLightId, playerDarkId, payout, reason) {
+  // Capture the terminal projection version before it is deleted; the outcome
+  // event carries it so a client can reconcile its local state.
+  const stateVersion = await readStateVersion(matchId);
   // Each operation is fault-isolated — one failure doesn't prevent the rest
   try { await redis.del(`match:${matchId}`); } catch (e) { logger.warn({ e, matchId }, 'Redis del match key failed'); }
   await deleteActiveMatchPointer(playerLightId, matchId);
@@ -64,15 +70,27 @@ async function notifyAndCleanupWin(matchId, winnerId, playerLightId, playerDarkI
       reason,
       payout: payout.toString()
     });
+    io.to(`match:${matchId}`).emit('match.finished', {
+      matchId,
+      result: 'WIN',
+      terminalReason: reason,
+      stateVersion,
+      settlementStatus: 'settled',
+      winnerId
+    });
   } catch (e) {
     logger.warn({ e, matchId }, 'Socket emit after settlement failed');
   }
+
+  await emitSettlementCompleted(matchId);
 }
 
 /**
- * Cleans up Redis keys and emits socket events after a draw settlement.
+ * Cleans up Redis keys and emits terminal + settlement events after a draw
+ * settlement.
  */
 async function notifyAndCleanupDraw(matchId, playerLightId, playerDarkId, refundAmount, reason) {
+  const stateVersion = await readStateVersion(matchId);
   try { await redis.del(`match:${matchId}`); } catch (e) { logger.warn({ e, matchId }, 'Redis del match key failed'); }
   await deleteActiveMatchPointer(playerLightId, matchId);
   await deleteActiveMatchPointer(playerDarkId, matchId);
@@ -84,10 +102,52 @@ async function notifyAndCleanupDraw(matchId, playerLightId, playerDarkId, refund
       reason,
       payout: refundAmount.toString()
     });
+    io.to(`match:${matchId}`).emit('match.finished', {
+      matchId,
+      result: 'DRAW',
+      terminalReason: reason,
+      stateVersion,
+      settlementStatus: 'settled',
+      winnerId: null
+    });
   } catch (e) {
     logger.warn({ e, matchId }, 'Socket emit after draw settlement failed');
   }
+
+  await emitSettlementCompleted(matchId);
 }
+
+// Reads the terminal Redis version before cleanup deletes the key, falling back
+// to null (best-effort — the field is only informational on the terminal event).
+const readStateVersion = async (matchId) => {
+  try {
+    const version = await redis.hget(`match:${matchId}`, 'version');
+    const parsed = Number(version);
+    return Number.isFinite(parsed) ? parsed : null;
+  } catch (e) {
+    logger.warn({ e, matchId }, 'Terminal state version read failed');
+    return null;
+  }
+};
+
+// Emits settlement.completed {matchId, receiptId} after the ledger commit (this
+// layer runs post-commit). The receipt reference is read best-effort; a missing
+// receipt means the push is skipped rather than failing the settlement.
+const emitSettlementCompleted = async (matchId) => {
+  try {
+    const receipt = await prisma.matchReceipt.findUnique({
+      where: { matchId },
+      select: { id: true }
+    });
+    if (!receipt) return;
+    getIO().to(`match:${matchId}`).emit('settlement.completed', {
+      matchId,
+      receiptId: receipt.id
+    });
+  } catch (e) {
+    logger.warn({ e, matchId }, 'settlement.completed receipt lookup failed');
+  }
+};
 
 // ─────────────────────────────────────────────────────────────
 // Standalone cleanup from DB state (used when the idempotency

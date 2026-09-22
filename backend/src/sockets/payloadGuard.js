@@ -54,6 +54,33 @@ export const matchIdPayloadSchema = z.strictObject({
   matchId
 });
 
+// Client action id (V2 player.ready / draw protocol). Same alphabet/limits as
+// the idempotency keys so a client can use one generator for both.
+const actionId = z.string().min(8).max(64).regex(/^[A-Za-z0-9_-]+$/);
+const drawOfferId = z.string().min(8).max(80).regex(/^[A-Za-z0-9_-]+$/);
+
+// V2 player.ready. `expectedStateVersion` is optional on the wire so a client
+// can signal readiness without a known version, but is normally present.
+export const readySchema = z.strictObject({
+  matchId,
+  actionId
+});
+
+// V2 draw protocol. `expectedStateVersion` mirrors move.submit: optional on the
+// wire, validated against the authoritative version when present.
+export const drawOfferSchema = z.strictObject({
+  matchId,
+  actionId,
+  expectedStateVersion: z.number().int().min(0).optional()
+});
+
+export const drawRespondSchema = z.strictObject({
+  matchId,
+  actionId,
+  offerId: drawOfferId,
+  response: z.enum(['accept', 'decline'])
+});
+
 // Clock sync carries the client's own send timestamp only so it can measure
 // round-trip time; the server time in the reply is always authoritative.
 export const clockSyncSchema = z.strictObject({
@@ -88,6 +115,21 @@ export const validateMoveSubmit = (payload) => {
 export const validateMatchIdPayload = (payload) => {
   if (payloadTooLarge(payload)) return { ok: false };
   return parse(matchIdPayloadSchema, payload);
+};
+
+export const validateReady = (payload) => {
+  if (payloadTooLarge(payload)) return { ok: false };
+  return parse(readySchema, payload);
+};
+
+export const validateDrawOffer = (payload) => {
+  if (payloadTooLarge(payload)) return { ok: false };
+  return parse(drawOfferSchema, payload);
+};
+
+export const validateDrawRespond = (payload) => {
+  if (payloadTooLarge(payload)) return { ok: false };
+  return parse(drawRespondSchema, payload);
 };
 
 export const validateClockSync = (payload) => {

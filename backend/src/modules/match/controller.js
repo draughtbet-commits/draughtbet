@@ -277,7 +277,7 @@ matchRouter.get('/:matchId/replay', requireAuth, async (req, res, next) => {
 // ---------------------------------------------------------------------------
 // Contract §7: POST /matches/{matchId}/ready — a participant marks readiness.
 // Only a FUNDED match advances to READY; retries are idempotent. The
-// two-player readiness gate/timeout is coordinated in WS5.5.
+// two-player readiness gate/timeout is coordinated in the socket layer.
 // ---------------------------------------------------------------------------
 matchRouter.post('/:matchId/ready', requireAuth, requireIdempotencyKey({ scope: 'match' }), async (req, res, next) => {
   try {

@@ -91,7 +91,7 @@ describe('Wallet service — canonical money + deposit-intent gates', () => {
       expect(mockPrisma.wallet.findUnique).not.toHaveBeenCalled();
     });
 
-    it('rejects wallets without NGN (Phase 1 deposits)', async () => {
+    it('rejects wallets without NGN (launch deposits)', async () => {
       mockPrisma.wallet.findUnique.mockResolvedValue({ id: 'w-1', userId: 'u-1', currency: 'GBP' });
       await expect(createDepositIntent('u-1', 5000n, 'PAYSTACK', 'e@x.com')).rejects.toThrow('Deposits are only supported for NGN wallets');
     });

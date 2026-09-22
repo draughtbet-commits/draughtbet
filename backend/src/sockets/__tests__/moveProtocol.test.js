@@ -84,7 +84,7 @@ const settlementMocks = {
 jest.unstable_mockModule('../settlement.js', () => settlementMocks);
 
 const { handleMoveSubmit, handleClockSync } = await import('../gameManager.js');
-const { EMPTY, WHITE_MAN, BLACK_MAN, COLOR_WHITE } = await import('../../modules/engine/board.js');
+const { EMPTY, WHITE_MAN, WHITE_KING, BLACK_MAN, COLOR_WHITE } = await import('../../modules/engine/board.js');
 const { createInitialBoard, getLegalMoves } = await import('../../modules/engine/index.js');
 
 const buildEndgameBoard = () => {
@@ -403,6 +403,44 @@ describe('move.submit V2 protocol', () => {
       code: 'illegal_move',
       reason: 'path_mismatch'
     });
+  });
+
+  it('accepts a legal multi-capture path that shares its endpoints with another route', async () => {
+    // White king at 23 can take both black men (28, 41) and land on 46 via two
+    // distinct max-capture routes: [23,32,46] or [23,37,46]. The client declares
+    // the second route — it must be accepted, never rejected as a mismatch with
+    // whichever route happens to be found first by endpoints alone.
+    const board = new Array(50).fill(EMPTY);
+    board[22] = WHITE_KING; // 23
+    board[27] = BLACK_MAN;  // 28
+    board[40] = BLACK_MAN;  // 41
+    seedMatch('test-match', board, 'white-user', 'black-user');
+
+    const socket = { id: 's6b', user: { userId: 'white-user' }, emit: jest.fn() };
+    await handleMoveSubmit(socket, {
+      matchId: 'test-match',
+      clientMoveId: 'cm_ambig_001',
+      expectedStateVersion: 0,
+      from: 23,
+      path: [23, 37, 46]
+    });
+
+    expect(mockPrisma.matchMove.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        fromSquare: 23,
+        toSquare: 46,
+        path: [23, 37, 46],
+        clientMoveId: 'cm_ambig_001'
+      })
+    });
+    expect(emitted('move.rejected')).toBeUndefined();
+    const accepted = emitted('move.accepted');
+    expect(accepted).toMatchObject({
+      matchId: 'test-match',
+      clientMoveId: 'cm_ambig_001',
+      stateVersion: 1
+    });
+    expect(accepted.move).toMatchObject({ from: 23, to: 46, path: [23, 37, 46] });
   });
 
   it('rejects an invalid V2 payload with the stable code', async () => {
