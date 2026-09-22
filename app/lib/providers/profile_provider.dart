@@ -76,7 +76,7 @@ class ProfileNotifier extends StateNotifier<ProfileState> {
     if (state.profile != null) return;
     state = const ProfileState(isLoading: true);
     try {
-      final res = await _dio.get('/auth/me');
+      final res = await _dio.get('/me');
       if (res.statusCode == 200) {
         state = ProfileState(
           profile: UserProfile.fromJson(res.data as Map<String, dynamic>),
@@ -90,7 +90,7 @@ class ProfileNotifier extends StateNotifier<ProfileState> {
   /// Persists a predesigned avatar id and refreshes the local profile.
   Future<bool> setAvatar(String avatarId) async {
     try {
-      final res = await _dio.patch('/auth/me', data: {'avatar': avatarId});
+      final res = await _dio.patch('/me', data: {'avatar': avatarId});
       if (res.statusCode == 200) {
         final data = res.data as Map<String, dynamic>;
         final current = state.profile;

@@ -40,7 +40,7 @@ const { createInitialBoard, COLOR_WHITE, COLOR_BLACK } = await import('../../../
 
 const app = express();
 app.use(express.json());
-app.use('/matches', matchRouter);
+app.use('/api/v1/matches', matchRouter);
 
 describe('match state HTTP endpoints', () => {
   beforeEach(() => {
@@ -66,7 +66,7 @@ describe('match state HTTP endpoints', () => {
       player2: 'player-2'
     });
 
-    const res = await request(app).get('/matches/match-1/state');
+    const res = await request(app).get('/api/v1/matches/match-1/state');
 
     expect(res.status).toBe(200);
     expect(res.body.matchId).toBe('match-1');
@@ -86,7 +86,7 @@ describe('match state HTTP endpoints', () => {
       rows: []
     });
 
-    const res = await request(app).get('/matches/match-2/state');
+    const res = await request(app).get('/api/v1/matches/match-2/state');
 
     expect(res.status).toBe(200);
     expect(res.body.matchId).toBe('match-2');
@@ -100,7 +100,7 @@ describe('match state HTTP endpoints', () => {
     mockGameManager.getGameState.mockResolvedValue(null);
     mockGameManager.reconstructMoveHistory.mockResolvedValue(null);
 
-    const res = await request(app).get('/matches/match-3/state');
+    const res = await request(app).get('/api/v1/matches/match-3/state');
 
     expect(res.status).toBe(200);
     expect(res.body.matchId).toBe('match-3');
@@ -117,7 +117,7 @@ describe('match state HTTP endpoints', () => {
       winnerId: null
     });
 
-    const res = await request(app).get('/matches/match-4/state');
+    const res = await request(app).get('/api/v1/matches/match-4/state');
     expect(res.status).toBe(403);
   });
 
@@ -141,7 +141,7 @@ describe('match state HTTP endpoints', () => {
       { id: 'user-2', username: 'dark_handle' }
     ]);
 
-    const res = await request(app).get('/matches/history');
+    const res = await request(app).get('/api/v1/matches/history');
 
     expect(res.status).toBe(200);
     expect(res.body.matches).toHaveLength(1);
@@ -156,7 +156,7 @@ describe('match state HTTP endpoints', () => {
 
     // A user without a chosen handle is returned as id-only, still no email.
     mockPrisma.user.findMany.mockResolvedValue([{ id: 'user-2', username: null }]);
-    const resNoHandle = await request(app).get('/matches/history');
+    const resNoHandle = await request(app).get('/api/v1/matches/history');
     expect(resNoHandle.body.matches[0].playerLight).toEqual({ id: 'user-1', username: null });
   });
 });

@@ -63,11 +63,6 @@ const geolocateSchema = z.object({
   lng: z.number().min(-180).max(180)
 });
 
-const updateProfileSchema = z.object({
-  // Only predesigned avatar ids are accepted. No uploads.
-  avatar: z.string().trim().min(1).max(64)
-});
-
 const availabilitySchema = z.object({
   type: z.enum(['email', 'phone', 'username']),
   value: z.string().min(1)
@@ -210,31 +205,6 @@ authRouter.post('/logout', requireAuth, async (req, res, next) => {
     }
     res.json({ message: 'Logged out successfully' });
   } catch (err) {
-    next(err);
-  }
-});
-
-authRouter.get('/me', requireAuth, async (req, res, next) => {
-  try {
-    const profile = await AuthService.getProfile(req.user.id);
-    res.json(profile);
-  } catch (err) {
-    next(err);
-  }
-});
-
-authRouter.patch('/me', requireAuth, async (req, res, next) => {
-  try {
-    const data = updateProfileSchema.parse(req.body);
-    const profile = await AuthService.updateProfile(req.user.id, { avatar: data.avatar });
-    res.json(profile);
-  } catch (err) {
-    if (err && err.name === 'ZodError') {
-      return res.status(400).json({ errors: err.errors || err.issues });
-    }
-    if (err.message === 'User not found') {
-      return res.status(404).json({ error: err.message });
-    }
     next(err);
   }
 });

@@ -152,7 +152,7 @@ try {
   const httpServer = http.createServer(app);
   await new Promise((resolve) => httpServer.listen(0, '127.0.0.1', resolve));
   server = httpServer;
-  base = `http://127.0.0.1:${httpServer.address().port}`;
+  base = `http://127.0.0.1:${httpServer.address().port}/api/v1`;
   console.log(`harness server on ${base}`);
 
   // ---------------------------------------------------------------------

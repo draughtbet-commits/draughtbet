@@ -19,6 +19,7 @@ import {
 } from './middleware/rateLimit.js';
 import { requestIdMiddleware, finalErrorHandler } from './middleware/requestId.js';
 import { authRouter } from './modules/auth/controller.js';
+import { meRouter } from './modules/me/controller.js';
 import { adminRouter } from './modules/admin/controller.js';
 import { matchRouter } from './modules/match/controller.js';
 import { calloutRouter } from './modules/callout/controller.js';
@@ -28,17 +29,6 @@ import { webhookRouter } from './modules/payment/webhookController.js';
 import { notificationRouter } from './modules/notification/controller.js';
 import { verificationRouter } from './modules/verification/controller.js';
 import { saferPlayRouter } from './modules/saferPlay/controller.js';
-import { startDisconnectSweep } from './jobs/disconnectSweep.js';
-import { startReconciliationSweep } from './jobs/reconciliationSweep.js';
-import { startMatchmakingWorker } from './jobs/matchmakingWorker.js';
-import { startCalloutExpirySweep } from './jobs/calloutExpiry.js';
-import { startGameActivationSweep } from './jobs/gameActivationSweep.js';
-import { startTurnDeadlineSweep } from './jobs/turnDeadlineSweep.js';
-import { startDepositReconciliationSweep } from './jobs/depositReconciliation.js';
-import { startOutboxDrainer } from './jobs/outboxDrainer.js';
-import { startProviderFollowUp } from './jobs/providerFollowUp.js';
-import { startFinancialReconciliation } from './jobs/financialReconciliation.js';
-import { startGameRecovery } from './sockets/gameRecovery.js';
 
 const app = express();
 // Prisma initialized in utils/db.js
@@ -73,7 +63,7 @@ app.use(cors(corsOptions));
 // plaintext body is never accepted. Health checks are exempt so LBs can probe.
 if (process.env.APP_ENFORCE_TLS === 'true') {
   app.use((req, res, next) => {
-    if (req.secure || req.originalUrl === '/health') return next();
+    if (req.secure || req.originalUrl === '/health' || req.originalUrl === '/ready') return next();
     if (req.method === 'GET' || req.method === 'HEAD') {
       return res.redirect(301, `https://${req.headers.host}${req.originalUrl}`);
     }
@@ -89,27 +79,36 @@ app.use(express.json());
 app.use(httpLogger);
 app.use(globalRateLimiter);
 
-// Routes. Sensitive surfaces carry their own stricter bucket on top of the
-// global one (webhooks stay exempt — mounted before all limiters).
-app.use('/auth', authRouter);
-app.use('/admin', adminRateLimiter, adminRouter);
-app.use('/matches', matchRateLimiter, matchRouter);
-app.use('/callouts', calloutRateLimiter, calloutRouter);
-app.use('/matchmaking', matchmakingRateLimiter, matchmakingRouter);
-app.use('/wallet', walletRateLimiter, walletRouter);
-app.use('/verification', verificationRateLimiter, verificationRouter);
-app.use('/safer-play', saferPlayRateLimiter, saferPlayRouter);
-app.use('/notifications', notificationRateLimiter, notificationRouter);
+// Versioned API routes. Sensitive surfaces carry their own stricter bucket on
+// top of the global one (webhooks stay exempt — mounted before all limiters).
+app.use('/api/v1/auth', authRouter);
+app.use('/api/v1/me', meRouter);
+app.use('/api/v1/admin', adminRateLimiter, adminRouter);
+app.use('/api/v1/matches', matchRateLimiter, matchRouter);
+app.use('/api/v1/callouts', calloutRateLimiter, calloutRouter);
+app.use('/api/v1/matchmaking', matchmakingRateLimiter, matchmakingRouter);
+app.use('/api/v1/wallet', walletRateLimiter, walletRouter);
+app.use('/api/v1/verification', verificationRateLimiter, verificationRouter);
+app.use('/api/v1/safer-play', saferPlayRateLimiter, saferPlayRouter);
+app.use('/api/v1/notifications', notificationRateLimiter, notificationRouter);
 
-// Health Check Endpoint
-app.get('/health', async (req, res) => {
+// Liveness probe: the process is up. No dependencies are checked here — that
+// is /ready's job (readiness). Kept cheap and always 200 so load balancers and
+// orchestrators can tell "process alive" from "dependencies reachable".
+app.get('/health', (_req, res) => {
+  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+// Readiness probe: DB + Redis must be reachable before the container takes
+// traffic. Reuses the same SELECT 1 / PING checks the old /health performed.
+app.get('/ready', async (_req, res) => {
   let dbStatus = 'ok';
   let redisStatus = 'ok';
 
   try {
     await prisma.$queryRaw`SELECT 1`;
   } catch (err) {
-    logger.error({ err }, 'DB Healthcheck failed');
+    logger.error({ err }, 'DB readiness check failed');
     dbStatus = 'failed';
   }
 
@@ -117,7 +116,7 @@ app.get('/health', async (req, res) => {
     try {
       await redis.ping();
     } catch (err) {
-      logger.error({ err }, 'Redis Healthcheck failed');
+      logger.error({ err }, 'Redis readiness check failed');
       redisStatus = 'failed';
     }
   } else {
@@ -126,7 +125,7 @@ app.get('/health', async (req, res) => {
 
   const status = (dbStatus === 'ok' && redisStatus !== 'failed') ? 200 : 503;
   res.status(status).json({
-    status: status === 200 ? 'ok' : 'error',
+    status: status === 200 ? 'ready' : 'not_ready',
     db: dbStatus,
     redis: redisStatus,
     timestamp: new Date().toISOString()
@@ -135,20 +134,5 @@ app.get('/health', async (req, res) => {
 
 // Basic Error Handler (Never leaks stack traces to the client)
 app.use(finalErrorHandler);
-
-// Start Cron Jobs
-if (process.env.NODE_ENV !== 'test') {
-  startDisconnectSweep();
-  startReconciliationSweep();
-  startMatchmakingWorker();
-  startCalloutExpirySweep();
-  startGameActivationSweep();
-  startTurnDeadlineSweep();
-  startDepositReconciliationSweep();
-  startOutboxDrainer();
-  startProviderFollowUp();
-  startFinancialReconciliation();
-  startGameRecovery();
-}
 
 export default app;

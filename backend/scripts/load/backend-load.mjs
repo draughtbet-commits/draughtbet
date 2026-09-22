@@ -63,7 +63,7 @@ console.log(`Server up at ${BASE_URL}; connections=${CONNECTIONS} duration=${DUR
 const geoToken = crypto.randomUUID();
 await redis.set(`geo:binding:${geoToken}`, 'NG', 'EX', GEO_TTL_SECONDS);
 
-const reg = await request('/auth/register', {
+const reg = await request('/api/v1/auth/register', {
   method: 'POST',
   body: JSON.stringify({
     email,
@@ -82,11 +82,11 @@ console.log(`Seeded login user ${email}`);
 
 const summaries = [
   summarize('health', await runTarget({ path: '/health', duration: DURATION, method: 'GET' })),
-  summarize('unauth-me', await runTarget({ path: '/auth/me', duration: DURATION, method: 'GET' }), new Set([401])),
+  summarize('unauth-me', await runTarget({ path: '/api/v1/me', duration: DURATION, method: 'GET' }), new Set([401])),
   summarize(
     'login',
     await runTarget({
-      path: '/auth/login',
+      path: '/api/v1/auth/login',
       duration: DURATION,
       method: 'POST',
       connections: LOGIN_CONNECTIONS,

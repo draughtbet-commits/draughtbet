@@ -17,7 +17,7 @@ const describeIntegration =
 
 const app = express();
 app.use(express.json());
-app.use('/admin', adminRouter);
+app.use('/api/v1/admin', adminRouter);
 app.use((err, _req, res, _next) => {
   res.status(err.status || err.statusCode || 500).json({ error: err.message || 'Internal server error' });
 });
@@ -113,20 +113,20 @@ describeIntegration('Admin v2 (real PostgreSQL + Redis)', () => {
 
   it('denies a plain admin session without any role', async () => {
     const token = await tokenFor(player.id);
-    const res = await request(app).get('/admin/withdrawals').set(auth(token));
+    const res = await request(app).get('/api/v1/admin/withdrawals').set(auth(token));
     expect(res.status).toBe(403);
   });
 
   it('keeps READ_ONLY_AUDITOR read-only on the wire', async () => {
     const token = await tokenFor(auditor.id);
-    const list = await request(app).get('/admin/withdrawals').set(auth(token));
+    const list = await request(app).get('/api/v1/admin/withdrawals').set(auth(token));
     expect(list.status).toBe(200);
     const approve = await request(app)
-      .post('/admin/withdrawals/does-not-exist/approve')
+      .post('/api/v1/admin/withdrawals/does-not-exist/approve')
       .set(auth(token));
     expect(approve.status).toBe(403);
     const adjust = await request(app)
-      .post('/admin/ledger/adjustments')
+      .post('/api/v1/admin/ledger/adjustments')
       .set(auth(token))
       .send({ userId: player.id, amountMinorUnits: '1000', direction: 'CREDIT', reference: 'aud-adj' });
     expect(adjust.status).toBe(403);
@@ -134,17 +134,17 @@ describeIntegration('Admin v2 (real PostgreSQL + Redis)', () => {
 
   it('lets FINANCE read the queue and approves/rejects withdrawals', async () => {
     const token = await tokenFor(finance.id);
-    const list = await request(app).get('/admin/withdrawals').set(auth(token));
+    const list = await request(app).get('/api/v1/admin/withdrawals').set(auth(token));
     expect(list.status).toBe(200);
     expect(Array.isArray(list.body.withdrawals)).toBe(true);
 
     const missing = await request(app)
-      .post('/admin/withdrawals/does-not-exist/approve')
+      .post('/api/v1/admin/withdrawals/does-not-exist/approve')
       .set(auth(token));
     expect(missing.status).toBe(404);
 
     const noReason = await request(app)
-      .post('/admin/withdrawals/does-not-exist/reject')
+      .post('/api/v1/admin/withdrawals/does-not-exist/reject')
       .set(auth(token));
     expect(noReason.status).toBe(404);
   });
@@ -163,7 +163,7 @@ describeIntegration('Admin v2 (real PostgreSQL + Redis)', () => {
     };
 
     const first = await request(app)
-      .post('/admin/ledger/adjustments')
+      .post('/api/v1/admin/ledger/adjustments')
       .set(auth(token))
       .send(body);
     expect(first.status).toBe(201);
@@ -172,7 +172,7 @@ describeIntegration('Admin v2 (real PostgreSQL + Redis)', () => {
     adjustmentTxIds.push(first.body.adjustment.transactionId);
 
     const second = await request(app)
-      .post('/admin/ledger/adjustments')
+      .post('/api/v1/admin/ledger/adjustments')
       .set(auth(token))
       .send(body);
     expect(second.status).toBe(201);
@@ -187,7 +187,7 @@ describeIntegration('Admin v2 (real PostgreSQL + Redis)', () => {
   it('refuses a DEBIT adjustment that would overdraw the player', async () => {
     const token = await tokenFor(finance.id);
     const res = await request(app)
-      .post('/admin/ledger/adjustments')
+      .post('/api/v1/admin/ledger/adjustments')
       .set(auth(token))
       .send({
         userId: player.id,
@@ -201,7 +201,7 @@ describeIntegration('Admin v2 (real PostgreSQL + Redis)', () => {
   it('keeps role grants exclusive to SUPER_ADMIN', async () => {
     const token = await tokenFor(finance.id);
     const res = await request(app)
-      .post('/admin/roles/assign')
+      .post('/api/v1/admin/roles/assign')
       .set(auth(token))
       .send({ userId: player.id, roleName: 'SUPPORT' });
     expect(res.status).toBe(403);
@@ -210,23 +210,23 @@ describeIntegration('Admin v2 (real PostgreSQL + Redis)', () => {
   it('grants a role and revokes it with immediate effect (DB-backed binding)', async () => {
     const adminToken = await tokenFor(superAdmin.id);
     const assign = await request(app)
-      .post('/admin/roles/assign')
+      .post('/api/v1/admin/roles/assign')
       .set(auth(adminToken))
       .send({ userId: player.id, roleName: 'GAME_OPERATIONS' });
     expect(assign.status).toBe(201);
 
     const playerToken = await tokenFor(player.id);
-    const read = await request(app).get('/admin/audit/logs').set(auth(playerToken));
+    const read = await request(app).get('/api/v1/admin/audit/logs').set(auth(playerToken));
     expect(read.status).toBe(200);
 
     const revoke = await request(app)
-      .post('/admin/roles/revoke')
+      .post('/api/v1/admin/roles/revoke')
       .set(auth(adminToken))
       .send({ userId: player.id, roleName: 'GAME_OPERATIONS' });
     expect(revoke.status).toBe(200);
     expect(revoke.body.revoked).toBe(1);
 
-    const denied = await request(app).get('/admin/audit/logs').set(auth(playerToken));
+    const denied = await request(app).get('/api/v1/admin/audit/logs').set(auth(playerToken));
     expect(denied.status).toBe(403);
   });
 
@@ -318,7 +318,7 @@ describeIntegration('Admin v2 (real PostgreSQL + Redis)', () => {
     expect(res.body.lifted).toBe(true);
 
     const auditToken = await tokenFor(finance.id);
-    const logs = await request(app).get('/admin/audit/logs').set(auth(auditToken));
+    const logs = await request(app).get('/api/v1/admin/audit/logs').set(auth(auditToken));
     expect(logs.status).toBe(200);
     const actions = logs.body.logs.map((l) => l.action);
     expect(actions).toContain('safer-play.clear-timeout');

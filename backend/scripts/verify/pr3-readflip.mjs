@@ -12,7 +12,7 @@
 //       yet still count toward the balance
 //   P4  ledger -> feed type/sign mapping: STAKE_LOCK->STAKE(-), a decided
 //       match win->PAYOUT(+), a draw->REFUND(+)
-//   P5  GET /auth/me.walletBalanceMinorUnits is the same ledger net
+//   P5  GET /me.walletBalanceMinorUnits is the same ledger net
 //   P6  MIRROR TEARDOWN: Wallet has no balanceMinorUnits column, the
 //       WalletTransaction table is gone and TxType/TxStatus enums are dropped
 //   P7  closed book: every LedgerTransaction still nets zero
@@ -27,6 +27,7 @@ import jwt from 'jsonwebtoken';
 import prisma from '../../src/utils/db.js';
 import { walletRouter } from '../../src/modules/wallet/controller.js';
 import { authRouter } from '../../src/modules/auth/controller.js';
+import { meRouter } from '../../src/modules/me/controller.js';
 import { getJwtSecret } from '../../src/utils/jwtEnv.js';
 import {
   ensureUserAccounts,
@@ -40,6 +41,7 @@ const app = express();
 app.use(express.json());
 app.use('/wallet', walletRouter);
 app.use('/auth', authRouter);
+app.use('/me', meRouter);
 const server = app.listen(0);
 const API_BASE = `http://127.0.0.1:${server.address().port}`;
 
@@ -113,7 +115,12 @@ await run('P1 GET /wallet/balance reads the ledger PLAYER_AVAILABLE net', async 
   const res = await api('/wallet/balance', { token: authed(user.id) });
   assert.equal(res.status, 200);
   const { balance } = await res.json();
-  assert.deepEqual(balance, { currency: 'NGN', balanceMinorUnits: '50000' });
+  assert.deepEqual(balance, {
+    currency: 'NGN',
+    balanceMinorUnits: '50000',
+    lockedMinorUnits: '0',
+    pendingMinorUnits: '0'
+  });
   assert.equal(await ledgerBalance(user.id), 50000n);
 
   // A pure ledger posting (no wallet write anywhere) must move the read.
@@ -252,18 +259,18 @@ await run('P4 STAKE_LOCK->STAKE(-), win->PAYOUT(+), draw->REFUND(+)', async () =
 });
 
 // ---------------------------------------------------------------------------
-// P5 — /auth/me profile balance is the same ledger net.
+// P5 — /me profile balance is the same ledger net.
 // ---------------------------------------------------------------------------
 
-await run('P5 GET /auth/me.walletBalanceMinorUnits is the ledger net', async () => {
+await run('P5 GET /me.walletBalanceMinorUnits is the ledger net', async () => {
   const user = await makeUser('p5', { deposit: 12345n });
-  const res = await api('/auth/me', { token: authed(user.id) });
+  const res = await api('/me', { token: authed(user.id) });
   assert.equal(res.status, 200);
   const profile = await res.json();
   assert.equal(profile.id, user.id);
   assert.equal(profile.walletBalanceMinorUnits, '12345');
   assert.equal(await ledgerBalance(user.id), 12345n);
-  ok('P5 GET /auth/me.walletBalanceMinorUnits is the ledger net');
+  ok('P5 GET /me.walletBalanceMinorUnits is the ledger net');
 });
 
 // ---------------------------------------------------------------------------

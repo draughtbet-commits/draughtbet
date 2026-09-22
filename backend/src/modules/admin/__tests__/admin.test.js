@@ -131,7 +131,7 @@ const { AuthService } = await import('../../auth/service.js');
 
 const app = express();
 app.use(express.json());
-app.use('/admin', adminRouter);
+app.use('/api/v1/admin', adminRouter);
 app.use((err, _req, res, _next) => {
   const status = err.status || err.statusCode || 500;
   res.status(status).json({ error: err.message || 'Internal server error' });
@@ -181,7 +181,7 @@ describe('admin RBAC gating', () => {
     const token = (await AuthService.issueTokens('caller')).accessToken;
 
     const res = await request(app)
-      .get('/admin/withdrawals')
+      .get('/api/v1/admin/withdrawals')
       .set('Authorization', `Bearer ${token}`);
 
     expect(res.status).toBe(403);
@@ -195,11 +195,11 @@ describe('admin RBAC gating', () => {
     const token = await asRole('READ_ONLY_AUDITOR');
     controllerWithdrawal.listAllWithdrawals.mockResolvedValue({ withdrawals: [], total: 0, page: 1, totalPages: 0 });
 
-    const list = await request(app).get('/admin/withdrawals').set('Authorization', `Bearer ${token}`);
+    const list = await request(app).get('/api/v1/admin/withdrawals').set('Authorization', `Bearer ${token}`);
     expect(list.status).toBe(200);
 
     const approve = await request(app)
-      .post('/admin/withdrawals/wd-1/approve')
+      .post('/api/v1/admin/withdrawals/wd-1/approve')
       .set('Authorization', `Bearer ${token}`);
     expect(approve.status).toBe(403);
   });
@@ -209,7 +209,7 @@ describe('admin RBAC gating', () => {
     controllerWithdrawal.approveWithdrawal.mockResolvedValue({ id: 'wd-1', status: 'APPROVED' });
 
     const res = await request(app)
-      .post('/admin/withdrawals/wd-1/approve')
+      .post('/api/v1/admin/withdrawals/wd-1/approve')
       .set('Authorization', `Bearer ${token}`);
 
     expect(res.status).toBe(200);
@@ -222,7 +222,7 @@ describe('admin RBAC gating', () => {
   it('keeps role grants exclusive to SUPER_ADMIN', async () => {
     const token = await asRole('FINANCE');
     const res = await request(app)
-      .post('/admin/roles/assign')
+      .post('/api/v1/admin/roles/assign')
       .set('Authorization', `Bearer ${token}`)
       .send({ userId: 'u9', roleName: 'SUPPORT' });
     expect(res.status).toBe(403);
@@ -232,7 +232,7 @@ describe('admin RBAC gating', () => {
 describe('admin roles routes', () => {
   it('lists the six roles with their permission lenses', async () => {
     const token = await asRole('SUPER_ADMIN');
-    const res = await request(app).get('/admin/roles').set('Authorization', `Bearer ${token}`);
+    const res = await request(app).get('/api/v1/admin/roles').set('Authorization', `Bearer ${token}`);
 
     expect(res.status).toBe(200);
     expect(res.body.roles.map((r) => r.name)).toEqual([
@@ -257,7 +257,7 @@ describe('admin roles routes', () => {
     mockPrisma.adminRoleAssignment.upsert = jest.fn().mockResolvedValue({ id: 'asn-1' });
 
     const res = await request(app)
-      .post('/admin/roles/assign')
+      .post('/api/v1/admin/roles/assign')
       .set('Authorization', `Bearer ${token}`)
       .send({ userId: 'u9', roleName: 'SUPPORT' });
 
@@ -275,7 +275,7 @@ describe('admin roles routes', () => {
       .mockResolvedValueOnce({ id: 'u9' });
 
     const res = await request(app)
-      .post('/admin/roles/assign')
+      .post('/api/v1/admin/roles/assign')
       .set('Authorization', `Bearer ${token}`)
       .send({ userId: 'u9', roleName: 'OVERLORD' });
 
@@ -287,13 +287,13 @@ describe('admin ledger adjustments', () => {
   it('rejects a missing reference and a bad direction', async () => {
     const token = await asRole('FINANCE');
     const missing = await request(app)
-      .post('/admin/ledger/adjustments')
+      .post('/api/v1/admin/ledger/adjustments')
       .set('Authorization', `Bearer ${token}`)
       .send({ userId: 'u1', amountMinorUnits: '1000', direction: 'CREDIT' });
     expect(missing.status).toBe(400);
 
     const badDir = await request(app)
-      .post('/admin/ledger/adjustments')
+      .post('/api/v1/admin/ledger/adjustments')
       .set('Authorization', `Bearer ${token}`)
       .send({ userId: 'u1', amountMinorUnits: '1000', direction: 'SIDEWAYS', reference: 'r-1' });
     expect(badDir.status).toBe(400);
@@ -311,7 +311,7 @@ describe('admin ledger adjustments', () => {
       .mockRejectedValueOnce({ name: 'InsufficientFundsError', message: 'Insufficient funds' });
 
     const res = await request(app)
-      .post('/admin/ledger/adjustments')
+      .post('/api/v1/admin/ledger/adjustments')
       .set('Authorization', `Bearer ${token}`)
       .send({ userId: 'u1', amountMinorUnits: '1000', direction: 'DEBIT', reference: 'r-9' });
 
@@ -329,7 +329,7 @@ describe('admin KYC review', () => {
     });
 
     const res = await request(app)
-      .post('/admin/verification-cases/vc-1/approve')
+      .post('/api/v1/admin/verification-cases/vc-1/approve')
       .set('Authorization', `Bearer ${token}`)
       .send({ note: 'documents match' });
 
@@ -350,14 +350,14 @@ describe('admin KYC review', () => {
       .mockRejectedValueOnce({ name: 'VerificationCaseNotFoundError', message: 'Verification case not found' });
 
     const notFound = await request(app)
-      .post('/admin/verification-cases/nope/approve')
+      .post('/api/v1/admin/verification-cases/nope/approve')
       .set('Authorization', `Bearer ${token}`);
     expect(notFound.status).toBe(404);
 
     verificationModule.approveVerificationCase
       .mockRejectedValueOnce({ name: 'VerificationCaseNotReviewableError', message: 'Locked' });
     const locked = await request(app)
-      .post('/admin/verification-cases/x/approve')
+      .post('/api/v1/admin/verification-cases/x/approve')
       .set('Authorization', `Bearer ${token}`);
     expect(locked.status).toBe(409);
   });
@@ -370,7 +370,7 @@ describe('admin KYC review', () => {
     });
 
     const res = await request(app)
-      .post('/admin/verification-cases/vc-2/reject')
+      .post('/api/v1/admin/verification-cases/vc-2/reject')
       .set('Authorization', `Bearer ${token}`);
 
     expect(res.status).toBe(200);
@@ -390,7 +390,7 @@ describe('admin disputes', () => {
     mockPrisma.disputeCase.count.mockResolvedValue(1);
     mockPrisma.user.findMany.mockResolvedValue([{ id: 'u-raiser', email: 'raiser@x' }]);
 
-    const res = await request(app).get('/admin/disputes').set('Authorization', `Bearer ${token}`);
+    const res = await request(app).get('/api/v1/admin/disputes').set('Authorization', `Bearer ${token}`);
 
     expect(res.status).toBe(200);
     expect(res.body.disputes[0].raisedByEmail).toBe('raiser@x');
@@ -402,7 +402,7 @@ describe('admin disputes', () => {
     mockPrisma.disputeCase.update.mockResolvedValue({ id: 'd1', status: 'RESOLVED', decidedBy: 'caller' });
 
     const res = await request(app)
-      .post('/admin/disputes/d1/decide')
+      .post('/api/v1/admin/disputes/d1/decide')
       .set('Authorization', `Bearer ${token}`)
       .send({ status: 'RESOLVED', resolution: 'Refund issued' });
 
@@ -421,7 +421,7 @@ describe('admin disputes', () => {
     mockPrisma.disputeCase.findUnique.mockResolvedValue({ id: 'd1', status: 'RESOLVED' });
 
     const res = await request(app)
-      .post('/admin/disputes/d1/decide')
+      .post('/api/v1/admin/disputes/d1/decide')
       .set('Authorization', `Bearer ${token}`)
       .send({ status: 'RESOLVED', resolution: 'Again' });
 
@@ -432,7 +432,7 @@ describe('admin disputes', () => {
   it('requires a legal evidence type before attaching', async () => {
     const token = await asRole('SUPPORT');
     const res = await request(app)
-      .post('/admin/disputes/d1/evidence')
+      .post('/api/v1/admin/disputes/d1/evidence')
       .set('Authorization', `Bearer ${token}`)
       .send({ type: 'MOVIE', url: 'https://example.com/x.png' });
     expect(res.status).toBe(400);
@@ -446,7 +446,7 @@ describe('admin safer-play lifts', () => {
     saferPlayModule.clearTimeoutByAdmin.mockResolvedValue({ userId: 'u1', timeoutUntil: null });
 
     const res = await request(app)
-      .post('/admin/safer-play/u1/clear-timeout')
+      .post('/api/v1/admin/safer-play/u1/clear-timeout')
       .set('Authorization', `Bearer ${token}`);
 
     expect(res.status).toBe(200);
@@ -454,7 +454,7 @@ describe('admin safer-play lifts', () => {
 
     mockPrisma.user.findUnique.mockResolvedValueOnce(adminUser).mockResolvedValueOnce(null);
     const missing = await request(app)
-      .post('/admin/safer-play/ghost/clear-timeout')
+      .post('/api/v1/admin/safer-play/ghost/clear-timeout')
       .set('Authorization', `Bearer ${token}`);
     expect(missing.status).toBe(404);
   });
@@ -463,18 +463,18 @@ describe('admin safer-play lifts', () => {
 describe('admin risk review', () => {
   it('lets RISK_COMPLIANCE read risk events but keeps SUPPORT out', async () => {
     const riskToken = await asRole('RISK_COMPLIANCE');
-    const ok = await request(app).get('/admin/risk-events').set('Authorization', `Bearer ${riskToken}`);
+    const ok = await request(app).get('/api/v1/admin/risk-events').set('Authorization', `Bearer ${riskToken}`);
     expect(ok.status).toBe(200);
 
     const supportToken = await asRole('SUPPORT');
-    const denied = await request(app).get('/admin/risk-events').set('Authorization', `Bearer ${supportToken}`);
+    const denied = await request(app).get('/api/v1/admin/risk-events').set('Authorization', `Bearer ${supportToken}`);
     expect(denied.status).toBe(403);
   });
 
   it('rejects an unknown risk case status', async () => {
     const token = await asRole('RISK_COMPLIANCE');
     const res = await request(app)
-      .post('/admin/risk-cases/rc-1/status')
+      .post('/api/v1/admin/risk-cases/rc-1/status')
       .set('Authorization', `Bearer ${token}`)
       .send({ status: 'EXPLODED' });
     expect(res.status).toBe(400);
