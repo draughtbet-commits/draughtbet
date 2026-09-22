@@ -405,7 +405,9 @@ class LockedFundsScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final projection = ref.watch(walletProvider).projection;
     final items = projection?.lockedFunds ?? const <LockedFundItem>[];
-    final isDeferred = projection?.lockedMinorUnits == null;
+    final locked = projection?.lockedMinorUnits;
+    final pending = projection?.pendingMinorUnits;
+    final isDeferred = locked == null || pending == null;
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(title: const Text('LOCKED FUNDS')),
@@ -424,7 +426,7 @@ class LockedFundsScreen extends ConsumerWidget {
               ),
               const SizedBox(height: 12),
               WalletAmount(
-                projection?.lockedMinorUnits,
+                locked,
                 style: AppTypography.balance.copyWith(
                   fontSize: 32,
                   fontWeight: FontWeight.w600,
@@ -441,7 +443,14 @@ class LockedFundsScreen extends ConsumerWidget {
               if (isDeferred)
                 const FlowCard(
                   child: Text(
-                    'Locked and pending balances are deferred until the server provides them. No amount has been estimated.',
+                    'Locked and pending balances are not available yet. No amount has been estimated.',
+                    textAlign: TextAlign.center,
+                  ),
+                )
+              else if (pending > 0)
+                FlowCard(
+                  child: Text(
+                    'Pending withdrawal: ${Money(pending).format()}',
                     textAlign: TextAlign.center,
                   ),
                 )

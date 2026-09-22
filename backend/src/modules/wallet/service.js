@@ -1,7 +1,7 @@
 import crypto from 'crypto';
 import prisma from '../../utils/db.js';
 import logger from '../../utils/logger.js';
-import { postDepositCredit, getLedgerAvailable, getLedgerTransactions } from '../../services/ledgerService.js';
+import { postDepositCredit, getLedgerTransactions, getUserLedgerProjections } from '../../services/ledgerService.js';
 import { enqueueWalletUpdated, enqueueNotificationDelivery } from '../../services/outboxService.js';
 
 // Canonical money contract: a non-negative bounded minor-unit integer accepted
@@ -81,7 +81,7 @@ export const createDepositIntent = async (userId, amountMinorUnits, gateway, ema
       error.name = 'WalletNotFoundError';
       throw error;
     }
-    // Phase 1 supports NGN only; a GBP wallet must never be credited in kobo.
+    // NGN is the launch currency; a GBP wallet must never be credited in kobo.
     if (wallet.currency !== 'NGN') {
       const error = new Error('Deposits are only supported for NGN wallets');
       error.name = 'UnsupportedCurrencyError';
@@ -243,10 +243,13 @@ export const getWalletBalance = async (userId) => {
     select: { currency: true }
   });
   if (!wallet) return null;
-  const available = await getLedgerAvailable(prisma, userId, wallet.currency ?? 'NGN');
+  const currency = wallet.currency ?? 'NGN';
+  const projections = await getUserLedgerProjections(prisma, userId, currency);
   return {
-    currency: wallet.currency,
-    balanceMinorUnits: available.toString()
+    currency,
+    balanceMinorUnits: projections.available,
+    lockedMinorUnits: projections.locked,
+    pendingMinorUnits: projections.pending
   };
 };
 

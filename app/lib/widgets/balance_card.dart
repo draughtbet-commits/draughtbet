@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../models/match_flow.dart';
 import '../providers/profile_provider.dart';
+import '../providers/wallet_provider.dart';
 import '../theme/colors.dart';
 
 class BalanceCard extends ConsumerStatefulWidget {
@@ -16,6 +17,15 @@ class BalanceCard extends ConsumerStatefulWidget {
 class _BalanceCardState extends ConsumerState<BalanceCard> {
   bool _hideBalance = false;
 
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      ref.read(walletProvider.notifier).fetchBalance(silent: true);
+    });
+  }
+
   String _formatNaira(int minorUnits) {
     return Money(minorUnits).format(showKobo: true);
   }
@@ -23,6 +33,7 @@ class _BalanceCardState extends ConsumerState<BalanceCard> {
   @override
   Widget build(BuildContext context) {
     final profileState = ref.watch(profileProvider);
+    final walletProjection = ref.watch(walletProvider).projection;
     final loading = profileState.isLoading && profileState.profile == null;
     final unavailable =
         profileState.error != null && profileState.profile == null;
@@ -31,6 +42,7 @@ class _BalanceCardState extends ConsumerState<BalanceCard> {
         : unavailable
         ? 'Unavailable'
         : _formatNaira(profileState.profile?.walletBalanceMinorUnits ?? 0);
+    final locked = walletProjection?.lockedMinorUnits;
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -117,15 +129,24 @@ class _BalanceCardState extends ConsumerState<BalanceCard> {
                       ),
                     ),
                     const SizedBox(height: 2),
-                    Text(
-                      '—',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontFamily: 'Sora',
-                        fontSize: 15,
-                        fontWeight: FontWeight.w600,
-                        color: AppColors.textMuted,
+                    GestureDetector(
+                      onTap: locked == null
+                          ? null
+                          : () => context.go('/wallet/locked'),
+                      child: Text(
+                        locked == null
+                            ? '—'
+                            : _formatNaira(locked),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontFamily: 'Sora',
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                          color: locked == null
+                              ? AppColors.textMuted
+                              : AppColors.textPrimary,
+                        ),
                       ),
                     ),
                   ],
