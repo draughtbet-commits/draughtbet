@@ -100,10 +100,6 @@ class SettlementNotifier extends StateNotifier<SettlementUiState> {
   }
 }
 
-final settlementGatewayProvider = Provider<SettlementGateway>((ref) {
-  return const SettlementGateway();
-});
-
 final settlementProvider = StateNotifierProvider.autoDispose
     .family<SettlementNotifier, SettlementUiState, String>((ref, matchId) {
       return SettlementNotifier(ref.watch(settlementGatewayProvider), matchId);

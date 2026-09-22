@@ -279,7 +279,9 @@ class _ReceiptBody extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final resultLabel = _resultLabel(receipt.result);
+    final resultLabel = receipt.result == null
+        ? 'Match receipt'
+        : _resultLabel(receipt.result!);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -303,31 +305,34 @@ class _ReceiptBody extends StatelessWidget {
         FlowCard(
           child: Column(
             children: [
-              _ReceiptRow(label: 'Receipt', value: receipt.reference),
+              if (receipt.reference != null && receipt.reference!.isNotEmpty)
+                _ReceiptRow(label: 'Receipt', value: receipt.reference!),
               _ReceiptRow(label: 'Match ID', value: receipt.matchId),
               _ReceiptRow(
                 label: 'Date',
                 value: DateFormat('MMM d, y · HH:mm').format(receipt.settledAt),
               ),
-              const Divider(height: 20),
-              Row(
-                children: [
-                  GameAvatar(
-                    avatarId: receipt.opponent.avatarId,
-                    size: 42,
-                    label: receipt.opponent.name,
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      receipt.opponent.name,
-                      style: AppTypography.labelBold,
+              if (receipt.opponent != null) ...[
+                const Divider(height: 20),
+                Row(
+                  children: [
+                    GameAvatar(
+                      avatarId: receipt.opponent!.avatarId,
+                      size: 42,
+                      label: receipt.opponent!.name,
                     ),
-                  ),
-                  if (receipt.opponent.rank != null)
-                    RankPill(label: receipt.opponent.rank!),
-                ],
-              ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        receipt.opponent!.name,
+                        style: AppTypography.labelBold,
+                      ),
+                    ),
+                    if (receipt.opponent!.rank != null)
+                      RankPill(label: receipt.opponent!.rank!),
+                  ],
+                ),
+              ],
               if (receipt.terms != null) ...[
                 const Divider(height: 20),
                 _ReceiptRow(
@@ -384,12 +389,14 @@ class _ReceiptBody extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 16),
-        SecondaryActionButton(
-          label: 'Share result',
-          icon: LucideIcons.share2,
-          onPressed: () => showShareReceiptResultSheet(context, receipt),
-        ),
-        const SizedBox(height: 9),
+        if (receipt.result != null && receipt.opponent != null) ...[
+          SecondaryActionButton(
+            label: 'Share result',
+            icon: LucideIcons.share2,
+            onPressed: () => showShareReceiptResultSheet(context, receipt),
+          ),
+          const SizedBox(height: 9),
+        ],
         PrimaryActionButton(
           label: 'Play again',
           onPressed: () => context.go('/home'),
@@ -449,9 +456,12 @@ Future<void> showShareReceiptResultSheet(
   BuildContext context,
   MatchReceiptData receipt,
 ) {
+  if (receipt.result == null || receipt.opponent == null) {
+    return Future.value();
+  }
   final text =
-      '${_resultLabel(receipt.result)} against '
-      '${receipt.opponent.name} on Draught Bet.';
+      '${_resultLabel(receipt.result!)} against '
+      '${receipt.opponent!.name} on Draught Bet.';
   return showModalBottomSheet<void>(
     context: context,
     backgroundColor: AppColors.surface,

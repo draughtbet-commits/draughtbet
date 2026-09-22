@@ -35,6 +35,9 @@ class MatchState {
   final int? confirmedPayoutMinorUnits;
   final String? endReason;
   final MatchResultViewData? authoritativeResult;
+  final int? ownRemainingMs;
+  final int? opponentRemainingMs;
+  final DateTime? serverClockAt;
 
   const MatchState({
     this.gameState,
@@ -59,6 +62,9 @@ class MatchState {
     this.confirmedPayoutMinorUnits,
     this.endReason,
     this.authoritativeResult,
+    this.ownRemainingMs,
+    this.opponentRemainingMs,
+    this.serverClockAt,
   });
 
   MatchState copyWith({
@@ -89,6 +95,9 @@ class MatchState {
     String? endReason,
     MatchResultViewData? authoritativeResult,
     bool clearResult = false,
+    int? ownRemainingMs,
+    int? opponentRemainingMs,
+    DateTime? serverClockAt,
   }) {
     return MatchState(
       gameState: gameState ?? this.gameState,
@@ -129,6 +138,9 @@ class MatchState {
       authoritativeResult: clearResult
           ? null
           : authoritativeResult ?? this.authoritativeResult,
+      ownRemainingMs: ownRemainingMs ?? this.ownRemainingMs,
+      opponentRemainingMs: opponentRemainingMs ?? this.opponentRemainingMs,
+      serverClockAt: serverClockAt ?? this.serverClockAt,
     );
   }
 }
@@ -191,8 +203,13 @@ class MatchNotifier extends StateNotifier<MatchState> {
           );
         } catch (_) {
           state = state.copyWith(syncState: MatchSyncState.syncing);
-          final matchId = state.currentMatchId;
-          if (matchId != null) unawaited(fetchGameState(matchId));
+          // The contract intentionally leaves the final compact board
+          // encoding unresolved. Do not loop or invent a board when a V2
+          // snapshot uses an unsupported encoding.
+          if (!_socketService.isV2) {
+            final matchId = state.currentMatchId;
+            if (matchId != null) unawaited(fetchGameState(matchId));
+          }
         }
       }),
     );
@@ -318,12 +335,19 @@ class MatchNotifier extends StateNotifier<MatchState> {
 
     _subscriptions.add(
       _socketService.onOpponentDisconnected.listen((data) {
+        final disconnectedAt = DateTime.now();
+        final graceEndsAt = DateTime.tryParse(
+          data['graceEndsAt']?.toString() ?? '',
+        );
+        final explicitGrace = int.tryParse(
+          data['gracePeriodMs']?.toString() ?? '',
+        );
         state = state.copyWith(
           opponentConnected: false,
-          opponentDisconnectedAt: DateTime.now(),
-          opponentGracePeriodMs: int.tryParse(
-            data['gracePeriodMs']?.toString() ?? '',
-          ),
+          opponentDisconnectedAt: disconnectedAt,
+          opponentGracePeriodMs:
+              explicitGrace ??
+              graceEndsAt?.difference(disconnectedAt).inMilliseconds,
         );
       }),
     );
@@ -332,6 +356,20 @@ class MatchNotifier extends StateNotifier<MatchState> {
         state = state.copyWith(
           opponentConnected: true,
           clearOpponentDisconnect: true,
+        );
+      }),
+    );
+    _subscriptions.add(
+      _socketService.onClockSync.listen((data) {
+        final white = int.tryParse(data['whiteRemainingMs']?.toString() ?? '');
+        final black = int.tryParse(data['blackRemainingMs']?.toString() ?? '');
+        if (white == null || black == null) return;
+        final game = state.gameState;
+        final userIsWhite = game != null && _currentUserId == game.player1;
+        state = state.copyWith(
+          ownRemainingMs: userIsWhite ? white : black,
+          opponentRemainingMs: userIsWhite ? black : white,
+          serverClockAt: DateTime.tryParse(data['serverNow']?.toString() ?? ''),
         );
       }),
     );
@@ -359,7 +397,10 @@ class MatchNotifier extends StateNotifier<MatchState> {
             ? current.player2
             : current.player1;
         final result =
-            MatchResultViewData.tryFromServer(data) ??
+            MatchResultViewData.tryFromServer(
+              data,
+              fallbackOpponent: MatchPlayer(id: opponentId, name: 'Opponent'),
+            ) ??
             (currentUserId == null || matchId == null
                 ? null
                 : MatchResultViewData.tryFromActiveMatchEnded(
@@ -382,6 +423,22 @@ class MatchNotifier extends StateNotifier<MatchState> {
         if (result != null) unawaited(_storage.clearActiveMatchId());
       }),
     );
+    _subscriptions.add(
+      _socketService.onSettlementCompleted.listen((data) {
+        final eventMatchId = data['matchId']?.toString();
+        if (eventMatchId == null || eventMatchId != state.currentMatchId) {
+          return;
+        }
+        final result = state.authoritativeResult;
+        state = state.copyWith(
+          settlementPhase: SettlementPhase.confirmed,
+          authoritativeResult: result?.copyWith(
+            settlement: SettlementPhase.confirmed,
+            receiptReference: data['receiptId']?.toString(),
+          ),
+        );
+      }),
+    );
 
     _connectivitySubscription = Connectivity().onConnectivityChanged.listen((
       List<ConnectivityResult> result,
@@ -400,11 +457,15 @@ class MatchNotifier extends StateNotifier<MatchState> {
   }
 
   Future<void> fetchGameState(String matchId) async {
+    state = state.copyWith(
+      currentMatchId: matchId,
+      syncState: MatchSyncState.syncing,
+    );
+    if (_socketService.isV2) {
+      _socketService.requestCanonicalState(matchId);
+      return;
+    }
     try {
-      state = state.copyWith(
-        currentMatchId: matchId,
-        syncState: MatchSyncState.syncing,
-      );
       final response = await _dio.get('/matches/$matchId/state');
 
       if (response.statusCode == 200) {

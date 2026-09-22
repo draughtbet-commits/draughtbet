@@ -1,9 +1,15 @@
 import 'dart:async';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:socket_io_client/socket_io_client.dart' as socket_io;
+import '../config/backend_contract.dart';
 import 'secure_storage.dart';
 
 class SocketService {
+  SocketService({BackendContractConfig? contract}) : _contract = contract;
+
+  final BackendContractConfig? _contract;
+  BackendContractConfig get contract =>
+      _contract ?? BackendContractConfig.fromEnvironment();
   socket_io.Socket? _socket;
   final _storage = SecureStorageService();
 
@@ -35,6 +41,10 @@ class SocketService {
       StreamController<Map<String, dynamic>>.broadcast();
   final _drawResponseController =
       StreamController<Map<String, dynamic>>.broadcast();
+  final _clockSyncController =
+      StreamController<Map<String, dynamic>>.broadcast();
+  final _settlementCompletedController =
+      StreamController<Map<String, dynamic>>.broadcast();
 
   Stream<Map<String, dynamic>> get onMatchFound => _matchFoundController.stream;
   Stream<Map<String, dynamic>> get onGameState => _gameStateController.stream;
@@ -59,6 +69,10 @@ class SocketService {
   Stream<Map<String, dynamic>> get onDrawOffer => _drawOfferController.stream;
   Stream<Map<String, dynamic>> get onDrawResponse =>
       _drawResponseController.stream;
+  Stream<Map<String, dynamic>> get onClockSync => _clockSyncController.stream;
+  Stream<Map<String, dynamic>> get onSettlementCompleted =>
+      _settlementCompletedController.stream;
+  bool get isV2 => contract.isV2;
 
   Future<void> initSocket() async {
     if (_socket != null) {
@@ -74,11 +88,14 @@ class SocketService {
     final backendUrl = dotenv.env['BACKEND_URL'] ?? 'http://localhost:3000';
 
     _socket = socket_io.io(
-      backendUrl,
+      contract.isV2 ? '$backendUrl/game' : backendUrl,
       socket_io.OptionBuilder()
           .setTransports(['websocket'])
           .disableAutoConnect()
           .setAuth({'token': token})
+          .setExtraHeaders(
+            contract.isV2 ? {'Authorization': 'Bearer $token'} : {},
+          )
           .build(),
     );
 
@@ -97,7 +114,18 @@ class SocketService {
       if (data is Map) {
         final payload = Map<String, dynamic>.from(data);
         payload['_protocolVersion'] = 2;
+        _forwardClocks(payload);
         _gameStateController.add(payload);
+      }
+    });
+    _socket!.on('game.started', (data) {
+      if (data is Map) {
+        final payload = Map<String, dynamic>.from(data);
+        _forwardClocks(payload);
+        final matchId = payload['matchId']?.toString();
+        if (matchId != null && matchId.isNotEmpty) {
+          _socket?.emit('match.join', {'matchId': matchId});
+        }
       }
     });
 
@@ -110,6 +138,7 @@ class SocketService {
       if (data is Map) {
         final payload = Map<String, dynamic>.from(data);
         payload['_protocolVersion'] = 2;
+        _forwardClocks(payload);
         _moveAppliedController.add(payload);
       }
     });
@@ -152,6 +181,30 @@ class SocketService {
         _drawResponseController.add(Map<String, dynamic>.from(data));
       }
     });
+    _socket!.on('draw.respond', (data) {
+      if (data is Map) {
+        _drawResponseController.add(Map<String, dynamic>.from(data));
+      }
+    });
+
+    _socket!.on('clock.sync', (data) {
+      if (data is Map) {
+        _clockSyncController.add(Map<String, dynamic>.from(data));
+      }
+    });
+
+    _socket!.on('opponent.connection', (data) {
+      if (data is! Map) return;
+      final payload = Map<String, dynamic>.from(data);
+      final connected =
+          payload['connected'] == true ||
+          payload['status']?.toString().toLowerCase() == 'connected';
+      if (connected) {
+        _opponentReconnectedController.add(payload);
+      } else {
+        _opponentDisconnectedController.add(payload);
+      }
+    });
 
     _socket!.on('opponent_disconnected', (data) {
       if (data is Map) {
@@ -180,6 +233,17 @@ class SocketService {
         _walletUpdatedController.add(Map<String, dynamic>.from(data));
       }
     });
+    _socket!.on('wallet.updated', (data) {
+      if (data is Map) {
+        _walletUpdatedController.add(Map<String, dynamic>.from(data));
+      }
+    });
+
+    _socket!.on('settlement.completed', (data) {
+      if (data is Map) {
+        _settlementCompletedController.add(Map<String, dynamic>.from(data));
+      }
+    });
 
     _socket!.on('notification', (data) {
       if (data is Map) {
@@ -191,9 +255,28 @@ class SocketService {
   }
 
   void joinMatch(String matchId) {
-    // The active backend registers only `join_match`. Emitting the roadmap V2
-    // alias as well caused two join attempts against mixed deployments.
-    _socket?.emit('join_match', {'matchId': matchId});
+    _socket?.emit(contract.isV2 ? 'match.join' : 'join_match', {
+      'matchId': matchId,
+    });
+  }
+
+  void requestCanonicalState(String matchId) => joinMatch(matchId);
+
+  void markReady(String matchId, String actionId) {
+    if (!contract.isV2) return;
+    _socket?.emit('player.ready', {'matchId': matchId, 'actionId': actionId});
+  }
+
+  void _forwardClocks(Map<String, dynamic> payload) {
+    final clocks = payload['clocks'];
+    if (clocks is! Map) return;
+    _clockSyncController.add({
+      ...Map<String, dynamic>.from(clocks),
+      if (payload['matchId'] != null) 'matchId': payload['matchId'],
+      if (payload['stateVersion'] != null)
+        'stateVersion': payload['stateVersion'],
+      if (payload['sideToMove'] != null) 'sideToMove': payload['sideToMove'],
+    });
   }
 
   void attemptMove(String matchId, int from, int to) {
@@ -279,6 +362,8 @@ class SocketService {
     _notificationController.close();
     _drawOfferController.close();
     _drawResponseController.close();
+    _clockSyncController.close();
+    _settlementCompletedController.close();
     disconnect();
   }
 }

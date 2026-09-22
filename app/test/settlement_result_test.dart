@@ -1,5 +1,4 @@
 import 'package:draughts_arena/models/match_flow.dart';
-import 'package:draughts_arena/providers/settlement_provider.dart';
 import 'package:draughts_arena/screens/match_result_screen.dart';
 import 'package:draughts_arena/screens/settlement_result_screens.dart';
 import 'package:draughts_arena/services/settlement_gateway.dart';

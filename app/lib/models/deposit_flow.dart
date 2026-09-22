@@ -56,11 +56,14 @@ class DepositQuote {
   static DepositQuote? tryFromServer(dynamic value) {
     if (value is! Map) return null;
     final outer = Map<String, dynamic>.from(value);
-    final raw = outer['quote'] is Map
-        ? Map<String, dynamic>.from(outer['quote'] as Map)
+    final envelope = outer['data'] is Map
+        ? Map<String, dynamic>.from(outer['data'] as Map)
         : outer;
+    final raw = envelope['quote'] is Map
+        ? Map<String, dynamic>.from(envelope['quote'] as Map)
+        : envelope;
     final id = _text(raw['id'] ?? raw['quoteId']);
-    final amount = _minorUnits(raw['amountMinorUnits']);
+    final amount = _minorUnits(raw['amountMinorUnits'] ?? raw['amountMinor']);
     final currency = _text(raw['currency']);
     if (id == null || amount == null || amount <= 0 || currency == null) {
       return null;
@@ -150,14 +153,22 @@ class DepositIntentData {
   }) {
     if (value is! Map) return null;
     final outer = Map<String, dynamic>.from(value);
-    final raw = outer['deposit'] is Map
-        ? Map<String, dynamic>.from(outer['deposit'] as Map)
-        : outer['intent'] is Map
-        ? Map<String, dynamic>.from(outer['intent'] as Map)
+    final envelope = outer['data'] is Map
+        ? Map<String, dynamic>.from(outer['data'] as Map)
         : outer;
-    final reference = _text(raw['reference'] ?? raw['depositReference']);
+    final raw = envelope['deposit'] is Map
+        ? Map<String, dynamic>.from(envelope['deposit'] as Map)
+        : envelope['intent'] is Map
+        ? Map<String, dynamic>.from(envelope['intent'] as Map)
+        : envelope;
+    final checkout = raw['checkout'] is Map
+        ? Map<String, dynamic>.from(raw['checkout'] as Map)
+        : const <String, dynamic>{};
+    final reference = _text(
+      raw['depositId'] ?? raw['reference'] ?? raw['depositReference'],
+    );
     final amount =
-        _minorUnits(raw['amountMinorUnits']) ??
+        _minorUnits(raw['amountMinorUnits'] ?? raw['amountMinor']) ??
         quote?.amountMinorUnits ??
         previous?.amountMinorUnits;
     final currency =
@@ -188,7 +199,11 @@ class DepositIntentData {
             previous?.maskedInstrument,
       ),
       authorizationUrl: _safeCheckoutUri(
-        _text(raw['authorizationUrl'] ?? raw['checkoutUrl']),
+        _text(
+          raw['authorizationUrl'] ??
+              raw['checkoutUrl'] ??
+              checkout['authorizationUrl'],
+        ),
       ),
       failureReason: _text(raw['failureReason'] ?? raw['reason']),
       createdAt: _date(raw['createdAt']) ?? previous?.createdAt,

@@ -280,30 +280,52 @@ class MatchResultViewData {
   }
 
   /// Parses only explicit server-owned result and money fields. A payload that
-  /// omits the authoritative result kind or opponent identity is rejected;
-  /// Flutter never infers either value from the board or the current user.
-  static MatchResultViewData? tryFromServer(Map<dynamic, dynamic> raw) {
+  /// omits the authoritative result kind is rejected. Opponent presentation
+  /// may be supplied from the already-authoritative match participants.
+  static MatchResultViewData? tryFromServer(
+    Map<dynamic, dynamic> raw, {
+    MatchPlayer? fallbackOpponent,
+  }) {
     final body = Map<String, dynamic>.from(raw);
     final resultBody = body['result'] is Map
         ? Map<String, dynamic>.from(body['result'] as Map)
         : body;
     final kind = _parseResultKind(
-      resultBody['kind'] ?? resultBody['resultKind'] ?? resultBody['outcome'],
+      resultBody['kind'] ??
+          resultBody['resultKind'] ??
+          resultBody['outcome'] ??
+          (body['result'] is String ? body['result'] : null),
     );
     final opponentBody = resultBody['opponent'];
-    if (kind == null || opponentBody is! Map) return null;
-    final opponentJson = Map<String, dynamic>.from(opponentBody);
-    final opponentId = opponentJson['id']?.toString().trim() ?? '';
-    final opponentName =
-        (opponentJson['username'] ?? opponentJson['name'])?.toString().trim() ??
-        '';
-    if (opponentId.isEmpty || opponentName.isEmpty) return null;
+    if (kind == null) return null;
+    MatchPlayer? opponent = fallbackOpponent;
+    if (opponentBody is Map) {
+      final opponentJson = Map<String, dynamic>.from(opponentBody);
+      final opponentId = opponentJson['id']?.toString().trim() ?? '';
+      final opponentName =
+          (opponentJson['username'] ?? opponentJson['name'])
+              ?.toString()
+              .trim() ??
+          '';
+      if (opponentId.isNotEmpty && opponentName.isNotEmpty) {
+        opponent = MatchPlayer(
+          id: opponentId,
+          name: opponentName,
+          avatarId: opponentJson['avatarId']?.toString() ?? 'avatar_01',
+          rank: opponentJson['rank']?.toString(),
+          rating: int.tryParse(opponentJson['rating']?.toString() ?? ''),
+        );
+      }
+    }
+    if (opponent == null) return null;
 
     final termsBody = resultBody['terms'];
     final termsJson = termsBody is Map
         ? Map<String, dynamic>.from(termsBody)
         : const <String, dynamic>{};
-    final stake = _minorUnits(termsJson['stakeMinorUnits']);
+    final stake = _minorUnits(
+      termsJson['stakeMinorUnits'] ?? resultBody['stakeMinor'],
+    );
     final terms = stake == null
         ? null
         : MatchTerms(
@@ -331,21 +353,25 @@ class MatchResultViewData {
 
     return MatchResultViewData(
       kind: kind,
-      opponent: MatchPlayer(
-        id: opponentId,
-        name: opponentName,
-        avatarId: opponentJson['avatarId']?.toString() ?? 'avatar_01',
-        rank: opponentJson['rank']?.toString(),
-        rating: int.tryParse(opponentJson['rating']?.toString() ?? ''),
-      ),
+      opponent: opponent,
       terms: terms,
       matchId: (resultBody['matchId'] ?? body['matchId'])?.toString(),
-      reason: resultBody['reason']?.toString() ?? 'Result confirmed by server',
+      reason:
+          (resultBody['reason'] ??
+                  resultBody['terminalReason'] ??
+                  body['terminalReason'])
+              ?.toString() ??
+          'Result confirmed by server',
       settlement: _parseSettlementPhase(
-        settlementJson['status'] ?? resultBody['settlementStatus'],
+        settlementJson['status'] ??
+            resultBody['settlementStatus'] ??
+            body['settlementStatus'],
       ),
       payoutMinorUnits: _minorUnits(
-        settlementJson['payoutMinorUnits'] ?? resultBody['payoutMinorUnits'],
+        settlementJson['payoutMinorUnits'] ??
+            resultBody['payoutMinorUnits'] ??
+            resultBody['payoutMinor'] ??
+            body['payoutMinor'],
       ),
       refundMinorUnits: _minorUnits(
         settlementJson['refundMinorUnits'] ?? resultBody['refundMinorUnits'],
@@ -432,10 +458,10 @@ class MatchResultViewData {
 class MatchReceiptData {
   const MatchReceiptData({
     required this.matchId,
-    required this.reference,
-    required this.result,
-    required this.opponent,
     required this.settledAt,
+    this.reference,
+    this.result,
+    this.opponent,
     this.terms,
     this.payoutMinorUnits,
     this.refundMinorUnits,
@@ -443,9 +469,9 @@ class MatchReceiptData {
   });
 
   final String matchId;
-  final String reference;
-  final ResultKind result;
-  final MatchPlayer opponent;
+  final String? reference;
+  final ResultKind? result;
+  final MatchPlayer? opponent;
   final DateTime settledAt;
   final MatchTerms? terms;
   final int? payoutMinorUnits;
@@ -453,32 +479,53 @@ class MatchReceiptData {
   final String? settlementReference;
 
   static MatchReceiptData? tryFromServer(Map<dynamic, dynamic> raw) {
-    final body = raw['receipt'] is Map
-        ? Map<String, dynamic>.from(raw['receipt'] as Map)
-        : Map<String, dynamic>.from(raw);
+    final outer = Map<String, dynamic>.from(raw);
+    final envelope = outer['data'] is Map
+        ? Map<String, dynamic>.from(outer['data'] as Map)
+        : outer;
+    final body = envelope['receipt'] is Map
+        ? Map<String, dynamic>.from(envelope['receipt'] as Map)
+        : envelope;
     final matchId = body['matchId']?.toString().trim() ?? '';
-    final reference = body['reference']?.toString().trim() ?? '';
+    final reference = body['reference']?.toString().trim();
     final settledAt = DateTime.tryParse(body['settledAt']?.toString() ?? '');
-    final result = _parseResultKind(body['resultKind'] ?? body['outcome']);
+    final resultBody = body['result'] is Map
+        ? Map<String, dynamic>.from(body['result'] as Map)
+        : const <String, dynamic>{};
+    final result = _parseResultKind(
+      body['resultKind'] ?? body['outcome'] ?? resultBody['kind'],
+    );
+    if (matchId.isEmpty || settledAt == null) return null;
+    MatchPlayer? opponent;
     final opponentBody = body['opponent'];
-    if (matchId.isEmpty ||
-        reference.isEmpty ||
-        settledAt == null ||
-        result == null ||
-        opponentBody is! Map) {
-      return null;
+    if (opponentBody is Map) {
+      final opponentJson = Map<String, dynamic>.from(opponentBody);
+      final opponentId = opponentJson['id']?.toString().trim() ?? '';
+      final opponentName =
+          (opponentJson['username'] ?? opponentJson['name'])
+              ?.toString()
+              .trim() ??
+          '';
+      if (opponentId.isNotEmpty && opponentName.isNotEmpty) {
+        opponent = MatchPlayer(
+          id: opponentId,
+          name: opponentName,
+          avatarId: opponentJson['avatarId']?.toString() ?? 'avatar_01',
+          rank: opponentJson['rank']?.toString(),
+        );
+      }
     }
-    final opponentJson = Map<String, dynamic>.from(opponentBody);
-    final opponentId = opponentJson['id']?.toString().trim() ?? '';
-    final opponentName =
-        (opponentJson['username'] ?? opponentJson['name'])?.toString().trim() ??
-        '';
-    if (opponentId.isEmpty || opponentName.isEmpty) return null;
     final termsBody = body['terms'];
     final termsJson = termsBody is Map
         ? Map<String, dynamic>.from(termsBody)
         : const <String, dynamic>{};
-    final stake = _minorUnits(termsJson['stakeMinorUnits']);
+    final moneyBody = body['money'];
+    final moneyJson = moneyBody is Map
+        ? Map<String, dynamic>.from(moneyBody)
+        : const <String, dynamic>{};
+    final stake = _minorUnits(
+      termsJson['stakeMinorUnits'] ?? moneyJson['stakeEachMinor'],
+    );
     final terms = stake == null
         ? null
         : MatchTerms(
@@ -487,11 +534,12 @@ class MatchReceiptData {
               termsJson['opponentStakeMinorUnits'],
             ),
             platformFeeMinorUnits: _minorUnits(
-              termsJson['platformFeeMinorUnits'],
+              termsJson['platformFeeMinorUnits'] ?? moneyJson['feeMinor'],
             ),
             totalPrizeMinorUnits: _minorUnits(
               termsJson['totalPotMinorUnits'] ??
-                  termsJson['totalPrizeMinorUnits'],
+                  termsJson['totalPrizeMinorUnits'] ??
+                  moneyJson['grossPotMinor'],
             ),
             timeControl:
                 termsJson['timeControl']?.toString() ?? 'Server unavailable',
@@ -503,16 +551,15 @@ class MatchReceiptData {
       matchId: matchId,
       reference: reference,
       result: result,
-      opponent: MatchPlayer(
-        id: opponentId,
-        name: opponentName,
-        avatarId: opponentJson['avatarId']?.toString() ?? 'avatar_01',
-        rank: opponentJson['rank']?.toString(),
-      ),
+      opponent: opponent,
       settledAt: settledAt,
       terms: terms,
-      payoutMinorUnits: _minorUnits(body['payoutMinorUnits']),
-      refundMinorUnits: _minorUnits(body['refundMinorUnits']),
+      payoutMinorUnits: _minorUnits(
+        body['payoutMinorUnits'] ?? moneyJson['winnerPayoutMinor'],
+      ),
+      refundMinorUnits: _minorUnits(
+        body['refundMinorUnits'] ?? moneyJson['refundMinor'],
+      ),
       settlementReference: body['settlementReference']?.toString(),
     );
   }
@@ -520,8 +567,8 @@ class MatchReceiptData {
 
 ResultKind? _parseResultKind(dynamic value) =>
     switch (value?.toString().toLowerCase()) {
-      'victory' || 'win' => ResultKind.victory,
-      'defeat' || 'loss' => ResultKind.defeat,
+      'victory' || 'win' || 'won' => ResultKind.victory,
+      'defeat' || 'loss' || 'lost' => ResultKind.defeat,
       'draw' => ResultKind.draw,
       'timeout' || 'timeout_result' => ResultKind.timeout,
       'resignation' || 'resign' => ResultKind.resignation,
@@ -533,6 +580,7 @@ ResultKind? _parseResultKind(dynamic value) =>
 SettlementPhase _parseSettlementPhase(dynamic value) =>
     switch (value?.toString().toLowerCase()) {
       'complete' || 'completed' || 'confirmed' => SettlementPhase.confirmed,
+      'settled' => SettlementPhase.confirmed,
       'delayed' || 'review' => SettlementPhase.delayed,
       'failed' || 'unavailable' => SettlementPhase.failed,
       _ => SettlementPhase.pending,

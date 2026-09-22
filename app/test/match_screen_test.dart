@@ -69,6 +69,12 @@ void main() {
         () => mockSocketService.onDrawResponse,
       ).thenAnswer((_) => const Stream.empty());
       when(
+        () => mockSocketService.onClockSync,
+      ).thenAnswer((_) => const Stream.empty());
+      when(
+        () => mockSocketService.onSettlementCompleted,
+      ).thenAnswer((_) => const Stream.empty());
+      when(
         () => mockSocketService.attemptMove(any(), any(), any()),
       ).thenReturn(null);
 

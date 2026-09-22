@@ -78,10 +78,23 @@ abstract class MoveAppliedEvent with _$MoveAppliedEvent {
 
 Map<String, dynamic> _normalizeGameState(Map<String, dynamic> json) {
   final normalized = Map<String, dynamic>.from(json);
+  final board = json['board'];
+  if (board is Map && board['cells'] is List) {
+    normalized['board'] = board['cells'];
+  }
   final players = json['players'];
   if (players is Map) {
     normalized['player1'] ??= players['light'];
     normalized['player2'] ??= players['dark'];
+  }
+  final participants = json['participants'];
+  if (participants is List) {
+    for (final participant in participants.whereType<Map>()) {
+      final side = participant['side']?.toString().toUpperCase();
+      final userId = participant['userId']?.toString();
+      if (side == 'WHITE') normalized['player1'] ??= userId;
+      if (side == 'BLACK') normalized['player2'] ??= userId;
+    }
   }
   normalized['moveCount'] ??= 0;
   normalized['consecutiveKingMoves'] ??= 0;
@@ -96,6 +109,7 @@ Map<String, dynamic> _normalizeGameState(Map<String, dynamic> json) {
   normalized['currentTurn'] ??= json['sideToMove'] ?? '';
   normalized['player1'] ??= '';
   normalized['player2'] ??= '';
+  normalized['status'] = normalized['status']?.toString().toLowerCase();
   return normalized;
 }
 

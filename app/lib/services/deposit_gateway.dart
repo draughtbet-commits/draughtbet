@@ -1,13 +1,16 @@
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../config/backend_contract.dart';
 import '../models/deposit_flow.dart';
 import 'api_client.dart';
 
 class DepositGateway {
-  DepositGateway(this._dio);
+  DepositGateway(this._dio, {BackendContractConfig? contract})
+    : contract = contract ?? BackendContractConfig.fromEnvironment();
 
   final Dio _dio;
+  final BackendContractConfig contract;
 
   Future<DepositQuote?> createQuote(int amountMinorUnits) async {
     // The active backend does not expose a deposit quote/payment-method read.
@@ -21,14 +24,28 @@ class DepositGateway {
     required DepositPaymentMethod method,
   }) async {
     final response = await _dio.post<dynamic>(
-      '/wallet/deposit-intent',
-      data: {
-        'amountMinorUnits': quote.amountMinorUnits,
-        'gateway': method.id.toLowerCase(),
-        'quoteId': quote.id,
-        if (quote.idempotencyKey != null)
-          'idempotencyKey': quote.idempotencyKey,
-      },
+      contract.isV2 ? '/api/v1/deposits' : '/wallet/deposit-intent',
+      data: contract.isV2
+          ? {
+              'amountMinor': quote.amountMinorUnits,
+              'currency': quote.currency,
+              'provider': method.id,
+            }
+          : {
+              'amountMinorUnits': quote.amountMinorUnits,
+              'gateway': method.id.toLowerCase(),
+              'quoteId': quote.id,
+              if (quote.idempotencyKey != null)
+                'idempotencyKey': quote.idempotencyKey,
+            },
+      options: contract.isV2
+          ? Options(
+              headers: {
+                'Idempotency-Key':
+                    quote.idempotencyKey ?? 'deposit-${quote.id}',
+              },
+            )
+          : null,
     );
     return DepositIntentData.tryFromServer(
       response.data,
@@ -42,13 +59,15 @@ class DepositGateway {
     String reference, {
     DepositIntentData? previous,
   }) async {
-    // Deposit completion is currently delivered only through the webhook and
-    // wallet projection. There is no authenticated deposit-status read route,
-    // so a provider return must remain pending rather than imply success.
-    return null;
+    if (!contract.isV2) return null;
+    final response = await _dio.get<dynamic>('/api/v1/deposits/$reference');
+    return DepositIntentData.tryFromServer(response.data, previous: previous);
   }
 }
 
 final depositGatewayProvider = Provider<DepositGateway>(
-  (ref) => DepositGateway(ref.watch(apiClientProvider)),
+  (ref) => DepositGateway(
+    ref.watch(apiClientProvider),
+    contract: ref.watch(backendContractProvider),
+  ),
 );

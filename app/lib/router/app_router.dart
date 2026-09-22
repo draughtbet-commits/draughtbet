@@ -24,6 +24,7 @@ import '../models/wallet_read.dart';
 import '../screens/deposit_flow_screens.dart';
 import '../providers/deposit_provider.dart';
 import '../providers/withdrawal_provider.dart';
+import '../providers/match_flow_provider.dart';
 import '../screens/withdrawal_flow_screens.dart';
 import '../screens/settings_screen.dart';
 import '../screens/results_screen.dart';
@@ -190,8 +191,21 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         path: '/play/ready',
         redirect: (context, state) =>
             state.extra is MatchLifecycleSnapshot ? null : '/play/unavailable',
-        builder: (context, state) =>
-            ReadyCheckScreen(snapshot: state.extra! as MatchLifecycleSnapshot),
+        builder: (context, state) => Consumer(
+          builder: (context, ref, _) {
+            final snapshot = state.extra! as MatchLifecycleSnapshot;
+            return ReadyCheckScreen(
+              snapshot: snapshot,
+              onReady: () async {
+                final updated = await ref
+                    .read(matchFlowProvider.notifier)
+                    .markReady();
+                if (!context.mounted || updated == null) return;
+                context.go('/play/waiting-ready', extra: updated);
+              },
+            );
+          },
+        ),
       ),
       GoRoute(
         path: '/play/waiting-ready',

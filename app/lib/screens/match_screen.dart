@@ -356,7 +356,10 @@ class _MatchScreenState extends ConsumerState<MatchScreen> {
             ],
           ),
           actions: [
-            _ClockChip(label: '--:--', active: !myTurn),
+            _ClockChip(
+              label: _serverClockLabel(state.opponentRemainingMs),
+              active: !myTurn,
+            ),
             IconButton(
               tooltip: 'Match menu',
               onPressed: _showMatchMenu,
@@ -387,7 +390,9 @@ class _MatchScreenState extends ConsumerState<MatchScreen> {
                             _PlayerStrip(
                               title: 'KingMoves',
                               subtitle: myTurn ? 'Waiting' : 'Thinking…',
-                              clock: '--:--',
+                              clock: _serverClockLabel(
+                                state.opponentRemainingMs,
+                              ),
                               accent: AppColors.valueAccent,
                               active: !myTurn,
                             ),
@@ -493,7 +498,7 @@ class _MatchScreenState extends ConsumerState<MatchScreen> {
                               subtitle: myTurn
                                   ? 'Your turn'
                                   : 'Opponent’s turn',
-                              clock: '--:--',
+                              clock: _serverClockLabel(state.ownRemainingMs),
                               accent: AppColors.primaryBright,
                               active: myTurn,
                             ),
@@ -1147,6 +1152,14 @@ class _PlayerStrip extends StatelessWidget {
       ),
     );
   }
+}
+
+String _serverClockLabel(int? milliseconds) {
+  if (milliseconds == null || milliseconds < 0) return '--:--';
+  final totalSeconds = milliseconds ~/ 1000;
+  final minutes = totalSeconds ~/ 60;
+  final seconds = totalSeconds % 60;
+  return '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
 }
 
 class _GameAction extends StatelessWidget {

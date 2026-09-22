@@ -26,16 +26,22 @@ class WithdrawalBankAccount {
 
   static WithdrawalBankAccount? tryFromServer(dynamic value) {
     if (value is! Map) return null;
-    final raw = Map<String, dynamic>.from(value);
+    final outer = Map<String, dynamic>.from(value);
+    final raw = outer['data'] is Map
+        ? Map<String, dynamic>.from(outer['data'] as Map)
+        : outer;
     final id = _text(raw['id'] ?? raw['bankAccountId']);
-    final bankCode = _text(raw['bankCode']);
+    final bankCode = _text(raw['bankCode']) ?? '';
     final bankName = _text(raw['bankName'] ?? raw['bank']);
     final accountName = _text(raw['accountName']);
     final accountNumber = _text(
-      raw['maskedAccountNumber'] ?? raw['accountNumber'],
+      raw['maskedAccount'] ??
+          raw['maskedAccountNumber'] ??
+          raw['accountNumber'],
+      // V2 intentionally returns only a masked account value.
+      // Keep legacy aliases for mixed deployments.
     );
     if (id == null ||
-        bankCode == null ||
         bankName == null ||
         accountName == null ||
         accountNumber == null) {
@@ -82,11 +88,14 @@ class WithdrawalQuote {
   static WithdrawalQuote? tryFromServer(dynamic value) {
     if (value is! Map) return null;
     final outer = Map<String, dynamic>.from(value);
-    final raw = outer['quote'] is Map
-        ? Map<String, dynamic>.from(outer['quote'] as Map)
+    final envelope = outer['data'] is Map
+        ? Map<String, dynamic>.from(outer['data'] as Map)
         : outer;
+    final raw = envelope['quote'] is Map
+        ? Map<String, dynamic>.from(envelope['quote'] as Map)
+        : envelope;
     final id = _text(raw['id'] ?? raw['quoteId']);
-    final amount = _minorUnits(raw['amountMinorUnits']);
+    final amount = _minorUnits(raw['amountMinorUnits'] ?? raw['amountMinor']);
     final currency = _text(raw['currency']);
     if (id == null || amount == null || amount <= 0 || currency == null) {
       return null;
@@ -169,13 +178,18 @@ class WithdrawalData {
   }) {
     if (value is! Map) return null;
     final outer = Map<String, dynamic>.from(value);
-    final raw = outer['withdrawal'] is Map
-        ? Map<String, dynamic>.from(outer['withdrawal'] as Map)
+    final envelope = outer['data'] is Map
+        ? Map<String, dynamic>.from(outer['data'] as Map)
         : outer;
-    final reference = _text(raw['reference'] ?? raw['withdrawalReference']);
+    final raw = envelope['withdrawal'] is Map
+        ? Map<String, dynamic>.from(envelope['withdrawal'] as Map)
+        : envelope;
+    final reference = _text(
+      raw['withdrawalId'] ?? raw['reference'] ?? raw['withdrawalReference'],
+    );
     final status = _withdrawalStatus(raw['status']);
     final amount =
-        _minorUnits(raw['amountMinorUnits']) ??
+        _minorUnits(raw['amountMinorUnits'] ?? raw['amountMinor']) ??
         quote?.amountMinorUnits ??
         previous?.amountMinorUnits;
     final currency =
@@ -255,6 +269,7 @@ WithdrawalEligibility _eligibility(Map<String, dynamic> raw) {
 WithdrawalStatus? _withdrawalStatus(dynamic value) {
   final status = _text(value)?.toLowerCase();
   return switch (status) {
+    'under_review' ||
     'pending_review' ||
     'pending' ||
     'reserved' => WithdrawalStatus.pendingReview,
