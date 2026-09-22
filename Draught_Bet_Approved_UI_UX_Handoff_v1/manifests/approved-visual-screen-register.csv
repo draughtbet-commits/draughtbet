@@ -1,0 +1,177 @@
+visual_id,board_title,frame_index,legacy_label,role,status
+VIS-00,Core foundations and screens 1-18,1,1 Splash Screen,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-00,Core foundations and screens 1-18,2,2A Onboarding - Your skill. Your match.,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-00,Core foundations and screens 1-18,3,2B Onboarding - Every move counts.,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-00,Core foundations and screens 1-18,4,2C Onboarding - Know where your money goes.,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-00,Core foundations and screens 1-18,5,3 Welcome,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-00,Core foundations and screens 1-18,6,4 Sign In,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-00,Core foundations and screens 1-18,7,5 Sign Up,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-00,Core foundations and screens 1-18,8,6 Home / Lobby,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-00,Core foundations and screens 1-18,9,7 Arena / Open Matches,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-00,Core foundations and screens 1-18,10,8 Create Match,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-00,Core foundations and screens 1-18,11,9 Match Confirmation,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-00,Core foundations and screens 1-18,12,10 Match Found,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-00,Core foundations and screens 1-18,13,11 Match Room,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-00,Core foundations and screens 1-18,14,12 Gameplay / Live Match,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-00,Core foundations and screens 1-18,15,13 Move Selection,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-00,Core foundations and screens 1-18,16,14 Capture / Flying King,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-00,Core foundations and screens 1-18,17,15 King Promotion,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-00,Core foundations and screens 1-18,18,16 Opponent Thinking,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-00,Core foundations and screens 1-18,19,17 Victory Screen,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-00,Core foundations and screens 1-18,20,18 Defeat Screen,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-01,Authentication recovery and challenges 19-30,1,19 Forgot Password,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-01,Authentication recovery and challenges 19-30,2,20 Verification Code,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-01,Authentication recovery and challenges 19-30,3,21 Reset Password,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-01,Authentication recovery and challenges 19-30,4,22 Password Reset Success,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-01,Authentication recovery and challenges 19-30,5,23 Verify Account,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-01,Authentication recovery and challenges 19-30,6,24 Age and Legal Eligibility,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-01,Authentication recovery and challenges 19-30,7,25 Quick Match Setup,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-01,Authentication recovery and challenges 19-30,8,26 Searching for Opponent,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-01,Authentication recovery and challenges 19-30,9,27 No Opponent Found,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-01,Authentication recovery and challenges 19-30,10,28 Incoming Challenge,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-01,Authentication recovery and challenges 19-30,11,29 Challenge Sent,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-01,Authentication recovery and challenges 19-30,12,30 Challenge Declined or Expired,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-02,"Match entry, stake and ready states 31-42",1,31 Player Search,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-02,"Match entry, stake and ready states 31-42",2,32 Public Profile,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-02,"Match entry, stake and ready states 31-42",3,33 Open Match Details,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-02,"Match entry, stake and ready states 31-42",4,34 Join Match Confirmation,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-02,"Match entry, stake and ready states 31-42",5,35 Match Unavailable,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-02,"Match entry, stake and ready states 31-42",6,36 Insufficient Balance,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-02,"Match entry, stake and ready states 31-42",7,37 Stake Limit or Eligibility Blocked,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-02,"Match entry, stake and ready states 31-42",8,38 Locking Stake,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-02,"Match entry, stake and ready states 31-42",9,39 Waiting for Opponent,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-02,"Match entry, stake and ready states 31-42",10,40 Ready Check,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-02,"Match entry, stake and ready states 31-42",11,41 Waiting for Opponent Ready,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-02,"Match entry, stake and ready states 31-42",12,42 Ready Timeout,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-03,Approved alternate match-entry compositions,1,31 Player Search - alternate,alternate,CLIENT-APPROVED VISUAL SOURCE
+VIS-03,Approved alternate match-entry compositions,2,32 Public Profile - alternate,alternate,CLIENT-APPROVED VISUAL SOURCE
+VIS-03,Approved alternate match-entry compositions,3,33 Open Match Details - alternate,alternate,CLIENT-APPROVED VISUAL SOURCE
+VIS-03,Approved alternate match-entry compositions,4,34 Join Match Confirmation - alternate,alternate,CLIENT-APPROVED VISUAL SOURCE
+VIS-03,Approved alternate match-entry compositions,5,35 Match Unavailable - alternate,alternate,CLIENT-APPROVED VISUAL SOURCE
+VIS-03,Approved alternate match-entry compositions,6,37 Stake Limit - alternate,alternate,CLIENT-APPROVED VISUAL SOURCE
+VIS-03,Approved alternate match-entry compositions,7,38 Locking Stake - alternate,alternate,CLIENT-APPROVED VISUAL SOURCE
+VIS-03,Approved alternate match-entry compositions,8,39 Waiting for Opponent - alternate,alternate,CLIENT-APPROVED VISUAL SOURCE
+VIS-03,Approved alternate match-entry compositions,9,40 Ready Check - alternate,alternate,CLIENT-APPROVED VISUAL SOURCE
+VIS-03,Approved alternate match-entry compositions,10,42 Ready Timeout - alternate,alternate,CLIENT-APPROVED VISUAL SOURCE
+VIS-04,"Wallet, deposits and transactions 43-54",1,43 Opponent Disconnected Before Start,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-04,"Wallet, deposits and transactions 43-54",2,44 Wallet Dashboard,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-04,"Wallet, deposits and transactions 43-54",3,45 Add Money,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-04,"Wallet, deposits and transactions 43-54",4,46 Deposit Payment Method,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-04,"Wallet, deposits and transactions 43-54",5,47 Deposit Processing,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-04,"Wallet, deposits and transactions 43-54",6,48 Deposit Successful,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-04,"Wallet, deposits and transactions 43-54",7,49 Deposit Failed,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-04,"Wallet, deposits and transactions 43-54",8,50 Transaction History,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-04,"Wallet, deposits and transactions 43-54",9,51 Transaction Details,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-04,"Wallet, deposits and transactions 43-54",10,52 Locked Funds Details,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-04,"Wallet, deposits and transactions 43-54",11,53 Withdraw Money,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-04,"Wallet, deposits and transactions 43-54",12,54 Select Bank Account,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-05,Withdrawals and KYC 55-66,1,55 Add Bank Account,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-05,Withdrawals and KYC 55-66,2,56 Withdrawal Review,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-05,Withdrawals and KYC 55-66,3,57 Verification Required,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-05,Withdrawals and KYC 55-66,4,58 Withdrawal Pending Review,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-05,Withdrawals and KYC 55-66,5,59 Withdrawal Processing,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-05,Withdrawals and KYC 55-66,6,60 Withdrawal Successful,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-05,Withdrawals and KYC 55-66,7,61 Withdrawal Failed,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-05,Withdrawals and KYC 55-66,8,62 Verify Your Identity,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-05,Withdrawals and KYC 55-66,9,63 Personal Details,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-05,Withdrawals and KYC 55-66,10,64 Select ID Type,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-05,Withdrawals and KYC 55-66,11,65 Upload ID,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-05,Withdrawals and KYC 55-66,12,66 Selfie Check,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-06,"Verification, profile, support and gameplay states 67-78",1,67 Verification Processing,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-06,"Verification, profile, support and gameplay states 67-78",2,68 Verification Successful,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-06,"Verification, profile, support and gameplay states 67-78",3,69 Verification Rejected or Retry,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-06,"Verification, profile, support and gameplay states 67-78",4,70 Verification Expired,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-06,"Verification, profile, support and gameplay states 67-78",5,71 Profile,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-06,"Verification, profile, support and gameplay states 67-78",6,72 Edit Profile,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-06,"Verification, profile, support and gameplay states 67-78",7,73 Player Statistics,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-06,"Verification, profile, support and gameplay states 67-78",8,74 Help and Support,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-06,"Verification, profile, support and gameplay states 67-78",9,75 Connection Lost,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-06,"Verification, profile, support and gameplay states 67-78",10,76 State Resyncing,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-06,"Verification, profile, support and gameplay states 67-78",11,77 Illegal Move Feedback,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-06,"Verification, profile, support and gameplay states 67-78",12,78 Draw Offer Received,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-07,"Gameplay decisions, results and settlement 79-90",1,79 Offer Draw Confirmation,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-07,"Gameplay decisions, results and settlement 79-90",2,80 Draw Offer Rejected,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-07,"Gameplay decisions, results and settlement 79-90",3,81 Resign Confirmation,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-07,"Gameplay decisions, results and settlement 79-90",4,82 Opponent Disconnect Countdown,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-07,"Gameplay decisions, results and settlement 79-90",5,83 Player Timeout Result,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-07,"Gameplay decisions, results and settlement 79-90",6,84 Draw Result,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-07,"Gameplay decisions, results and settlement 79-90",7,85 Victory by Resignation,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-07,"Gameplay decisions, results and settlement 79-90",8,86 Victory by Forfeit,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-07,"Gameplay decisions, results and settlement 79-90",9,87 Match Cancelled,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-07,"Gameplay decisions, results and settlement 79-90",10,88 Settlement Processing,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-07,"Gameplay decisions, results and settlement 79-90",11,89 Settlement Completed,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-07,"Gameplay decisions, results and settlement 79-90",12,90 Settlement Delayed,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-08,"Settings, security and safer-play controls 91-102",1,91 Settings,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-08,"Settings, security and safer-play controls 91-102",2,92 Security and Devices,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-08,"Settings, security and safer-play controls 91-102",3,93 Change Password,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-08,"Settings, security and safer-play controls 91-102",4,94 Notification Preferences,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-08,"Settings, security and safer-play controls 91-102",5,95 Log Out,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-08,"Settings, security and safer-play controls 91-102",6,97 Confirm Account Deletion,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-08,"Settings, security and safer-play controls 91-102",7,98 Safer Play,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-08,"Settings, security and safer-play controls 91-102",8,99 Deposit Limit,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-08,"Settings, security and safer-play controls 91-102",9,100 Stake Limit,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-08,"Settings, security and safer-play controls 91-102",10,101 Take a Break,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-08,"Settings, security and safer-play controls 91-102",11,102 Self-Exclusion,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-09,"Operational, legal and dispute states 96-107",1,96 Delete Account,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-09,"Operational, legal and dispute states 96-107",2,97 Session Expired,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-09,"Operational, legal and dispute states 96-107",3,98 Account Restricted,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-09,"Operational, legal and dispute states 96-107",4,99 Scheduled Maintenance,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-09,"Operational, legal and dispute states 96-107",5,100 Update Required,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-09,"Operational, legal and dispute states 96-107",6,101 No Internet,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-09,"Operational, legal and dispute states 96-107",7,102 Camera Permission Denied,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-09,"Operational, legal and dispute states 96-107",8,103 Notification Permission,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-09,"Operational, legal and dispute states 96-107",9,104 Terms and Conditions,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-09,"Operational, legal and dispute states 96-107",10,105 Privacy Policy,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-09,"Operational, legal and dispute states 96-107",11,106 Dispute Evidence Upload,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-09,"Operational, legal and dispute states 96-107",12,107 Dispute Resolved,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-10,"Empty, loading, validation and failure states 108-119",1,108 Empty Arena,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-10,"Empty, loading, validation and failure states 108-119",2,109 Empty Match History,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-10,"Empty, loading, validation and failure states 108-119",3,110 Empty Transaction History,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-10,"Empty, loading, validation and failure states 108-119",4,111 Empty Notifications,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-10,"Empty, loading, validation and failure states 108-119",5,112 Form Validation Errors,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-10,"Empty, loading, validation and failure states 108-119",6,113 Loading Skeleton,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-10,"Empty, loading, validation and failure states 108-119",7,114 Request Failed with Retry,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-10,"Empty, loading, validation and failure states 108-119",8,115 OTP Expired,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-10,"Empty, loading, validation and failure states 108-119",9,116 Payment Abandoned,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-10,"Empty, loading, validation and failure states 108-119",10,117 Bank Account Verification Failed,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-10,"Empty, loading, validation and failure states 108-119",11,118 Identity Capture Error,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-10,"Empty, loading, validation and failure states 108-119",12,119 Match Join Conflict,primary,CLIENT-APPROVED VISUAL SOURCE
+VIS-11,Tier and call-out flow additions,1,Home Dashboard,extension,CLIENT-APPROVED VISUAL SOURCE
+VIS-11,Tier and call-out flow additions,2,Select Your Tier,extension,CLIENT-APPROVED VISUAL SOURCE
+VIS-11,Tier and call-out flow additions,3,Amateur Tier Details,extension,CLIENT-APPROVED VISUAL SOURCE
+VIS-11,Tier and call-out flow additions,4,Master Tier Details,extension,CLIENT-APPROVED VISUAL SOURCE
+VIS-11,Tier and call-out flow additions,5,Pro Tier Details,extension,CLIENT-APPROVED VISUAL SOURCE
+VIS-11,Tier and call-out flow additions,6,Matchmaking Queue,extension,CLIENT-APPROVED VISUAL SOURCE
+VIS-11,Tier and call-out flow additions,7,Open Call-outs Feed,extension,CLIENT-APPROVED VISUAL SOURCE
+VIS-11,Tier and call-out flow additions,8,Create Call-out,extension,CLIENT-APPROVED VISUAL SOURCE
+VIS-11,Tier and call-out flow additions,9,Incoming Call-out,extension,CLIENT-APPROVED VISUAL SOURCE
+VIS-11,Tier and call-out flow additions,10,Call-out Unavailable,extension,CLIENT-APPROVED VISUAL SOURCE
+VIS-11,Tier and call-out flow additions,11,Notifications,extension,CLIENT-APPROVED VISUAL SOURCE
+VIS-11,Tier and call-out flow additions,12,Match Result,extension,CLIENT-APPROVED VISUAL SOURCE
+VIS-12,"Post-game, dispute and safer-play additions",1,Match History,extension,CLIENT-APPROVED VISUAL SOURCE
+VIS-12,"Post-game, dispute and safer-play additions",2,Match Details,extension,CLIENT-APPROVED VISUAL SOURCE
+VIS-12,"Post-game, dispute and safer-play additions",3,Match Receipt,extension,CLIENT-APPROVED VISUAL SOURCE
+VIS-12,"Post-game, dispute and safer-play additions",4,Replay,extension,CLIENT-APPROVED VISUAL SOURCE
+VIS-12,"Post-game, dispute and safer-play additions",5,Move History,extension,CLIENT-APPROVED VISUAL SOURCE
+VIS-12,"Post-game, dispute and safer-play additions",6,Report Match,extension,CLIENT-APPROVED VISUAL SOURCE
+VIS-12,"Post-game, dispute and safer-play additions",7,Dispute Reason,extension,CLIENT-APPROVED VISUAL SOURCE
+VIS-12,"Post-game, dispute and safer-play additions",8,Dispute Submitted,extension,CLIENT-APPROVED VISUAL SOURCE
+VIS-12,"Post-game, dispute and safer-play additions",9,Dispute Status,extension,CLIENT-APPROVED VISUAL SOURCE
+VIS-12,"Post-game, dispute and safer-play additions",10,Notifications,extension,CLIENT-APPROVED VISUAL SOURCE
+VIS-12,"Post-game, dispute and safer-play additions",11,Safer Play,extension,CLIENT-APPROVED VISUAL SOURCE
+VIS-12,"Post-game, dispute and safer-play additions",12,Limits,extension,CLIENT-APPROVED VISUAL SOURCE
+VIS-13,Money lifecycle state board,1,M1 Match Quote and Confirmation,extension,CLIENT-APPROVED VISUAL SOURCE
+VIS-13,Money lifecycle state board,2,M2 Atomic Stake Lock Processing,extension,CLIENT-APPROVED VISUAL SOURCE
+VIS-13,Money lifecycle state board,3,M3 Both Stakes Locked,extension,CLIENT-APPROVED VISUAL SOURCE
+VIS-13,Money lifecycle state board,4,M4 Release Processing,extension,CLIENT-APPROVED VISUAL SOURCE
+VIS-13,Money lifecycle state board,5,M5 Stake Released,extension,CLIENT-APPROVED VISUAL SOURCE
+VIS-13,Money lifecycle state board,6,M6 Checkout Ready,extension,CLIENT-APPROVED VISUAL SOURCE
+VIS-13,Money lifecycle state board,7,M7 Awaiting Confirmation,extension,CLIENT-APPROVED VISUAL SOURCE
+VIS-13,Money lifecycle state board,8,M8 Deposit Confirmed,extension,CLIENT-APPROVED VISUAL SOURCE
+VIS-13,Money lifecycle state board,9,M9 Review Withdrawal,extension,CLIENT-APPROVED VISUAL SOURCE
+VIS-13,Money lifecycle state board,10,M10 Pending Review,extension,CLIENT-APPROVED VISUAL SOURCE
+VIS-13,Money lifecycle state board,11,M12 Withdrawal Status,extension,CLIENT-APPROVED VISUAL SOURCE
+VIS-14,Withdrawal status variants,1,Pending Review,extension,CLIENT-APPROVED VISUAL SOURCE
+VIS-14,Withdrawal status variants,2,Provider Processing,extension,CLIENT-APPROVED VISUAL SOURCE
+VIS-14,Withdrawal status variants,3,Confirmed,extension,CLIENT-APPROVED VISUAL SOURCE
+VIS-14,Withdrawal status variants,4,Reversed,extension,CLIENT-APPROVED VISUAL SOURCE

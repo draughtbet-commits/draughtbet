@@ -1,9 +1,40 @@
 import prisma from '../../utils/db.js';
 import logger from '../../utils/logger.js';
 import { getIO } from '../../sockets/index.js';
-import { debitStakes } from '../../services/matchService.js';
-import { initializeGame } from '../../sockets/gameManager.js';
+import { createMatchWithStakes, ActiveMatchError } from '../../services/matchService.js';
+import { hasPreterminalMatchForPlayers } from '../match/service.js';
+import { finalizeMatchActivation } from '../../services/gameActivationService.js';
 import { NotificationService } from '../notification/service.js';
+
+export { ActiveMatchError };
+
+export class CalloutUnavailableError extends Error {
+  constructor(message = 'Callout is no longer available') {
+    super(message);
+    this.name = 'CalloutUnavailableError';
+  }
+}
+
+export class SelfAcceptError extends Error {
+  constructor(message = 'Cannot accept your own callout') {
+    super(message);
+    this.name = 'SelfAcceptError';
+  }
+}
+
+export class NotEligibleError extends Error {
+  constructor(message = 'Player is not eligible to play') {
+    super(message);
+    this.name = 'NotEligibleError';
+  }
+}
+
+export class TierMismatchError extends Error {
+  constructor(message = 'Acceptor tier does not match the callout tier') {
+    super(message);
+    this.name = 'TierMismatchError';
+  }
+}
 
 export const createCallout = async (challengerId, tier, stakeMinorUnits) => {
   // Expiry is 15 minutes by default, per typical realtime app lifecycles (can be tuned)
@@ -42,20 +73,24 @@ export const createCallout = async (challengerId, tier, stakeMinorUnits) => {
   const io = getIO();
   io.emit('callout_created', payload);
 
-  // Send notifications to eligible users asynchronously
+  // Bounded notification fanout: batch-write in fixed-size chunks instead of
+  // one INSERT per tier member (S14). A callout cannot fan out an unbounded
+  // number of per-row statements.
+  const FANOUT_CHUNK = 500;
   prisma.user.findMany({
     where: { tier, id: { not: challengerId } },
     select: { id: true }
-  }).then(users => {
-    return Promise.all(users.map(u => 
-      NotificationService.create(
-        u.id, 
-        'CALLOUT_RECEIVED', 
-        'New Challenge Available', 
-        `A new callout is available in the ${tier} tier.`, 
-        '/tier-select'
-      )
-    ));
+  }).then(async (users) => {
+    for (let i = 0; i < users.length; i += FANOUT_CHUNK) {
+      const chunk = users.slice(i, i + FANOUT_CHUNK).map((u) => ({
+        userId: u.id,
+        type: 'CALLOUT_RECEIVED',
+        title: 'New Challenge Available',
+        message: `A new callout is available in the ${tier} tier.`,
+        link: '/tier-select',
+      }));
+      await prisma.notification.createMany({ data: chunk });
+    }
   }).catch(err => logger.error({ err }, 'Failed to send CALLOUT_RECEIVED notifications'));
 
   return payload;
@@ -77,6 +112,7 @@ export const getOpenCallouts = async (userId) => {
       challengerId: { not: userId }
     },
     orderBy: { createdAt: 'desc' },
+    take: 100, // bound the list; open callouts are time-boxed so 100 is generous
     include: {
       challenger: { select: { displayName: true } }
     }
@@ -96,57 +132,94 @@ export const getOpenCallouts = async (userId) => {
 };
 
 export const acceptCallout = async (userId, calloutId) => {
-  // 1. Atomic Conditional Update
-  // This explicitly prevents the double-accept race condition.
-  // We execute a raw query since Prisma doesn't have a direct "update where condition" 
-  // that guarantees rows affected count without a transaction.
-  const result = await prisma.$executeRaw`
-    UPDATE "Callout" 
-    SET status = 'ACCEPTED', "acceptedBy" = ${userId}
-    WHERE id = ${calloutId} AND status = 'OPEN' AND "expiresAt" > NOW()
-  `;
+  // Claim, validate and fund in ONE transaction. A row lock serializes
+  // concurrent accepts of the same callout; policy checks (self-accept, tier,
+  // ban, active-match) and the wallet reservation run before the callout is
+  // marked ACCEPTED, so a failed accept rolls everything back and the callout
+  // stays open for the next eligible player.
+  const { callout, match } = await prisma.$transaction(async (tx) => {
+    // 1. Claim the callout row for this transaction
+    const rows = await tx.$queryRaw`
+      SELECT * FROM "Callout" WHERE id = ${calloutId} FOR UPDATE
+    `;
+    const callout = rows[0];
+    if (!callout || callout.status !== 'OPEN' || callout.expiresAt <= new Date()) {
+      throw new CalloutUnavailableError();
+    }
 
-  if (result === 0) {
-    // Callout was already accepted by someone else, cancelled, or expired
-    logger.warn({ calloutId, userId }, 'Attempted to accept unavailable callout');
-    return null; 
-  }
+    // 2. Reject self-accept: the challenger cannot accept their own callout.
+    //    This is what previously let a user debit the same wallet twice and
+    //    create a match against themselves.
+    if (callout.challengerId === userId) {
+      throw new SelfAcceptError();
+    }
 
-  // 2. Fetch the newly accepted callout to get challengerId and stake
-  const callout = await prisma.callout.findUnique({
-    where: { id: calloutId }
-  });
+    // 3. Validate both users' authoritative eligibility (tier, ban)
+    const [challenger, acceptor] = await Promise.all([
+      tx.user.findUnique({
+        where: { id: callout.challengerId },
+        select: { id: true, tier: true, isBanned: true }
+      }),
+      tx.user.findUnique({
+        where: { id: userId },
+        select: { id: true, tier: true, isBanned: true }
+      })
+    ]);
 
-  if (!callout) {
-    throw new Error(`Callout ${calloutId} not found after successful accept`);
-  }
+    if (!challenger || challenger.isBanned) {
+      throw new NotEligibleError('Challenger is not eligible to play');
+    }
+    if (!acceptor || acceptor.isBanned) {
+      throw new NotEligibleError('Acceptor is not eligible to play');
+    }
+    if (acceptor.tier !== callout.tier) {
+      throw new TierMismatchError();
+    }
 
-  // 3. Create Match & Debit Wallets atomically using the shared fault-isolated path
-  // debitStakes(player1Id, player2Id, stakeMinorUnits, stakeTier)
-  let match;
-  try {
-    match = await debitStakes(
-      callout.challengerId, 
-      userId, 
-      callout.stakeMinorUnits, 
+    // 4. Active-match eligibility for both players: the whole pre-terminal
+    //    lifetime (DRAFT/OPEN/FUNDED/READY/IN_PLAY, legacy ACTIVE) reserves a
+    //    player — a queued or awaiting-start opponent is just as busy as one
+    //    mid-game.
+    for (const playerId of [callout.challengerId, userId]) {
+      if (await hasPreterminalMatchForPlayers(tx, [playerId])) {
+        throw new ActiveMatchError();
+      }
+    }
+
+    // 5. Reserve stakes + create Match atomically on the same tx
+    const match = await createMatchWithStakes(
+      tx,
+      callout.challengerId,
+      userId,
+      callout.stakeMinorUnits,
       callout.tier
     );
-  } catch (err) {
-    // Rollback the callout to OPEN if the debit fails (e.g., insufficient funds)
-    logger.warn({ calloutId, err: err.message }, 'Rolling back callout accept due to settlement failure');
-    await prisma.$executeRaw`
-      UPDATE "Callout" 
-      SET status = 'OPEN', "acceptedBy" = NULL
-      WHERE id = ${calloutId} 
-        AND status = 'ACCEPTED' 
-        AND "acceptedBy" = ${userId}
-    `;
-    throw err;
-  }
 
-  // 4. Initialize Redis game state
-  // player1 is challenger, player2 is acceptor
-  await initializeGame(match.id, callout.challengerId, userId, callout.tier);
+    // 6. Mark the callout accepted while still holding the lock
+    await tx.$executeRaw`
+      UPDATE "Callout"
+      SET status = 'ACCEPTED', "acceptedBy" = ${userId}
+      WHERE id = ${calloutId}
+    `;
+
+    return { callout, match };
+  });
+
+  // 7. Durable activation. The outbox record was written in the same
+  //    transaction that funded the match; activating is best-effort here. If
+  //    Redis is not ready the recovery sweep finishes it (or releases the
+  //    match), and a crash in between cannot orphan the reserved stakes.
+  const outbox = await prisma.gameOutbox.findUnique({
+    where: { matchId: match.id },
+    select: { id: true }
+  });
+  if (outbox) {
+    try {
+      await finalizeMatchActivation(outbox.id);
+    } catch (actErr) {
+      logger.warn({ actErr, matchId: match.id }, 'Activation pending; the recovery sweep will finish it');
+    }
+  }
 
   // Convert BigInt for socket/HTTP payload
   const matchPayload = {
@@ -154,7 +227,7 @@ export const acceptCallout = async (userId, calloutId) => {
     stakeMinorUnits: match.stakeMinorUnits.toString()
   };
 
-  // 5. Notify both players that the match has been found and they should join the room
+  // 8. Notify both players that the match has been found and they should join the room
   const io = getIO();
   io.to(`user:${callout.challengerId}`).emit('match_found', matchPayload);
   io.to(`user:${userId}`).emit('match_found', matchPayload);
@@ -165,7 +238,8 @@ export const acceptCallout = async (userId, calloutId) => {
     'CALLOUT_ACCEPTED',
     'Challenge Accepted!',
     'Your callout has been accepted. The match is starting.',
-    `/match/${match.id}`
+    `/match/${match.id}`,
+    match.id
   );
 
   logger.info({ calloutId, matchId: match.id, p1: callout.challengerId, p2: userId }, 'Callout accepted, match created');

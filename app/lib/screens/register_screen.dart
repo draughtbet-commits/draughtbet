@@ -45,6 +45,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
   bool _checkingGeo = false;
   String? _localError;
   String? _countryCode;
+  String? _geoBinding;
   Timer? _availabilityDebounce;
 
   @override
@@ -180,6 +181,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
         return;
       }
       _countryCode = locate.countryCode;
+      _geoBinding = locate.binding;
     } catch (_) {
       setState(() {
         _checkingGeo = false;
@@ -198,6 +200,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
       password: _passwordController.text,
       dateOfBirth: _dateOfBirth!,
       countryCode: _countryCode,
+      geoBinding: _geoBinding,
     );
     if (ok) {
       // Auto-login succeeded: tokens are stored, so land straight on the app.

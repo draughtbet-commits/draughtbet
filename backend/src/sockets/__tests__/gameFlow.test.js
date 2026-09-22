@@ -2,8 +2,16 @@ import { jest } from '@jest/globals';
 
 const mockPrisma = {
   matchMove: {
+    create: jest.fn().mockResolvedValue({ id: 'move-row-id' }),
+    findUnique: jest.fn().mockResolvedValue(null)
+  },
+  gameEvent: {
     create: jest.fn().mockResolvedValue({})
-  }
+  },
+  matchGameState: {
+    upsert: jest.fn().mockResolvedValue({})
+  },
+  $transaction: jest.fn(async (fn) => fn(mockPrisma))
 };
 jest.unstable_mockModule('../../utils/db.js', () => ({
   default: mockPrisma
@@ -57,10 +65,22 @@ class FakeRedis {
     return this.store.delete(key) ? 1 : 0;
   }
 
-  eval(_script, _numKeys, key, version, board, currentTurn, currentTurnUserId, moveCount, lastMoveTs, positionCounts, consecutiveKingMoves, status, winnerId) {
+  // Mirrors redis.call('TIME'): [seconds, microseconds] epoch.
+  time() {
+    const now = Date.now();
+    return [String(Math.floor(now / 1000)), String((now % 1000) * 1000)];
+  }
+
+  eval(_script, _numKeys, key, version, board, currentTurn, currentTurnUserId, moveCount, lastMoveTs, positionCounts, consecutiveKingMoves, status, winnerId, deadlineAt, timeControlSeconds) {
     const hash = this.store.get(key);
     if (!hash) throw new Error('GAME_NOT_FOUND');
     if (String(hash.version) !== String(version)) throw new Error('VERSION_MISMATCH');
+
+    const currentDeadline = hash.deadlineAt;
+    if (status === 'in_progress' && currentDeadline && currentDeadline !== '' && Number(currentDeadline) < Date.now()) {
+      throw new Error('TURN_EXPIRED');
+    }
+
     Object.assign(hash, {
       board,
       currentTurn,
@@ -71,7 +91,9 @@ class FakeRedis {
       positionCounts,
       consecutiveKingMoves,
       status,
-      winnerId
+      winnerId,
+      deadlineAt,
+      timeControlSeconds
     });
     return 'OK';
   }
@@ -100,8 +122,9 @@ const settlementMocks = {
 };
 jest.unstable_mockModule('../settlement.js', () => settlementMocks);
 
-const { handleMoveAttempt } = await import('../gameManager.js');
+const { handleMoveAttempt, handleResign } = await import('../gameManager.js');
 const { EMPTY, WHITE_MAN, BLACK_MAN, COLOR_WHITE } = await import('../../modules/engine/board.js');
+const { createInitialBoard, getLegalMoves } = await import('../../modules/engine/index.js');
 
 // Endgame: white man on square 32, black men on 27 and 17. White's only legal
 // move is a mandatory two-capture chain 32 -> 21 -> 12 taking both black men,
@@ -129,7 +152,9 @@ const seedMatch = (matchId, board, player1, player2) => {
     version: '0',
     positionCounts: JSON.stringify({ [JSON.stringify([board, COLOR_WHITE])]: 1 }),
     consecutiveKingMoves: '0',
-    lastMoveTs: Date.now().toString()
+    lastMoveTs: Date.now().toString(),
+    timeControlSeconds: '60',
+    deadlineAt: (Date.now() + 60000).toString()
   });
 };
 
@@ -190,6 +215,99 @@ describe('complete game smoke', () => {
     expect(socket.emit).toHaveBeenCalledWith('move_rejected', { reason: 'not_your_turn' });
     expect(settlementMocks.settleGameWithRetry).not.toHaveBeenCalled();
     expect(mockTo).not.toHaveBeenCalled();
+    expect(fakeRedis.store.get('match:test-match').version).toBe('0');
+  });
+
+  it('rejects a null move payload without touching state', async () => {
+    const board = buildEndgameBoard();
+    seedMatch('test-match', board, 'white-user', 'black-user');
+
+    const socket = { id: 's3', user: { userId: 'white-user' }, emit: jest.fn() };
+    await handleMoveAttempt(socket, null);
+
+    expect(socket.emit).toHaveBeenCalledWith('move_rejected', { reason: 'invalid_payload' });
+    expect(mockTo).not.toHaveBeenCalled();
+    expect(settlementMocks.settleGameWithRetry).not.toHaveBeenCalled();
+    expect(fakeRedis.store.get('match:test-match').version).toBe('0');
+  });
+
+  it('rejects an array move payload without touching state', async () => {
+    const socket = { id: 's4', user: { userId: 'white-user' }, emit: jest.fn() };
+    await handleMoveAttempt(socket, ['test-match', 32, 12]);
+
+    expect(socket.emit).toHaveBeenCalledWith('move_rejected', { reason: 'invalid_payload' });
+    expect(mockTo).not.toHaveBeenCalled();
+    expect(settlementMocks.settleGameWithRetry).not.toHaveBeenCalled();
+  });
+
+  it('rejects wrong-type and out-of-range move payloads', async () => {
+    const socket = { id: 's5', user: { userId: 'white-user' }, emit: jest.fn() };
+    await handleMoveAttempt(socket, { matchId: 'test-match', from: '32', to: 12 });
+    expect(socket.emit).toHaveBeenCalledWith('move_rejected', { reason: 'invalid_payload' });
+    socket.emit.mockClear();
+
+    await handleMoveAttempt(socket, { matchId: 'test-match', from: 51, to: 12 });
+    expect(socket.emit).toHaveBeenCalledWith('move_rejected', { reason: 'invalid_payload' });
+  });
+
+  it('rejects a null resign payload without touching state', async () => {
+    const board = buildEndgameBoard();
+    seedMatch('test-match', board, 'white-user', 'black-user');
+
+    const socket = { id: 's6', user: { userId: 'white-user' }, emit: jest.fn() };
+    await handleResign(socket, null);
+
+    expect(socket.emit).toHaveBeenCalledWith('error', { message: 'Invalid payload' });
+    expect(mockTo).not.toHaveBeenCalled();
+    expect(settlementMocks.settleGameWithRetry).not.toHaveBeenCalled();
+    expect(fakeRedis.store.get('match:test-match').status).toBe('in_progress');
+  });
+
+  it('rejects a malformed resign payload', async () => {
+    const socket = { id: 's7', user: { userId: 'white-user' }, emit: jest.fn() };
+    await handleResign(socket, { matchId: 123 });
+
+    expect(socket.emit).toHaveBeenCalledWith('error', { message: 'Invalid payload' });
+    expect(mockTo).not.toHaveBeenCalled();
+  });
+
+  it('refuses a move whose turn already expired and forfeits the player on the clock', async () => {
+    const board = createInitialBoard();
+    const opening = getLegalMoves(board, COLOR_WHITE)[0];
+    seedMatch('test-match', board, 'white-user', 'black-user');
+    fakeRedis.hset('match:test-match', { deadlineAt: (Date.now() - 1000).toString() });
+
+    const socket = { id: 's8', user: { userId: 'white-user' }, emit: jest.fn() };
+    await handleMoveAttempt(socket, { matchId: 'test-match', from: opening.from, to: opening.to });
+
+    expect(socket.emit).toHaveBeenCalledWith('move_rejected', { reason: 'turn_expired' });
+    // The expired move must never reach the durable log (pre-persist check).
+    expect(mockPrisma.matchMove.create).not.toHaveBeenCalled();
+    expect(settlementMocks.settleGameWithRetry).toHaveBeenCalledWith(
+      'test-match',
+      'black-user',
+      'white-user',
+      'timeout_forfeit'
+    );
+    expect(mockTo).not.toHaveBeenCalled();
+    expect(fakeRedis.store.get('match:test-match').status).toBe('in_progress');
+  });
+
+  it('mirrors the Lua guard: an in-script expiry race is refused without advancing state', () => {
+    const board = createInitialBoard();
+    seedMatch('test-match', board, 'white-user', 'black-user');
+    const hash = fakeRedis.store.get('match:test-match');
+    const past = (Date.now() - 1000).toString();
+
+    // The deadline has now crossed on the stored projection between the JS
+    // pre-check and the CAS application — same refusal as the embedded guard.
+    hash.deadlineAt = past;
+    expect(() => fakeRedis.eval(
+      'ignored', 1, 'match:test-match',
+      hash.version, JSON.stringify(board), 'BLACK', 'black-user', '1',
+      Date.now().toString(), hash.positionCounts, '0', 'in_progress', '',
+      past, '60'
+    )).toThrow('TURN_EXPIRED');
     expect(fakeRedis.store.get('match:test-match').version).toBe('0');
   });
 });

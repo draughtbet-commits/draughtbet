@@ -1,0 +1,13 @@
+asset_id,asset,usage,format,status,handoff_note
+AST-BRAND-001,Draught Bet crown/checker mark,"Branding, splash, success states",SVG + 3x PNG,SOURCE_REQUIRED,Embedded in approved boards; obtain/export the original. Do not crop from screenshots.
+AST-BRAND-002,Draught Bet wordmark,Splash and branded headers,SVG,SOURCE_REQUIRED,Use the approved lockup and clear-space rules.
+AST-GAME-001,Green regular draught piece,Board and illustrations,PNG/WebP transparent,SOURCE_REQUIRED,Export at 1x/2x/3x with consistent lighting.
+AST-GAME-002,Dark regular draught piece,Board and illustrations,PNG/WebP transparent,SOURCE_REQUIRED,Maintain contrast against dark squares.
+AST-GAME-003,Green king piece,Promotion and success illustrations,PNG/WebP transparent,SOURCE_REQUIRED,Use the approved crown treatment.
+AST-GAME-004,Dark king piece,Opponent and match illustrations,PNG/WebP transparent,SOURCE_REQUIRED,Use the approved crown treatment.
+AST-GAME-005,10x10 board texture,Gameplay and atmospheric backgrounds,WebP,SOURCE_REQUIRED,"Gameplay board must be implemented as real cells, not a flattened image."
+AST-ILL-001,Status illustration family,"Success, error, lock, processing, reconnect, maintenance",SVG or transparent PNG,SOURCE_REQUIRED,Export each approved object separately; no text baked into assets.
+AST-AVATAR-001,Player avatar placeholders,Profiles and match cards,WebP,REPLACE_WITH_PRODUCT_ASSETS,Current faces are illustrative placeholders and must not ship as real identities.
+AST-ICON-001,Interface icon set,"Navigation, forms, statuses",Flutter icon package,LIBRARY_SELECTION_REQUIRED,Use one consistent thin-line icon family; do not extract icons from boards.
+AST-PAY-001,Payment provider marks,Hosted checkout selection,Official provider assets,PROVIDER_DECISION_REQUIRED,Show only providers contracted and supported by the backend.
+AST-BANK-001,Bank marks,Bank account selection,Official assets,OPTIONAL,Text-first rows are acceptable; verify trademark usage before including logos.

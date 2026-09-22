@@ -1,6 +1,7 @@
 import express from 'express';
 import { requireAuth } from '../../middleware/auth.js';
 import prisma from '../../utils/db.js';
+import { parsePagination } from '../../utils/pagination.js';
 
 export const notificationRouter = express.Router();
 
@@ -8,8 +9,11 @@ export const notificationRouter = express.Router();
 notificationRouter.get('/', requireAuth, async (req, res, next) => {
   try {
     const { id: userId } = req.user;
-    const page = parseInt(req.query.page, 10) || 1;
-    const limit = parseInt(req.query.limit, 10) || 20;
+    const parsed = parsePagination(req.query);
+    if (!parsed.ok) {
+      return res.status(400).json({ error: 'Invalid pagination params' });
+    }
+    const { page, limit } = parsed.data;
     const skip = (page - 1) * limit;
 
     const [items, total] = await Promise.all([

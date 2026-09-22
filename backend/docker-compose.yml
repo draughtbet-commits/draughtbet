@@ -1,15 +1,26 @@
 version: '3.8'
 
+# Development data services.
+#
+# Postgres and Redis publish only on the host loopback (127.0.0.1), so they are
+# unreachable from other machines even when the host has a public interface
+# (S12). The application runs on the host ("pnpm dev") and connects through the
+# URLs in backend/.env, which must carry the same credentials.
+#
+# Credentials are interpolated so real environments can override them without
+# editing this file. Recreating a stack with different credentials than the one
+# an existing volume was initialized with will NOT change the stored
+# credential: run `docker compose down -v` first if you intend to rotate them.
 services:
   postgres:
     image: postgres:15-alpine
     container_name: draughts_arena_postgres
     environment:
-      POSTGRES_USER: user
-      POSTGRES_PASSWORD: password
+      POSTGRES_USER: "${POSTGRES_USER:-draughts_arena}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-change_me_draughts_arena}"
       POSTGRES_DB: draughts_arena
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     restart: unless-stopped
@@ -17,9 +28,14 @@ services:
   redis:
     image: redis:7-alpine
     container_name: draughts_arena_redis
-    command: redis-server --appendonly yes
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --requirepass
+      - "${REDIS_PASSWORD:-change_me_draughts_redis}"
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     volumes:
       - redisdata:/data
     restart: unless-stopped

@@ -1,6 +1,7 @@
 import express from 'express';
 import { requireAuth } from '../../middleware/auth.js';
 import { requireValidStake } from '../../middleware/tierEnforcement.js';
+import { EligibilityService } from '../eligibility/service.js';
 import { 
   createCallout, 
   getOpenCallouts, 
@@ -8,6 +9,7 @@ import {
 } from './service.js';
 
 export const calloutRouter = express.Router();
+const eligibilityService = new EligibilityService();
 
 // Fetch open callouts that the user is tier-eligible to accept
 calloutRouter.get('/open', requireAuth, async (req, res, next) => {
@@ -25,10 +27,18 @@ calloutRouter.post('/', requireAuth, requireValidStake(true), async (req, res, n
   try {
     const { id: userId, tier } = req.user;
     const { stakeMinorUnits } = req.body;
-    
+
+    // Server-owned play eligibility: account state, timeout and self-exclusion
+    // precede opening a call-out with real money behind it.
+    await eligibilityService.canCreateMatch(userId, { stakeMinorUnits });
+
     const callout = await createCallout(userId, tier, stakeMinorUnits);
     res.status(201).json({ callout });
   } catch (err) {
+    const status = EligibilityService.statusCode(err);
+    if (status !== 500) {
+      return res.status(status).json({ error: err.message });
+    }
     next(err);
   }
 });
@@ -40,15 +50,28 @@ calloutRouter.post('/:id/accept', requireAuth, async (req, res, next) => {
     const calloutId = req.params.id;
     
     const match = await acceptCallout(userId, calloutId);
-    if (!match) {
-      return res.status(409).json({ error: 'Callout is no longer available or has expired' });
-    }
-    
     res.status(200).json({ match });
   } catch (err) {
-    if (err.name === 'InsufficientFundsError') {
-      return res.status(402).json({ error: err.message });
+    switch (err.name) {
+      case 'InsufficientFundsError':
+        return res.status(402).json({ error: err.message });
+      case 'CalloutUnavailableError':
+      case 'ActiveMatchError':
+        return res.status(409).json({ error: err.message });
+      case 'SelfAcceptError':
+      case 'TierMismatchError':
+        return res.status(400).json({ error: err.message });
+      case 'SelfExcludedError':
+      case 'TimeoutActiveError':
+      case 'AccountRestrictedError':
+      case 'NotEligibleError':
+      case 'EligibilityRequiredError':
+      case 'CountryNotAllowedError':
+      case 'AgeNotVerifiedError':
+      case 'KycRequiredError':
+        return res.status(403).json({ error: err.message });
+      default:
+        return next(err);
     }
-    next(err);
   }
 });

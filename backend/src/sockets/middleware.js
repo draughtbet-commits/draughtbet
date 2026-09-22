@@ -1,18 +1,41 @@
 import jwt from 'jsonwebtoken';
+import prisma from '../utils/db.js';
 import logger from '../utils/logger.js';
+import { getJwtSecret } from '../utils/jwtEnv.js';
+import { resolveAppVersionPolicy, isVersionSupported } from '../utils/appVersion.js';
 
-const jwtSecret = process.env.JWT_SECRET;
-if (!jwtSecret && process.env.NODE_ENV !== 'test') {
-  throw new Error('FATAL: JWT_SECRET environment variable is missing.');
-}
-const JWT_SECRET = jwtSecret || 'test_secret';
+const JWT_SECRET = getJwtSecret();
+
+/**
+ * Rejects sockets from unsupported app builds before the connection is
+ * established. The version arrives via the handshake auth object (preferred,
+ * `auth: { token, version }`) or the x-app-version header; unparseable or
+ * unsupported versions are refused with a distinct upgrade-required error so
+ * the client never silently falls back to older behaviour.
+ */
+const enforceAppVersion = (socket) => {
+  const policy = resolveAppVersionPolicy();
+  if (!policy) return null;
+
+  const version = socket.handshake?.auth?.version
+    || socket.handshake?.headers?.['x-app-version']
+    || null;
+
+  if (!version || !isVersionSupported(version)) {
+    return new Error('UPGRADE_REQUIRED: update the app to continue');
+  }
+  return null;
+};
 
 /**
  * Socket.IO authentication middleware
  * Extracts JWT from `auth.token` or `handshake.headers.authorization`.
- * Rejects unauthorized connections.
+ * Verifies the signature AND re-checks the account in the database so a
+ * suspended/banned user cannot authenticate a socket even with a valid,
+ * unexpired access token. Records the access-token expiry so the server can
+ * enforce connection lifetime (see guardSocketHandler).
  */
-export const socketAuthMiddleware = (socket, next) => {
+export const socketAuthMiddleware = async (socket, next) => {
   try {
     // 1. Try to get token from socket.handshake.auth (preferred in Socket.IO v3+)
     let token = socket.handshake.auth?.token;
@@ -29,12 +52,27 @@ export const socketAuthMiddleware = (socket, next) => {
       return next(new Error('Authentication error: Token missing'));
     }
 
+    const versionError = enforceAppVersion(socket);
+    if (versionError) {
+      return next(versionError);
+    }
+
     // Verify token
     const decoded = jwt.verify(token, JWT_SECRET);
-    
+
+    // Re-check the account still exists and is not banned
+    const user = await prisma.user.findUnique({
+      where: { id: decoded.userId },
+      select: { id: true, isBanned: true }
+    });
+    if (!user || user.isBanned) {
+      return next(new Error('Account suspended'));
+    }
+
     // Attach decoded user info to the socket
     socket.user = {
-      userId: decoded.userId
+      userId: decoded.userId,
+      tokenExpiresAt: decoded.exp ? decoded.exp * 1000 : null
     };
 
     next();

@@ -1,14 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:intl/intl.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
-import 'package:google_fonts/google_fonts.dart';
+import '../models/match_flow.dart';
 import '../providers/profile_provider.dart';
 import '../theme/colors.dart';
 
 class BalanceCard extends ConsumerStatefulWidget {
-  const BalanceCard({Key? key}) : super(key: key);
+  const BalanceCard({super.key});
 
   @override
   ConsumerState<BalanceCard> createState() => _BalanceCardState();
@@ -17,17 +16,21 @@ class BalanceCard extends ConsumerStatefulWidget {
 class _BalanceCardState extends ConsumerState<BalanceCard> {
   bool _hideBalance = false;
 
-  int get _balanceMinorUnits =>
-      ref.watch(profileProvider).profile?.walletBalanceMinorUnits ?? 0;
-
   String _formatNaira(int minorUnits) {
-    final format = NumberFormat.currency(symbol: '₦', decimalDigits: 0);
-    return format.format(minorUnits / 100);
+    return Money(minorUnits).format(showKobo: true);
   }
 
   @override
   Widget build(BuildContext context) {
-    final balance = _hideBalance ? '₦••••••' : _formatNaira(_balanceMinorUnits);
+    final profileState = ref.watch(profileProvider);
+    final loading = profileState.isLoading && profileState.profile == null;
+    final unavailable =
+        profileState.error != null && profileState.profile == null;
+    final balance = _hideBalance
+        ? '₦••••••'
+        : unavailable
+        ? 'Unavailable'
+        : _formatNaira(profileState.profile?.walletBalanceMinorUnits ?? 0);
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -41,7 +44,8 @@ class _BalanceCardState extends ConsumerState<BalanceCard> {
         children: [
           Text(
             'AVAILABLE BALANCE',
-            style: GoogleFonts.inter(
+            style: TextStyle(
+              fontFamily: 'Inter',
               fontSize: 11,
               fontWeight: FontWeight.w600,
               letterSpacing: 1.2,
@@ -55,20 +59,30 @@ class _BalanceCardState extends ConsumerState<BalanceCard> {
                 child: FittedBox(
                   fit: BoxFit.scaleDown,
                   alignment: Alignment.centerLeft,
-                  child: Text(
-                    balance,
-                    maxLines: 1,
-                    style: GoogleFonts.sora(
-                      fontSize: 24,
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.textPrimary,
-                    ),
-                  ),
+                  child: loading
+                      ? const SizedBox(
+                          width: 150,
+                          child: LinearProgressIndicator(minHeight: 8),
+                        )
+                      : Text(
+                          balance,
+                          maxLines: 1,
+                          style: TextStyle(
+                            fontFamily: 'Inter',
+                            fontSize: unavailable ? 18 : 24,
+                            fontWeight: FontWeight.w700,
+                            color: unavailable
+                                ? AppColors.textSecondary
+                                : AppColors.textPrimary,
+                          ),
+                        ),
                 ),
               ),
               const SizedBox(width: 10),
               GestureDetector(
-                onTap: () => setState(() => _hideBalance = !_hideBalance),
+                onTap: loading || unavailable
+                    ? null
+                    : () => setState(() => _hideBalance = !_hideBalance),
                 child: Container(
                   width: 30,
                   height: 30,
@@ -89,29 +103,29 @@ class _BalanceCardState extends ConsumerState<BalanceCard> {
           Row(
             children: [
               Expanded(
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
                       'Locked',
-                      style: GoogleFonts.inter(
+                      style: TextStyle(
+                        fontFamily: 'Inter',
                         fontSize: 11,
                         fontWeight: FontWeight.w600,
                         letterSpacing: 1.2,
                         color: AppColors.textMuted,
                       ),
                     ),
-                    const SizedBox(width: 10),
-                    Flexible(
-                      child: Text(
-                        '₦0.00',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: GoogleFonts.sora(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
-                          color: AppColors.textMuted,
-                        ),
+                    const SizedBox(height: 2),
+                    Text(
+                      '—',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontFamily: 'Sora',
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.textMuted,
                       ),
                     ),
                   ],
@@ -119,10 +133,16 @@ class _BalanceCardState extends ConsumerState<BalanceCard> {
               ),
               const SizedBox(width: 10),
               GestureDetector(
-                onTap: () => context.go('/wallet'),
+                onTap: loading
+                    ? null
+                    : unavailable
+                    ? () => ref.read(profileProvider.notifier).load()
+                    : () => context.go('/wallet'),
                 child: Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 8,
+                  ),
                   decoration: BoxDecoration(
                     color: AppColors.voidBg,
                     borderRadius: BorderRadius.circular(10),
@@ -131,12 +151,16 @@ class _BalanceCardState extends ConsumerState<BalanceCard> {
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Icon(LucideIcons.plus,
-                          size: 14, color: AppColors.brand),
+                      Icon(
+                        unavailable ? LucideIcons.refreshCw : LucideIcons.plus,
+                        size: 14,
+                        color: AppColors.brand,
+                      ),
                       const SizedBox(width: 4),
                       Text(
-                        'Add Money',
-                        style: GoogleFonts.inter(
+                        unavailable ? 'Try again' : 'Add Money',
+                        style: TextStyle(
+                          fontFamily: 'Inter',
                           fontSize: 13,
                           fontWeight: FontWeight.w600,
                           color: AppColors.textPrimary,

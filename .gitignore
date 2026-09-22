@@ -13,3 +13,6 @@ flutter/
 /Draughtbet images/
 /IMG-*.jpg
 /backend/typescript
+
+# Working reference/progress tracker (living doc, never committed)
+/docs/backend-v2-pr-tracker.md

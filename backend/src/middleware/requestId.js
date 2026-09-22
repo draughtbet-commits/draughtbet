@@ -22,7 +22,7 @@ export const requestIdMiddleware = (req, res, next) => {
 export const finalErrorHandler = (err, req, res, _next) => {
   const requestId = req.id;
   logger.error(
-    { err, requestId, userId: req.user?.id, route: `${req.method} ${req.originalUrl}` },
+    { err, requestId, userId: req.user?.id, route: `${req.method} ${req.path}` },
     'Unhandled exception'
   );
   res.status(500).json({

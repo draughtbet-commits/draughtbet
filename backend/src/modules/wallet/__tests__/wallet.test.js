@@ -1,19 +1,14 @@
-import { jest } from '@jest/globals';
+import { jest, describe, it, expect } from '@jest/globals';
 
 const mockPrisma = {
   $transaction: jest.fn(),
-  $executeRaw: jest.fn(),
   wallet: {
-    findUnique: jest.fn(),
-    update: jest.fn()
+    findUnique: jest.fn()
   },
-  walletTransaction: {
-    create: jest.fn(),
-    findFirst: jest.fn(),
-    count: jest.fn()
+  depositIntent: {
+    create: jest.fn()
   },
-  withdrawalRequest: {
-    create: jest.fn(),
+  user: {
     findUnique: jest.fn()
   }
 };
@@ -22,85 +17,98 @@ jest.unstable_mockModule('../../../utils/db.js', () => ({
   default: mockPrisma
 }));
 
-const { requestWithdrawal, rejectWithdrawal } = await import('../service.js');
+const { parseMinorUnits, parseIdempotencyKey, parseDecimalMajorToMinor, createDepositIntent } = await import('../service.js');
 
-describe('Wallet Service', () => {
+describe('Wallet service — canonical money + deposit-intent gates', () => {
   beforeEach(() => {
     jest.clearAllMocks();
   });
 
-  describe('requestWithdrawal', () => {
-    it('should deduct balance and create a PENDING withdrawal request', async () => {
-      const amount = 100000; // 1000 NGN
-      
-      // Setup transaction mock to just execute the callback
-      mockPrisma.$transaction.mockImplementation(async (cb) => {
-        return await cb(mockPrisma);
-      });
-
-      mockPrisma.wallet.findUnique.mockResolvedValue({ id: 'wallet-1', userId: 'user-1', balanceMinorUnits: BigInt(500000) });
-      mockPrisma.withdrawalRequest.create.mockResolvedValue({ id: 'req-1', status: 'PENDING', amountMinorUnits: BigInt(amount) });
-
-      const req = await requestWithdrawal('user-1', amount);
-      
-      expect(req.status).toBe('PENDING');
-      expect(mockPrisma.wallet.update).toHaveBeenCalledWith({
-        where: { id: 'wallet-1' },
-        data: { balanceMinorUnits: { decrement: BigInt(amount) } }
-      });
-      expect(mockPrisma.walletTransaction.create).toHaveBeenCalledWith({
-        data: expect.objectContaining({ type: 'WITHDRAWAL', amountMinorUnits: -BigInt(amount) })
-      });
+  describe('parseMinorUnits', () => {
+    it('accepts positive integer minor units as string or number', () => {
+      expect(parseMinorUnits('50000')).toBe(50000n);
+      expect(parseMinorUnits(50000)).toBe(50000n);
+      expect(parseMinorUnits('00100')).toBe(100n);
     });
 
-    it('should throw InsufficientFundsError if balance is too low', async () => {
-      mockPrisma.$transaction.mockImplementation(async (cb) => {
-        return await cb(mockPrisma);
-      });
-      mockPrisma.wallet.findUnique.mockResolvedValue({ id: 'wallet-1', userId: 'user-1', balanceMinorUnits: BigInt(50000) });
-
-      await expect(requestWithdrawal('user-1', 100000)).rejects.toThrow('Insufficient funds');
+    it('rejects floats, signs, exponent notation, empty and zero', () => {
+      expect(parseMinorUnits('100.50')).toBeNull();
+      expect(parseMinorUnits('-50')).toBeNull();
+      expect(parseMinorUnits('1e3')).toBeNull();
+      expect(parseMinorUnits('')).toBeNull();
+      expect(parseMinorUnits(0)).toBeNull();
+      expect(parseMinorUnits(-5)).toBeNull();
+      expect(parseMinorUnits(null)).toBeNull();
+      expect(parseMinorUnits(undefined)).toBeNull();
     });
   });
 
-  describe('rejectWithdrawal', () => {
-    it('should refund balance, mark REJECTED, and write REFUND tx atomically', async () => {
-      mockPrisma.$transaction.mockImplementation(async (cb) => {
-        return await cb(mockPrisma);
-      });
-      
-      mockPrisma.withdrawalRequest.findUnique.mockResolvedValue({ id: 'req-1', userId: 'user-1', amountMinorUnits: BigInt(100000) });
-      mockPrisma.$executeRaw.mockResolvedValue(1); // 1 row updated (was PENDING)
-      mockPrisma.wallet.findUnique.mockResolvedValue({ id: 'wallet-1' });
-
-      const result = await rejectWithdrawal('req-1', 'admin-1');
-      expect(result).toBe(true);
-
-      // Verify credit
-      expect(mockPrisma.wallet.update).toHaveBeenCalledWith({
-        where: { id: 'wallet-1' },
-        data: { balanceMinorUnits: { increment: BigInt(100000) } }
-      });
-
-      // Verify REFUND tx
-      expect(mockPrisma.walletTransaction.create).toHaveBeenCalledWith({
-        data: expect.objectContaining({ type: 'REFUND', amountMinorUnits: BigInt(100000) })
-      });
+  describe('parseDecimalMajorToMinor', () => {
+    it('converts major decimals to minor units with exact string math', () => {
+      expect(parseDecimalMajorToMinor('1250.00')).toBe(125000n);
+      expect(parseDecimalMajorToMinor('1250')).toBe(125000n);
+      expect(parseDecimalMajorToMinor('0.50')).toBe(50n);
     });
 
-    it('should be idempotent and not double-refund if already REJECTED', async () => {
-      mockPrisma.$transaction.mockImplementation(async (cb) => {
-        return await cb(mockPrisma);
-      });
-      
-      mockPrisma.withdrawalRequest.findUnique.mockResolvedValue({ id: 'req-1', userId: 'user-1', amountMinorUnits: BigInt(100000) });
-      mockPrisma.$executeRaw.mockResolvedValue(0); // 0 rows updated (was NOT PENDING)
+    it('rejects malformed or non-positive values', () => {
+      expect(parseDecimalMajorToMinor('1.234')).toBeNull();
+      expect(parseDecimalMajorToMinor('-1.00')).toBeNull();
+      expect(parseDecimalMajorToMinor('abc')).toBeNull();
+      expect(parseDecimalMajorToMinor('0.00')).toBeNull();
+    });
+  });
 
-      const result = await rejectWithdrawal('req-1', 'admin-1');
-      expect(result).toBeNull(); // Second attempt should return null
-      
-      // Should not have credited wallet
-      expect(mockPrisma.wallet.update).not.toHaveBeenCalled();
+  describe('parseIdempotencyKey', () => {
+    it('returns undefined for missing keys and accepts valid ones', () => {
+      expect(parseIdempotencyKey(undefined)).toBeUndefined();
+      expect(parseIdempotencyKey('')).toBeUndefined();
+      expect(parseIdempotencyKey(null)).toBeUndefined();
+      expect(parseIdempotencyKey('op_key_abcdef')).toBe('op_key_abcdef');
+    });
+
+    it('rejects malformed keys', () => {
+      expect(() => parseIdempotencyKey('short')).toThrow(/Invalid idempotency key/i);
+      expect(() => parseIdempotencyKey('has space keys')).toThrow(/Invalid idempotency key/i);
+      expect(() => parseIdempotencyKey(12345)).toThrow(/Invalid idempotency key/i);
+    });
+  });
+
+  describe('createDepositIntent', () => {
+    beforeEach(() => {
+      mockPrisma.$transaction.mockImplementation(async (cb) => cb(mockPrisma));
+      mockPrisma.wallet.findUnique.mockResolvedValue({ id: 'w-1', userId: 'u-1', currency: 'NGN' });
+      mockPrisma.depositIntent.create.mockImplementation(({ data }) => ({ id: 'i-1', ...data }));
+    });
+
+    it('rejects invalid amount before any DB call', async () => {
+      await expect(createDepositIntent('u-1', '100.50', 'PAYSTACK', 'e@x.com')).rejects.toThrow('Invalid amount');
+      await expect(createDepositIntent('u-1', 0, 'PAYSTACK', 'e@x.com')).rejects.toThrow('Invalid amount');
+      expect(mockPrisma.wallet.findUnique).not.toHaveBeenCalled();
+    });
+
+    it('rejects unknown gateways', async () => {
+      await expect(createDepositIntent('u-1', 5000n, 'STRIPE', 'e@x.com')).rejects.toThrow('Invalid gateway');
+      expect(mockPrisma.wallet.findUnique).not.toHaveBeenCalled();
+    });
+
+    it('rejects wallets without NGN (Phase 1 deposits)', async () => {
+      mockPrisma.wallet.findUnique.mockResolvedValue({ id: 'w-1', userId: 'u-1', currency: 'GBP' });
+      await expect(createDepositIntent('u-1', 5000n, 'PAYSTACK', 'e@x.com')).rejects.toThrow('Deposits are only supported for NGN wallets');
+    });
+
+    it('creates a server-owned intent with a generated reference', async () => {
+      const intent = await createDepositIntent('u-1', 5000n, 'PAYSTACK', 'e@x.com');
+      expect(intent.id).toBe('i-1');
+      expect(intent.reference).toMatch(/^paystack-/);
+      expect(mockPrisma.depositIntent.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          userId: 'u-1',
+          walletId: 'w-1',
+          gateway: 'PAYSTACK',
+          amountMinorUnits: 5000n,
+          currency: 'NGN'
+        })
+      });
     });
   });
 });

@@ -1,6 +1,7 @@
 import { jest } from '@jest/globals';
 
 // Clear env vars to prevent real connections via dotenv
+process.env.NODE_ENV = 'test';
 process.env.DATABASE_URL = '';
 process.env.REDIS_URL = '';
 
@@ -14,6 +15,29 @@ const mockPrisma = {
     findFirst: jest.fn(),
     create: jest.fn(),
     update: jest.fn()
+  },
+  ledgerAccount: {
+    findMany: jest.fn()
+  },
+  ledgerEntry: {
+    aggregate: jest.fn()
+  },
+  adminRoleAssignment: {
+    findMany: jest.fn()
+  },
+  adminAuditLog: {
+    create: jest.fn(),
+    findMany: jest.fn(),
+    count: jest.fn()
+  },
+  userSession: {
+    create: jest.fn(),
+    findUnique: jest.fn(),
+    update: jest.fn(),
+    updateMany: jest.fn()
+  },
+  securityEvent: {
+    create: jest.fn()
   }
 };
 
@@ -30,7 +54,10 @@ const mockRedis = {
   set: jest.fn(),
   get: jest.fn(),
   del: jest.fn(),
+  scanStream: jest.fn(),
+  eval: jest.fn(),
 };
+mockRedis.get.mockResolvedValue('ng');
 
 const logger = (await import('../../../utils/logger.js')).default;
 jest.spyOn(logger, 'error').mockImplementation(() => {});
@@ -52,6 +79,8 @@ beforeEach(() => {
   jest.clearAllMocks();
   // requireAuth looks up the user by id for every protected request.
   mockPrisma.user.findUnique.mockResolvedValue(authedUser);
+  // Default: no admin roles -> the RBAC gate denies (403) any admin route.
+  mockPrisma.adminRoleAssignment.findMany.mockResolvedValue([]);
 });
 
 describe('Auth System', () => {
@@ -59,7 +88,7 @@ describe('Auth System', () => {
   describe('POST /auth/register', () => {
     it('should reject under 18 users via Zod', async () => {
       const res = await request(app)
-        .post('/auth/register')
+        .post('/api/v1/auth/register')
         .send({
           email: 'test@example.com',
           password: 'Password1',
@@ -71,7 +100,7 @@ describe('Auth System', () => {
 
     it('should reject weak passwords via Zod', async () => {
       const res = await request(app)
-        .post('/auth/register')
+        .post('/api/v1/auth/register')
         .send({
           email: 'test@example.com',
           password: 'weak',
@@ -85,11 +114,13 @@ describe('Auth System', () => {
       mockPrisma.$transaction.mockRejectedValueOnce(new Error('DB connection failed'));
 
       const res = await request(app)
-        .post('/auth/register')
+        .post('/api/v1/auth/register')
         .send({
           email: 'test@example.com',
           password: 'StrongPassword1',
           dateOfBirth: '2000-01-01',
+          countryCode: 'NG',
+          geoBinding: 'geo-abcdefgh',
           fingerprintHash: 'hash123'
         });
 
@@ -104,22 +135,26 @@ describe('Auth System', () => {
       mockPrisma.$transaction.mockResolvedValueOnce({ id: 'user-id' });
 
       const res = await request(app)
-        .post('/auth/register')
+        .post('/api/v1/auth/register')
         .send({
           email: 'test@example.com',
           password: 'StrongPassword1',
-          dateOfBirth: '2000-01-01'
+          dateOfBirth: '2000-01-01',
+          countryCode: 'NG',
+          geoBinding: 'geo-abcdefgh'
         });
 
       expect(res.status).toBe(201);
       expect(mockPrisma.$transaction).toHaveBeenCalled();
+      // The geo evidence token is consumed on successful registration
+      expect(mockRedis.del).toHaveBeenCalledWith('geo:binding:geo-abcdefgh');
     });
 
     it('should register with username/fullName/address/phone/countryCode and normalize phone', async () => {
       mockPrisma.$transaction.mockResolvedValueOnce({ id: 'user-id' });
 
       const res = await request(app)
-        .post('/auth/register')
+        .post('/api/v1/auth/register')
         .send({
           phone: '08031234567',
           username: 'skilled_player',
@@ -127,7 +162,8 @@ describe('Auth System', () => {
           address: '14 Marina Road, Lagos',
           password: 'StrongPassword1',
           dateOfBirth: '1995-05-10',
-          countryCode: 'NG'
+          countryCode: 'NG',
+          geoBinding: 'geo-abcdefgh'
         });
 
       expect(res.status).toBe(201);
@@ -135,13 +171,49 @@ describe('Auth System', () => {
     });
 
     it('should reject registration from a blocked country', async () => {
+      mockRedis.get.mockResolvedValueOnce('us');
       const res = await request(app)
-        .post('/auth/register')
+        .post('/api/v1/auth/register')
         .send({
           email: 'test@example.com',
           password: 'StrongPassword1',
           dateOfBirth: '2000-01-01',
-          countryCode: 'US'
+          countryCode: 'US',
+          geoBinding: 'geo-usresolv'
+        });
+
+      expect(res.status).toBe(403);
+      expect(res.body.error).toBe('This app is not available in your country');
+    });
+
+    it('should reject registration when the geo token is expired or invalid', async () => {
+      mockRedis.get.mockResolvedValueOnce(null);
+
+      const res = await request(app)
+        .post('/api/v1/auth/register')
+        .send({
+          email: 'test@example.com',
+          password: 'StrongPassword1',
+          dateOfBirth: '2000-01-01',
+          countryCode: 'NG',
+          geoBinding: 'geo-staletoken'
+        });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBe('Geo evidence expired or invalid');
+    });
+
+    it('should reject registration when the geo token binds a different country', async () => {
+      mockRedis.get.mockResolvedValueOnce('gh');
+
+      const res = await request(app)
+        .post('/api/v1/auth/register')
+        .send({
+          email: 'test@example.com',
+          password: 'StrongPassword1',
+          dateOfBirth: '2000-01-01',
+          countryCode: 'NG',
+          geoBinding: 'geo-ghresolv'
         });
 
       expect(res.status).toBe(403);
@@ -150,10 +222,12 @@ describe('Auth System', () => {
 
     it('should reject registration with neither email nor phone via Zod', async () => {
       const res = await request(app)
-        .post('/auth/register')
+        .post('/api/v1/auth/register')
         .send({
           password: 'StrongPassword1',
-          dateOfBirth: '2000-01-01'
+          dateOfBirth: '2000-01-01',
+          countryCode: 'NG',
+          geoBinding: 'geo-abcdefgh'
         });
 
       expect(res.status).toBe(400);
@@ -166,7 +240,7 @@ describe('Auth System', () => {
       mockPrisma.user.findUnique.mockResolvedValueOnce({ id: 'existing-user' });
 
       const res = await request(app)
-        .post('/auth/check-availability')
+        .post('/api/v1/auth/check-availability')
         .send({ type: 'email', value: 'taken@example.com' });
 
       expect(res.status).toBe(200);
@@ -180,7 +254,7 @@ describe('Auth System', () => {
       mockPrisma.user.findUnique.mockResolvedValueOnce(null);
 
       const res = await request(app)
-        .post('/auth/check-availability')
+        .post('/api/v1/auth/check-availability')
         .send({ type: 'phone', value: '08031234567' });
 
       expect(res.status).toBe(200);
@@ -205,17 +279,25 @@ describe('Auth System', () => {
       delete global.fetch;
     });
 
-    it('should return allowed country from coordinates', async () => {
+    it('should return allowed country from coordinates with a geo binding token', async () => {
       const res = await request(app)
-        .post('/auth/geo-locate')
+        .post('/api/v1/auth/geo-locate')
         .send({ lat: 6.5244, lng: 3.3792 });
 
       expect(res.status).toBe(200);
       expect(res.body.countryCode).toBe('ng');
       expect(res.body.allowed).toBe(true);
+      expect(typeof res.body.binding).toBe('string');
+      expect(res.body.binding.length).toBeGreaterThan(8);
+      expect(mockRedis.set).toHaveBeenCalledWith(
+        `geo:binding:${res.body.binding}`,
+        'ng',
+        'EX',
+        expect.any(Number)
+      );
     });
 
-    it('should flag restricted countries as blocked', async () => {
+    it('should flag restricted countries as blocked and mint no binding', async () => {
       global.fetch = jest.fn().mockResolvedValue({
         ok: true,
         json: () => Promise.resolve({
@@ -224,16 +306,18 @@ describe('Auth System', () => {
       });
 
       const res = await request(app)
-        .post('/auth/geo-locate')
+        .post('/api/v1/auth/geo-locate')
         .send({ lat: 40.7128, lng: -74.0060 });
 
       expect(res.status).toBe(200);
       expect(res.body.allowed).toBe(false);
+      expect(res.body.binding).toBeNull();
+      expect(mockRedis.set).not.toHaveBeenCalled();
     });
 
     it('should validate coordinate ranges via Zod', async () => {
       const res = await request(app)
-        .post('/auth/geo-locate')
+        .post('/api/v1/auth/geo-locate')
         .send({ lat: 999, lng: 0 });
 
       expect(res.status).toBe(400);
@@ -250,7 +334,7 @@ describe('Auth System', () => {
       });
 
       const res = await request(app)
-        .post('/auth/login')
+        .post('/api/v1/auth/login')
         .send({
           email: 'banned@example.com',
           password: 'StrongPassword1'
@@ -270,7 +354,7 @@ describe('Auth System', () => {
       });
 
       const res = await request(app)
-        .post('/auth/login')
+        .post('/api/v1/auth/login')
         .send({
           email: 'test@example.com',
           password: 'StrongPassword1'
@@ -299,7 +383,7 @@ describe('Auth System', () => {
       });
 
       const res = await request(app)
-        .post('/auth/login')
+        .post('/api/v1/auth/login')
         .send({
           phone: '08123456789',
           password: 'StrongPassword1'
@@ -313,11 +397,11 @@ describe('Auth System', () => {
   });
 
   describe('POST /auth/refresh', () => {
-    it('should rotate refresh token and invalidate old one', async () => {
-      mockRedis.get.mockResolvedValueOnce('valid');
+    it('rotates the refresh token and invalidates the old one atomically', async () => {
+      mockRedis.eval.mockResolvedValueOnce(1);
 
       const res = await request(app)
-        .post('/auth/refresh')
+        .post('/api/v1/auth/refresh')
         .send({
           userId: 'user-id',
           refreshToken: 'old-token'
@@ -328,25 +412,143 @@ describe('Auth System', () => {
       expect(res.body).toHaveProperty('refreshToken');
       expect(res.body.refreshToken).not.toBe('old-token');
 
-      // Verify the old token was actively deleted (invalidated)
-      expect(mockRedis.del).toHaveBeenCalledWith('refresh:user-id:old-token');
+      // The Lua script claimed the old key in a single round trip.
+      expect(mockRedis.eval).toHaveBeenCalledWith(
+        expect.stringContaining('DEL'),
+        1,
+        'refresh:user-id:old-token'
+      );
+      expect(mockRedis.get).not.toHaveBeenCalled();
+      expect(mockRedis.del).not.toHaveBeenCalled();
+    });
+
+    it('rejects reuse of a consumed refresh token', async () => {
+      mockRedis.eval.mockResolvedValueOnce(null);
+
+      const res = await request(app)
+        .post('/api/v1/auth/refresh')
+        .send({ userId: 'user-id', refreshToken: 'stale-token' });
+
+      expect(res.status).toBe(401);
+      expect(res.body.error).toBe('Invalid or expired refresh token');
+      expect(mockRedis.set).not.toHaveBeenCalled();
+    });
+
+    it('refuses to refresh for a banned account and mints no new token', async () => {
+      mockRedis.eval.mockResolvedValueOnce(1);
+      mockPrisma.user.findUnique.mockResolvedValueOnce({ id: 'user-id', isBanned: true });
+
+      const res = await request(app)
+        .post('/api/v1/auth/refresh')
+        .send({ userId: 'user-id', refreshToken: 'old-token' });
+
+      expect(res.status).toBe(401);
+      expect(res.body.error).toBe('Account suspended');
+      expect(mockRedis.set).not.toHaveBeenCalled();
+    });
+
+    it('should refuse to refresh for a deleted account', async () => {
+      mockRedis.eval.mockResolvedValueOnce(1);
+      mockPrisma.user.findUnique.mockResolvedValueOnce(null);
+
+      const res = await request(app)
+        .post('/api/v1/auth/refresh')
+        .send({ userId: 'user-id', refreshToken: 'old-token' });
+
+      expect(res.status).toBe(401);
+      expect(res.body.error).toBe('Invalid or expired refresh token');
+      expect(mockRedis.set).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('PATCH /admin/users/:userId/ban', () => {
+    it('should deny non-admin accounts', async () => {
+      const token = (await AuthService.issueTokens('user-id')).accessToken;
+
+      const res = await request(app)
+        .patch('/api/v1/admin/users/other/ban')
+        .set('Authorization', `Bearer ${token}`);
+
+      expect(res.status).toBe(403);
+    });
+
+    it('bans a user, revokes their refresh tokens and drops their sockets', async () => {
+      const token = (await AuthService.issueTokens('admin')).accessToken;
+      mockPrisma.user.findUnique
+        .mockResolvedValueOnce({ id: 'admin', isAdmin: true, isBanned: false })
+        .mockResolvedValueOnce({ id: 'target', isBanned: false });
+      mockPrisma.adminRoleAssignment.findMany.mockResolvedValue([
+        { role: { name: 'SUPER_ADMIN' } }
+      ]);
+      mockPrisma.user.update.mockResolvedValueOnce({ id: 'target', email: 't@t', isBanned: true });
+      mockRedis.scanStream.mockImplementation(() => ({
+        [Symbol.asyncIterator]: async function* () { yield ['refresh:target:t1']; }
+      }));
+
+      const res = await request(app)
+        .patch('/api/v1/admin/users/target/ban')
+        .set('Authorization', `Bearer ${token}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.user.isBanned).toBe(true);
+      expect(res.body.message).toBe('Account suspended');
+      expect(mockPrisma.user.update).toHaveBeenCalledWith({
+        where: { id: 'target' },
+        data: { isBanned: true },
+        select: { email: true, id: true, isBanned: true }
+      });
+      expect(mockRedis.del).toHaveBeenCalledWith(['refresh:target:t1']);
+    });
+
+    it('should return 404 when banning a missing user', async () => {
+      const token = (await AuthService.issueTokens('admin')).accessToken;
+      mockPrisma.user.findUnique
+        .mockResolvedValueOnce({ id: 'admin', isAdmin: true, isBanned: false })
+        .mockResolvedValueOnce(null);
+      mockPrisma.adminRoleAssignment.findMany.mockResolvedValue([
+        { role: { name: 'SUPER_ADMIN' } }
+      ]);
+
+      const res = await request(app)
+        .patch('/api/v1/admin/users/missing/ban')
+        .set('Authorization', `Bearer ${token}`);
+
+      expect(res.status).toBe(404);
+    });
+  });
+
+  describe('PATCH /admin/users/:userId/unban', () => {
+    it('should reinstate a banned user without revoking refresh tokens', async () => {
+      const token = (await AuthService.issueTokens('admin')).accessToken;
+      mockPrisma.user.findUnique
+        .mockResolvedValueOnce({ id: 'admin', isAdmin: true, isBanned: false })
+        .mockResolvedValueOnce({ id: 'target', isBanned: true });
+      mockPrisma.adminRoleAssignment.findMany.mockResolvedValue([
+        { role: { name: 'SUPER_ADMIN' } }
+      ]);
+      mockPrisma.user.update.mockResolvedValueOnce({ id: 'target', isBanned: false });
+
+      const res = await request(app)
+        .patch('/api/v1/admin/users/target/unban')
+        .set('Authorization', `Bearer ${token}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.user.isBanned).toBe(false);
+      expect(res.body.message).toBe('Account reinstated');
+      expect(mockRedis.del).not.toHaveBeenCalled();
     });
   });
 
   describe('POST /auth/logout', () => {
-    it('should invalidate token on logout', async () => {
-      // Need a valid access token to access the route (requireAuth will look up the user)
+    it('invalidates the token and disconnects the user sockets on logout', async () => {
       const token = (await AuthService.issueTokens('user-id')).accessToken;
 
       const res = await request(app)
-        .post('/auth/logout')
+        .post('/api/v1/auth/logout')
         .set('Authorization', `Bearer ${token}`)
-        .send({
-          refreshToken: 'token-to-delete'
-        });
+        .send({ refreshToken: 'token-to-delete' });
 
       expect(res.status).toBe(200);
-      // Verify token deleted from Redis
       expect(mockRedis.del).toHaveBeenCalledWith('refresh:user-id:token-to-delete');
     });
   });
@@ -354,8 +556,9 @@ describe('Auth System', () => {
   describe('GET /auth/me', () => {
     it('returns profile including the predesigned avatar', async () => {
       const token = (await AuthService.issueTokens('user-id')).accessToken;
-      // Both requireAuth's lookup and getProfile hit findUnique, so mock the
-      // full profile as the persistent return value.
+      // requireAuth's lookup and getProfile both hit user.findUnique; mock the
+      // full profile as the persistent return value. The balance shown comes
+      // from the V2 ledger PLAYER_AVAILABLE net, not the Wallet row.
       mockPrisma.user.findUnique.mockResolvedValue({
         id: 'user-id',
         email: 'test@example.com',
@@ -364,12 +567,16 @@ describe('Auth System', () => {
         avatar: 'avatar_03',
         tier: 'AMATEUR',
         isBanned: false,
-        wallet: { balanceMinorUnits: 1000n },
+        wallet: { currency: 'NGN' },
         _count: { notifications: 2 }
+      });
+      mockPrisma.ledgerAccount.findMany.mockResolvedValue([{ id: 'acc-1' }]);
+      mockPrisma.ledgerEntry.aggregate.mockResolvedValue({
+        _sum: { amountMinorUnits: 1000n }
       });
 
       const res = await request(app)
-        .get('/auth/me')
+        .get('/api/v1/me')
         .set('Authorization', `Bearer ${token}`);
 
       expect(res.status).toBe(200);
@@ -392,7 +599,7 @@ describe('Auth System', () => {
       });
 
       const res = await request(app)
-        .patch('/auth/me')
+        .patch('/api/v1/me')
         .set('Authorization', `Bearer ${token}`)
         .send({ avatar: 'avatar_07' });
 
@@ -408,7 +615,7 @@ describe('Auth System', () => {
       const token = (await AuthService.issueTokens('user-id')).accessToken;
 
       const res = await request(app)
-        .patch('/auth/me')
+        .patch('/api/v1/me')
         .set('Authorization', `Bearer ${token}`)
         .send({ avatar: '' });
 

@@ -1,0 +1,96 @@
+{
+  "id": "FLOW-04",
+  "slug": "settlement",
+  "title": "Result finalization and financial settlement",
+  "nodes": [
+    [
+      "Game ends",
+      "Server records terminal cause"
+    ],
+    [
+      "Result gate",
+      "Single final result owner"
+    ],
+    [
+      "Settlement CAS",
+      "Idempotent claim"
+    ],
+    [
+      "Ledger transaction",
+      "Stake, fee, payout/refund"
+    ],
+    [
+      "Complete",
+      "Balances and references"
+    ],
+    [
+      "Receipt",
+      "Immutable audit data"
+    ],
+    [
+      "Already settled",
+      "Return existing result"
+    ],
+    [
+      "Delayed",
+      "Pending/review status"
+    ],
+    [
+      "Recovery",
+      "Retry same idempotency key"
+    ]
+  ],
+  "edges": [
+    [
+      0,
+      1,
+      ""
+    ],
+    [
+      1,
+      2,
+      "final"
+    ],
+    [
+      2,
+      3,
+      "won CAS"
+    ],
+    [
+      2,
+      6,
+      "lost CAS"
+    ],
+    [
+      3,
+      4,
+      "commit"
+    ],
+    [
+      4,
+      5,
+      "event"
+    ],
+    [
+      3,
+      7,
+      "unknown/failure"
+    ],
+    [
+      7,
+      8,
+      "retry"
+    ],
+    [
+      8,
+      2,
+      "same key"
+    ],
+    [
+      6,
+      5,
+      "existing receipt"
+    ]
+  ],
+  "invariant": "A match settles once. Retries return the existing settlement; they never create a second payout."
+}

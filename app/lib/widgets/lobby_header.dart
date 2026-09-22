@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
-import 'package:google_fonts/google_fonts.dart';
 import '../providers/profile_provider.dart';
 import '../theme/avatars.dart';
 import '../theme/colors.dart';
@@ -10,7 +9,13 @@ import '../theme/colors.dart';
 /// AppBar header: avatar ring + time-of-day greeting. Tapping the avatar
 /// opens the predesigned avatar picker.
 class LobbyHeader extends ConsumerWidget {
-  const LobbyHeader({Key? key}) : super(key: key);
+  const LobbyHeader({super.key});
+
+  /// Test seam: the greeting is derived from the wall clock. Golden tests pin
+  /// this to a fixed instant so captures are stable regardless of the hour the
+  /// suite happens to run in.
+  @visibleForTesting
+  static DateTime Function() clock = DateTime.now;
 
   static String _greetingByHour(int hour) {
     if (hour >= 5 && hour < 12) return 'Good morning';
@@ -49,7 +54,8 @@ class LobbyHeader extends ConsumerWidget {
                 Text(
                   'Choose your avatar',
                   textAlign: TextAlign.center,
-                  style: GoogleFonts.sora(
+                  style: TextStyle(
+                    fontFamily: 'Sora',
                     fontSize: 18,
                     fontWeight: FontWeight.w700,
                     color: AppColors.textPrimary,
@@ -59,7 +65,8 @@ class LobbyHeader extends ConsumerWidget {
                 Text(
                   'Pick from our predesigned avatars — no uploads',
                   textAlign: TextAlign.center,
-                  style: GoogleFonts.inter(
+                  style: TextStyle(
+                    fontFamily: 'Inter',
                     fontSize: 13,
                     color: AppColors.textMuted,
                   ),
@@ -99,7 +106,7 @@ class LobbyHeader extends ConsumerWidget {
                           border: Border.all(
                             color: selected
                                 ? AppColors.brand
-                                : const Color(0x00000000),
+                                : AppColors.transparent,
                             width: 3,
                           ),
                         ),
@@ -126,10 +133,8 @@ class LobbyHeader extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final profile = ref.watch(profileProvider).profile;
     final avatar = avatarById(profile?.avatar) ?? defaultAvatar;
-    final hour = DateTime.now().hour;
-    final name = profile?.username ??
-        profile?.displayName ??
-        'Player';
+    final hour = LobbyHeader.clock().hour;
+    final name = profile?.username ?? profile?.displayName ?? 'Player';
 
     return Row(
       mainAxisSize: MainAxisSize.min,
@@ -180,7 +185,8 @@ class LobbyHeader extends ConsumerWidget {
                 _greetingByHour(hour),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: GoogleFonts.inter(
+                style: TextStyle(
+                  fontFamily: 'Inter',
                   fontSize: 12,
                   fontWeight: FontWeight.w400,
                   color: AppColors.textMuted,
@@ -191,7 +197,8 @@ class LobbyHeader extends ConsumerWidget {
                 name,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: GoogleFonts.sora(
+                style: TextStyle(
+                  fontFamily: 'Sora',
                   fontSize: 18,
                   fontWeight: FontWeight.w700,
                   color: AppColors.textPrimary,

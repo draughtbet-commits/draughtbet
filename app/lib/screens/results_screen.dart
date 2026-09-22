@@ -140,9 +140,10 @@ class _ResultsScreenState extends ConsumerState<ResultsScreen> {
 
                         final lightPlayerId = m['playerLightId'] as String?;
                         final bool isLight = lightPlayerId != null && lightPlayerId == _currentUserId;
-                        final String opponentEmail = isLight
-                            ? (darkPlayer?['email'] as String? ?? 'Opponent')
-                            : (lightPlayer?['email'] as String? ?? 'Opponent');
+                        // S17: the history API exposes only the public handle — never the email.
+                        final String opponentName = isLight
+                            ? (darkPlayer?['username'] as String? ?? 'Opponent')
+                            : (lightPlayer?['username'] as String? ?? 'Opponent');
 
                         final Color statusColor;
                         final String resultText;
@@ -225,7 +226,7 @@ class _ResultsScreenState extends ConsumerState<ResultsScreen> {
                                     ),
                                     const SizedBox(height: 4),
                                     Text(
-                                      'vs $opponentEmail',
+                                      'vs $opponentName',
                                       style: AppTypography.bodyMedium,
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,

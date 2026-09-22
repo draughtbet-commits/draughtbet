@@ -1,32 +1,13 @@
 import { jest } from '@jest/globals';
 
 const mockPrisma = {
-  $transaction: jest.fn(),
-  match: {
-    findUnique: jest.fn(),
-    update: jest.fn()
-  },
-  platformSettings: {
-    findUniqueOrThrow: jest.fn()
-  },
-  wallet: {
-    findUniqueOrThrow: jest.fn(),
-    update: jest.fn()
-  },
-  walletTransaction: {
-    create: jest.fn(),
-    findFirst: jest.fn()
-  }
+  match: { findUnique: jest.fn() },
+  matchSettlement: { findUnique: jest.fn() }
 };
 
 const mockRedis = {
-  del: jest.fn()
-};
-
-const mockLogger = {
-  info: jest.fn(),
-  warn: jest.fn(),
-  error: jest.fn()
+  del: jest.fn().mockResolvedValue(1),
+  eval: jest.fn().mockResolvedValue(1)
 };
 
 jest.unstable_mockModule('../../utils/db.js', () => ({
@@ -38,87 +19,140 @@ jest.unstable_mockModule('../../utils/redis.js', () => ({
 }));
 
 jest.unstable_mockModule('../../utils/logger.js', () => ({
-  default: mockLogger
+  default: { info: jest.fn(), warn: jest.fn(), error: jest.fn() }
 }));
 
 const mockEmit = jest.fn();
 const mockTo = jest.fn().mockReturnValue({ emit: mockEmit });
-
 jest.unstable_mockModule('../index.js', () => ({
-  getIO: jest.fn(() => ({
-    to: mockTo
-  }))
+  getIO: jest.fn(() => ({ to: mockTo }))
 }));
 
-describe('settlement logic', () => {
-  let settlement;
-  let originalSleep;
+jest.unstable_mockModule('../../modules/notification/service.js', () => ({
+  NotificationService: { create: jest.fn().mockResolvedValue({}) }
+}));
 
-  beforeAll(async () => {
-    originalSleep = setTimeout;
-    jest.spyOn(global, 'setTimeout').mockImplementation((cb) => cb());
-    settlement = await import('../settlement.js');
-  });
+const mockSettleMatch = jest.fn();
+jest.unstable_mockModule('../../modules/settlement/service.js', () => ({
+  settleMatch: mockSettleMatch,
+  SettlementService: { settleMatch: mockSettleMatch },
+  DEFAULT_SETTLEMENT_RETRIES: 10,
+  OutsiderSettlementError: class OutsiderSettlementError extends Error { name = 'OutsiderSettlementError'; },
+  InvalidSettlementError: class InvalidSettlementError extends Error { name = 'InvalidSettlementError'; }
+}));
 
-  afterAll(() => {
-    global.setTimeout = originalSleep;
-  });
+const settlement = await import('../settlement.js');
+const { OutsiderSettlementError, InvalidSettlementError } = await import('../../modules/settlement/service.js');
 
-  beforeEach(() => {
-    jest.clearAllMocks();
-    mockEmit.mockClear();
-    mockTo.mockClear();
+const matchRows = {
+  inPlay: {
+    status: 'IN_PLAY',
+    playerLightId: 'p1',
+    playerDarkId: 'p2',
+    winnerId: null,
+    endReason: null,
+    stakeMinorUnits: BigInt(100_000)
+  },
+  settled: {
+    status: 'SETTLED',
+    playerLightId: 'p1',
+    playerDarkId: 'p2',
+    winnerId: 'p1',
+    endReason: 'NO_LEGAL_MOVES',
+    stakeMinorUnits: BigInt(100_000)
+  }
+};
+
+beforeEach(() => {
+  jest.clearAllMocks();
+  // Collapse the sleep between retries so 10x retry tests run instantly.
+  jest.spyOn(global, 'setTimeout').mockImplementation((cb) => cb());
+});
+
+const claimedResult = (payout = 180_000n) => ({
+  claimed: true,
+  replayed: false,
+  payout,
+  commission: 20_000n,
+  match: matchRows.inPlay,
+  settlement: { id: 's1', netPayoutMinorUnits: payout, status: 'SETTLED', endReason: 'NO_LEGAL_MOVES' }
+});
+
+const replayResult = (payout = 180_000n) => ({
+  claimed: false,
+  replayed: true,
+  payout,
+  commission: 20_000n,
+  match: matchRows.inPlay,
+  settlement: { id: 's1', netPayoutMinorUnits: payout, status: 'SETTLED', endReason: 'NO_LEGAL_MOVES' }
+});
+
+describe('settlement socket layer', () => {
+  describe('settleGame', () => {
+    it('delegates to SettlementService and emits notifications on a fresh claim', async () => {
+      mockSettleMatch.mockResolvedValue(claimedResult());
+
+      const result = await settlement.settleGame('m1', 'p1', 'p2', 'NO_LEGAL_MOVES');
+
+      expect(mockSettleMatch).toHaveBeenCalledWith('m1', {
+        result: 'WIN',
+        winnerId: 'p1',
+        loserId: 'p2',
+        endReason: 'NO_LEGAL_MOVES'
+      });
+      expect(result.payout).toBe(180_000n);
+      expect(mockTo).toHaveBeenCalledWith('match:m1');
+      expect(mockEmit).toHaveBeenCalledWith('match_ended', expect.objectContaining({ winnerId: 'p1' }));
+    });
+
+    it('runs cleanup from DB when the idempotency gate fires', async () => {
+      mockSettleMatch.mockResolvedValue(replayResult());
+      mockPrisma.match.findUnique.mockResolvedValue(matchRows.settled);
+      mockPrisma.matchSettlement.findUnique.mockResolvedValue({
+        winnerId: 'p1', netPayoutMinorUnits: 180_000n, endReason: 'NO_LEGAL_MOVES'
+      });
+
+      await settlement.settleGame('m1', 'p1', 'p2', 'NO_LEGAL_MOVES');
+
+      expect(mockPrisma.matchSettlement.findUnique).toHaveBeenCalledWith({ where: { matchId: 'm1' } });
+      expect(mockTo).toHaveBeenCalledWith('match:m1');
+      expect(mockEmit).toHaveBeenCalledWith('match_ended', expect.objectContaining({ winnerId: 'p1' }));
+    });
   });
 
   describe('settleGameWithRetry', () => {
-    it('should attempt cleanup if DB transaction committed previously but cleanup was skipped (idempotency gate fires on retry)', async () => {
-      // Mock the DB transaction to return null, simulating the idempotency gate firing
-      mockPrisma.$transaction.mockResolvedValueOnce(null);
+    it('credits the winner exactly once after transient failures then success', async () => {
+      const error = new Error('transient');
+      mockSettleMatch
+        .mockRejectedValueOnce(error)
+        .mockRejectedValueOnce(error)
+        .mockResolvedValueOnce(claimedResult());
 
-      // And mock the standalone DB cleanup query returning a COMPLETED match
-      // The true winner is 'true-winner', endReason is 'true-reason'
-      mockPrisma.match.findUnique.mockResolvedValueOnce({
-        status: 'COMPLETED',
-        stakeMinorUnits: 1000,
-        playerLightId: 'light-id',
-        playerDarkId: 'dark-id',
-        winnerId: 'true-winner',
-        endReason: 'true-reason'
-      });
-      
-      // Mock the PAYOUT wallet transaction query
-      mockPrisma.walletTransaction.findFirst.mockResolvedValueOnce({
-        amountMinorUnits: 1800n
-      });
+      await settlement.settleGameWithRetry('m1', 'p1', 'p2', 'resign', 3);
 
-      await settlement.settleGameWithRetry('match-1', 'caller-winner', 'caller-loser', 'caller-reason');
-
-      // It should have called runCleanupFromDbForWin -> notifyAndCleanupWin -> redis.del
-      expect(mockRedis.del).toHaveBeenCalledWith('match:match-1');
-      expect(mockRedis.del).toHaveBeenCalledWith('user:light-id:activeMatch');
-      expect(mockRedis.del).toHaveBeenCalledWith('user:dark-id:activeMatch');
-
-      // Importantly, the socket emit must use 'true-winner', 'true-reason', and '1800' payout.
-      expect(mockTo).toHaveBeenCalledWith('match:match-1');
-      expect(mockEmit).toHaveBeenCalledWith('match_ended', {
-        winnerId: 'true-winner',
-        reason: 'true-reason',
-        payout: '1800'
-      });
+      expect(mockSettleMatch).toHaveBeenCalledTimes(3);
+      // Ephemeral match_ended broadcast, exactly once. Durable wallet_updated +
+      // notifications are enqueued inside the settlement tx and delivered by
+      // the outbox drainer — not emitted from this layer.
+      expect(mockEmit).toHaveBeenCalledTimes(1);
+      expect(mockEmit).toHaveBeenCalledWith('match_ended', expect.objectContaining({ winnerId: 'p1' }));
     });
 
-    it('should retry if settleGame throws', async () => {
-      mockPrisma.$transaction.mockRejectedValueOnce(new Error('DB failure'));
-      mockPrisma.$transaction.mockResolvedValueOnce({
-        payout: 1800,
-        commission: 200,
-        match: { playerLightId: 'p1', playerDarkId: 'p2' }
-      });
+    it('does not retry on validated-rejectable errors', async () => {
+      mockSettleMatch.mockRejectedValue(new OutsiderSettlementError());
 
-      await settlement.settleGameWithRetry('match-2', 'p1', 'p2', 'forfeit');
+      await expect(settlement.settleGameWithRetry('m1', 'outsider', 'p2', 'resign', 3))
+        .rejects.toThrow(OutsiderSettlementError);
 
-      expect(mockPrisma.$transaction).toHaveBeenCalledTimes(2);
-      expect(mockRedis.del).toHaveBeenCalledWith('match:match-2');
+      expect(mockSettleMatch).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('settleGameDrawWithRetry', () => {
+    it('retries up to 10 times by default', async () => {
+      mockSettleMatch.mockRejectedValue(new Error('db'));
+      await settlement.settleGameDrawWithRetry('m1', 'draw_threefold');
+      expect(mockSettleMatch).toHaveBeenCalledTimes(10);
     });
   });
 });

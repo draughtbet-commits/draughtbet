@@ -17,7 +17,20 @@ abstract class GameState with _$GameState {
     String? winnerId,
   }) = _GameState;
 
-  factory GameState.fromJson(Map<String, dynamic> json) => _$GameStateFromJson(json);
+  factory GameState.fromJson(Map<String, dynamic> json) {
+    final normalized = Map<String, dynamic>.from(json);
+    final players = json['players'];
+    if (players is Map) {
+      normalized['player1'] ??= players['light'];
+      normalized['player2'] ??= players['dark'];
+    }
+    normalized['moveCount'] ??= 0;
+    normalized['consecutiveKingMoves'] ??= 0;
+    normalized['legalMoves'] ??= const <dynamic>[];
+    normalized['player1'] ??= '';
+    normalized['player2'] ??= '';
+    return _$GameStateFromJson(normalized);
+  }
 }
 
 @freezed
@@ -29,7 +42,8 @@ abstract class LegalMove with _$LegalMove {
     @Default(false) bool promoted,
   }) = _LegalMove;
 
-  factory LegalMove.fromJson(Map<String, dynamic> json) => _$LegalMoveFromJson(json);
+  factory LegalMove.fromJson(Map<String, dynamic> json) =>
+      _$LegalMoveFromJson(json);
 }
 
 @freezed
@@ -46,5 +60,6 @@ abstract class MoveAppliedEvent with _$MoveAppliedEvent {
     @Default([]) List<LegalMove> legalMoves,
   }) = _MoveAppliedEvent;
 
-  factory MoveAppliedEvent.fromJson(Map<String, dynamic> json) => _$MoveAppliedEventFromJson(json);
+  factory MoveAppliedEvent.fromJson(Map<String, dynamic> json) =>
+      _$MoveAppliedEventFromJson(json);
 }

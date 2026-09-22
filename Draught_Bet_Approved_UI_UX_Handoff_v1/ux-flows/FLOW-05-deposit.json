@@ -1,0 +1,96 @@
+{
+  "id": "FLOW-05",
+  "slug": "deposit",
+  "title": "Deposit initiation, provider confirmation and wallet credit",
+  "nodes": [
+    [
+      "Amount",
+      "Create deposit intent"
+    ],
+    [
+      "Checkout",
+      "Hosted provider UI"
+    ],
+    [
+      "App return",
+      "Pending only"
+    ],
+    [
+      "Webhook",
+      "Verify signature and reference"
+    ],
+    [
+      "Validate",
+      "Amount, currency, account"
+    ],
+    [
+      "Ledger credit",
+      "Idempotent transaction"
+    ],
+    [
+      "Success",
+      "Refresh available balance"
+    ],
+    [
+      "Failed",
+      "No wallet credit"
+    ],
+    [
+      "Pending",
+      "Poll by reference"
+    ]
+  ],
+  "edges": [
+    [
+      0,
+      1,
+      "intent"
+    ],
+    [
+      1,
+      2,
+      "provider return"
+    ],
+    [
+      1,
+      7,
+      "cancel/fail"
+    ],
+    [
+      2,
+      8,
+      "await webhook"
+    ],
+    [
+      3,
+      4,
+      "verified"
+    ],
+    [
+      4,
+      5,
+      "valid"
+    ],
+    [
+      4,
+      7,
+      "mismatch"
+    ],
+    [
+      5,
+      6,
+      "commit"
+    ],
+    [
+      8,
+      3,
+      "webhook arrives"
+    ],
+    [
+      8,
+      6,
+      "already credited"
+    ]
+  ],
+  "invariant": "A provider return or client callback never credits the wallet; only a verified, idempotent server confirmation can."
+}

@@ -1,0 +1,82 @@
+{
+  "id": "FLOW-08",
+  "slug": "disputes",
+  "title": "Match report, evidence and dispute resolution",
+  "nodes": [
+    [
+      "Receipt",
+      "Select immutable match"
+    ],
+    [
+      "Reason",
+      "Classify issue"
+    ],
+    [
+      "Evidence",
+      "Details and attachments"
+    ],
+    [
+      "Submit",
+      "Create case once"
+    ],
+    [
+      "Under review",
+      "Timeline and updates"
+    ],
+    [
+      "More info",
+      "Append evidence"
+    ],
+    [
+      "Resolved",
+      "Decision and rationale"
+    ],
+    [
+      "Settlement effect",
+      "Server-only adjustment"
+    ]
+  ],
+  "edges": [
+    [
+      0,
+      1,
+      "report"
+    ],
+    [
+      1,
+      2,
+      ""
+    ],
+    [
+      2,
+      3,
+      "idempotent"
+    ],
+    [
+      3,
+      4,
+      "case reference"
+    ],
+    [
+      4,
+      5,
+      "requested"
+    ],
+    [
+      5,
+      4,
+      "submitted"
+    ],
+    [
+      4,
+      6,
+      "decision"
+    ],
+    [
+      6,
+      7,
+      "if applicable"
+    ]
+  ],
+  "invariant": "Dispute screens cannot rewrite results or balances directly; adjustments require auditable server-side records."
+}

@@ -1,0 +1,9 @@
+-- Add a system contra account type for external deposits entering player float.
+-- The singleton `system:CUSTOMER_LIABILITY:NGN` account is created lazily by
+-- LedgerService.ensureSystemAccount when the first deposit is confirmed.
+--
+-- NOTE on migration-chain order: "AccountType" is CREATEd by the later
+-- (lexicographically) migration 20260921000000_v2_schema_additions, so this
+-- standalone ALTER TYPE would fail on a fresh replay. The enum value is now
+-- ADDed inline where the type is created; this file is retained for applied
+-- databases only (a no-op, kept so the history stays intact).

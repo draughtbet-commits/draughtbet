@@ -3,7 +3,7 @@ import 'dart:convert';
 
 import 'package:dio/dio.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
-import 'package:riverpod/riverpod.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'secure_storage.dart';
 
 /// Broadcast bus for "session can no longer be refreshed" events. The auth
@@ -27,20 +27,34 @@ class SessionExpiryBus {
 /// provider).
 final apiClientProvider = Provider<Dio>((ref) {
   final storage = SecureStorageService();
+  final configuredBackendUrl = dotenv.isInitialized
+      ? dotenv.env['BACKEND_URL']?.trim() ?? ''
+      : '';
 
-  final dio = Dio(BaseOptions(
-    baseUrl: dotenv.isInitialized
-        ? dotenv.env['BACKEND_URL']!
-        : 'http://localhost:3000',
-    connectTimeout: const Duration(seconds: 15),
-    receiveTimeout: const Duration(seconds: 15),
-  ));
+  // REST routes are mounted under /api/v1 (WS1). Socket.io stays on the
+  // raw host (unversioned), so only this HTTP base gets the prefix.
+  final restBaseUrl = configuredBackendUrl.isNotEmpty
+      ? configuredBackendUrl
+      : 'http://localhost:3000';
+  final v1BaseUrl = restBaseUrl.endsWith('/api/v1')
+      ? restBaseUrl
+      : '${restBaseUrl.endsWith('/') ? restBaseUrl.substring(0, restBaseUrl.length - 1) : restBaseUrl}/api/v1';
 
-  dio.interceptors.add(AuthInterceptor(
-    dio: dio,
-    storage: storage,
-    onSessionExpired: SessionExpiryBus.emit,
-  ));
+  final dio = Dio(
+    BaseOptions(
+      baseUrl: v1BaseUrl,
+      connectTimeout: const Duration(seconds: 15),
+      receiveTimeout: const Duration(seconds: 15),
+    ),
+  );
+
+  dio.interceptors.add(
+    AuthInterceptor(
+      dio: dio,
+      storage: storage,
+      onSessionExpired: SessionExpiryBus.emit,
+    ),
+  );
 
   return dio;
 });
@@ -56,6 +70,20 @@ class AuthInterceptor extends QueuedInterceptor {
   final Dio dio;
   final SecureStorageService storage;
   final void Function() onSessionExpired;
+
+  /// Bare client used for token refresh and 401 retries. These are issued
+  /// from inside this interceptor's own onError; routing them through
+  /// [dio] would re-enter the QueuedInterceptor lock and deadlock (the nested
+  /// response can only be delivered once the outer handler settles, which
+  /// waits on the nested request). A client with no interceptors cannot
+  /// deadlock and surfaces a refresh 401 as a plain DioException.
+  late final Dio _refreshClient = Dio(
+    BaseOptions(
+      baseUrl: dio.options.baseUrl,
+      connectTimeout: dio.options.connectTimeout,
+      receiveTimeout: dio.options.receiveTimeout,
+    ),
+  )..httpClientAdapter = dio.httpClientAdapter;
 
   /// Endpoints that must never trigger a refresh (they carry their own
   /// credentials or are the refresh/login calls themselves).
@@ -108,9 +136,11 @@ class AuthInterceptor extends QueuedInterceptor {
     // A burst of parallel 401s all see the same stale token. The first one
     // refreshes and updates storage; the rest can just retry with the new
     // token instead of each firing another refresh.
-    if (failedAuth != null && current != null && failedAuth != 'Bearer $current') {
+    if (failedAuth != null &&
+        current != null &&
+        failedAuth != 'Bearer $current') {
       err.requestOptions.headers['Authorization'] = 'Bearer $current';
-      final cloned = await dio.fetch<void>(err.requestOptions);
+      final cloned = await _refreshClient.fetch<void>(err.requestOptions);
       handler.resolve(cloned);
       return;
     }
@@ -155,8 +185,9 @@ class AuthInterceptor extends QueuedInterceptor {
       await storage.setAccessToken(tokens.accessToken);
       await storage.setRefreshToken(tokens.refreshToken);
 
-      err.requestOptions.headers['Authorization'] = 'Bearer ${tokens.accessToken}';
-      final cloned = await dio.fetch<void>(err.requestOptions);
+      err.requestOptions.headers['Authorization'] =
+          'Bearer ${tokens.accessToken}';
+      final cloned = await _refreshClient.fetch<void>(err.requestOptions);
       handler.resolve(cloned);
     } on DioException catch (refreshError) {
       final refreshStatus = refreshError.response?.statusCode;
@@ -186,7 +217,7 @@ class AuthInterceptor extends QueuedInterceptor {
   }
 
   Future<_RefreshResult> _doRefresh(String userId, String refreshToken) async {
-    final res = await dio.post(
+    final res = await _refreshClient.post(
       '/auth/refresh',
       data: {'userId': userId, 'refreshToken': refreshToken},
     );

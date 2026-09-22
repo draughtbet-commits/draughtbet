@@ -1,5 +1,5 @@
 import logger from '../../utils/logger.js';
-import { PaymentGateway, PaymentGatewayError } from './PaymentGateway.js';
+import { PaymentGateway, PaymentGatewayError, toMajorUnits } from './PaymentGateway.js';
 
 export class FlutterwaveGateway extends PaymentGateway {
   constructor() {
@@ -43,16 +43,18 @@ export class FlutterwaveGateway extends PaymentGateway {
     }
   }
 
-  async initiatePayment(amountMinorUnits, userId, email) {
+  async initiatePayment(amountMinorUnits, userId, email, reference) {
     try {
-      // Flutterwave expects amounts in major units (NGN) not kobo, 
-      // but double check their docs. Usually it's major units.
-      // We'll convert minor (kobo) to major (NGN).
-      const amountMajorUnits = Number(amountMinorUnits) / 100;
-      
+      // Flutterwave expects amounts in major units (NGN) not kobo.
+      const amountMajorUnits = toMajorUnits(amountMinorUnits);
+
+      // Use the server-created intent reference as tx_ref so the webhook can be
+      // verified against the stored intent rather than an arbitrary ref.
+      const txRef = reference || `flw-${Date.now()}-${userId}`;
+
       const payload = {
-        tx_ref: `flw-${Date.now()}-${userId}`, // Generate a unique tx_ref
-        amount: amountMajorUnits.toString(),
+        tx_ref: txRef,
+        amount: amountMajorUnits,
         currency: 'NGN',
         redirect_url: 'https://placeholder.uplix.com/payment/callback',
         customer: {
@@ -94,4 +96,124 @@ export class FlutterwaveGateway extends PaymentGateway {
     // Flutterwave requires checking if the 'verif-hash' matches the secret hash from dashboard
     return signatureHeader === this.secretHash;
   }
+
+  /**
+   * Resolves a bank account to its on-file account name via Flutterwave's
+   * account-resolution endpoint.
+   */
+  async resolveBankAccount({ bankCode, accountNumber }) {
+    try {
+      const data = await this.fetchWithRetry('https://api.flutterwave.com/v3/accounts/resolve', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${this.secretKey}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ account_number: accountNumber, account_bank: bankCode })
+      });
+      if (data.status !== 'success' || !data.data?.account_name) {
+        throw new Error(data.message || 'Flutterwave could not resolve this account number');
+      }
+      return { accountName: data.data.account_name, verified: true };
+    } catch (error) {
+      logger.warn({ error: error.message, bankCode, accountNumber }, 'Flutterwave account resolution failed');
+      throw new PaymentGatewayError('Unable to verify this bank account', error);
+    }
+  }
+
+  /**
+   * Creates a reusable beneficiary so payouts can reference it by id.
+   */
+  async createRecipient({ bankCode, accountNumber, accountName }) {
+    try {
+      const data = await this.fetchWithRetry('https://api.flutterwave.com/v3/beneficiaries', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${this.secretKey}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          account_number: accountNumber,
+          account_bank: bankCode,
+          beneficiary_name: accountName
+        })
+      });
+      if (data.status !== 'success' || !data.data?.id) {
+        throw new Error(data.message || 'Flutterwave beneficiary creation failed');
+      }
+      return { recipientRef: String(data.data.id) };
+    } catch (error) {
+      logger.warn({ error: error.message, bankCode, accountNumber }, 'Flutterwave beneficiary creation failed');
+      throw new PaymentGatewayError('Unable to create payout recipient', error);
+    }
+  }
+
+  /**
+   * Initiates a payout via Flutterwave Transfers. Amount must be major units;
+   * converted with exact integer math.
+   */
+  async initiatePayout({ amountMinorUnits, currency, recipientRef, reference }) {
+    try {
+      const data = await this.fetchWithRetry('https://api.flutterwave.com/v3/transfers', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${this.secretKey}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          beneficiary_id: recipientRef,
+          amount: toMajorUnits(amountMinorUnits),
+          currency: currency || 'NGN',
+          reference,
+          narration: 'Draught Bet withdrawal payout'
+        })
+      });
+      if (data.status !== 'success' || !data.data?.id) {
+        throw new Error(data.message || 'Flutterwave transfer initiation failed');
+      }
+      return {
+        providerRef: String(data.data.id),
+        status: data.data.status
+      };
+    } catch (error) {
+      logger.error({ error, amountMinorUnits: amountMinorUnits.toString() }, 'Failed to initiate Flutterwave payout');
+      throw new PaymentGatewayError('Payment provider unavailable, try again', error);
+    }
+  }
+
+  /**
+   * Queries Flutterwave Transfers for the payout's current status. The lookup
+   * key is the provider's transfer id (our stored providerRef, set at
+   * initiation); a payout with no providerRef yet cannot be verified this way.
+   */
+  async verifyPayoutStatus({ reference, providerRef }) {
+    if (!providerRef) {
+      throw new PaymentGatewayError('Cannot verify a Flutterwave payout without its transfer id');
+    }
+    try {
+      const data = await this.fetchWithRetry(
+        `https://api.flutterwave.com/v3/transfers/${encodeURIComponent(providerRef)}`,
+        {
+          method: 'GET',
+          headers: { 'Authorization': `Bearer ${this.secretKey}` }
+        }
+      );
+      const status = data?.data?.status ?? '';
+      return { status: mapFlutterwaveTransferStatus(status) };
+    } catch (error) {
+      logger.warn({ error: error.message, providerRef }, 'Flutterwave payout status verification failed');
+      throw new PaymentGatewayError('Unable to verify payout status', error);
+    }
+  }
+}
+
+/**
+ * Maps a Flutterwave transfer status to the follow-up verdict.
+ *   SUCCESSFUL -> 'success'; FAILED -> 'failed'; everything else 'processing'.
+ */
+export function mapFlutterwaveTransferStatus(status) {
+  const normalized = typeof status === 'string' ? status.toUpperCase() : '';
+  if (normalized === 'SUCCESSFUL') return 'success';
+  if (normalized === 'FAILED') return 'failed';
+  return 'processing';
 }

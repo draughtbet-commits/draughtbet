@@ -23,12 +23,25 @@ const mockLogger = {
   error: jest.fn()
 };
 
+const mockPrisma = {
+  match: { findUnique: jest.fn().mockResolvedValue({ status: 'IN_PLAY' }) }
+};
+
 jest.unstable_mockModule('../../utils/redis.js', () => ({
-  default: mockRedis
+  default: mockRedis,
+  isRedisReady: jest.fn().mockReturnValue(true)
 }));
 
+jest.unstable_mockModule('../../utils/db.js', () => ({ default: mockPrisma }));
 jest.unstable_mockModule('../../sockets/gameManager.js', () => mockGameManager);
 jest.unstable_mockModule('../../sockets/settlement.js', () => mockSettlement);
+jest.unstable_mockModule('../../modules/match/service.js', () => ({
+  isLiveStatus: jest.fn((status) => status === 'IN_PLAY' || status === 'ACTIVE')
+}));
+jest.unstable_mockModule('../../sockets/connectionEvidence.js', () => ({
+  recordGameEvent: jest.fn(),
+  recordConnectionEvent: jest.fn()
+}));
 jest.unstable_mockModule('../../utils/logger.js', () => ({
   default: mockLogger
 }));
