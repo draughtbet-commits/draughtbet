@@ -909,7 +909,7 @@ class _PlayerStrip extends StatelessWidget {
       margin: const EdgeInsets.symmetric(horizontal: 10),
       padding: const EdgeInsets.symmetric(horizontal: 10),
       decoration: BoxDecoration(
-        color: active ? accent.withValues(alpha: .08) : Colors.transparent,
+        color: active ? accent.withValues(alpha: .08) : AppColors.transparent,
         borderRadius: BorderRadius.circular(10),
       ),
       child: Row(

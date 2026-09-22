@@ -15,7 +15,8 @@ import '../screens/match_room_screen.dart';
 import '../screens/match_result_screen.dart';
 import '../models/match_flow.dart';
 import '../screens/crown_screen.dart';
-import '../screens/wallet_screen.dart';
+import '../screens/wallet_read_screens.dart';
+import '../models/wallet_read.dart';
 import '../screens/checkout_webview_screen.dart';
 import '../screens/settings_screen.dart';
 import '../screens/results_screen.dart';
@@ -69,7 +70,27 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           ),
           GoRoute(
             path: '/wallet',
-            builder: (context, state) => const WalletScreen(),
+            builder: (context, state) => const WalletDashboardScreen(),
+          ),
+          GoRoute(
+            path: '/wallet/transactions',
+            builder: (context, state) => const TransactionHistoryScreen(),
+          ),
+          GoRoute(
+            path: '/wallet/transaction',
+            redirect: (context, state) =>
+                state.extra is WalletEntry ? null : '/wallet/transactions',
+            builder: (context, state) => WalletTransactionDetailScreen(
+              entry: state.extra! as WalletEntry,
+            ),
+          ),
+          GoRoute(
+            path: '/wallet/locked',
+            builder: (context, state) => const LockedFundsScreen(),
+          ),
+          GoRoute(
+            path: '/wallet/unavailable',
+            builder: (context, state) => const WalletUnavailableScreen(),
           ),
           GoRoute(
             path: '/arena',

@@ -162,7 +162,7 @@ class SplashSlide extends StatelessWidget {
         ),
         children: const [
           TextSpan(text: 'DRAUGHT\n', style: TextStyle(color: AppColors.textPrimary)),
-          TextSpan(text: 'BET', style: TextStyle(color: Color(0xFF18C986))),
+          TextSpan(text: 'BET', style: TextStyle(color: AppColors.primaryAction)),
         ],
       ),
     );

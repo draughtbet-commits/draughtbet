@@ -16,6 +16,11 @@ class AppColors {
   static const Color success = Color(0xFF18C986);
   static const Color warning = Color(0xFFF5C451);
   static const Color disabled = Color(0xFF53677A);
+  static const Color transparent = Color(0x00000000);
+  static const Color primaryGlow = Color(0x2218C986);
+  static const Color black = Color(0xFF000000);
+  static final Color pieceShadow = black.withValues(alpha: .35);
+  static const Color monoText = Color(0xFFF4F2ED);
 
   // Backwards-compatible names used outside the Home-to-result slice.
   static const Color voidBg = background;

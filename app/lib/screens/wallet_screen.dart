@@ -141,8 +141,9 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
                                   separatorBuilder: (context, index) => const Divider(color: AppColors.hairline),
                                   itemBuilder: (context, index) {
                                     final tx = walletState.transactions[index];
-                                    final amt = (int.tryParse(tx.amountMinorUnits) ?? 0) / 100;
-                                    final isPositive = tx.type == 'DEPOSIT' || tx.type == 'PAYOUT';
+                                    final amt = tx.amountMinorUnits / 100;
+                                    final type = tx.kind.name.toUpperCase();
+                                    final isPositive = tx.isCredit;
                                     
                                     return ListTile(
                                       contentPadding: EdgeInsets.zero,
@@ -154,7 +155,7 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
                                           size: 16,
                                         ),
                                       ),
-                                      title: Text(tx.type, style: AppTypography.bodyMedium),
+                                      title: Text(type, style: AppTypography.bodyMedium),
                                       subtitle: Text(
                                         DateFormat.yMMMd().format(tx.createdAt),
                                         style: AppTypography.bodySmall,

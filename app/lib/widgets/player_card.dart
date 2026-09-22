@@ -99,7 +99,7 @@ class PlayerCard extends ConsumerWidget {
                           border: Border.all(
                             color: selected
                                 ? AppColors.brand
-                                : const Color(0x00000000),
+                                : AppColors.transparent,
                             width: 3,
                           ),
                         ),

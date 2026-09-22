@@ -158,7 +158,7 @@ class _CreateMatchScreenState extends ConsumerState<CreateMatchScreen> {
               ),
               const SizedBox(height: 10),
               Material(
-                color: Colors.transparent,
+                color: AppColors.transparent,
                 child: SwitchListTile.adaptive(
                   contentPadding: EdgeInsets.zero,
                   value: _privateRoom,
