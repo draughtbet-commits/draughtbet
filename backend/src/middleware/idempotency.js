@@ -12,12 +12,21 @@ import { parseIdempotencyKey } from '../modules/wallet/service.js';
 const RESULT_TTL_MS = 24 * 60 * 60 * 1000;
 const IN_PROGRESS_GRACE_MS = 60 * 1000;
 
-const claimKeyFor = (req) => {
+const claimKeyFor = (req, scope) => {
   const path = `${req.baseUrl || ''}${req.path || ''}`;
-  return { scope: `admin:${req.method}${path}`, key: `admin:${req.method}${path}:${req.get('idempotency-key')}` };
+  return { scope: `${scope}:${req.method}${path}`, key: `${scope}:${req.method}${path}:${req.get('idempotency-key')}` };
 };
 
-export const requireIdempotencyKey = async (req, res, next) => {
+/**
+ * Idempotency-Key gate. Client supplies an Idempotency-Key header (8-128 chars
+ * of [A-Za-z0-9._:-]); the first request runs the handler, its successful
+ * response is cached, and any retry with the same key is answered from the
+ * cache instead of re-running the operation. 4xx/5xx release the claim so a
+ * corrected retry works.
+ *
+ * `scope` namespaces the storage key per surface (admin vs user routes).
+ */
+export const requireIdempotencyKey = ({ scope = 'admin' } = {}) => async (req, res, next) => {
   if (req.method !== 'POST') return next();
 
   const raw = req.get('idempotency-key');
@@ -33,7 +42,7 @@ export const requireIdempotencyKey = async (req, res, next) => {
     });
   }
 
-  const { scope, key } = claimKeyFor(req);
+  const { scope: claimScope, key } = claimKeyFor(req, scope);
 
   try {
     const existing = await prisma.idempotencyRecord.findUnique({ where: { key } });
@@ -54,7 +63,7 @@ export const requireIdempotencyKey = async (req, res, next) => {
 
     try {
       await prisma.idempotencyRecord.create({
-        data: { key, scope, expiresAt: new Date(Date.now() + RESULT_TTL_MS) }
+        data: { key, scope: claimScope, expiresAt: new Date(Date.now() + RESULT_TTL_MS) }
       });
     } catch (error) {
       if (error?.code === 'P2002') {

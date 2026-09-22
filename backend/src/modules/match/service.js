@@ -37,6 +37,27 @@ export class InvalidTransitionError extends Error {
   }
 }
 
+export class MatchNotFoundError extends Error {
+  constructor(message = 'Match not found') {
+    super(message);
+    this.name = 'MatchNotFoundError';
+  }
+}
+
+export class NotParticipantError extends Error {
+  constructor(message = 'Not a participant of this match') {
+    super(message);
+    this.name = 'NotParticipantError';
+  }
+}
+
+export class MatchNotReadyError extends Error {
+  constructor(message = 'Match is not in a state that can be marked ready') {
+    super(message);
+    this.name = 'MatchNotReadyError';
+  }
+}
+
 /**
  * Allowed state transitions. The map below covers the structured lifecycle:
  * funding, ready, start, and abandonment before start. Settlement claims its
@@ -152,16 +173,47 @@ export async function hasPreterminalMatchForPlayers(client, playerIds) {
   return Boolean(row);
 }
 
+/**
+ * A participant marks the match ready (contract §7 POST /matches/{id}/ready).
+ * Only a match that is still pre-play can be readied: FUNDED advances to READY;
+ * an already-READY retry is an idempotent no-op. Anything else (already live,
+ * released, cancelled, expired) refuses. The explicit two-player ready gate and
+ * its timeout are coordinated with the socket layer in WS5.5 — this REST
+ * endpoint records the server-visible readiness state only.
+ */
+export async function markReady(client, matchId, userId) {
+  const match = await client.match.findUnique({
+    where: { id: matchId },
+    select: { id: true, status: true, playerLightId: true, playerDarkId: true }
+  });
+  if (!match) throw new MatchNotFoundError();
+  if (match.playerLightId !== userId && match.playerDarkId !== userId) {
+    throw new NotParticipantError();
+  }
+  if (match.status === 'READY') {
+    return { matchId, status: 'READY', ready: true };
+  }
+  if (match.status !== 'FUNDED') {
+    throw new MatchNotReadyError('Only a funded, not-yet-started match can be marked ready');
+  }
+  await transitionMatch(client, matchId, 'READY');
+  return { matchId, status: 'READY', ready: true };
+}
+
 export default {
   LIVE_STATUSES,
   RESERVED_STATUSES,
   PRETTERMINAL_STATUSES,
   ALLOWED_TRANSITIONS,
   InvalidTransitionError,
+  MatchNotFoundError,
+  NotParticipantError,
+  MatchNotReadyError,
   isLiveStatus,
   isPreterminalStatus,
   createMatch,
   transitionMatch,
   transitionMatchWhere,
-  hasPreterminalMatchForPlayers
+  hasPreterminalMatchForPlayers,
+  markReady
 };

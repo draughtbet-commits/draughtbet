@@ -42,8 +42,10 @@ jest.unstable_mockModule('../../modules/stake/service.js', () => ({
 }));
 
 const mockTransitionMatch = jest.fn();
+const mockIsLiveStatus = jest.fn(() => false);
 jest.unstable_mockModule('../../modules/match/service.js', () => ({
-  transitionMatch: mockTransitionMatch
+  transitionMatch: mockTransitionMatch,
+  isLiveStatus: mockIsLiveStatus
 }));
 
 const { lockWalletsInOrder } = await import('../matchService.js');

@@ -4,7 +4,10 @@ import {
   getWalletBalance, 
   getWalletTransactions, 
   createDepositIntent,
-  parseMinorUnits
+  findDepositIntentByClientKey,
+  getDepositIntent,
+  parseMinorUnits,
+  parseIdempotencyKey
 } from './service.js';
 import { PaystackGateway } from '../payment/PaystackGateway.js';
 import { FlutterwaveGateway } from '../payment/FlutterwaveGateway.js';
@@ -115,6 +118,27 @@ walletRouter.post('/deposit-intent', requireAuth, async (req, res, next) => {
       return res.status(400).json({ error: 'Invalid gateway specified' });
     }
 
+    // Client idempotency (decision §39): a replayed checkout returns the
+    // original intent — no second provider checkout is ever opened. The
+    // lookup runs BEFORE the eligibility gate so a replay that would now fail
+    // eligibility still resolves to the intent the client already has.
+    let clientKey;
+    try {
+      clientKey = parseIdempotencyKey(req.get('idempotency-key'));
+    } catch (keyErr) {
+      return res.status(400).json({ error: { code: 'INVALID_IDEMPOTENCY_KEY', message: keyErr.message } });
+    }
+    if (clientKey) {
+      const replay = await findDepositIntentByClientKey(userId, clientKey);
+      if (replay) {
+        return res.json({
+          authorizationUrl: replay.authorizationUrl,
+          reference: replay.reference,
+          replayed: true
+        });
+      }
+    }
+
     // 1. Eligibility + safer-play gates decide before the server owns an
     //    intent: account state, self-exclusion, and the rolling 24h deposit
     //    limit are enforced server-side across every device.
@@ -123,7 +147,23 @@ walletRouter.post('/deposit-intent', requireAuth, async (req, res, next) => {
     // 2. Persist the server-owned intent BEFORE any checkout is exposed. The
     //    webhook can then only be authorized against this record, and the
     //    amount/currency/wallet are never taken from the raw webhook body.
-    intent = await createDepositIntent(userId, amount, gatewayKey, email || 'user@example.com');
+    try {
+      intent = await createDepositIntent(userId, amount, gatewayKey, email || 'user@example.com', clientKey);
+    } catch (createErr) {
+      // A concurrent request with the same client key won the create — resolve
+      // the original intent instead of failing the retry.
+      if (createErr?.code === 'P2002' && clientKey) {
+        const existing = await findDepositIntentByClientKey(userId, clientKey);
+        if (existing) {
+          return res.json({
+            authorizationUrl: existing.authorizationUrl,
+            reference: existing.reference,
+            replayed: true
+          });
+        }
+      }
+      throw createErr;
+    }
 
     // 2. Initiate at the provider with OUR reference, so the webhook echoes it.
     const gatewayImpl = gatewayKey === 'PAYSTACK' ? paystackGateway : flutterwaveGateway;
@@ -294,6 +334,37 @@ walletRouter.delete('/bank-accounts/:id', requireAuth, async (req, res, next) =>
     if (error instanceof BankAccountNotFoundError) {
       return res.status(404).json({ error: error.message });
     }
+    next(error);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Contract §6: GET /deposits/{depositId} — single deposit state, owner only.
+// Mounted at /api/v1/deposits in app.js.
+// ---------------------------------------------------------------------------
+export const depositsRouter = express.Router();
+
+const depositPayload = (d) => ({
+  id: d.id,
+  gateway: d.gateway,
+  reference: d.reference,
+  amountMinorUnits: d.amountMinorUnits.toString(),
+  currency: d.currency,
+  status: d.status,
+  authorizationUrl: d.authorizationUrl ?? null,
+  appliedAt: d.appliedAt ?? null,
+  createdAt: d.createdAt,
+  updatedAt: d.updatedAt
+});
+
+depositsRouter.get('/:depositId', requireAuth, async (req, res, next) => {
+  try {
+    const intent = await getDepositIntent(req.user.id, req.params.depositId);
+    if (!intent) {
+      return res.status(404).json({ error: { code: 'DEPOSIT_NOT_FOUND', message: 'Deposit not found' } });
+    }
+    res.json({ deposit: depositPayload(intent) });
+  } catch (error) {
     next(error);
   }
 });

@@ -5,7 +5,7 @@ import logger from '../utils/logger.js';
 import { initializeGame } from '../sockets/gameManager.js';
 import { lockWalletsInOrder } from './matchService.js';
 import { releaseStakes } from '../modules/stake/service.js';
-import { transitionMatch } from '../modules/match/service.js';
+import { isLiveStatus, transitionMatch } from '../modules/match/service.js';
 
 // Lease length for an activation claim. All claims are short (an idempotent
 // Redis init + a boolean mark); a lease this long is only meant to outlive the
@@ -102,6 +102,78 @@ export const finalizeMatchActivation = async (outboxId) => {
  * finalized) and is guarded by the claim token + the unique
  * (relatedMatchId, REFUND, walletId) ledger index, so it can never refund twice.
  */
+export class MatchNotCancellableError extends Error {
+  constructor(message = 'Match cannot be cancelled') {
+    super(message);
+    this.name = 'MatchNotCancellableError';
+  }
+}
+
+/**
+ * Cancels a participant-requested pre-play match (decision §15). Before any
+ * stake is reserved (DRAFT/OPEN) the match goes straight to CANCELLED with no
+ * money touched. Once funded but before the game is live (FUNDED/READY) both
+ * stakes are released atomically and the match lands RELEASED; the outbox is
+ * frozen RELEASED so the activation sweep never starts a cancelled match. A
+ * live match (IN_PLAY/ACTIVE) can never be cancelled — resign, draw, timeout,
+ * forfeit, server result or a later dispute are the terminal paths.
+ */
+export const cancelPreplayMatch = async (matchId) => {
+  return await prisma.$transaction(async (tx) => {
+    const match = await tx.match.findUnique({
+      where: { id: matchId },
+      select: {
+        id: true,
+        status: true,
+        playerLightId: true,
+        playerDarkId: true,
+        stakeMinorUnits: true
+      }
+    });
+    if (!match) throw new MatchNotCancellableError('Match not found');
+    if (isLiveStatus(match.status)) {
+      throw new MatchNotCancellableError('Match is in play and cannot be cancelled');
+    }
+
+    if (match.status === 'DRAFT' || match.status === 'OPEN') {
+      await transitionMatch(tx, matchId, 'CANCELLED');
+      await tx.match.update({
+        where: { id: matchId },
+        data: { endReason: 'cancelled_pre_play', endedAt: new Date() }
+      });
+      return { matchId, status: 'CANCELLED', refunded: false };
+    }
+
+    if (match.status === 'FUNDED' || match.status === 'READY') {
+      const [w1, w2] = await lockWalletsInOrder(tx, match.playerLightId, match.playerDarkId);
+      await transitionMatch(tx, matchId, 'RELEASED');
+      const stakeAmount = BigInt(match.stakeMinorUnits);
+      await releaseStakes(tx, {
+        matchId,
+        participants: [
+          { userId: match.playerLightId },
+          { userId: match.playerDarkId }
+        ],
+        amountMinorUnits: stakeAmount,
+        wallets: [w1, w2]
+      });
+      await tx.match.update({
+        where: { id: matchId },
+        data: { endReason: 'cancelled_pre_play', endedAt: new Date() }
+      });
+      // Freeze the durable activation intent: the sweep's early PENDING/
+      // ACTIVATING claim path sees RELEASED and backs off for good.
+      await tx.gameOutbox.updateMany({
+        where: { matchId },
+        data: { status: 'RELEASED', claimToken: null, claimExpiresAt: null }
+      });
+      return { matchId, status: 'RELEASED', refunded: true };
+    }
+
+    throw new MatchNotCancellableError(`Match in state ${match.status} cannot be cancelled`);
+  });
+};
+
 export const releaseMatch = async (outboxId) => {
   const outbox = await takeOutboxClaim(outboxId);
   if (!outbox) return null;

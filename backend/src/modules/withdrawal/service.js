@@ -240,6 +240,19 @@ export class WithdrawalService {
     return { withdrawals: rows.map(toPayload), total };
   }
 
+  /**
+   * Single withdrawal for the requesting owner (contract §6 GET
+   * /withdrawals/{withdrawalId}). Returns null when the row does not belong to
+   * or exist for the user; the caller maps that to NOT_FOUND.
+   */
+  async getWithdrawal(userId, withdrawalId) {
+    const withdrawal = await prisma.withdrawal.findUnique({
+      where: { id: withdrawalId }
+    });
+    if (!withdrawal || withdrawal.userId !== userId) return null;
+    return withdrawal;
+  }
+
   // -------------------------------------------------------------------------
   // Bank accounts (payout destinations)
   // -------------------------------------------------------------------------

@@ -32,7 +32,7 @@ describe('EligibilityService', () => {
   let service;
 
   beforeEach(() => {
-    jest.clearAllMocks();
+    jest.resetAllMocks();
     service = new EligibilityService({ db: mockPrisma });
   });
 
@@ -137,5 +137,102 @@ describe('EligibilityService', () => {
     expect(EligibilityService.statusCode(new TimeoutActiveError())).toBe(403);
     expect(EligibilityService.statusCode(new StakeLimitExceededError())).toBe(422);
     expect(EligibilityService.statusCode(new Error('boom'))).toBe(500);
+  });
+
+  describe('explain (contract §4 /me/eligibility)', () => {
+    it('explains a passing WITHDRAW gate with its witnessed requirements', async () => {
+      mockPrisma.user.findUnique.mockResolvedValue(baseUser());
+      const report = await service.explain('user-1', { action: 'WITHDRAW' });
+      expect(report).toEqual({
+        allowed: true,
+        requirements: [
+          'eligibility:on_file',
+          'country:allowed',
+          'age:verified',
+          'account:active',
+          'safer_play:ok',
+          'kyc:verified'
+        ]
+      });
+    });
+
+    it('reports a KYC failure as not-allowed (never throws)', async () => {
+      mockPrisma.user.findUnique.mockResolvedValue(baseUser({ kycStatus: 'NONE' }));
+      const report = await service.explain('user-1', { action: 'WITHDRAW' });
+      expect(report).toMatchObject({ allowed: false, status: 403 });
+      expect(report.error.code).toBe('KycRequiredError');
+    });
+
+    it('does not KYC-gate a DEPOSIT', async () => {
+      mockPrisma.user.findUnique.mockResolvedValue(baseUser({ kycStatus: 'NONE' }));
+      mockPrisma.saferPlayProfile.findUnique.mockResolvedValue(profileWith());
+      const { enforceDepositLimit } = await import('../../saferPlay/service.js');
+      enforceDepositLimit.mockResolvedValue(undefined);
+      const report = await service.explain('user-1', { action: 'DEPOSIT', amountMinorUnits: '5000' });
+      expect(report).toMatchObject({ allowed: true });
+      expect(report.requirements).not.toContain('kyc:verified');
+    });
+
+    it('reports an active PLAY timeout', async () => {
+      mockPrisma.user.findUnique.mockResolvedValue(
+        baseUser({
+          kycStatus: 'NONE',
+          saferPlayProfile: profileWith({ timeoutUntil: new Date(Date.now() + 60 * 60 * 1000) })
+        })
+      );
+      const report = await service.explain('user-1', { action: 'PLAY', amountMinorUnits: '5000' });
+      expect(report).toMatchObject({ allowed: false, status: 403 });
+      expect(report.error.code).toBe('TimeoutActiveError');
+    });
+
+    it('reports a stake above the player stake limit', async () => {
+      mockPrisma.user.findUnique.mockResolvedValue(
+        baseUser({ saferPlayProfile: profileWith({ stakeLimitMinorUnits: 1000n }) })
+      );
+      const report = await service.explain('user-1', { action: 'PLAY', amountMinorUnits: '5000' });
+      expect(report).toMatchObject({ allowed: false, status: 422 });
+      expect(report.error.code).toBe('StakeLimitExceededError');
+    });
+
+    it('passes PLAY at or under the stake limit', async () => {
+      mockPrisma.user.findUnique.mockResolvedValue(
+        baseUser({ kycStatus: 'NONE', saferPlayProfile: profileWith({ stakeLimitMinorUnits: null }) })
+      );
+      const report = await service.explain('user-1', { action: 'JOIN', amountMinorUnits: '5000' });
+      expect(report).toMatchObject({ allowed: true });
+    });
+
+    it('surfaces the deposit-limit prohibition for a DEPOSIT', async () => {
+      mockPrisma.user.findUnique.mockResolvedValue(baseUser({ kycStatus: 'NONE' }));
+      const { enforceDepositLimit } = await import('../../saferPlay/service.js');
+      enforceDepositLimit.mockRejectedValue(
+        new DepositLimitExceededError('Deposit would exceed your daily limit')
+      );
+      const report = await service.explain('user-1', { action: 'DEPOSIT', amountMinorUnits: '5000' });
+      expect(report).toMatchObject({ allowed: false, status: 422 });
+      expect(report.error.code).toBe('DepositLimitExceededError');
+    });
+
+    it('reports a self-exclusion for any money action', async () => {
+      mockPrisma.user.findUnique.mockResolvedValue(
+        baseUser({ saferPlayProfile: profileWith({ selfExcludedUntil: new Date(Date.now() + 86_400_000) }) })
+      );
+      const report = await service.explain('user-1', { action: 'DEPOSIT' });
+      expect(report).toMatchObject({ allowed: false, status: 403 });
+      expect(report.error.code).toBe('SelfExcludedError');
+    });
+
+    it('reports when the account eligibility is not on file', async () => {
+      mockPrisma.user.findUnique.mockResolvedValue(baseUser({ eligibility: null }));
+      const report = await service.explain('user-1', { action: 'WITHDRAW' });
+      expect(report).toMatchObject({ allowed: false, status: 403 });
+      expect(report.error.code).toBe('EligibilityRequiredError');
+    });
+
+    it('rejects an unknown action', async () => {
+      const report = await service.explain('user-1', { action: 'POKER' });
+      expect(report).toMatchObject({ allowed: false, status: 400 });
+      expect(report.error.code).toBe('INVALID_ACTION');
+    });
   });
 });

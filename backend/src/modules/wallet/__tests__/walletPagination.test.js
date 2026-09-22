@@ -11,6 +11,8 @@ const mockService = {
   getWalletTransactions: jest.fn(async () => ({ transactions: [], total: 0, page: 1, totalPages: 0 })),
   getWalletBalance: jest.fn(async () => ({ balanceMinorUnits: '0' })),
   createDepositIntent: jest.fn(),
+  findDepositIntentByClientKey: jest.fn(),
+  getDepositIntent: jest.fn(),
   parseMinorUnits: jest.fn(),
   parseIdempotencyKey: jest.fn(),
 };

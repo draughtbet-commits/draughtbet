@@ -139,7 +139,7 @@ adminRouter.use(requireAdminMfa);
 // Every admin POST is idempotent: an Idempotency-Key header is required and
 // the first response is replayed for retries with the same key (contract §9).
 // MFA setup/verify/disable run above this gate so provisioning stays simple.
-adminRouter.use(requireIdempotencyKey);
+adminRouter.use(requireIdempotencyKey({ scope: 'admin' }));
 adminRouter.use('/audit', auditRouter);
 adminRouter.use(disputeAdminRouter);
 adminRouter.use(riskRouter);

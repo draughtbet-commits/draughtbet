@@ -24,7 +24,8 @@ jest.unstable_mockModule('../../../middleware/auth.js', () => ({
 
 const mockGameManager = {
   getGameState: jest.fn(),
-  reconstructMoveHistory: jest.fn()
+  reconstructMoveHistory: jest.fn(),
+  initializeGame: jest.fn()
 };
 jest.unstable_mockModule('../../../sockets/gameManager.js', () => mockGameManager);
 

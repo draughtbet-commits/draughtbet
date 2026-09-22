@@ -188,7 +188,7 @@ export const disputeUserRouter = express.Router();
 
 disputeUserRouter.use(requireAuth);
 
-disputeUserRouter.post('/:matchId/disputes', requireIdempotencyKey, async (req, res, next) => {
+disputeUserRouter.post('/:matchId/disputes', requireIdempotencyKey({ scope: 'user' }), async (req, res, next) => {
   try {
     const { category, message, evidence } = req.body ?? {};
     if (typeof message !== 'string' || message.trim() === '') {

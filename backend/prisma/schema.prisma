@@ -119,11 +119,16 @@ model DepositIntent {
   currency          Currency             @default(NGN)
   status            DepositIntentStatus  @default(PENDING)
   authorizationUrl  String?
+  // Client-supplied operation key on deposit create: a replayed checkout with
+  // the same Idempotency-Key returns the original intent — never a second
+  // provider checkout. NULL for intents created without a key (allowed).
+  clientIdempotencyKey String?
   appliedAt         DateTime?            // set when the matched webhook credits the wallet
   createdAt         DateTime             @default(now())
   updatedAt         DateTime             @updatedAt
 
   @@index([userId, status])
+  @@unique([userId, clientIdempotencyKey])
 }
 
 enum DepositIntentStatus {

@@ -54,8 +54,12 @@ export const parseDecimalMajorToMinor = (raw) => {
  * exposed. The provider is then handed OUR reference (custom reference /
  * tx_ref), so every later webhook can be verified against this record and
  * credit is derived from it — never from the raw webhook body.
+ *
+ * A client `clientIdempotencyKey` (from the Idempotency-Key header) is stored
+ * on the intent so a replayed checkout resolves to this same row — the replay
+ * lookup lives in the controller BEFORE the provider is ever contacted.
  */
-export const createDepositIntent = async (userId, amountMinorUnits, gateway, email) => {
+export const createDepositIntent = async (userId, amountMinorUnits, gateway, email, clientIdempotencyKey) => {
   const amount = parseMinorUnits(amountMinorUnits);
   if (amount === null) {
     const error = new Error('Invalid amount');
@@ -90,10 +94,34 @@ export const createDepositIntent = async (userId, amountMinorUnits, gateway, ema
         gateway,
         reference,
         amountMinorUnits: amount,
-        currency: wallet.currency
+        currency: wallet.currency,
+        ...(clientIdempotencyKey !== undefined && clientIdempotencyKey !== null
+          ? { clientIdempotencyKey }
+          : {})
       }
     });
   });
+};
+
+/**
+ * Replay lookup for a deposit create carrying a client Idempotency-Key. Returns
+ * the original intent when the key was used before, null otherwise.
+ */
+export const findDepositIntentByClientKey = async (userId, clientIdempotencyKey) => {
+  if (clientIdempotencyKey === undefined || clientIdempotencyKey === null) return null;
+  return await prisma.depositIntent.findUnique({
+    where: { userId_clientIdempotencyKey: { userId, clientIdempotencyKey } }
+  });
+};
+
+/**
+ * Single deposit intent for the requesting owner. Returns null when the intent
+ * does not exist; the caller enforces ownership.
+ */
+export const getDepositIntent = async (userId, depositId) => {
+  const intent = await prisma.depositIntent.findUnique({ where: { id: depositId } });
+  if (!intent || intent.userId !== userId) return null;
+  return intent;
 };
 
 /**
