@@ -96,7 +96,7 @@ describe('Deposit Webhook Processing (stored-intent verified)', () => {
     // reference, and balances to zero (liability -50000 / available +50000).
     expect(mockPrisma.ledgerTransaction.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
-        type: 'DEPOSIT_CREDIT',
+        type: 'DEPOSIT_CONFIRMED',
         idempotencyKey: 'deposit:credit:paystack-ref-123'
       })
     });

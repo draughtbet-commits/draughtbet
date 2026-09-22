@@ -65,7 +65,7 @@ describeIntegration('Financial reconciliation (real PostgreSQL)', () => {
     const liability = await ensureLiability();
     const tx = await prisma.ledgerTransaction.create({
       data: {
-        type: 'DEPOSIT_CREDIT',
+        type: 'DEPOSIT_CONFIRMED',
         idempotencyKey: `deposit:credit:finrec-${crypto.randomUUID()}`,
         entries: {
           create: [
@@ -123,7 +123,7 @@ describeIntegration('Financial reconciliation (real PostgreSQL)', () => {
     cleanups.push(() => prisma.withdrawal.deleteMany({ where: { id: withdrawal.id } }));
     const bogus = await prisma.ledgerTransaction.create({
       data: {
-        type: 'WITHDRAWAL_COMPLETE',
+        type: 'WITHDRAWAL_CONFIRMED',
         idempotencyKey: `withdrawal:complete:${withdrawal.id}`,
         entries: {
           create: [

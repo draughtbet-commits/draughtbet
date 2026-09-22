@@ -55,6 +55,12 @@ model User {
   connectionEvents        MatchConnectionEvent[]
   withdrawals             Withdrawal[]
   adminMfa                AdminMfa?
+  kycDocuments            KycDocument[]
+  saferPlayDailyUsage     SaferPlayDailyUsage[]
+  pushTokens              DevicePushToken[]
+  playerStats             PlayerStats?
+  ratingEvents            RatingEvent[]
+  supportCases            SupportCase[]
 }
 
 enum Tier {
@@ -195,6 +201,17 @@ model Match {
   cancelledAt                   DateTime?
   confirmedAt                   DateTime?
   startedAt                     DateTime?
+
+  // Versioned-config lookups (additive — NULL for rows funded before these
+  // reference tables existed; the Int snapshot columns above stay authoritative
+  // for settlement/timing derivation). `rulesetDef` is the relation name because
+  // `rulesetVersion` is already the legacy Int snapshot scalar.
+  rulesetDefId      String?
+  configVersionId   String?
+  rulesetDef        RulesetVersion?        @relation(fields: [rulesetDefId], references: [id], onDelete: Restrict)
+  configVersion     PlatformConfigVersion? @relation(fields: [configVersionId], references: [id], onDelete: Restrict)
+  ratingEvents      RatingEvent[]
+  supportCases      SupportCase[]
 }
 enum MatchStatus {
   PENDING
@@ -263,6 +280,8 @@ model DeviceFingerprint {
   fingerprintHash String
   firstSeen       DateTime @default(now())
   lastSeen        DateTime @default(now())
+
+  pushTokens DevicePushToken[]
 }
 
 enum AdminAuditOutcome {
@@ -489,6 +508,7 @@ model VerificationCase {
   updatedAt   DateTime               @updatedAt
 
   checks      VerificationCheck[]
+  documents   KycDocument[]
 
   @@index([userId, status])
 }
@@ -595,6 +615,9 @@ model LedgerAccount {
 }
 
 enum LedgerEntryType {
+  // Legacy internal names — retained additively so pre-remap rows stay valid.
+  // New postings use the contract names below; the data migration in
+  // `_ws6_ledger_type_remap` rewrites existing rows to the contract values.
   DEPOSIT_CREDIT
   STAKE_LOCK
   STAKE_RELEASE
@@ -603,6 +626,24 @@ enum LedgerEntryType {
   WITHDRAWAL_COMPLETE
   WITHDRAWAL_RELEASE
   ADJUSTMENT
+
+  // Contract names authoritative (decisions §10).
+  DEPOSIT_PENDING
+  DEPOSIT_CONFIRMED
+  DEPOSIT_FAILED
+  DEPOSIT_REVERSED
+  STAKE_RESERVED
+  STAKE_RELEASED
+  MATCH_SETTLED_WIN
+  MATCH_SETTLED_LOSS
+  MATCH_SETTLED_DRAW
+  WITHDRAWAL_PENDING
+  WITHDRAWAL_CONFIRMED
+  WITHDRAWAL_FAILED
+  WITHDRAWAL_REVERSED
+  WITHDRAWAL_RELEASED
+  ADJUSTMENT_CREDIT
+  ADJUSTMENT_DEBIT
 }
 
 model LedgerTransaction {
@@ -704,6 +745,8 @@ model FinancialReconciliationRun {
   discrepancies   Json?               // list of detected mismatches
   checkedAt       DateTime?
   createdAt       DateTime            @default(now())
+
+  issues ReconciliationIssue[]
 }
 
 // ---------------------------------------------------------------------------
@@ -770,6 +813,9 @@ model MatchSettlement {
 
 model MatchReceipt {
   id                String   @id @default(uuid())
+  // Server-generated, immutable reference served on the receipt endpoint (4.3).
+  // Generated at settlement; backfilled for pre-existing rows by migration.
+  reference         String   @unique
   matchId           String
   match             Match    @relation(fields: [matchId], references: [id], onDelete: Cascade)
   userId            String
@@ -959,6 +1005,8 @@ model DisputeCase {
 
   evidence            DisputeEvidence[]
   resultCorrections   MatchResultCorrection[]
+  supportCaseId       String?   @unique // linked support intake case, if the dispute came through support
+  supportCase         SupportCase? @relation(fields: [supportCaseId], references: [id], onDelete: SetNull)
 
   @@index([matchId])
   @@index([status])
@@ -1065,4 +1113,223 @@ model AdminMfa {
   createdAt      DateTime  @default(now())
 
   @@index([enabledAt])
+}
+
+// ---------------------------------------------------------------------------
+// Contract data tables — baseline-missing schema alignment. Additive only.
+// ---------------------------------------------------------------------------
+
+model KycDocument {
+  id                 String             @id @default(uuid())
+  userId             String
+  user               User               @relation(fields: [userId], references: [id], onDelete: Restrict)
+  verificationCaseId String
+  verificationCase   VerificationCase   @relation(fields: [verificationCaseId], references: [id], onDelete: Restrict)
+  documentType       String             // e.g. "national_id", "passport", "proof_of_address"
+  objectKey          String             @unique // private storage reference; provider-hosted preferred
+  mimeType           String
+  sizeBytes          BigInt
+  sha256             String
+  uploadedAt         DateTime           @default(now())
+  deletedAt          DateTime?
+
+  @@index([verificationCaseId, documentType])
+}
+
+model SaferPlayDailyUsage {
+  id                           String   @id @default(uuid())
+  userId                       String
+  user                         User     @relation(fields: [userId], references: [id], onDelete: Restrict)
+  usageDate                    DateTime @db.Date
+  currency                     Currency @default(NGN)
+  depositCommittedMinorUnits   BigInt   @default(0)
+  stakeCommittedMinorUnits     BigInt   @default(0)
+  updatedAt                    DateTime @updatedAt
+  createdAt                    DateTime @default(now())
+
+  @@unique([userId, usageDate, currency])
+  @@index([usageDate])
+}
+
+enum WebhookProcessingStatus {
+  RECEIVED
+  PROCESSED
+  IGNORED_DUPLICATE
+  REJECTED
+  FAILED
+}
+
+model PaymentWebhookEvent {
+  id                String                  @id @default(uuid())
+  provider          Gateway
+  dedupeKey         String                  @unique // forensic dedupe evidence: provider + event id + payload hash
+  providerEventId   String?
+  providerReference String?
+  eventType         String?
+  signatureValid    Boolean
+  payloadHash       String
+  processingStatus  WebhookProcessingStatus @default(RECEIVED)
+  metadata          Json?
+  receivedAt        DateTime                @default(now())
+  processedAt       DateTime?
+  errorCode         String?
+
+  @@index([provider, providerReference])
+  @@index([processingStatus, receivedAt])
+}
+
+model RulesetVersion {
+  id            String   @id @db.VarChar(80) // e.g. "draughts-x1-w" — fixed, human-readable id
+  displayName   String   @db.VarChar(120)
+  engineVersion String   @db.VarChar(64)
+  config        Json // frozen competing-rules parameters yielded by that engine build
+  active        Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  retiredAt     DateTime?
+
+  matches Match[]
+}
+
+model PlatformConfigVersion {
+  id              String   @id @default(uuid())
+  version         String   @unique
+  values          Json // snapshot of fees/stake-limits/time-controls/disconnect-grace etc.
+  checksum        String
+  createdByUserId String?
+  activeFrom      DateTime @default(now())
+  activeTo        DateTime?
+  createdAt       DateTime @default(now())
+
+  matches Match[]
+
+  @@index([activeFrom, activeTo])
+}
+
+model DevicePushToken {
+  id              String             @id @default(uuid())
+  userId          String
+  user            User               @relation(fields: [userId], references: [id], onDelete: Restrict)
+  deviceId        String?
+  device          DeviceFingerprint? @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+  tokenHash       String             @unique
+  tokenCiphertext String
+  platform        String
+  active          Boolean            @default(true)
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+  revokedAt       DateTime?
+
+  @@index([userId, active])
+}
+
+model PlayerStats {
+  id            String   @id @default(uuid())
+  userId        String   @unique
+  user          User     @relation(fields: [userId], references: [id], onDelete: Restrict)
+  rating        Int      @default(1200)
+  wins          Int      @default(0)
+  losses        Int      @default(0)
+  draws         Int      @default(0)
+  totalMatches  Int      @default(0)
+  currentStreak Int      @default(0)
+  updatedAt     DateTime @updatedAt
+  createdAt     DateTime @default(now())
+
+  @@index([rating])
+}
+
+model RatingEvent {
+  id           String   @id @default(uuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Restrict)
+  matchId      String
+  match        Match    @relation(fields: [matchId], references: [id], onDelete: Restrict)
+  ratingBefore Int
+  ratingAfter  Int
+  delta        Int
+  createdAt    DateTime @default(now())
+
+  @@unique([userId, matchId])
+  @@index([matchId])
+}
+
+enum SupportCaseType {
+  GENERAL
+  PAYMENT
+  WITHDRAWAL
+  KYC
+  MATCH
+  ACCOUNT
+  SAFER_PLAY
+}
+
+enum SupportCaseStatus {
+  OPEN
+  IN_PROGRESS
+  WAITING_USER
+  RESOLVED
+  CLOSED
+}
+
+model SupportCase {
+  id                  String            @id @default(uuid())
+  userId              String
+  user                User              @relation(fields: [userId], references: [id], onDelete: Restrict)
+  relatedMatchId      String?
+  relatedMatch        Match?            @relation(fields: [relatedMatchId], references: [id], onDelete: Restrict)
+  type                SupportCaseType
+  status              SupportCaseStatus @default(OPEN)
+  subject             String
+  description         String?
+  assignedAdminUserId String?
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+  closedAt            DateTime?
+
+  events  SupportCaseEvent[]
+  dispute DisputeCase?
+
+  @@index([userId, status, createdAt])
+  @@index([relatedMatchId])
+}
+
+model SupportCaseEvent {
+  id            String      @id @default(uuid())
+  supportCaseId String
+  supportCase   SupportCase @relation(fields: [supportCaseId], references: [id], onDelete: Restrict)
+  actorUserId   String?
+  eventType     String
+  message       String?
+  metadata      Json?
+  createdAt     DateTime    @default(now())
+
+  @@index([supportCaseId, createdAt])
+}
+
+enum ReconciliationIssueType {
+  LEDGER_UNBALANCED
+  WALLET_PROJECTION_MISMATCH
+  MATCH_SETTLEMENT_MISMATCH
+  DEPOSIT_PROVIDER_MISMATCH
+  WITHDRAWAL_PROVIDER_MISMATCH
+  OTHER
+}
+
+model ReconciliationIssue {
+  id         String                      @id @default(uuid())
+  runId      String
+  run        FinancialReconciliationRun  @relation(fields: [runId], references: [id], onDelete: Restrict)
+  type       ReconciliationIssueType
+  severity   RiskSeverity
+  entityType String?
+  entityId   String?
+  expected   String?
+  actual     String?
+  details    Json?
+  createdAt  DateTime                    @default(now())
+  resolvedAt DateTime?
+  resolution String?
+
+  @@index([runId, type])
+  @@index([resolvedAt, severity])
 }

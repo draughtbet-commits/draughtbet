@@ -120,7 +120,7 @@ describeIntegration('Deposit intents (real PostgreSQL)', () => {
     expect(stored.status).toBe('COMPLETED');
     expect(stored.appliedAt).not.toBeNull();
 
-    // The deposit posts a balanced DEPOSIT_CREDIT in the same transaction —
+    // The deposit posts a balanced DEPOSIT_CONFIRMED in the same transaction —
     // PLAYER_AVAILABLE +amount, CUSTOMER_LIABILITY -amount.
     expect(await ledgerCreditCount(intent.reference)).toBe(1);
     const ledgerBal = await availableBalance();

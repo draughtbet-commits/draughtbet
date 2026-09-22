@@ -38,6 +38,9 @@ export const SYSTEM_ACCOUNT_TYPES = Object.freeze([
 
 export const SYSTEM_ACCOUNT_ID = (type, currency) => `system:${type}:${currency}`;
 
+// Valid postable types: legacy internal names (retained additively for
+// pre-remap rows and tests) plus the contract names (decisions §10) that all
+// NEW postings must use.
 const LEDGER_ENTRY_TYPES = new Set([
   'DEPOSIT_CREDIT',
   'STAKE_LOCK',
@@ -46,7 +49,23 @@ const LEDGER_ENTRY_TYPES = new Set([
   'WITHDRAWAL_RESERVE',
   'WITHDRAWAL_COMPLETE',
   'WITHDRAWAL_RELEASE',
-  'ADJUSTMENT'
+  'ADJUSTMENT',
+  'DEPOSIT_PENDING',
+  'DEPOSIT_CONFIRMED',
+  'DEPOSIT_FAILED',
+  'DEPOSIT_REVERSED',
+  'STAKE_RESERVED',
+  'STAKE_RELEASED',
+  'MATCH_SETTLED_WIN',
+  'MATCH_SETTLED_LOSS',
+  'MATCH_SETTLED_DRAW',
+  'WITHDRAWAL_PENDING',
+  'WITHDRAWAL_CONFIRMED',
+  'WITHDRAWAL_FAILED',
+  'WITHDRAWAL_REVERSED',
+  'WITHDRAWAL_RELEASED',
+  'ADJUSTMENT_CREDIT',
+  'ADJUSTMENT_DEBIT'
 ]);
 
 export class InvalidAmountError extends Error {
@@ -238,7 +257,7 @@ export async function postStakeReservation(tx, matchId, reservations) {
     );
   }
   return postLedgerTransaction(tx, {
-    type: 'STAKE_LOCK',
+    type: 'STAKE_RESERVED',
     description: `Stakes locked for match ${matchId}`,
     idempotencyKey: `stake-lock:${matchId}`,
     relatedMatchId: matchId,
@@ -264,7 +283,7 @@ export async function postStakeRelease(tx, matchId, reservations) {
     );
   }
   return postLedgerTransaction(tx, {
-    type: 'STAKE_RELEASE',
+    type: 'STAKE_RELEASED',
     description: `Stakes released for match ${matchId}`,
     idempotencyKey: `stake-release:${matchId}`,
     relatedMatchId: matchId,
@@ -302,7 +321,7 @@ export async function postSettlementWin(
   entries.push({ accountId: revenue.id, amountMinorUnits: commissionMinorUnits });
 
   return postLedgerTransaction(tx, {
-    type: 'SETTLEMENT_PAYOUT',
+    type: 'MATCH_SETTLED_WIN',
     description: `Match ${matchId} settled: winner payout + platform commission`,
     idempotencyKey: `MATCH_SETTLEMENT:${matchId}`,
     relatedMatchId: matchId,
@@ -328,7 +347,7 @@ export async function postSettlementDraw(tx, matchId, { reservations }) {
     );
   }
   return postLedgerTransaction(tx, {
-    type: 'SETTLEMENT_PAYOUT',
+    type: 'MATCH_SETTLED_DRAW',
     description: `Match ${matchId} settled: stakes returned on draw`,
     idempotencyKey: `MATCH_SETTLEMENT:${matchId}`,
     relatedMatchId: matchId,
@@ -355,7 +374,7 @@ export async function postDepositCredit(
   const accounts = await ensureUserAccounts(tx, userId, currency);
   const liability = await ensureSystemAccount(tx, 'CUSTOMER_LIABILITY', currency);
   return postLedgerTransaction(tx, {
-    type: 'DEPOSIT_CREDIT',
+    type: 'DEPOSIT_CONFIRMED',
     description: `Deposit ${reference} credited to player`,
     idempotencyKey: `deposit:credit:${reference}`,
     metadata: { depositIntentId, reference },
@@ -381,7 +400,7 @@ export async function postWithdrawalReserve(
   const amount = assertAmount(amountMinorUnits);
   const accounts = await ensureUserAccounts(tx, userId, currency);
   return postLedgerTransaction(tx, {
-    type: 'WITHDRAWAL_RESERVE',
+    type: 'WITHDRAWAL_PENDING',
     description: `Withdrawal ${withdrawalId} funds reserved for payout`,
     idempotencyKey: `withdrawal:reserve:${withdrawalId}`,
     metadata: { withdrawalId },
@@ -408,7 +427,7 @@ export async function postWithdrawalComplete(
   const accounts = await ensureUserAccounts(tx, userId, currency);
   const liability = await ensureSystemAccount(tx, 'CUSTOMER_LIABILITY', currency);
   return postLedgerTransaction(tx, {
-    type: 'WITHDRAWAL_COMPLETE',
+    type: 'WITHDRAWAL_CONFIRMED',
     description: `Withdrawal ${withdrawalId} paid out and left the platform`,
     idempotencyKey: `withdrawal:complete:${withdrawalId}`,
     metadata: { withdrawalId },
@@ -435,7 +454,7 @@ export async function postWithdrawalRelease(
   const amount = assertAmount(amountMinorUnits);
   const accounts = await ensureUserAccounts(tx, userId, currency);
   return postLedgerTransaction(tx, {
-    type: 'WITHDRAWAL_RELEASE',
+    type: 'WITHDRAWAL_RELEASED',
     description: `Withdrawal ${withdrawalId} released back to player`,
     idempotencyKey: `withdrawal:release:${withdrawalId}`,
     metadata: { withdrawalId },
@@ -493,7 +512,7 @@ export async function postAdjustment(
         ];
 
   return postLedgerTransaction(tx, {
-    type: 'ADJUSTMENT',
+    type: direction === 'CREDIT' ? 'ADJUSTMENT_CREDIT' : 'ADJUSTMENT_DEBIT',
     description: `Admin ${direction.toLowerCase()} adjustment for ${userId}: ${reason ?? reference}`,
     idempotencyKey: `adjustment:${reference}`,
     metadata: { userId, direction, reason, actorId, reference },
@@ -535,19 +554,38 @@ export async function getLedgerAvailable(client, userId, currency = 'NGN') {
 // the legacy WalletTransaction payload shape the Flutter app renders. Only the
 // PLAYER_AVAILABLE leg of a posting is user-facing — locked/pending/internal
 // legs never appear in the wallet feed (they never had mirror rows either).
+// Both legacy members and their contract replacements are listed so the feed
+// stays correct for pre- and post-remap rows.
 const TX_TYPE = {
   DEPOSIT_CREDIT: { type: 'DEPOSIT', status: 'COMPLETED' },
+  DEPOSIT_CONFIRMED: { type: 'DEPOSIT', status: 'COMPLETED' },
   STAKE_LOCK: { type: 'STAKE', status: 'COMPLETED' },
+  STAKE_RESERVED: { type: 'STAKE', status: 'COMPLETED' },
   STAKE_RELEASE: { type: 'REFUND', status: 'COMPLETED' },
+  STAKE_RELEASED: { type: 'REFUND', status: 'COMPLETED' },
   WITHDRAWAL_RESERVE: { type: 'WITHDRAWAL', status: 'PENDING' },
-  WITHDRAWAL_RELEASE: { type: 'REFUND', status: 'COMPLETED' }
+  WITHDRAWAL_PENDING: { type: 'WITHDRAWAL', status: 'PENDING' },
+  WITHDRAWAL_RELEASE: { type: 'REFUND', status: 'COMPLETED' },
+  WITHDRAWAL_RELEASED: { type: 'REFUND', status: 'COMPLETED' }
 };
 
-const LEGACY_EXCLUDED_LEDGER_TYPES = new Set(['ADJUSTMENT', 'WITHDRAWAL_COMPLETE']);
+// Internal-only types that never produce a user-facing feed row: opening
+// backfills and adjustment bookkeeping have no PLAYER_AVAILABLE leg that maps
+// to a legacy mirror row, and payout-final moves money between internal
+// accounts only. Legacy + contract members both listed for pre/post-remap rows.
+const LEGACY_EXCLUDED_LEDGER_TYPES = new Set([
+  'ADJUSTMENT',
+  'ADJUSTMENT_CREDIT',
+  'ADJUSTMENT_DEBIT',
+  'WITHDRAWAL_COMPLETE',
+  'WITHDRAWAL_CONFIRMED'
+]);
 
 function toWalletTransactionPayload(entry) {
   if (LEGACY_EXCLUDED_LEDGER_TYPES.has(entry.transaction.type)) return null;
-  if (entry.transaction.type === 'SETTLEMENT_PAYOUT') {
+  if (entry.transaction.type === 'SETTLEMENT_PAYOUT'
+    || entry.transaction.type === 'MATCH_SETTLED_WIN'
+    || entry.transaction.type === 'MATCH_SETTLED_DRAW') {
     // A decided match credits only the winner's available (PAYOUT); a draw
     // credits both players' available (REFUND). The winnerId in metadata
     // distinguishes them — same as the old mirror's PAYOUT vs REFUND rows.

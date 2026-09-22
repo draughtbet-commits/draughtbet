@@ -265,7 +265,7 @@ describe('ledgerService postAdjustment', () => {
 
     expect(mockPrisma.ledgerTransaction.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
-        type: 'ADJUSTMENT',
+        type: 'ADJUSTMENT_CREDIT',
         idempotencyKey: 'adjustment:adj-ref-1',
         metadata: expect.objectContaining({
           userId: 'user-1',
@@ -296,6 +296,9 @@ describe('ledgerService postAdjustment', () => {
 
     await postAdjustment(tx, { ...base, direction: 'DEBIT' });
 
+    expect(mockPrisma.ledgerTransaction.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ type: 'ADJUSTMENT_DEBIT' }) })
+    );
     const entries = mockPrisma.ledgerEntry.create.mock.calls.map((c) => c[0].data);
     expect(entries[0]).toEqual({
       transactionId: 'lt-adj',

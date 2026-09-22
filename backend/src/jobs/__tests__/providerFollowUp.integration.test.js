@@ -140,7 +140,7 @@ const fakeProvider = (verifyStatus) => ({
     const [row] = await prisma.withdrawal.findMany({ where: { id } });
     expect(row.status).toBe('COMPLETED');
 
-    // WITHDRAWAL_COMPLETE posting: pending funds moved to liability
+    // WITHDRAWAL_CONFIRMED posting: pending funds moved to liability
     const complete = await prisma.ledgerTransaction.findUnique({
       where: { idempotencyKey: `withdrawal:complete:${id}` }
     });

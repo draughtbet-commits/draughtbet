@@ -43,7 +43,7 @@ export async function reserveStake(tx, { matchId, userId, amountMinorUnits }) {
  * Reserves BOTH player stakes for a funded match inside the caller's
  * transaction:
  *   1. StakeReservation rows (RESERVED) for each player
- *   2. V2 ledger STAKE_LOCK posting (balanced, idempotent per match)
+ *   2. V2 ledger STAKE_RESERVED posting (balanced, idempotent per match)
  *
  * `participants` is [{ userId, currency }] for the two players (light/dark),
  * `wallets` are the pre-locked Wallet rows used to serialize matching funds;
@@ -88,7 +88,7 @@ export async function reserveBothStakes(
  * Releases BOTH player stakes when a match is abandoned before it ever becomes
  * playable (activation failure / allowed cancellation). Reverses the reserve:
  *   1. StakeReservation rows RESERVED -> RELEASED
- *   2. V2 ledger STAKE_RELEASE posting
+ *   2. V2 ledger STAKE_RELEASED posting
  *
  * Idempotent: the claim token + the ledger's unique stake-release key, and the
  * RESERVED-only guard on the reservation rows, prevent a double release.

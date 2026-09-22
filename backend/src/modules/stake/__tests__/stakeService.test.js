@@ -62,7 +62,7 @@ describe('stake/service reserveBothStakes', () => {
     jest.clearAllMocks();
   });
 
-  it('reserves rows and posts STAKE_LOCK to the ledger', async () => {
+  it('reserves rows and posts the stake reservation to the ledger', async () => {
     const tx = makeTx();
     tx.stakeReservation.findUnique.mockResolvedValue(null);
     tx.stakeReservation.create.mockImplementation(async ({ data }) => ({ id: `sr:${data.userId}`, ...data }));
@@ -96,7 +96,7 @@ describe('stake/service reserveBothStakes', () => {
 });
 
 describe('stake/service releaseStakes', () => {
-  it('releases only RESERVED rows and posts STAKE_RELEASE to the ledger', async () => {
+  it('releases only RESERVED rows and posts the stake release to the ledger', async () => {
     const tx = makeTx();
     tx.stakeReservation.updateMany.mockResolvedValue({ count: 2 });
 

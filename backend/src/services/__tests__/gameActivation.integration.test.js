@@ -134,7 +134,7 @@ describeIntegration('Durable game activation (real PostgreSQL + Redis)', () => {
     expect(await redis.get(`user:${p2.id}:activeMatch`)).toBe(match.id);
     expect(await balance(p1.id)).toBe(9000000n);
     expect(await balance(p2.id)).toBe(9000000n);
-    // ONE balanced STAKE_LOCK posting for the pair; activation never re-debits.
+    // ONE balanced stake-reservation posting for the pair; activation never re-debits.
     expect(await ledgerCount(match.id)).toBe(1);
 
     const state = await redis.hgetall(`match:${match.id}`);
@@ -219,7 +219,7 @@ describeIntegration('Durable game activation (real PostgreSQL + Redis)', () => {
     // Both stakes credited back; the funding posting is untouched
     expect(await balance(p1.id)).toBe(10000000n);
     expect(await balance(p2.id)).toBe(10000000n);
-    expect(await ledgerCount(match.id)).toBe(2); // STAKE_LOCK + one STAKE_RELEASE
+    expect(await ledgerCount(match.id)).toBe(2); // STAKE_RESERVED + one STAKE_RELEASED
 
     // A second sweep cannot refund again
     await processGameActivationSweep();

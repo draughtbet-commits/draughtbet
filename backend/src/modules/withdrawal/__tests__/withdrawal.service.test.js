@@ -146,7 +146,7 @@ describe('WithdrawalService — request/reserve path', () => {
     });
     // ledger reserve posted with a per-withdrawal idempotency key
     expect(mockPrisma.ledgerTransaction.create).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ type: 'WITHDRAWAL_RESERVE', idempotencyKey: expect.stringMatching(/^withdrawal:reserve:/) }) })
+      expect.objectContaining({ data: expect.objectContaining({ type: 'WITHDRAWAL_PENDING', idempotencyKey: expect.stringMatching(/^withdrawal:reserve:/) }) })
     );
     expect(mockPrisma.outboxEvent.create).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ eventType: 'wallet.updated' }) })
@@ -294,7 +294,7 @@ describe('WithdrawalService — provider-gated payout transitions', () => {
     });
     // WITHDRAWAL_COMPLETE ledger posting with per-withdrawal idempotency key.
     expect(mockPrisma.ledgerTransaction.create).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ type: 'WITHDRAWAL_COMPLETE', idempotencyKey: expect.stringMatching(/^withdrawal:complete:/) }) })
+      expect.objectContaining({ data: expect.objectContaining({ type: 'WITHDRAWAL_CONFIRMED', idempotencyKey: expect.stringMatching(/^withdrawal:complete:/) }) })
     );
     expect(mockPrisma.notification.create).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ type: 'WITHDRAWAL_CONFIRMED' }) })

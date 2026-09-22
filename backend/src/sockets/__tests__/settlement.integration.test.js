@@ -32,10 +32,10 @@ describeIntegration('Settlement gate (real PostgreSQL)', () => {
       const accounts = await ensureUserAccounts(tx, wallet.userId, wallet.currency ?? 'NGN');
       const clearing = await ensureSystemAccount(tx, 'SYSTEM_OPENING_CLEARING', wallet.currency ?? 'NGN');
       await postLedgerTransaction(tx, {
-        type: 'ADJUSTMENT',
+        type: 'ADJUSTMENT_CREDIT',
         description: 'Opening balance carried over from legacy wallet',
         idempotencyKey: `opening-balance:${wallet.id}`,
-        metadata: { walletId: wallet.id, source: 'legacy-wallet-backfill' },
+        metadata: { walletId: wallet.id, source: 'legacy-wallet-backfill', direction: 'CREDIT' },
         entries: [
           { accountId: clearing.id, amountMinorUnits: -amountMinorUnits },
           { accountId: accounts.PLAYER_AVAILABLE.id, amountMinorUnits: amountMinorUnits }
@@ -141,7 +141,7 @@ describeIntegration('Settlement gate (real PostgreSQL)', () => {
     await prisma.$disconnect();
   });
 
-  it('funding debits both players, snapshots the fee, and posts a balanced STAKE_LOCK', async () => {
+  it('funding debits both players, snapshots the fee, and posts a balanced stake reservation', async () => {
     const m = await fundMatch();
 
     expect(m.settlementCommissionPercent).toBe(10);
@@ -151,7 +151,7 @@ describeIntegration('Settlement gate (real PostgreSQL)', () => {
       expect(await available(userId)).toBe(50000n);
     }
 
-    const stakeTx = await basketTx(m.id, 'STAKE_LOCK');
+    const stakeTx = await basketTx(m.id, 'STAKE_RESERVED');
     expect(stakeTx).toHaveLength(1);
     expect(stakeTx[0].entries.reduce((acc, e) => acc + e.amountMinorUnits, 0n)).toBe(0n);
   });
@@ -170,7 +170,7 @@ describeIntegration('Settlement gate (real PostgreSQL)', () => {
     const winnerId = match.winnerId;
     const loserId = winnerId === u1.id ? u2.id : u1.id;
 
-    const payoutTxs = await basketTx(m.id, 'SETTLEMENT_PAYOUT');
+    const payoutTxs = await basketTx(m.id, 'MATCH_SETTLED_WIN');
     expect(payoutTxs).toHaveLength(1);
 
     // Exactly one terminal result record survives the race.
@@ -211,8 +211,11 @@ describeIntegration('Settlement gate (real PostgreSQL)', () => {
     const match = await prisma.match.findUnique({ where: { id: m.id } });
     expect(match.status).toBe('SETTLED');
 
-    // Exactly one settlement posting regardless of which claim won.
-    const payoutTxs = await basketTx(m.id, 'SETTLEMENT_PAYOUT');
+    // Exactly one settlement posting regardless of which claim won (the
+    // MATCH_SETTLEMENT idempotency key means at most one of the two posts).
+    const payoutTxs = await prisma.ledgerTransaction.findMany({
+      where: { relatedMatchId: m.id, type: { in: ['MATCH_SETTLED_WIN', 'MATCH_SETTLED_DRAW'] } }
+    });
     expect(payoutTxs).toHaveLength(1);
 
     if (match.winnerId) {
@@ -237,7 +240,9 @@ describeIntegration('Settlement gate (real PostgreSQL)', () => {
     // the live match untouched.
     const match = await prisma.match.findUnique({ where: { id: m.id } });
     expect(match.status).toBe('IN_PLAY');
-    expect(await basketTx(m.id, 'SETTLEMENT_PAYOUT')).toHaveLength(0);
+    expect(await prisma.ledgerTransaction.count({
+      where: { relatedMatchId: m.id, type: { in: ['MATCH_SETTLED_WIN', 'MATCH_SETTLED_DRAW'] } }
+    })).toBe(0);
     for (const userId of [u1.id, u2.id]) {
       expect(await available(userId)).toBe(50000n);
     }
@@ -257,7 +262,7 @@ describeIntegration('Settlement gate (real PostgreSQL)', () => {
     expect(match.winnerId).toBe(u1.id);
     expect(['capture_win', 'recovery_sweep']).toContain(match.endReason);
 
-    expect(await basketTx(m.id, 'SETTLEMENT_PAYOUT')).toHaveLength(1);
+    expect(await basketTx(m.id, 'MATCH_SETTLED_WIN')).toHaveLength(1);
     expect(await prisma.matchSettlement.count({ where: { matchId: m.id } })).toBe(1);
 
     expect(await available(u1.id)).toBe(140000n);
@@ -269,13 +274,13 @@ describeIntegration('Settlement gate (real PostgreSQL)', () => {
     const first = await settleGame(m.id, u1.id, u2.id, 'capture_win');
     expect(first).not.toBeNull();
 
-    expect(await basketTx(m.id, 'SETTLEMENT_PAYOUT')).toHaveLength(1);
+    expect(await basketTx(m.id, 'MATCH_SETTLED_WIN')).toHaveLength(1);
 
     // Replay names the other side — the outcome is preserved, not overridden.
     const replay = await settleGame(m.id, u2.id, u1.id, 'capture_win_replay');
     expect(replay.payout.toString()).toBe('90000');
 
-    expect(await basketTx(m.id, 'SETTLEMENT_PAYOUT')).toHaveLength(1);
+    expect(await basketTx(m.id, 'MATCH_SETTLED_WIN')).toHaveLength(1);
     expect(await prisma.matchSettlement.count({ where: { matchId: m.id } })).toBe(1);
     expect(await available(u1.id)).toBe(140000n);
     expect(first.payout.toString()).toBe('90000');
@@ -299,6 +304,9 @@ describeIntegration('Settlement gate (real PostgreSQL)', () => {
     expect(receipts).toHaveLength(2);
     const winnerR = receipts.find((r) => r.userId === u1.id);
     const loserR = receipts.find((r) => r.userId === u2.id);
+    expect(winnerR.reference).toMatch(/^rcpt-/);
+    expect(loserR.reference).toMatch(/^rcpt-/);
+    expect(winnerR.reference).not.toBe(loserR.reference);
     expect(winnerR.stakeMinorUnits.toString()).toBe('50000');
     expect(winnerR.payoutMinorUnits.toString()).toBe('90000');
     expect(winnerR.feeMinorUnits.toString()).toBe('10000');
@@ -312,7 +320,7 @@ describeIntegration('Settlement gate (real PostgreSQL)', () => {
       where: { relatedMatchId: m.id },
       include: { entries: true }
     });
-    const payoutTx = txs.find((t) => t.type === 'SETTLEMENT_PAYOUT');
+    const payoutTx = txs.find((t) => t.type === 'MATCH_SETTLED_WIN');
     expect(payoutTx).toBeDefined();
     expect(payoutTx.idempotencyKey).toBe(`MATCH_SETTLEMENT:${m.id}`);
 
@@ -362,7 +370,7 @@ describeIntegration('Settlement gate (real PostgreSQL)', () => {
       where: { relatedMatchId: m.id },
       include: { entries: true }
     });
-    const payoutTx = txs.find((t) => t.type === 'SETTLEMENT_PAYOUT');
+    const payoutTx = txs.find((t) => t.type === 'MATCH_SETTLED_DRAW');
     expect(payoutTx).toBeDefined();
     expect(payoutTx.entries.reduce((acc, e) => acc + e.amountMinorUnits, 0n)).toBe(0n);
     const revenueAccount = await prisma.ledgerAccount.findUnique({
@@ -388,7 +396,7 @@ describeIntegration('Settlement gate (real PostgreSQL)', () => {
     const winnerAccount = await prisma.ledgerAccount.findUnique({
       where: { userId_type_currency: { userId: u2.id, type: 'PLAYER_AVAILABLE', currency: 'NGN' } }
     });
-    const payoutTx = (await basketTx(m.id, 'SETTLEMENT_PAYOUT'))[0];
+    const payoutTx = (await basketTx(m.id, 'MATCH_SETTLED_WIN'))[0];
     expect(payoutTx).toBeDefined();
     const payoutEntry = payoutTx.entries.find((e) => e.accountId === winnerAccount.id);
 

@@ -190,7 +190,7 @@ export const releaseMatch = async (outboxId) => {
       await transitionMatch(tx, outbox.matchId, 'RELEASED');
 
       // Legacy Wallet refund + StakeReservation rows RESERVED -> RELEASED + the
-      // V2 ledger STAKE_RELEASE mirror, all in the same tx.
+      // V2 ledger STAKE_RELEASED mirror, all in the same tx.
       await releaseStakes(tx, {
         matchId: outbox.matchId,
         participants: [

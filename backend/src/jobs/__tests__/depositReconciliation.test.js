@@ -147,6 +147,22 @@ describe('depositReconciliation', () => {
     expect(summary).toMatchObject({ intentsChecked: 1, anomalies: [] });
   });
 
+  it('accepts the contract DEPOSIT_CONFIRMED type as the credit evidence', async () => {
+    mockPrisma.ledgerTransaction.findUnique.mockResolvedValue({
+      id: 'ltx-c',
+      type: 'DEPOSIT_CONFIRMED',
+      entries: [{ accountId: 'acc-c' }]
+    });
+    mockPrisma.ledgerEntry.findFirst.mockResolvedValue({
+      amountMinorUnits: BigInt(50000)
+    });
+    mockPrisma.depositIntent.findMany.mockResolvedValue([COMPLETED]);
+
+    const summary = await reconcileDeposits();
+
+    expect(summary).toMatchObject({ intentsChecked: 1, anomalies: [] });
+  });
+
   it('keeps STALE_DEPOSIT_HOURS as a sane 24h threshold', () => {
     expect(STALE_DEPOSIT_HOURS).toBe(24);
   });

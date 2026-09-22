@@ -465,7 +465,7 @@ export class WithdrawalService {
 
   /**
    * Ends the payout lifecycle for a PROCESSING withdrawal. Success posts the
-   * V2 WITHDRAWAL_COMPLETE (pending -> liability, funds leave the platform)
+   * V2 WITHDRAWAL_CONFIRMED (pending -> liability, funds leave the platform)
    * + user notification inside the SAME transaction as the status CAS, so a
    * duplicated callback/admin action can never double-complete. Failure keeps
    * the funds reserved and records failureReason (admin may release or retry).

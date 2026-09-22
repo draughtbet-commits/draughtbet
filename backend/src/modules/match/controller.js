@@ -195,6 +195,7 @@ matchRouter.get('/:matchId/receipt', requireAuth, async (req, res, next) => {
       endReason: settlement?.endReason ?? match.endReason,
       settledAt: settlement?.settledAt ?? match.endedAt ?? null,
       receipts: receipts.map((r) => ({
+        reference: r.reference,
         userId: r.userId,
         result: resultFor(r),
         stakeMinorUnits: r.stakeMinorUnits.toString(),

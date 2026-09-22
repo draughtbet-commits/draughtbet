@@ -134,10 +134,10 @@ describe('matchService debitStakes', () => {
     expect(mockPrisma.wallet.update).not.toHaveBeenCalled();
     expect(mockPrisma.ledgerEntry.aggregate).toHaveBeenCalledTimes(2);
 
-    // ONE balanced STAKE_LOCK posting with a 4-entry net-zero set
+    // ONE balanced stake-reservation posting with a 4-entry net-zero set
     // (AVAILABLE -5000 -> LOCKED +5000 for each player) in the same tx.
     expect(mockPrisma.ledgerTransaction.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({ type: 'STAKE_LOCK' })
+      data: expect.objectContaining({ type: 'STAKE_RESERVED' })
     });
     expect(mockPrisma.ledgerEntry.create).toHaveBeenCalledTimes(4);
     const entryAmounts = mockPrisma.ledgerEntry.create.mock.calls.map(([c]) => c.data.amountMinorUnits);

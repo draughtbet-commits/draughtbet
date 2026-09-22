@@ -121,7 +121,7 @@ describeIntegration('LedgerService (real PostgreSQL)', () => {
     expect(openingCount).toBe(1);
   });
 
-  it('a balanced STAKE_LOCK moves available -> locked and projections reflect it', async () => {
+  it('a balanced stake reservation moves available -> locked and projections reflect it', async () => {
     const { user, wallet } = await makeEligibleUser(50000n);
 
     const accounts = await prisma.ledgerAccount.findMany({
@@ -144,7 +144,7 @@ describeIntegration('LedgerService (real PostgreSQL)', () => {
 
     const result = await prisma.$transaction(async (tx) =>
       postLedgerTransaction(tx, {
-        type: 'STAKE_LOCK',
+        type: 'STAKE_RESERVED',
         idempotencyKey: `stake-lock:${wallet.id}`,
         entries: [
           { accountId: available.id, amountMinorUnits: -50000n },
@@ -154,7 +154,7 @@ describeIntegration('LedgerService (real PostgreSQL)', () => {
       })
     );
     expect(result.replayed).toBe(false);
-    expect(result.transaction.type).toBe('STAKE_LOCK');
+    expect(result.transaction.type).toBe('STAKE_RESERVED');
     createdTxIds.push(result.transaction.id);
 
     const projections = await getUserLedgerProjections(prisma, user.id);

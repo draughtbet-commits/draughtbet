@@ -76,7 +76,7 @@ export function getStakeForTier(settings, tier) {
  * Core of stake funding, meant to run inside an interactive transaction (`tx`).
  * Locks both wallets, verifies affordability, snapshots fee terms, creates the
  * canonical OPEN match with both participants, reserves both stakes
- * (StakeReservation rows + legacy Wallet debit + V2 ledger STAKE_LOCK mirror)
+ * (StakeReservation rows + legacy Wallet debit + V2 ledger STAKE_RESERVED mirror)
  * and lands at FUNDED. Shared by `debitStakes` (matchmaking) and
  * `acceptCallout` so a callout is claimed and its funds committed atomically.
  */
@@ -148,7 +148,7 @@ export const createMatchWithStakes = async (tx, player1Id, player2Id, stakeMinor
   });
 
   // 7. Reserve both stakes: StakeReservation rows + legacy Wallet debit (the
-  //    live read source until the final read-flip) + V2 ledger STAKE_LOCK
+  //    live read source until the final read-flip) + V2 ledger STAKE_RESERVED
   //    mirror, all in the same tx so a partial match is impossible.
   await reserveBothStakes(tx, {
     matchId,

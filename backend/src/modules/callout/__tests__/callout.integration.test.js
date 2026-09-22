@@ -130,7 +130,7 @@ describeIntegration('Call-out acceptance policy (real PostgreSQL)', () => {
     await prisma.$disconnect();
   });
 
-  it('accepts an eligible player: one match, one STAKE_LOCK posting, callout ACCEPTED', async () => {
+  it('accepts an eligible player: one match, one stake reservation, callout ACCEPTED', async () => {
     const challenger = await makeUser('c');
     const acceptor = await makeUser('a');
     const callout = await makeCallout(challenger.id);
@@ -153,7 +153,7 @@ describeIntegration('Call-out acceptance policy (real PostgreSQL)', () => {
     expect(claimed.status).toBe('ACCEPTED');
     expect(claimed.acceptedBy).toBe(acceptor.id);
 
-    // ONE balanced STAKE_LOCK posting (both players' entries) per match.
+    // ONE balanced stake-reservation posting (both players' entries) per match.
     expect(await countLedger(payload.id)).toBe(1);
     for (const userId of [challenger.id, acceptor.id]) {
       await assertWallet(userId, 9000000n);

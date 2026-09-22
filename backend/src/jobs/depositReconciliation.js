@@ -13,6 +13,11 @@ let isSweeping = false;
 
 const DEPOSIT_CREDIT_KEY = (reference) => `deposit:credit:${reference}`;
 
+// The credit posting is identified by its idempotency key, not its enum value —
+// the enum value changed to the contract name (DEPOSIT_CONFIRMED) while legacy
+// rows keep DEPOSIT_CREDIT until the remap migration runs. Either is valid.
+const DEPOSIT_CREDIT_TYPES = new Set(['DEPOSIT_CREDIT', 'DEPOSIT_CONFIRMED']);
+
 /**
  * Reconciliation sweep for deposits.
  *
@@ -63,7 +68,7 @@ export const reconcileDeposits = async () => {
           where: { idempotencyKey: DEPOSIT_CREDIT_KEY(intent.reference) },
           include: { entries: true }
         });
-        if (!ledger || ledger.type !== 'DEPOSIT_CREDIT') {
+        if (!ledger || !DEPOSIT_CREDIT_TYPES.has(ledger.type)) {
           anomalies.push({
             intentId: intent.id,
             check: 'ledgerPostingMissing',

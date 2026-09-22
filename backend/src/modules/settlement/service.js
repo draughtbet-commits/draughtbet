@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import prisma from '../../utils/db.js';
 import logger from '../../utils/logger.js';
 import { postSettlementWin, postSettlementDraw } from '../../services/ledgerService.js';
@@ -371,19 +372,29 @@ async function postSettlement(tx, matchId, match, { kind, winnerId, payout, comm
  * Per-player receipts:
  *   WIN  — winner: stake in / net payout out / commission; loser: stake in / 0
  *   DRAW — both: stake in / full stake refund out / 0 fee
+ * Each row carries a server-generated, immutable `reference` (receipt endpoint
+ * 4.3); it is minted once here and never rewritten.
  */
 function receiptsFor(match, winnerId, payout, commission) {
   const stake = BigInt(match.stakeMinorUnits);
+  const entry = (userId, stakeMinorUnits, payoutMinorUnits, feeMinorUnits) => ({
+    matchId: match.id,
+    userId,
+    reference: `rcpt-${crypto.randomUUID()}`,
+    stakeMinorUnits,
+    payoutMinorUnits,
+    feeMinorUnits
+  });
   if (!winnerId) {
     return [
-      { matchId: match.id, userId: match.playerLightId, stakeMinorUnits: stake, payoutMinorUnits: stake, feeMinorUnits: 0n },
-      { matchId: match.id, userId: match.playerDarkId, stakeMinorUnits: stake, payoutMinorUnits: stake, feeMinorUnits: 0n }
+      entry(match.playerLightId, stake, stake, 0n),
+      entry(match.playerDarkId, stake, stake, 0n)
     ];
   }
   const loserId = winnerId === match.playerLightId ? match.playerDarkId : match.playerLightId;
   return [
-    { matchId: match.id, userId: winnerId, stakeMinorUnits: stake, payoutMinorUnits: payout, feeMinorUnits: commission },
-    { matchId: match.id, userId: loserId, stakeMinorUnits: stake, payoutMinorUnits: 0n, feeMinorUnits: 0n }
+    entry(winnerId, stake, payout, commission),
+    entry(loserId, stake, 0n, 0n)
   ];
 }
 
