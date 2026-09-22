@@ -48,7 +48,7 @@ const MATRIX = {
   FINANCE: ['withdrawals.read', 'withdrawals.process', 'ledger.adjust', 'audit.read'],
   RISK_COMPLIANCE: ['verification.review', 'risk.review', 'safer-play.lift', 'audit.read'],
   SUPPORT: ['users.manage', 'disputes.manage', 'safer-play.lift', 'audit.read'],
-  GAME_OPERATIONS: ['audit.read'],
+  GAME_OPERATIONS: ['audit.read', 'match.evidence.read'],
   READ_ONLY_AUDITOR: ['withdrawals.read', 'audit.read']
 };
 

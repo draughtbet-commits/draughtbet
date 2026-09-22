@@ -34,6 +34,26 @@ export const recordAdminAction = async ({
 
 export const AUDIT_OUTCOMES = Object.freeze(['SUCCESS', 'FAILURE', 'DENIED']);
 
+// Convenience wrapper for controller handlers: pulls admin identity + request
+// metadata straight off the request so modules don't each re-implement it.
+export const auditFromRequest = (
+  req,
+  action,
+  { targetType = null, targetId = null, metadata = null, outcome = 'SUCCESS', dbp = prisma } = {}
+) =>
+  recordAdminAction({
+    adminId: req.user.id,
+    action,
+    outcome,
+    targetType,
+    targetId,
+    metadata,
+    ip: req.ip,
+    userAgent: req.get('user-agent'),
+    requestId: req.id,
+    dbp
+  });
+
 export const listAdminActions = async ({
   page = 1,
   limit = 20,

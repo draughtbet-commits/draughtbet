@@ -25,7 +25,8 @@ export const PERMISSIONS = Object.freeze({
   LEDGER_ADJUST: 'ledger.adjust',             // sanctioned money correction
   SAFER_PLAY_LIFT: 'safer-play.lift',         // end timeout / self-exclusion
   ROLES_ADMIN: 'roles.admin',                 // grant / revoke roles
-  AUDIT_READ: 'audit.read'                    // read the admin audit trail
+  AUDIT_READ: 'audit.read',                   // read the admin audit trail
+  MATCH_EVIDENCE_READ: 'match.evidence.read'  // read-only match replay/evidence view
 });
 
 const ALL_PERMISSIONS = Object.values(PERMISSIONS);
@@ -50,7 +51,7 @@ export const ROLE_PERMISSIONS = Object.freeze({
     PERMISSIONS.SAFER_PLAY_LIFT,
     PERMISSIONS.AUDIT_READ
   ],
-  GAME_OPERATIONS: [PERMISSIONS.AUDIT_READ],
+  GAME_OPERATIONS: [PERMISSIONS.AUDIT_READ, PERMISSIONS.MATCH_EVIDENCE_READ],
   READ_ONLY_AUDITOR: [PERMISSIONS.WITHDRAWALS_READ, PERMISSIONS.AUDIT_READ]
 });
 
@@ -62,6 +63,6 @@ export const ROLE_DESCRIPTIONS = Object.freeze({
   FINANCE: 'Withdrawal review/payout, sanctioned ledger adjustments, audit read',
   RISK_COMPLIANCE: 'KYC review, safer-play lifts, risk case review, audit read',
   SUPPORT: 'Account status, dispute management, safer-play lifts, audit read',
-  GAME_OPERATIONS: 'Read-only visibility into game operations (audit trail)',
+  GAME_OPERATIONS: 'Read-only visibility into game operations (audit trail, match evidence)',
   READ_ONLY_AUDITOR: 'Read-only audit trail + withdrawal visibility'
 });

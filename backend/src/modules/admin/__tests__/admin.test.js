@@ -12,6 +12,7 @@ const mockPrisma = {
   user: {
     findUnique: jest.fn(),
     findMany: jest.fn(),
+    count: jest.fn(),
     update: jest.fn()
   },
   adminRoleAssignment: {
@@ -30,6 +31,27 @@ const mockPrisma = {
   },
   disputeEvidence: {
     create: jest.fn()
+  },
+  match: {
+    findUnique: jest.fn(),
+    findMany: jest.fn()
+  },
+  matchMove: {
+    findMany: jest.fn()
+  },
+  matchParticipant: {
+    findUnique: jest.fn()
+  },
+  matchResultCorrection: {
+    create: jest.fn(),
+    findMany: jest.fn()
+  },
+  idempotencyRecord: {
+    findUnique: jest.fn(),
+    create: jest.fn(),
+    update: jest.fn(),
+    delete: jest.fn(),
+    deleteMany: jest.fn()
   },
   riskEvent: {
     findMany: jest.fn(),
@@ -117,8 +139,27 @@ jest.unstable_mockModule('../../saferPlay/service.js', () => ({
   clearTimeoutByAdmin: jest.fn(),
   endSelfExclusionByAdmin: jest.fn()
 }));
+const mockRecordAdminAction = jest.fn().mockResolvedValue({ id: 'log-1' });
+// auditFromRequest forwards into recordAdminAction (matching the real module),
+// so assertions on recordAdminAction cover both the legacy admin `audit` helper
+// and the new module-level auditFromRequest call sites.
+const mockAuditFromRequest = jest.fn(async (req, action, opts = {}) => {
+  await mockRecordAdminAction({
+    adminId: req.user.id,
+    action,
+    outcome: opts.outcome ?? 'SUCCESS',
+    targetType: opts.targetType ?? null,
+    targetId: opts.targetId ?? null,
+    metadata: opts.metadata ?? null,
+    ip: req.ip,
+    userAgent: req.get?.('user-agent') ?? null,
+    requestId: req.id
+  });
+  return { id: 'log-1' };
+});
 jest.unstable_mockModule('../../audit/service.js', () => ({
-  recordAdminAction: jest.fn().mockResolvedValue({ id: 'log-1' }),
+  recordAdminAction: mockRecordAdminAction,
+  auditFromRequest: mockAuditFromRequest,
   listAdminActions: jest.fn().mockResolvedValue({ logs: [], total: 0, page: 1, totalPages: 0 }),
   auditPagination: jest.fn(() => ({ page: 1, limit: 20 })),
   AUDIT_OUTCOMES: ['SUCCESS', 'FAILURE', 'DENIED']
@@ -153,6 +194,9 @@ AuthService.__setRedis(mockRedis);
 
 const adminUser = { id: 'caller', email: 'admin@x', tier: 'unverified', isBanned: false, isAdmin: true };
 
+// Every admin POST now requires an Idempotency-Key header (contract §9).
+const OP_KEY = 'op-key-0001';
+
 const asRole = async (name) => {
   mockPrisma.adminRoleAssignment.findMany.mockResolvedValue([{ role: { name } }]);
   return (await AuthService.issueTokens('caller')).accessToken;
@@ -161,15 +205,26 @@ const asRole = async (name) => {
 beforeEach(() => {
   jest.clearAllMocks();
   mockPrisma.user.findUnique.mockResolvedValue(adminUser);
+  mockPrisma.user.findMany.mockResolvedValue([]);
+  mockPrisma.user.count.mockResolvedValue(0);
   mockPrisma.adminRoleAssignment.findMany.mockResolvedValue([]);
   mockPrisma.adminRoleAssignment.groupBy.mockResolvedValue([]);
-  mockPrisma.user.findMany.mockResolvedValue([]);
   mockPrisma.disputeCase.findMany.mockResolvedValue([]);
   mockPrisma.disputeCase.count.mockResolvedValue(0);
   mockPrisma.riskEvent.findMany.mockResolvedValue([]);
   mockPrisma.riskEvent.count.mockResolvedValue(0);
   mockPrisma.riskCase.findMany.mockResolvedValue([]);
   mockPrisma.riskCase.count.mockResolvedValue(0);
+  mockPrisma.match.findUnique.mockResolvedValue(null);
+  mockPrisma.matchMove.findMany.mockResolvedValue([]);
+  mockPrisma.matchResultCorrection.findMany.mockResolvedValue([]);
+  mockPrisma.matchParticipant.findUnique.mockResolvedValue(null);
+  mockPrisma.idempotencyRecord.findUnique.mockResolvedValue(null);
+  mockPrisma.idempotencyRecord.create.mockResolvedValue({ id: 'ir-1', result: null });
+  mockPrisma.idempotencyRecord.update.mockResolvedValue({ id: 'ir-1' });
+  mockPrisma.idempotencyRecord.delete.mockResolvedValue({ id: 'ir-1' });
+  mockPrisma.idempotencyRecord.deleteMany.mockResolvedValue({ count: 1 });
+  mockPrisma.$transaction.mockImplementation(async (fn) => (typeof fn === 'function' ? fn(mockPrisma) : undefined));
   verificationModule.approveVerificationCase.mockResolvedValue(null);
   verificationModule.rejectVerificationCase.mockResolvedValue(null);
   saferPlayModule.clearTimeoutByAdmin.mockResolvedValue(null);
@@ -200,7 +255,8 @@ describe('admin RBAC gating', () => {
 
     const approve = await request(app)
       .post('/api/v1/admin/withdrawals/wd-1/approve')
-      .set('Authorization', `Bearer ${token}`);
+      .set('Authorization', `Bearer ${token}`)
+      .set('Idempotency-Key', OP_KEY);
     expect(approve.status).toBe(403);
   });
 
@@ -210,7 +266,8 @@ describe('admin RBAC gating', () => {
 
     const res = await request(app)
       .post('/api/v1/admin/withdrawals/wd-1/approve')
-      .set('Authorization', `Bearer ${token}`);
+      .set('Authorization', `Bearer ${token}`)
+      .set('Idempotency-Key', OP_KEY);
 
     expect(res.status).toBe(200);
     expect(res.body.withdrawal.status).toBe('APPROVED');
@@ -224,6 +281,7 @@ describe('admin RBAC gating', () => {
     const res = await request(app)
       .post('/api/v1/admin/roles/assign')
       .set('Authorization', `Bearer ${token}`)
+      .set('Idempotency-Key', OP_KEY)
       .send({ userId: 'u9', roleName: 'SUPPORT' });
     expect(res.status).toBe(403);
   });
@@ -259,6 +317,7 @@ describe('admin roles routes', () => {
     const res = await request(app)
       .post('/api/v1/admin/roles/assign')
       .set('Authorization', `Bearer ${token}`)
+      .set('Idempotency-Key', OP_KEY)
       .send({ userId: 'u9', roleName: 'SUPPORT' });
 
     expect(res.status).toBe(201);
@@ -277,6 +336,7 @@ describe('admin roles routes', () => {
     const res = await request(app)
       .post('/api/v1/admin/roles/assign')
       .set('Authorization', `Bearer ${token}`)
+      .set('Idempotency-Key', OP_KEY)
       .send({ userId: 'u9', roleName: 'OVERLORD' });
 
     expect(res.status).toBe(400);
@@ -289,12 +349,14 @@ describe('admin ledger adjustments', () => {
     const missing = await request(app)
       .post('/api/v1/admin/ledger/adjustments')
       .set('Authorization', `Bearer ${token}`)
+      .set('Idempotency-Key', OP_KEY)
       .send({ userId: 'u1', amountMinorUnits: '1000', direction: 'CREDIT' });
     expect(missing.status).toBe(400);
 
     const badDir = await request(app)
       .post('/api/v1/admin/ledger/adjustments')
       .set('Authorization', `Bearer ${token}`)
+      .set('Idempotency-Key', OP_KEY)
       .send({ userId: 'u1', amountMinorUnits: '1000', direction: 'SIDEWAYS', reference: 'r-1' });
     expect(badDir.status).toBe(400);
   });
@@ -313,6 +375,7 @@ describe('admin ledger adjustments', () => {
     const res = await request(app)
       .post('/api/v1/admin/ledger/adjustments')
       .set('Authorization', `Bearer ${token}`)
+      .set('Idempotency-Key', OP_KEY)
       .send({ userId: 'u1', amountMinorUnits: '1000', direction: 'DEBIT', reference: 'r-9' });
 
     expect(res.status).toBe(422);
@@ -321,7 +384,22 @@ describe('admin ledger adjustments', () => {
 });
 
 describe('admin KYC review', () => {
-  it('approves a case, audits and reports the result', async () => {
+  it('lists verification cases at the renamed /kyc/cases surface', async () => {
+    const token = await asRole('RISK_COMPLIANCE');
+    verificationModule.listVerificationCases.mockResolvedValue({
+      cases: [{ id: 'vc-1', status: 'PENDING' }],
+      total: 1,
+      page: 1,
+      totalPages: 1
+    });
+
+    const res = await request(app).get('/api/v1/admin/kyc/cases').set('Authorization', `Bearer ${token}`);
+
+    expect(res.status).toBe(200);
+    expect(verificationModule.listVerificationCases).toHaveBeenCalled();
+  });
+
+  it('approves a case via the decision endpoint, audits and reports the result', async () => {
     const token = await asRole('RISK_COMPLIANCE');
     verificationModule.approveVerificationCase.mockResolvedValue({
       case: { id: 'vc-1', status: 'VERIFIED' },
@@ -329,9 +407,10 @@ describe('admin KYC review', () => {
     });
 
     const res = await request(app)
-      .post('/api/v1/admin/verification-cases/vc-1/approve')
+      .post('/api/v1/admin/kyc/cases/vc-1/decision')
       .set('Authorization', `Bearer ${token}`)
-      .send({ note: 'documents match' });
+      .set('Idempotency-Key', OP_KEY)
+      .send({ decision: 'APPROVE', note: 'documents match' });
 
     expect(res.status).toBe(200);
     expect(res.body.verificationCase.status).toBe('VERIFIED');
@@ -350,15 +429,19 @@ describe('admin KYC review', () => {
       .mockRejectedValueOnce({ name: 'VerificationCaseNotFoundError', message: 'Verification case not found' });
 
     const notFound = await request(app)
-      .post('/api/v1/admin/verification-cases/nope/approve')
-      .set('Authorization', `Bearer ${token}`);
+      .post('/api/v1/admin/kyc/cases/nope/decision')
+      .set('Authorization', `Bearer ${token}`)
+      .set('Idempotency-Key', OP_KEY)
+      .send({ decision: 'APPROVE' });
     expect(notFound.status).toBe(404);
 
     verificationModule.approveVerificationCase
       .mockRejectedValueOnce({ name: 'VerificationCaseNotReviewableError', message: 'Locked' });
     const locked = await request(app)
-      .post('/api/v1/admin/verification-cases/x/approve')
-      .set('Authorization', `Bearer ${token}`);
+      .post('/api/v1/admin/kyc/cases/x/decision')
+      .set('Authorization', `Bearer ${token}`)
+      .set('Idempotency-Key', OP_KEY)
+      .send({ decision: 'APPROVE' });
     expect(locked.status).toBe(409);
   });
 
@@ -370,14 +453,33 @@ describe('admin KYC review', () => {
     });
 
     const res = await request(app)
-      .post('/api/v1/admin/verification-cases/vc-2/reject')
-      .set('Authorization', `Bearer ${token}`);
+      .post('/api/v1/admin/kyc/cases/vc-2/decision')
+      .set('Authorization', `Bearer ${token}`)
+      .set('Idempotency-Key', OP_KEY)
+      .send({ decision: 'REJECT' });
 
     expect(res.status).toBe(200);
     expect(verificationModule.rejectVerificationCase).toHaveBeenCalledWith(
       'vc-2',
       expect.objectContaining({ reason: 'Rejected by operator' })
     );
+  });
+
+  it('rejects an invalid decision value and a missing Idempotency-Key', async () => {
+    const token = await asRole('RISK_COMPLIANCE');
+    const bad = await request(app)
+      .post('/api/v1/admin/kyc/cases/vc-1/decision')
+      .set('Authorization', `Bearer ${token}`)
+      .set('Idempotency-Key', OP_KEY)
+      .send({ decision: 'MAYBE' });
+    expect(bad.status).toBe(400);
+
+    const noKey = await request(app)
+      .post('/api/v1/admin/kyc/cases/vc-1/decision')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ decision: 'APPROVE' });
+    expect(noKey.status).toBe(400);
+    expect(noKey.body.error.code).toBe('IDEMPOTENCY_KEY_REQUIRED');
   });
 });
 
@@ -402,8 +504,9 @@ describe('admin disputes', () => {
     mockPrisma.disputeCase.update.mockResolvedValue({ id: 'd1', status: 'RESOLVED', decidedBy: 'caller' });
 
     const res = await request(app)
-      .post('/api/v1/admin/disputes/d1/decide')
+      .post('/api/v1/admin/disputes/d1/decision')
       .set('Authorization', `Bearer ${token}`)
+      .set('Idempotency-Key', OP_KEY)
       .send({ status: 'RESOLVED', resolution: 'Refund issued' });
 
     expect(res.status).toBe(200);
@@ -416,13 +519,106 @@ describe('admin disputes', () => {
     );
   });
 
+  it('writes an append-only result correction and posts the money adjustment as a separate transaction', async () => {
+    const token = await asRole('SUPER_ADMIN');
+    mockPrisma.disputeCase.findUnique.mockResolvedValue({
+      id: 'd1',
+      status: 'OPEN',
+      matchId: 'm1',
+      match: { winnerId: 'p1', endReason: 'capture_win' }
+    });
+    mockPrisma.disputeCase.update.mockResolvedValue({ id: 'd1', status: 'RESOLVED' });
+    mockPrisma.matchResultCorrection.create.mockResolvedValue({ id: 'c1' });
+
+    const { AdminService } = await import('../service.js');
+    const adjSpy = jest
+      .spyOn(AdminService, 'postAdjustment')
+      .mockResolvedValue({ transactionId: 'tx-1', reference: 'dispute:d1', direction: 'CREDIT', available: '50000' });
+
+    const res = await request(app)
+      .post('/api/v1/admin/disputes/d1/decide')
+      .set('Authorization', `Bearer ${token}`)
+      .set('Idempotency-Key', OP_KEY)
+      .send({
+        status: 'RESOLVED',
+        resolution: 'Wrong winner adjudicated',
+        resultCorrection: { winnerId: 'p2', endReason: 'admin_decision' },
+        moneyAdjustment: { userId: 'p2', amountMinorUnits: '50000', direction: 'CREDIT' }
+      });
+
+    expect(res.status).toBe(200);
+    expect(mockPrisma.matchResultCorrection.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        matchId: 'm1',
+        disputeCaseId: 'd1',
+        priorWinnerId: 'p1',
+        correctedWinnerId: 'p2',
+        priorEndReason: 'capture_win',
+        correctedEndReason: 'admin_decision',
+        decidedBy: 'caller'
+      })
+    });
+    expect(adjSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: 'p2', reference: 'dispute:d1', actorId: 'caller' })
+    );
+  });
+
+  it('denies SUPPORT a disputed payout money adjustment (needs ledger.adjust)', async () => {
+    const token = await asRole('SUPPORT');
+    const res = await request(app)
+      .post('/api/v1/admin/disputes/d1/decision')
+      .set('Authorization', `Bearer ${token}`)
+      .set('Idempotency-Key', OP_KEY)
+      .send({
+        status: 'RESOLVED',
+        resolution: 'Refund',
+        moneyAdjustment: { userId: 'p2', amountMinorUnits: '1000', direction: 'CREDIT' }
+      });
+
+    expect(res.status).toBe(403);
+    expect(res.body.error.code).toBe('FORBIDDEN');
+  });
+
+  it('fails the money adjustment to 422 but records that the decision is already saved', async () => {
+    const token = await asRole('SUPER_ADMIN');
+    mockPrisma.disputeCase.findUnique.mockResolvedValue({
+      id: 'd1',
+      status: 'OPEN',
+      matchId: 'm1',
+      match: { winnerId: 'p1', endReason: 'capture_win' }
+    });
+    mockPrisma.disputeCase.update.mockResolvedValue({ id: 'd1', status: 'RESOLVED' });
+
+    const { AdminService } = await import('../service.js');
+    jest
+      .spyOn(AdminService, 'postAdjustment')
+      .mockRejectedValueOnce({ name: 'InsufficientFundsError', message: 'Insufficient funds' });
+
+    const res = await request(app)
+      .post('/api/v1/admin/disputes/d1/decision')
+      .set('Authorization', `Bearer ${token}`)
+      .set('Idempotency-Key', OP_KEY)
+      .send({
+        status: 'RESOLVED',
+        resolution: 'Refund',
+        moneyAdjustment: { userId: 'p2', amountMinorUnits: '1000', direction: 'DEBIT' }
+      });
+
+    expect(res.status).toBe(422);
+    expect(res.body.error.decisionRecorded).toBe(true);
+    expect(auditModule.recordAdminAction).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'ledger.adjustment', outcome: 'FAILURE' })
+    );
+  });
+
   it('refuses to re-decide a closed dispute', async () => {
     const token = await asRole('SUPPORT');
     mockPrisma.disputeCase.findUnique.mockResolvedValue({ id: 'd1', status: 'RESOLVED' });
 
     const res = await request(app)
-      .post('/api/v1/admin/disputes/d1/decide')
+      .post('/api/v1/admin/disputes/d1/decision')
       .set('Authorization', `Bearer ${token}`)
+      .set('Idempotency-Key', OP_KEY)
       .send({ status: 'RESOLVED', resolution: 'Again' });
 
     expect(res.status).toBe(409);
@@ -434,6 +630,7 @@ describe('admin disputes', () => {
     const res = await request(app)
       .post('/api/v1/admin/disputes/d1/evidence')
       .set('Authorization', `Bearer ${token}`)
+      .set('Idempotency-Key', OP_KEY)
       .send({ type: 'MOVIE', url: 'https://example.com/x.png' });
     expect(res.status).toBe(400);
   });
@@ -447,7 +644,8 @@ describe('admin safer-play lifts', () => {
 
     const res = await request(app)
       .post('/api/v1/admin/safer-play/u1/clear-timeout')
-      .set('Authorization', `Bearer ${token}`);
+      .set('Authorization', `Bearer ${token}`)
+      .set('Idempotency-Key', OP_KEY);
 
     expect(res.status).toBe(200);
     expect(res.body.lifted).toBe(true);
@@ -455,7 +653,8 @@ describe('admin safer-play lifts', () => {
     mockPrisma.user.findUnique.mockResolvedValueOnce(adminUser).mockResolvedValueOnce(null);
     const missing = await request(app)
       .post('/api/v1/admin/safer-play/ghost/clear-timeout')
-      .set('Authorization', `Bearer ${token}`);
+      .set('Authorization', `Bearer ${token}`)
+      .set('Idempotency-Key', OP_KEY);
     expect(missing.status).toBe(404);
   });
 });
@@ -476,7 +675,148 @@ describe('admin risk review', () => {
     const res = await request(app)
       .post('/api/v1/admin/risk-cases/rc-1/status')
       .set('Authorization', `Bearer ${token}`)
+      .set('Idempotency-Key', OP_KEY)
       .send({ status: 'EXPLODED' });
     expect(res.status).toBe(400);
+  });
+});
+
+describe('admin POST idempotency (Idempotency-Key)', () => {
+  it('replays a cached response and does not re-run the handler', async () => {
+    const token = await asRole('FINANCE');
+    controllerWithdrawal.rejectWithdrawal.mockResolvedValue({ id: 'wd-1' });
+
+    mockPrisma.idempotencyRecord.findUnique.mockResolvedValueOnce(null);
+    mockPrisma.idempotencyRecord.create.mockResolvedValueOnce({ id: 'ir-1', result: null });
+
+    const first = await request(app)
+      .post('/api/v1/admin/withdrawals/wd-1/reject')
+      .set('Authorization', `Bearer ${token}`)
+      .set('Idempotency-Key', 'op-retry-0001')
+      .send({ reason: 'fraud' });
+
+    expect(first.status).toBe(200);
+
+    mockPrisma.idempotencyRecord.findUnique.mockResolvedValueOnce({
+      key: 'ir-1',
+      result: { status: 200, body: { withdrawal: { id: 'wd-1' } } }
+    });
+
+    const second = await request(app)
+      .post('/api/v1/admin/withdrawals/wd-1/reject')
+      .set('Authorization', `Bearer ${token}`)
+      .set('Idempotency-Key', 'op-retry-0001')
+      .send({ reason: 'fraud' });
+
+    expect(second.status).toBe(200);
+    expect(second.body.withdrawal.id).toBe('wd-1');
+    expect(controllerWithdrawal.rejectWithdrawal).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects concurrent in-flight claims with DUPLICATE_OPERATION', async () => {
+    const token = await asRole('FINANCE');
+    mockPrisma.idempotencyRecord.findUnique.mockResolvedValueOnce({
+      key: 'ir-1',
+      result: null,
+      createdAt: new Date()
+    });
+
+    const res = await request(app)
+      .post('/api/v1/admin/withdrawals/wd-1/approve')
+      .set('Authorization', `Bearer ${token}`)
+      .set('Idempotency-Key', 'op-retry-0001');
+
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe('DUPLICATE_OPERATION');
+    expect(controllerWithdrawal.approveWithdrawal).not.toHaveBeenCalled();
+  });
+});
+
+describe('admin user directory', () => {
+  it('searches users for SUPPORT and returns operational fields', async () => {
+    const token = await asRole('SUPPORT');
+    mockPrisma.user.findMany.mockResolvedValue([
+      { id: 'u1', email: 'u1@x', username: 'kingslayer', kycStatus: 'VERIFIED', isBanned: false, createdAt: new Date().toISOString() }
+    ]);
+    mockPrisma.user.count.mockResolvedValue(1);
+
+    const res = await request(app).get('/api/v1/admin/users?q=king').set('Authorization', `Bearer ${token}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.users).toHaveLength(1);
+    expect(mockPrisma.user.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ OR: expect.any(Array) })
+      })
+    );
+  });
+
+  it('returns a user detail with roles and latest verification case', async () => {
+    const token = await asRole('SUPPORT');
+    mockPrisma.user.findUnique.mockResolvedValue({
+      id: 'u1',
+      email: 'u1@x',
+      username: 'kingslayer',
+      kycStatus: 'VERIFIED',
+      isBanned: false,
+      createdAt: new Date().toISOString(),
+      verificationCases: [{ status: 'VERIFIED' }],
+      adminRoleAssignments: [{ role: { name: 'SUPER_ADMIN' } }]
+    });
+
+    const res = await request(app).get('/api/v1/admin/users/u1').set('Authorization', `Bearer ${token}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.roles).toEqual(['SUPER_ADMIN']);
+    expect(res.body.verificationStatus).toBe('VERIFIED');
+
+    // requireAuth also consumes user.findUnique, so the target-vs-caller split
+    // needs an explicit queue: caller first, then null for the missing target.
+    mockPrisma.user.findUnique.mockResolvedValueOnce(adminUser).mockResolvedValue(null);
+    const missing = await request(app).get('/api/v1/admin/users/nope').set('Authorization', `Bearer ${token}`);
+    expect(missing.status).toBe(404);
+  });
+});
+
+describe('admin match evidence', () => {
+  const matchFixture = {
+    id: 'm1',
+    status: 'COMPLETED',
+    winnerId: 'p1',
+    participants: [],
+    stakeReservations: [],
+    settlements: [],
+    receipts: [],
+    gameEvents: [],
+    connectionEvents: [],
+    snapshots: [],
+    gameState: null
+  };
+
+  it('exposes read-only match evidence to GAME_OPERATIONS', async () => {
+    const token = await asRole('GAME_OPERATIONS');
+    mockPrisma.match.findUnique.mockResolvedValue(matchFixture);
+    mockPrisma.matchMove.findMany.mockResolvedValue([{ moveNumber: 1, playerId: 'p1', fromSquare: 1, toSquare: 2, createdAt: new Date().toISOString() }]);
+
+    const res = await request(app).get('/api/v1/admin/matches/m1/evidence').set('Authorization', `Bearer ${token}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.match.id).toBe('m1');
+    expect(res.body.moves).toHaveLength(1);
+    expect(res.body.resultCorrections).toEqual([]);
+  });
+
+  it('keeps READ_ONLY_AUDITOR and unidentified callers out', async () => {
+    const auditor = await asRole('READ_ONLY_AUDITOR');
+    const denied = await request(app).get('/api/v1/admin/matches/m1/evidence').set('Authorization', `Bearer ${auditor}`);
+    expect(denied.status).toBe(403);
+
+    mockPrisma.match.findUnique.mockResolvedValue(matchFixture);
+    const auditorCopy = await asRole('GAME_OPERATIONS');
+    mockPrisma.match.findUnique.mockResolvedValue(null);
+    const missing = await request(app)
+      .get('/api/v1/admin/matches/ghost/evidence')
+      .set('Authorization', `Bearer ${auditorCopy}`);
+    expect(missing.status).toBe(404);
   });
 });

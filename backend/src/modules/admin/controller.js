@@ -29,7 +29,10 @@ import {
 import { recordAdminAction } from '../audit/service.js';
 import { AdminMfaService } from '../mfa/service.js';
 import { adminMfaRateLimiter } from '../../middleware/rateLimit.js';
+import { requireIdempotencyKey } from '../../middleware/idempotency.js';
 import { auditRouter } from '../audit/controller.js';
+import { riskRouter } from '../risk/controller.js';
+import { disputeAdminRouter } from '../disputes/controller.js';
 import {
   listVerificationCases,
   approveVerificationCase,
@@ -133,7 +136,13 @@ mfaBootstrap.post('/disable', adminMfaRateLimiter, requirePermission(PERMISSIONS
 
 adminRouter.use('/mfa', mfaBootstrap);
 adminRouter.use(requireAdminMfa);
+// Every admin POST is idempotent: an Idempotency-Key header is required and
+// the first response is replayed for retries with the same key (contract §9).
+// MFA setup/verify/disable run above this gate so provisioning stays simple.
+adminRouter.use(requireIdempotencyKey);
 adminRouter.use('/audit', auditRouter);
+adminRouter.use(disputeAdminRouter);
+adminRouter.use(riskRouter);
 
 // ---------------------------------------------------------------------------
 // Account status (SUPPORT / SUPER_ADMIN)
@@ -403,10 +412,11 @@ adminRouter.post(
 
 // ---------------------------------------------------------------------------
 // KYC review (RISK_COMPLIANCE / SUPER_ADMIN)
+// Contract §9: GET /admin/kyc/cases, POST /admin/kyc/cases/{id}/decision.
 // ---------------------------------------------------------------------------
 
 adminRouter.get(
-  '/verification-cases',
+  '/kyc/cases',
   requirePermission(PERMISSIONS.VERIFICATION_REVIEW),
   async (req, res, next) => {
     try {
@@ -424,42 +434,35 @@ adminRouter.get(
 );
 
 adminRouter.post(
-  '/verification-cases/:id/approve',
+  '/kyc/cases/:id/decision',
   requirePermission(PERMISSIONS.VERIFICATION_REVIEW),
   async (req, res, next) => {
     try {
-      const { case: verificationCase, replayed } = await approveVerificationCase(req.params.id, {
-        adminId: req.user.id,
-        note: req.body?.note ?? null
-      });
-      await audit(req, 'verification.approve', {
-        targetType: 'verification-case',
-        targetId: verificationCase.id,
-        metadata: { replayed, verifiedById: req.user.id }
-      });
-      res.json({ verificationCase, replayed });
-    } catch (error) {
-      if (error.name === 'VerificationCaseNotFoundError') return res.status(404).json({ error: error.message });
-      if (error.name === 'VerificationCaseNotReviewableError') return res.status(409).json({ error: error.message });
-      next(error);
-    }
-  }
-);
-
-adminRouter.post(
-  '/verification-cases/:id/reject',
-  requirePermission(PERMISSIONS.VERIFICATION_REVIEW),
-  async (req, res, next) => {
-    try {
-      const reason = typeof req.body?.reason === 'string' ? req.body.reason : 'Rejected by operator';
+      const { decision, note, reason } = req.body ?? {};
+      if (!['APPROVE', 'REJECT'].includes(decision)) {
+        return res.status(400).json({ error: 'decision must be APPROVE or REJECT' });
+      }
+      if (decision === 'APPROVE') {
+        const { case: verificationCase, replayed } = await approveVerificationCase(req.params.id, {
+          adminId: req.user.id,
+          note: typeof note === 'string' ? note : null
+        });
+        await audit(req, 'verification.approve', {
+          targetType: 'verification-case',
+          targetId: verificationCase.id,
+          metadata: { replayed, verifiedById: req.user.id }
+        });
+        return res.json({ verificationCase, replayed });
+      }
+      const rejectionReason = typeof reason === 'string' ? reason : 'Rejected by operator';
       const { case: verificationCase, replayed } = await rejectVerificationCase(req.params.id, {
         adminId: req.user.id,
-        reason
+        reason: rejectionReason
       });
       await audit(req, 'verification.reject', {
         targetType: 'verification-case',
         targetId: verificationCase.id,
-        metadata: { replayed, reason }
+        metadata: { replayed, reason: rejectionReason }
       });
       res.json({ verificationCase, replayed });
     } catch (error) {
@@ -471,154 +474,61 @@ adminRouter.post(
 );
 
 // ---------------------------------------------------------------------------
-// Disputes (SUPPORT / SUPER_ADMIN)
+// User directory (SUPPORT / SUPER_ADMIN) — contract §9: GET /admin/users,
+// GET /admin/users/{userId}. Operational view; KYC/verification state read-only.
 // ---------------------------------------------------------------------------
 
-const DISPUTE_STATUS_LIST = ['OPEN', 'UNDER_REVIEW', 'RESOLVED', 'DISMISSED'];
-const DISPUTE_EVIDENCE_TYPES = ['SCREENSHOT', 'CHAT_LOG', 'GAME_LOG', 'SYSTEM_LOG', 'OTHER'];
+const USER_OPERATIONAL_FIELDS = {
+  id: true,
+  email: true,
+  phone: true,
+  username: true,
+  fullName: true,
+  displayName: true,
+  avatar: true,
+  tier: true,
+  kycStatus: true,
+  emailVerified: true,
+  phoneVerified: true,
+  ageVerified: true,
+  address: true,
+  countryCode: true,
+  dateOfBirth: true,
+  isBanned: true,
+  isAdmin: true,
+  createdAt: true,
+  wallet: { select: { currency: true } }
+};
 
 adminRouter.get(
-  '/disputes',
-  requirePermission(PERMISSIONS.DISPUTES_MANAGE),
+  '/users',
+  requirePermission(PERMISSIONS.USERS_MANAGE),
   async (req, res, next) => {
     try {
       const parsed = parsePagination(req.query);
       if (!parsed.ok) return res.status(400).json({ error: 'Invalid pagination params' });
       const { page, limit } = parsed.data;
-      const { status } = req.query;
-      const where =
-        typeof status === 'string' && DISPUTE_STATUS_LIST.includes(status) ? { status } : {};
-      const skip = (page - 1) * limit;
-      const [rows, total] = await Promise.all([
-        prisma.disputeCase.findMany({
-          where,
-          orderBy: { updatedAt: 'desc' },
-          skip,
-          take: limit,
-          include: {
-            evidence: { orderBy: { uploadedAt: 'asc' } },
-            match: { select: { id: true, status: true, outcome: true } }
-          }
-        }),
-        prisma.disputeCase.count({ where })
-      ]);
-      const raisedBy = [...new Set(rows.map((r) => r.raisedBy))];
-      const raisers = raisedBy.length
-        ? await prisma.user.findMany({
-            where: { id: { in: raisedBy } },
-            select: { id: true, email: true }
-          })
-        : [];
-      const emailByUser = Object.fromEntries(raisers.map((u) => [u.id, u.email]));
-      const disputes = rows.map((r) => ({
-        ...r,
-        raisedByEmail: emailByUser[r.raisedBy] ?? null
-      }));
-      res.json({ disputes, total, page, totalPages: Math.ceil(total / limit) });
-    } catch (error) {
-      next(error);
-    }
-  }
-);
-
-adminRouter.post(
-  '/disputes/:id/evidence',
-  requirePermission(PERMISSIONS.DISPUTES_MANAGE),
-  async (req, res, next) => {
-    try {
-      const { type, url, description } = req.body ?? {};
-      if (!DISPUTE_EVIDENCE_TYPES.includes(type)) {
-        return res.status(400).json({ error: 'Invalid evidence type' });
-      }
-      if (typeof url !== 'string' || url.trim() === '') {
-        return res.status(400).json({ error: 'Evidence url is required' });
-      }
-      const existing = await prisma.disputeCase.findUnique({ where: { id: req.params.id } });
-      if (!existing) return res.status(404).json({ error: 'Dispute case not found' });
-      const evidence = await prisma.disputeEvidence.create({
-        data: {
-          caseId: req.params.id,
-          type,
-          url: url.trim(),
-          ...(typeof description === 'string' ? { description } : {})
-        }
-      });
-      await audit(req, 'dispute.evidence', {
-        targetType: 'dispute',
-        targetId: req.params.id,
-        metadata: { evidenceId: evidence.id, type }
-      });
-      res.status(201).json({ evidence });
-    } catch (error) {
-      next(error);
-    }
-  }
-);
-
-adminRouter.post(
-  '/disputes/:id/decide',
-  requirePermission(PERMISSIONS.DISPUTES_MANAGE),
-  async (req, res, next) => {
-    try {
-      const { status, resolution } = req.body ?? {};
-      if (!['RESOLVED', 'DISMISSED'].includes(status)) {
-        return res.status(400).json({ error: 'status must be RESOLVED or DISMISSED' });
-      }
-      if (typeof resolution !== 'string' || resolution.trim() === '') {
-        return res.status(400).json({ error: 'resolution is required' });
-      }
-      const existing = await prisma.disputeCase.findUnique({ where: { id: req.params.id } });
-      if (!existing) return res.status(404).json({ error: 'Dispute case not found' });
-      if (!['OPEN', 'UNDER_REVIEW'].includes(existing.status)) {
-        return res.status(409).json({ error: 'Dispute is already decided' });
-      }
-      const decided = await prisma.disputeCase.update({
-        where: { id: req.params.id },
-        data: {
-          status,
-          resolution: resolution.trim(),
-          decidedBy: req.user.id,
-          decidedAt: new Date()
-        }
-      });
-      await audit(req, 'dispute.decide', {
-        targetType: 'dispute',
-        targetId: req.params.id,
-        metadata: { status, resolution: resolution.trim() }
-      });
-      res.json({ disputeCase: decided });
-    } catch (error) {
-      next(error);
-    }
-  }
-);
-
-// ---------------------------------------------------------------------------
-// Risk (RISK_COMPLIANCE / SUPER_ADMIN)
-// ---------------------------------------------------------------------------
-
-const RISK_CASE_STATUS_LIST = ['OPEN', 'INVESTIGATING', 'RESOLVED', 'DISMISSED'];
-
-adminRouter.get(
-  '/risk-events',
-  requirePermission(PERMISSIONS.RISK_REVIEW),
-  async (req, res, next) => {
-    try {
-      const parsed = parsePagination(req.query);
-      if (!parsed.ok) return res.status(400).json({ error: 'Invalid pagination params' });
-      const { page, limit } = parsed.data;
-      const { type, severity, userId } = req.query;
+      const { q, kycStatus, isBanned } = req.query;
       const where = {
-        ...(typeof userId === 'string' ? { userId } : {}),
-        ...(typeof type === 'string' ? { type } : {}),
-        ...(typeof severity === 'string' ? { severity } : {})
+        ...(typeof q === 'string' && q.trim()
+          ? {
+              OR: [
+                { email: { contains: q.trim(), mode: 'insensitive' } },
+                { phone: { contains: q.trim() } },
+                { username: { contains: q.trim(), mode: 'insensitive' } },
+                { fullName: { contains: q.trim(), mode: 'insensitive' } }
+              ]
+            }
+          : {}),
+        ...(typeof kycStatus === 'string' && KYC_STATUSES.includes(kycStatus) ? { kycStatus } : {}),
+        ...(isBanned === 'true' ? { isBanned: true } : isBanned === 'false' ? { isBanned: false } : {})
       };
       const skip = (page - 1) * limit;
-      const [rows, total] = await Promise.all([
-        prisma.riskEvent.findMany({ where, orderBy: { createdAt: 'desc' }, skip, take: limit }),
-        prisma.riskEvent.count({ where })
+      const [users, total] = await Promise.all([
+        prisma.user.findMany({ where, orderBy: { createdAt: 'desc' }, skip, take: limit, select: USER_OPERATIONAL_FIELDS }),
+        prisma.user.count({ where })
       ]);
-      res.json({ events: rows, total, page, totalPages: Math.ceil(total / limit) });
+      res.json({ users, total, page, totalPages: Math.ceil(total / limit) });
     } catch (error) {
       next(error);
     }
@@ -626,52 +536,86 @@ adminRouter.get(
 );
 
 adminRouter.get(
-  '/risk-cases',
-  requirePermission(PERMISSIONS.RISK_REVIEW),
+  '/users/:userId',
+  requirePermission(PERMISSIONS.USERS_MANAGE),
   async (req, res, next) => {
     try {
-      const parsed = parsePagination(req.query);
-      if (!parsed.ok) return res.status(400).json({ error: 'Invalid pagination params' });
-      const { page, limit } = parsed.data;
-      const { status } = req.query;
-      const where =
-        typeof status === 'string' && RISK_CASE_STATUS_LIST.includes(status) ? { status } : {};
-      const skip = (page - 1) * limit;
-      const [rows, total] = await Promise.all([
-        prisma.riskCase.findMany({ where, orderBy: { updatedAt: 'desc' }, skip, take: limit }),
-        prisma.riskCase.count({ where })
-      ]);
-      res.json({ cases: rows, total, page, totalPages: Math.ceil(total / limit) });
+      const target = await prisma.user.findUnique({
+        where: { id: req.params.userId },
+        select: {
+          ...USER_OPERATIONAL_FIELDS,
+          verificationCases: { orderBy: { createdAt: 'desc' }, take: 1 },
+          adminRoleAssignments: { include: { role: true }, orderBy: { assignedAt: 'asc' } }
+        }
+      });
+      if (!target) return res.status(404).json({ error: 'User not found' });
+      const roles = target.adminRoleAssignments.map((a) => a.role.name);
+      res.json({
+        ...target,
+        adminRoleAssignments: undefined,
+        roles,
+        verificationStatus: target.verificationCases?.[0]?.status ?? target.kycStatus ?? 'NONE'
+      });
     } catch (error) {
       next(error);
     }
   }
 );
 
-adminRouter.post(
-  '/risk-cases/:id/status',
-  requirePermission(PERMISSIONS.RISK_REVIEW),
+// ---------------------------------------------------------------------------
+// Match evidence (GAME_OPERATIONS / SUPER_ADMIN) — contract §9:
+// GET /admin/matches/{matchId}/evidence. Read-only replay/evidence view.
+// ---------------------------------------------------------------------------
+
+const MATCH_EVIDENCE_EVENT_CAP = 1000;
+
+adminRouter.get(
+  '/matches/:matchId/evidence',
+  requirePermission(PERMISSIONS.MATCH_EVIDENCE_READ),
   async (req, res, next) => {
     try {
-      const { status, assignedTo } = req.body ?? {};
-      if (!RISK_CASE_STATUS_LIST.includes(status)) {
-        return res.status(400).json({ error: 'Invalid risk case status' });
-      }
-      const existing = await prisma.riskCase.findUnique({ where: { id: req.params.id } });
-      if (!existing) return res.status(404).json({ error: 'Risk case not found' });
-      const updated = await prisma.riskCase.update({
-        where: { id: req.params.id },
-        data: {
-          status,
-          ...(typeof assignedTo === 'string' ? { assignedTo } : {})
+      const match = await prisma.match.findUnique({
+        where: { id: req.params.matchId },
+        include: {
+          participants: {
+            include: { user: { select: { id: true, email: true, username: true, displayName: true, avatar: true, tier: true, kycStatus: true, isBanned: true } } }
+          },
+          stakeReservations: { orderBy: { createdAt: 'asc' } },
+          settlements: { orderBy: { createdAt: 'asc' } },
+          receipts: { orderBy: { createdAt: 'asc' } },
+          gameEvents: { orderBy: { createdAt: 'asc' }, take: MATCH_EVIDENCE_EVENT_CAP },
+          connectionEvents: { orderBy: { createdAt: 'asc' }, take: MATCH_EVIDENCE_EVENT_CAP },
+          gameState: true,
+          snapshots: { orderBy: { createdAt: 'asc' }, take: MATCH_EVIDENCE_EVENT_CAP }
         }
       });
-      await audit(req, 'risk-case.status', {
-        targetType: 'risk-case',
-        targetId: req.params.id,
-        metadata: { status, assignedTo: typeof assignedTo === 'string' ? assignedTo : null }
+      if (!match) return res.status(404).json({ error: 'Match not found' });
+
+      const moves = await prisma.matchMove.findMany({
+        where: { matchId: req.params.matchId },
+        orderBy: { moveNumber: 'asc' },
+        take: MATCH_EVIDENCE_EVENT_CAP,
+        select: { moveNumber: true, playerId: true, fromSquare: true, toSquare: true, capturedSquares: true, isKingMove: true, path: true, clientMoveId: true, stateVersion: true, createdAt: true }
       });
-      res.json({ riskCase: updated });
+
+      const disputes = await prisma.disputeCase.findMany({
+        where: { matchId: req.params.matchId },
+        orderBy: { createdAt: 'asc' },
+        include: { evidence: { orderBy: { uploadedAt: 'asc' } } }
+      });
+
+      const corrections = await prisma.matchResultCorrection.findMany({
+        where: { matchId: req.params.matchId },
+        orderBy: { createdAt: 'asc' }
+      });
+
+      res.json({
+        match,
+        moves,
+        disputes,
+        resultCorrections: corrections,
+        evidenceCaps: { moves: moves.length, gameEvents: match.gameEvents.length, connectionEvents: match.connectionEvents.length, snapshots: match.snapshots.length }
+      });
     } catch (error) {
       next(error);
     }

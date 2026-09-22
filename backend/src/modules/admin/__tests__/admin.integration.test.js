@@ -106,10 +106,21 @@ describeIntegration('Admin v2 (real PostgreSQL + Redis)', () => {
     await prisma.riskEvent.deleteMany({ where: { userId: { in: userIds } } });
     await prisma.riskCase.deleteMany({ where: { subjectId: { in: userIds } } });
     await prisma.match.deleteMany({ where: { id: { in: createdMatchIds } } });
+    await prisma.idempotencyRecord.deleteMany({ where: { key: { contains: 'itg-op-' } } });
     await prisma.user.deleteMany({ where: { id: { in: userIds } } });
   });
 
   const auth = (token) => ({ Authorization: `Bearer ${token}` });
+
+  // Admin POSTs require an Idempotency-Key; keep each call unique so repeated
+  // requests in a test drive the underlying ledger/business idempotency rather
+  // than the HTTP replay layer.
+  let opSeq = 0;
+  const postAs = (token, path) =>
+    request(app)
+      .post(path)
+      .set(auth(token))
+      .set('Idempotency-Key', `itg-op-${Date.now()}-${++opSeq}`);
 
   it('denies a plain admin session without any role', async () => {
     const token = await tokenFor(player.id);
@@ -121,13 +132,9 @@ describeIntegration('Admin v2 (real PostgreSQL + Redis)', () => {
     const token = await tokenFor(auditor.id);
     const list = await request(app).get('/api/v1/admin/withdrawals').set(auth(token));
     expect(list.status).toBe(200);
-    const approve = await request(app)
-      .post('/api/v1/admin/withdrawals/does-not-exist/approve')
-      .set(auth(token));
+    const approve = await postAs(token, '/api/v1/admin/withdrawals/does-not-exist/approve');
     expect(approve.status).toBe(403);
-    const adjust = await request(app)
-      .post('/api/v1/admin/ledger/adjustments')
-      .set(auth(token))
+    const adjust = await postAs(token, '/api/v1/admin/ledger/adjustments')
       .send({ userId: player.id, amountMinorUnits: '1000', direction: 'CREDIT', reference: 'aud-adj' });
     expect(adjust.status).toBe(403);
   });
@@ -138,14 +145,10 @@ describeIntegration('Admin v2 (real PostgreSQL + Redis)', () => {
     expect(list.status).toBe(200);
     expect(Array.isArray(list.body.withdrawals)).toBe(true);
 
-    const missing = await request(app)
-      .post('/api/v1/admin/withdrawals/does-not-exist/approve')
-      .set(auth(token));
+    const missing = await postAs(token, '/api/v1/admin/withdrawals/does-not-exist/approve');
     expect(missing.status).toBe(404);
 
-    const noReason = await request(app)
-      .post('/api/v1/admin/withdrawals/does-not-exist/reject')
-      .set(auth(token));
+    const noReason = await postAs(token, '/api/v1/admin/withdrawals/does-not-exist/reject');
     expect(noReason.status).toBe(404);
   });
 
@@ -162,19 +165,15 @@ describeIntegration('Admin v2 (real PostgreSQL + Redis)', () => {
       reference: `itg-adjust-${Date.now()}`
     };
 
-    const first = await request(app)
-      .post('/api/v1/admin/ledger/adjustments')
-      .set(auth(token))
-      .send(body);
+    const first = await postAs(token, '/api/v1/admin/ledger/adjustments').send(body);
     expect(first.status).toBe(201);
     expect(first.body.adjustment.direction).toBe('CREDIT');
     expect(first.body.adjustment.available).toBe('250000');
     adjustmentTxIds.push(first.body.adjustment.transactionId);
 
-    const second = await request(app)
-      .post('/api/v1/admin/ledger/adjustments')
-      .set(auth(token))
-      .send(body);
+    // Distinct HTTP key on purpose: the ledger reference key is the real
+    // idempotency source, and a retry must not double-move funds.
+    const second = await postAs(token, '/api/v1/admin/ledger/adjustments').send(body);
     expect(second.status).toBe(201);
     expect(second.body.adjustment.transactionId).toBe(first.body.adjustment.transactionId);
 
@@ -186,9 +185,7 @@ describeIntegration('Admin v2 (real PostgreSQL + Redis)', () => {
 
   it('refuses a DEBIT adjustment that would overdraw the player', async () => {
     const token = await tokenFor(finance.id);
-    const res = await request(app)
-      .post('/api/v1/admin/ledger/adjustments')
-      .set(auth(token))
+    const res = await postAs(token, '/api/v1/admin/ledger/adjustments')
       .send({
         userId: player.id,
         amountMinorUnits: '999999999999',
@@ -200,18 +197,14 @@ describeIntegration('Admin v2 (real PostgreSQL + Redis)', () => {
 
   it('keeps role grants exclusive to SUPER_ADMIN', async () => {
     const token = await tokenFor(finance.id);
-    const res = await request(app)
-      .post('/api/v1/admin/roles/assign')
-      .set(auth(token))
+    const res = await postAs(token, '/api/v1/admin/roles/assign')
       .send({ userId: player.id, roleName: 'SUPPORT' });
     expect(res.status).toBe(403);
   });
 
   it('grants a role and revokes it with immediate effect (DB-backed binding)', async () => {
     const adminToken = await tokenFor(superAdmin.id);
-    const assign = await request(app)
-      .post('/api/v1/admin/roles/assign')
-      .set(auth(adminToken))
+    const assign = await postAs(adminToken, '/api/v1/admin/roles/assign')
       .send({ userId: player.id, roleName: 'GAME_OPERATIONS' });
     expect(assign.status).toBe(201);
 
@@ -219,9 +212,7 @@ describeIntegration('Admin v2 (real PostgreSQL + Redis)', () => {
     const read = await request(app).get('/api/v1/admin/audit/logs').set(auth(playerToken));
     expect(read.status).toBe(200);
 
-    const revoke = await request(app)
-      .post('/api/v1/admin/roles/revoke')
-      .set(auth(adminToken))
+    const revoke = await postAs(adminToken, '/api/v1/admin/roles/revoke')
       .send({ userId: player.id, roleName: 'GAME_OPERATIONS' });
     expect(revoke.status).toBe(200);
     expect(revoke.body.revoked).toBe(1);
@@ -233,14 +224,14 @@ describeIntegration('Admin v2 (real PostgreSQL + Redis)', () => {
   it('has SUPPORT ban a user and disconnect their sessions', async () => {
     const token = await tokenFor(support.id);
     const res = await request(app)
-      .patch(`/admin/users/${player2.id}/ban`)
+      .patch(`/api/v1/admin/users/${player2.id}/ban`)
       .set(auth(token));
     expect(res.status).toBe(200);
     const banned = await prisma.user.findUnique({ where: { id: player2.id } });
     expect(banned.isBanned).toBe(true);
 
     const unban = await request(app)
-      .patch(`/admin/users/${player2.id}/unban`)
+      .patch(`/api/v1/admin/users/${player2.id}/unban`)
       .set(auth(token));
     expect(unban.status).toBe(200);
   });
@@ -257,10 +248,10 @@ describeIntegration('Admin v2 (real PostgreSQL + Redis)', () => {
       }
     });
     const token = await tokenFor(risk.id);
-    const res = await request(app)
-      .post(`/admin/verification-cases/${vc.id}/approve`)
-      .set(auth(token))
-      .send({ note: 'integration pass' });
+    const res = await postAs(token, `/api/v1/admin/kyc/cases/${vc.id}/decision`).send({
+      decision: 'APPROVE',
+      note: 'integration pass'
+    });
     expect(res.status).toBe(200);
     expect(res.body.verificationCase.status).toBe('VERIFIED');
 
@@ -283,22 +274,16 @@ describeIntegration('Admin v2 (real PostgreSQL + Redis)', () => {
     createdMatchIds.push(match.id);
     const token = await tokenFor(support.id);
 
-    const evidence = await request(app)
-      .post(`/admin/disputes/${dispute.id}/evidence`)
-      .set(auth(token))
+    const evidence = await postAs(token, `/api/v1/admin/disputes/${dispute.id}/evidence`)
       .send({ type: 'GAME_LOG', url: 'https://cdn.test/gamelog.json' });
     expect(evidence.status).toBe(201);
 
-    const decide = await request(app)
-      .post(`/admin/disputes/${dispute.id}/decide`)
-      .set(auth(token))
+    const decide = await postAs(token, `/api/v1/admin/disputes/${dispute.id}/decision`)
       .send({ status: 'RESOLVED', resolution: 'Reader confirms the result, no refund.' });
     expect(decide.status).toBe(200);
     expect(decide.body.disputeCase.status).toBe('RESOLVED');
 
-    const again = await request(app)
-      .post(`/admin/disputes/${dispute.id}/decide`)
-      .set(auth(token))
+    const again = await postAs(token, `/api/v1/admin/disputes/${dispute.id}/decision`)
       .send({ status: 'RESOLVED', resolution: 'Already resolved.' });
     expect(again.status).toBe(409);
   });
@@ -311,9 +296,7 @@ describeIntegration('Admin v2 (real PostgreSQL + Redis)', () => {
     });
 
     const token = await tokenFor(support.id);
-    const res = await request(app)
-      .post(`/admin/safer-play/${player.id}/clear-timeout`)
-      .set(auth(token));
+    const res = await postAs(token, `/api/v1/admin/safer-play/${player.id}/clear-timeout`);
     expect(res.status).toBe(200);
     expect(res.body.lifted).toBe(true);
 

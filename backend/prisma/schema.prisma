@@ -181,6 +181,7 @@ model Match {
   connectionEvents       MatchConnectionEvent[]
   snapshots              GameStateSnapshot[]
   disputeCases           DisputeCase[]
+  resultCorrections      MatchResultCorrection[]
   // V2 snapshot fields (NULL for legacy ACTIVE rows funded before this migration)
   currency                      Currency?  @default(NGN)
   rulesetVersion                Int?
@@ -944,13 +945,15 @@ model DisputeCase {
   raisedBy    String
   status      DisputeStatus @default(OPEN)
   reason      String
+  category    String?       // client-supplied dispute category (e.g. TECHNICAL_RESULT)
   resolution  String?
   decidedBy   String?
   decidedAt   DateTime?
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
 
-  evidence    DisputeEvidence[]
+  evidence            DisputeEvidence[]
+  resultCorrections   MatchResultCorrection[]
 
   @@index([matchId])
   @@index([status])
@@ -974,6 +977,29 @@ model DisputeEvidence {
   uploadedAt  DateTime            @default(now())
 
   @@index([caseId])
+}
+
+// Append-only result correction produced by a resolved dispute. The original
+// Match/Settlement/Receipt rows are never rewritten (decisions §34/§35); when
+// money must change, a SEPARATE balanced ledger adjustment is posted with a
+// reference linked to the dispute case. This row is the authoritative, audited
+// record of "the disputed result was corrected to X by admin Y for reason Z".
+model MatchResultCorrection {
+  id                 String    @id @default(uuid())
+  matchId            String
+  match              Match     @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  disputeCaseId      String
+  disputeCase        DisputeCase @relation(fields: [disputeCaseId], references: [id], onDelete: Cascade)
+  priorWinnerId      String?
+  correctedWinnerId  String?
+  priorEndReason     String?
+  correctedEndReason String?
+  reason             String    // decision rationale (mirrors the dispute resolution)
+  decidedBy          String    // acting admin User.id
+  createdAt          DateTime  @default(now())
+
+  @@index([matchId])
+  @@index([disputeCaseId])
 }
 
 // ---------------------------------------------------------------------------

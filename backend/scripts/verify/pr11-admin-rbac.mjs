@@ -59,12 +59,16 @@ const ready = async () => {
 
 const token = (userId) => jwt.sign({ userId }, JWT_SECRET, { expiresIn: '10m' });
 
+// Every admin POST requires an Idempotency-Key; keep keys unique so ledger
+// replay assertions exercise the business reference key, not the HTTP cache.
+let opSeq = 0;
 const api = async (method, path, { userId, body } = {}) => {
   const res = await fetch(`${base}${path}`, {
     method,
     headers: {
       authorization: `Bearer ${token(userId)}`,
-      'content-type': 'application/json'
+      ...(method === 'POST' ? { 'idempotency-key': `pr11-${Date.now()}-${++opSeq}` } : {}),
+      ...(body === undefined ? {} : { 'content-type': 'application/json' })
     },
     body: body === undefined ? undefined : JSON.stringify(body)
   });
@@ -147,7 +151,7 @@ try {
   for (const path of [
     '/admin/withdrawals',
     '/admin/roles',
-    '/admin/verification-cases',
+    '/admin/kyc/cases',
     '/admin/disputes',
     '/admin/risk-events'
   ]) {
@@ -242,13 +246,13 @@ try {
     body: { type: 'GAME_LOG', url: 'https://cdn.test/game.json' }
   });
   assert.equal(evidence.status, 201, 'SUPPORT attaches evidence');
-  const decide = await api('POST', `/admin/disputes/${dispute.id}/decide`, {
+  const decide = await api('POST', `/admin/disputes/${dispute.id}/decision`, {
     userId: support,
     body: { status: 'RESOLVED', resolution: 'Confirmed; no refund.' }
   });
   assert.equal(decide.status, 200, 'SUPPORT decides the dispute');
   assert.equal(decide.data.disputeCase.status, 'RESOLVED');
-  const decideAgain = await api('POST', `/admin/disputes/${dispute.id}/decide`, {
+  const decideAgain = await api('POST', `/admin/disputes/${dispute.id}/decision`, {
     userId: support,
     body: { status: 'RESOLVED', resolution: 'Already decided.' }
   });
@@ -257,7 +261,10 @@ try {
   // -----------------------------------------------------------------------
   step('P5: RISK_COMPLIANCE approves KYC end to end; SUPPORT stays out');
   // -----------------------------------------------------------------------
-  const supportKyc = await api('POST', '/admin/verification-cases/x/approve', { userId: support });
+  const supportKyc = await api('POST', '/admin/kyc/cases/x/decision', {
+    userId: support,
+    body: { decision: 'APPROVE' }
+  });
   assert.equal(supportKyc.status, 403, 'SUPPORT has no KYC review right');
 
   const kycCase = await prisma.verificationCase.create({
@@ -270,9 +277,9 @@ try {
   });
   allUserIds.push(`__case__${kycCase.id}`);
 
-  const approve = await api('POST', `/admin/verification-cases/${kycCase.id}/approve`, {
+  const approve = await api('POST', `/admin/kyc/cases/${kycCase.id}/decision`, {
     userId: compliance,
-    body: { note: 'harness pass' }
+    body: { decision: 'APPROVE', note: 'harness pass' }
   });
   assert.equal(approve.status, 200, 'RISK_COMPLIANCE approves the case');
   assert.equal(approve.data.verificationCase.status, 'VERIFIED');
@@ -348,6 +355,7 @@ try {
       const matchIds = allUserIds.filter((id) => id.startsWith('__match__')).map((id) => id.slice(9));
       const caseIds = allUserIds.filter((id) => id.startsWith('__case__')).map((id) => id.slice(8));
 
+      await prisma.idempotencyRecord.deleteMany({ where: { key: { contains: 'pr11-' } } });
       await prisma.adminAuditLog.deleteMany({
         where: { OR: [{ adminId: { in: realUsers } }, { targetType: 'user', targetId: { in: realUsers } }] }
       });
