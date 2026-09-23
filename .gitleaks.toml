@@ -1,0 +1,8 @@
+title = "DraughtBet secret scanning"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "benign verify-script fixture idempotency keys"
+regexes = ["deep19_country", "Verify-Pass-123"]

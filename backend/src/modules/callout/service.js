@@ -2,6 +2,7 @@ import prisma from '../../utils/db.js';
 import logger from '../../utils/logger.js';
 import { getIO } from '../../sockets/index.js';
 import { createMatchWithStakes, ActiveMatchError } from '../../services/matchService.js';
+import { hasPreterminalMatchForPlayers } from '../match/service.js';
 import { finalizeMatchActivation } from '../../services/gameActivationService.js';
 import { NotificationService } from '../notification/service.js';
 
@@ -175,16 +176,14 @@ export const acceptCallout = async (userId, calloutId) => {
       throw new TierMismatchError();
     }
 
-    // 4. Active-match eligibility for both players
+    // 4. Active-match eligibility for both players: the whole pre-terminal
+    //    lifetime (DRAFT/OPEN/FUNDED/READY/IN_PLAY, legacy ACTIVE) reserves a
+    //    player — a queued or awaiting-start opponent is just as busy as one
+    //    mid-game.
     for (const playerId of [callout.challengerId, userId]) {
-      const active = await tx.match.findFirst({
-        where: {
-          status: 'ACTIVE',
-          OR: [{ playerLightId: playerId }, { playerDarkId: playerId }]
-        },
-        select: { id: true }
-      });
-      if (active) throw new ActiveMatchError();
+      if (await hasPreterminalMatchForPlayers(tx, [playerId])) {
+        throw new ActiveMatchError();
+      }
     }
 
     // 5. Reserve stakes + create Match atomically on the same tx
@@ -239,7 +238,8 @@ export const acceptCallout = async (userId, calloutId) => {
     'CALLOUT_ACCEPTED',
     'Challenge Accepted!',
     'Your callout has been accepted. The match is starting.',
-    `/match/${match.id}`
+    `/match/${match.id}`,
+    match.id
   );
 
   logger.info({ calloutId, matchId: match.id, p1: callout.challengerId, p2: userId }, 'Callout accepted, match created');

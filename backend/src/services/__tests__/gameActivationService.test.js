@@ -9,8 +9,11 @@ const mockPrisma = {
     update: jest.fn()
   },
   wallet: { update: jest.fn() },
-  walletTransaction: { create: jest.fn() },
-  match: { update: jest.fn() }
+  ledgerAccount: { upsert: jest.fn() },
+  ledgerTransaction: { create: jest.fn(), findUnique: jest.fn() },
+  ledgerEntry: { create: jest.fn() },
+  match: { update: jest.fn(), updateMany: jest.fn(), findUnique: jest.fn() },
+  stakeReservation: { updateMany: jest.fn() }
 };
 
 jest.unstable_mockModule('../../utils/db.js', () => ({
@@ -31,6 +34,16 @@ jest.unstable_mockModule('../../sockets/gameManager.js', () => ({
 
 jest.unstable_mockModule('../matchService.js', () => ({
   lockWalletsInOrder: jest.fn()
+}));
+
+const mockReleaseStakes = jest.fn();
+jest.unstable_mockModule('../../modules/stake/service.js', () => ({
+  releaseStakes: mockReleaseStakes
+}));
+
+const mockTransitionMatch = jest.fn();
+jest.unstable_mockModule('../../modules/match/service.js', () => ({
+  transitionMatch: mockTransitionMatch
 }));
 
 const { lockWalletsInOrder } = await import('../matchService.js');
@@ -56,6 +69,7 @@ describe('gameActivationService finalizeMatchActivation', () => {
     mockPrisma.gameOutbox.findUnique.mockResolvedValue({ status: 'PENDING' });
     mockPrisma.$queryRaw.mockResolvedValue([pendingRow]);
     mockPrisma.gameOutbox.updateMany.mockResolvedValue({ count: 1 });
+    mockPrisma.match.updateMany.mockResolvedValue({ count: 1 });
     mockInitializeGame.mockResolvedValue({});
   });
 
@@ -106,7 +120,7 @@ describe('gameActivationService finalizeMatchActivation', () => {
       })
     });
     expect(mockPrisma.wallet.update).not.toHaveBeenCalled();
-    expect(mockPrisma.walletTransaction.create).not.toHaveBeenCalled();
+    expect(mockPrisma.match.updateMany).not.toHaveBeenCalled();
   });
 });
 
@@ -115,29 +129,37 @@ describe('gameActivationService releaseMatch', () => {
     jest.clearAllMocks();
     mockPrisma.$queryRaw.mockResolvedValue([pendingRow]);
     lockWalletsInOrder.mockResolvedValue([
-      { id: 'w-a', userId: 'player-a', balanceMinorUnits: '9000' },
-      { id: 'w-b', userId: 'player-b', balanceMinorUnits: '9000' }
+      { id: 'w-a', userId: 'player-a', currency: 'NGN' },
+      { id: 'w-b', userId: 'player-b', currency: 'NGN' }
     ]);
+    mockPrisma.$transaction.mockImplementation(async (fn) => fn(mockPrisma));
+    mockTransitionMatch.mockResolvedValue({ id: 'match-1', status: 'RELEASED' });
+    mockReleaseStakes.mockResolvedValue({});
   });
 
   it('refunds both stakes exactly once and records the release', async () => {
-    mockPrisma.$transaction.mockImplementation(async (fn) => fn(mockPrisma));
-
     const result = await releaseMatch('outbox-1');
 
     expect(mockPrisma.$queryRaw).toHaveBeenCalledTimes(1);
     expect(lockWalletsInOrder).toHaveBeenCalledWith(mockPrisma, 'player-a', 'player-b');
-    // Both players get a CREDIT, never a debit
-    expect(mockPrisma.wallet.update).toHaveBeenCalledTimes(2);
-    expect(mockPrisma.walletTransaction.create).toHaveBeenCalledTimes(2);
-    for (const call of mockPrisma.walletTransaction.create.mock.calls) {
-      expect(call[0].data.type).toBe('REFUND');
-      expect(call[0].data.amountMinorUnits.toString()).toBe('5000');
-      expect(call[0].data.relatedMatchId).toBe('match-1');
-    }
+    // Release is only legal before the game is live: the transition guard runs
+    // (and can throw) before any money moves; refunds go through StakeService.
+    expect(mockTransitionMatch).toHaveBeenCalledWith(mockPrisma, 'match-1', 'RELEASED');
+    expect(mockReleaseStakes).toHaveBeenCalledWith(mockPrisma, {
+      matchId: 'match-1',
+      participants: [
+        { userId: 'player-a' },
+        { userId: 'player-b' }
+      ],
+      amountMinorUnits: 5000n,
+      wallets: [
+        { id: 'w-a', userId: 'player-a', currency: 'NGN' },
+        { id: 'w-b', userId: 'player-b', currency: 'NGN' }
+      ]
+    });
     expect(mockPrisma.match.update).toHaveBeenCalledWith({
       where: { id: 'match-1' },
-      data: expect.objectContaining({ status: 'RELEASED' })
+      data: expect.objectContaining({ endReason: 'activation_failed' })
     });
     expect(mockPrisma.gameOutbox.update).toHaveBeenCalledWith({
       where: { id: 'outbox-1' },
@@ -150,11 +172,11 @@ describe('gameActivationService releaseMatch', () => {
     mockPrisma.$queryRaw.mockResolvedValue([]);
     await expect(releaseMatch('outbox-1')).resolves.toBeNull();
     expect(mockPrisma.$transaction).not.toHaveBeenCalled();
-    expect(mockPrisma.wallet.update).not.toHaveBeenCalled();
+    expect(mockTransitionMatch).not.toHaveBeenCalled();
+    expect(mockReleaseStakes).not.toHaveBeenCalled();
   });
 
-  it('refunds once per claim; a second claim attempt on the released row writes nothing', async () => {
-    mockPrisma.$transaction.mockImplementation(async (fn) => fn(mockPrisma));
+  it('issues exactly one release per claim; a second attempt on the released row writes nothing', async () => {
     mockPrisma.$queryRaw
       .mockResolvedValueOnce([pendingRow])
       .mockResolvedValueOnce([]);
@@ -162,9 +184,8 @@ describe('gameActivationService releaseMatch', () => {
     await releaseMatch('outbox-1');
     await releaseMatch('outbox-1');
 
-    // Only the first claim produced refunds; no extra debit or credit tuples
-    expect(mockPrisma.walletTransaction.create).toHaveBeenCalledTimes(2);
-    expect(mockPrisma.wallet.update).toHaveBeenCalledTimes(2);
+    expect(mockTransitionMatch).toHaveBeenCalledTimes(1);
+    expect(mockReleaseStakes).toHaveBeenCalledTimes(1);
   });
 });
 

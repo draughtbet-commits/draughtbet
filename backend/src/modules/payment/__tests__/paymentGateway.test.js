@@ -1,6 +1,6 @@
 import { jest } from '@jest/globals';
-import { PaystackGateway } from '../PaystackGateway.js';
-import { FlutterwaveGateway } from '../FlutterwaveGateway.js';
+import { PaystackGateway, mapPaystackTransferStatus } from '../PaystackGateway.js';
+import { FlutterwaveGateway, mapFlutterwaveTransferStatus } from '../FlutterwaveGateway.js';
 import crypto from 'crypto';
 
 describe('Payment Gateways', () => {
@@ -55,6 +55,41 @@ describe('Payment Gateways', () => {
       expect(body.metadata.userId).toBe('user123');
       expect(result.reference).toBe('paystack-intent-ref');
     });
+
+    it('verifyPayoutStatus maps the provider transfer state to a verdict', async () => {
+      const providerResponse = {
+        ok: true,
+        json: async () => ({ status: true, data: { status: 'success', reference: 'wit-1' } })
+      };
+      global.fetch = jest.fn().mockResolvedValue(providerResponse);
+
+      const verdict = await gateway.verifyPayoutStatus({ reference: 'wit-1', providerRef: null });
+
+      // queries the dedicated transfer-verify endpoint with our reference
+      expect(global.fetch.mock.calls[0][0]).toMatch(/\/transfer\/verify\/wit-1$/);
+      expect(verdict).toEqual({ status: 'success' });
+    });
+
+    it('verifyPayoutStatus surfaces an ambiguous provider state', async () => {
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ status: true, data: { status: 'pending' } })
+      });
+
+      const verdict = await gateway.verifyPayoutStatus({ reference: 'wit-1' });
+
+      expect(verdict).toEqual({ status: 'processing' });
+    });
+  });
+
+  describe('mapPaystackTransferStatus', () => {
+    it('maps terminal states exactly and everything else to processing', () => {
+      expect(mapPaystackTransferStatus('success')).toBe('success');
+      expect(mapPaystackTransferStatus('failed')).toBe('failed');
+      expect(mapPaystackTransferStatus('reversed')).toBe('failed');
+      expect(mapPaystackTransferStatus('pending')).toBe('processing');
+      expect(mapPaystackTransferStatus('something-weird')).toBe('processing');
+    });
   });
 
   describe('FlutterwaveGateway', () => {
@@ -87,6 +122,34 @@ describe('Payment Gateways', () => {
       expect(body.amount).toBe('1250.50');
       expect(body.meta.userId).toBe('user123');
       expect(result.reference).toBe('flutterwave-intent-ref');
+    });
+
+    it('verifyPayoutStatus looks the transfer up by the provider transfer id', async () => {
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ status: 'success', data: { status: 'SUCCESSFUL' } })
+      });
+
+      const verdict = await gateway.verifyPayoutStatus({ reference: 'wit-1', providerRef: 'prov-9' });
+
+      expect(global.fetch.mock.calls[0][0]).toMatch(/\/v3\/transfers\/prov-9$/);
+      expect(verdict).toEqual({ status: 'success' });
+    });
+
+    it('verifyPayoutStatus refuses to probe without a provider transfer id', async () => {
+      global.fetch = jest.fn();
+      await expect(gateway.verifyPayoutStatus({ reference: 'wit-1', providerRef: null }))
+        .rejects.toThrow(/without its transfer id/i);
+      expect(global.fetch).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('mapFlutterwaveTransferStatus', () => {
+    it('maps terminal states exactly and everything else to processing', () => {
+      expect(mapFlutterwaveTransferStatus('SUCCESSFUL')).toBe('success');
+      expect(mapFlutterwaveTransferStatus('FAILED')).toBe('failed');
+      expect(mapFlutterwaveTransferStatus('PENDING')).toBe('processing');
+      expect(mapFlutterwaveTransferStatus('queued')).toBe('processing');
     });
   });
 });

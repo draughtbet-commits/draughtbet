@@ -135,7 +135,7 @@ describe('acceptCallout policy', () => {
     expect(mockTo).toHaveBeenCalledWith('user:player-2');
     expect(mockEmit).toHaveBeenCalledWith('match_found', expect.anything());
     expect(mockNotificationCreate).toHaveBeenCalledWith(
-      'player-1', 'CALLOUT_ACCEPTED', expect.anything(), expect.anything(), '/match/match-1'
+      'player-1', 'CALLOUT_ACCEPTED', expect.anything(), expect.anything(), '/match/match-1', 'match-1'
     );
     expect(payload).toEqual({ id: 'match-1', stakeMinorUnits: '1000000' });
   });

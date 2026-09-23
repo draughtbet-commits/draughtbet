@@ -2,7 +2,7 @@ import { Server } from 'socket.io';
 import logger from '../utils/logger.js';
 import { socketAuthMiddleware } from './middleware.js';
 import { handleDisconnect, handleJoinMatch } from './disconnectHandler.js';
-import { handleMoveAttempt, handleResign } from './gameManager.js';
+import { handleClockSync, handleMoveAttempt, handleMoveSubmit, handleResign } from './gameManager.js';
 import { consumeBudget, MAX_SOCKETS_PER_USER } from './budget.js';
 
 let io;
@@ -58,11 +58,18 @@ export const initSocketServer = (httpServer) => {
       handleDisconnect(socket);
     });
 
+    // V2 game protocol. Legacy event names remain registered for the deployed
+    // Flutter client during the transition (see sockets/gameProtocol.js).
+    socket.on('move.submit', guardSocketHandler(socket, handleMoveSubmit, 'move.submit'));
     socket.on('move_attempt', guardSocketHandler(socket, handleMoveAttempt, 'move_attempt'));
 
+    socket.on('match.resign', guardSocketHandler(socket, handleResign, 'match.resign'));
     socket.on('resign', guardSocketHandler(socket, handleResign, 'resign'));
 
+    socket.on('match.join', guardSocketHandler(socket, handleJoinMatch, 'match.join'));
     socket.on('join_match', guardSocketHandler(socket, handleJoinMatch, 'join_match'));
+
+    socket.on('clock.sync', guardSocketHandler(socket, handleClockSync, 'clock.sync'));
   });
 
   return io;

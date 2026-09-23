@@ -10,6 +10,9 @@ const REDIS_KEY_PREFIX = 'rl:';
 const LIMITER_DEFAULTS = {
   standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
   legacyHeaders: false, // Disable the `X-RateLimit-*` headers
+  // Limiters are stacked (route bucket over the global one); singleCount would
+  // abort the stacked increment and defeat the route-specific budgets.
+  validate: { singleCount: false, xForwardedForHeader: false, validationsConfig: false },
 };
 
 /**
@@ -26,27 +29,46 @@ const LIMITER_DEFAULTS = {
 export const createResilientStore = (prefix) => {
   const memory = new MemoryStore();
   let redisStore = null;
+  let redisStoreInit = null;
+  let options = null;
+
+  const createRedisStore = async () => {
+    const candidate = new RedisStore({
+      // rate-limit-redis unwraps its command array and calls our function with
+      // the command name + args as positional arguments.
+      sendCommand: (...args) => redis.call(...args),
+      prefix: `${REDIS_KEY_PREFIX}${prefix}`,
+    });
+    // The RedisStore must be initialized (windowMs + Lua scripts) before its
+    // first use; express-rate-limit only calls init on this wrapper, so we
+    // initialize here once the connection is ready.
+    await candidate.init(options);
+    redisStore = candidate;
+    logger.info({ prefix: `${REDIS_KEY_PREFIX}${prefix}` }, 'Rate limiter using shared Redis store');
+    return candidate;
+  };
 
   const getRedisStore = () => {
-    if (redisStore) return redisStore;
-    if (isRedisReady(redis)) {
-      redisStore = new RedisStore({
-        sendCommand: (...args) => redis.call(...args),
-        prefix: `${REDIS_KEY_PREFIX}${prefix}`,
-      });
-      logger.info({ prefix: `${REDIS_KEY_PREFIX}${prefix}` }, 'Rate limiter using shared Redis store');
-    }
-    return redisStore;
+    if (redisStore) return Promise.resolve(redisStore);
+    if (!isRedisReady(redis) || !options) return Promise.resolve(null);
+    redisStoreInit ??= createRedisStore();
+    return redisStoreInit.catch((err) => {
+      redisStoreInit = null;
+      throw err;
+    });
   };
 
   const store = {
     localKeys: false,
-    init(options) {
-      store.options = options;
-      memory.init(options);
+    init(limiterOptions) {
+      options = limiterOptions;
+      memory.init(limiterOptions);
     },
     async increment(key) {
-      const remote = getRedisStore();
+      let remote = null;
+      try {
+        remote = await getRedisStore();
+      } catch { /* RedisStore init failed; degrade to memory */ }
       if (remote) {
         try {
           return await remote.increment(key);
@@ -61,7 +83,10 @@ export const createResilientStore = (prefix) => {
       return memory.increment(key);
     },
     async decrement(key) {
-      const remote = getRedisStore();
+      let remote = null;
+      try {
+        remote = await getRedisStore();
+      } catch { /* RedisStore init failed; degrade to memory */ }
       if (remote) {
         try {
           return await remote.decrement(key);
@@ -72,7 +97,10 @@ export const createResilientStore = (prefix) => {
       return memory.decrement(key);
     },
     async resetKey(key) {
-      const remote = getRedisStore();
+      let remote = null;
+      try {
+        remote = await getRedisStore();
+      } catch { /* RedisStore init failed; degrade to memory */ }
       if (remote) {
         try {
           return await remote.resetKey(key);
@@ -83,7 +111,10 @@ export const createResilientStore = (prefix) => {
       return memory.resetKey(key);
     },
     async resetAll() {
-      const remote = getRedisStore();
+      let remote = null;
+      try {
+        remote = await getRedisStore();
+      } catch { /* RedisStore init failed; degrade to memory */ }
       if (remote) {
         try {
           return await remote.resetAll();
@@ -104,7 +135,10 @@ export const createResilientStore = (prefix) => {
 export const limiterFor = ({ windowMs, max, message, prefix }) => rateLimit({
   store: createResilientStore(prefix),
   windowMs,
-  max,
+  max:
+    // Load runs lift every bucket so a single source IP can measure the app
+    // ceiling. Test-only: production silently ignores the flag.
+    process.env.NODE_ENV === 'test' && process.env.RATE_LIMIT_DISABLED === 'true' ? 1_000_000 : max,
   message,
   ...LIMITER_DEFAULTS,
 });
@@ -133,6 +167,89 @@ export const checkRateLimiter = limiterFor({
   windowMs: 60 * 1000, // 1 minute
   max: process.env.NODE_ENV === 'test' ? 1000 : 60, // 60 pre-auth checks per IP per window
   message: 'Too many requests from this IP, please try again after a minute',
+});
+
+// Route-specific buckets. These sit on top of the global limiter so an
+// attack on a sensitive endpoint exhausts its own budget instead of starving
+// the rest of the app. Webhooks remain exempt (mounted before all limiters).
+export const adminRateLimiter = limiterFor({
+  prefix: 'http:admin:',
+  windowMs: 60 * 1000,
+  max: process.env.NODE_ENV === 'test' ? 1000 : 120,
+  message: 'Too many admin requests from this IP, please try again after a minute',
+});
+
+// TOTP provisioning / verification is the one path an attacker can hammer to
+// guess codes, so it gets its own strict budget on top of the per-admin Redis
+// lock inside AdminMfaService.
+export const adminMfaRateLimiter = limiterFor({
+  prefix: 'http:admin:mfa:',
+  windowMs: 60 * 1000,
+  max: process.env.NODE_ENV === 'test' ? 1000 : 6,
+  message: 'Too many admin MFA attempts, please try again later',
+});
+
+export const withdrawalRateLimiter = limiterFor({
+  prefix: 'http:withdrawal:',
+  windowMs: 60 * 1000,
+  max: process.env.NODE_ENV === 'test' ? 1000 : 12,
+  message: 'Too many withdrawal requests, please try again after a minute',
+});
+
+export const depositRateLimiter = limiterFor({
+  prefix: 'http:deposit:',
+  windowMs: 60 * 1000,
+  max: process.env.NODE_ENV === 'test' ? 1000 : 12,
+  message: 'Too many deposit requests, please try again after a minute',
+});
+
+export const verificationRateLimiter = limiterFor({
+  prefix: 'http:verification:',
+  windowMs: 60 * 1000,
+  max: process.env.NODE_ENV === 'test' ? 1000 : 6,
+  message: 'Too many verification requests, please try again after a minute',
+});
+
+export const saferPlayRateLimiter = limiterFor({
+  prefix: 'http:saferplay:',
+  windowMs: 60 * 1000,
+  max: process.env.NODE_ENV === 'test' ? 1000 : 15,
+  message: 'Too many requests, please try again after a minute',
+});
+
+export const walletRateLimiter = limiterFor({
+  prefix: 'http:wallet:',
+  windowMs: 60 * 1000,
+  max: process.env.NODE_ENV === 'test' ? 1000 : 120,
+  message: 'Too many wallet requests, please try again after a minute',
+});
+
+export const matchRateLimiter = limiterFor({
+  prefix: 'http:match:',
+  windowMs: 60 * 1000,
+  max: process.env.NODE_ENV === 'test' ? 1000 : 60,
+  message: 'Too many match requests, please try again after a minute',
+});
+
+export const calloutRateLimiter = limiterFor({
+  prefix: 'http:callout:',
+  windowMs: 60 * 1000,
+  max: process.env.NODE_ENV === 'test' ? 1000 : 30,
+  message: 'Too many callout requests, please try again after a minute',
+});
+
+export const matchmakingRateLimiter = limiterFor({
+  prefix: 'http:matchmaking:',
+  windowMs: 60 * 1000,
+  max: process.env.NODE_ENV === 'test' ? 1000 : 30,
+  message: 'Too many matchmaking requests, please try again after a minute',
+});
+
+export const notificationRateLimiter = limiterFor({
+  prefix: 'http:notification:',
+  windowMs: 60 * 1000,
+  max: process.env.NODE_ENV === 'test' ? 1000 : 60,
+  message: 'Too many notification requests, please try again after a minute',
 });
 
 /**

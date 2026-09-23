@@ -130,10 +130,14 @@ class StaticWalletNotifier extends WalletNotifier {
   }
 
   @override
-  Future<void> fetchBalance() async {}
+  Future<void> fetchBalance({bool silent = false}) async {}
 
   @override
-  Future<void> fetchTransactions({int page = 1, int limit = 20}) async {}
+  Future<void> fetchTransactions({
+    int page = 1,
+    int limit = 20,
+    bool silent = false,
+  }) async {}
 }
 
 WithdrawalFlowState withdrawalState({
@@ -543,6 +547,7 @@ void main() {
               WalletState(
                 projection: WalletProjection(
                   availableMinorUnits: 3245000,
+                  currency: 'NGN',
                   lockedMinorUnits: 200000,
                   pendingMinorUnits: 0,
                   verifiedAt: DateTime.utc(2026, 9, 19),

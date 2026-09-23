@@ -1,9 +1,11 @@
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
+import crypto from 'crypto';
 import { v4 as uuidv4 } from 'uuid';
 import _prisma from '../../utils/db.js';
 import _redis from '../../utils/redis.js';
 import { GeoService } from '../../services/geoService.js';
+import { getLedgerAvailable, ensureUserAccounts } from '../../services/ledgerService.js';
 
 let prisma = _prisma;
 let redis = _redis;
@@ -20,6 +22,10 @@ const jwtSecret = getJwtSecret();
 const ACCESS_TOKEN_EXPIRY = '15m';
 const REFRESH_TOKEN_TTL_SECONDS = 7 * 24 * 60 * 60; // 7 days
 const GEO_BINDING_TTL_SECONDS = 10 * 60; // geo evidence lasts 10 minutes
+
+// UserSession stores only the SHA-256 of the opaque refresh token, never the
+// token itself, so a DB leak cannot replay a captured row.
+const hashRefreshToken = (token) => crypto.createHash('sha256').update(token).digest('hex');
 
 function computeAge(dateOfBirth) {
   const dob = new Date(dateOfBirth);
@@ -102,7 +108,6 @@ const user = await prisma.$transaction(async (tx) => {
           },
           wallet: {
             create: {
-              balanceMinorUnits: 0n,
               currency: 'NGN' // Phase 1 default
             }
           },
@@ -118,6 +123,10 @@ const user = await prisma.$transaction(async (tx) => {
           wallet: true
         }
       });
+      // V2 read flip: a new wallet starts with zero value in the ledger (the
+      // PLAYER_AVAILABLE / PLAYER_LOCKED / PLAYER_WITHDRAWAL_PENDING accounts),
+      // not as an opening-balance mirror. No ADJUSTMENT posting needed for 0.
+      await ensureUserAccounts(tx, newUser.id, 'NGN');
       return newUser;
     });
 
@@ -138,7 +147,7 @@ const user = await prisma.$transaction(async (tx) => {
     }
   }
 
-  static async login(identifier, password, fingerprintHash, fcmToken = null) {
+  static async login(identifier, password, fingerprintHash, fcmToken = null, { ip = null, userAgent = null, deviceInfo = null } = {}) {
     const where = identifier.includes('@')
       ? { email: identifier }
       : { phone: normalizePhone(identifier) };
@@ -178,7 +187,7 @@ const user = await prisma.$transaction(async (tx) => {
       });
     }
 
-    return this.issueTokens(user.id);
+    return this.issueTokens(user.id, { ip, userAgent, deviceInfo });
   }
 
   static async checkAvailability(type, value) {
@@ -226,15 +235,33 @@ const user = await prisma.$transaction(async (tx) => {
     return code;
   }
 
-  static async issueTokens(userId) {
+  static async issueTokens(userId, { family = null, ip = null, userAgent = null, deviceInfo = null } = {}) {
     const accessToken = jwt.sign({ userId }, jwtSecret, { expiresIn: ACCESS_TOKEN_EXPIRY });
     const refreshTokenId = uuidv4();
-    
+
     // Key: refresh:{userId}:{tokenId} -> value doesn't matter much, TTL is the focus
     const redisKey = `refresh:${userId}:${refreshTokenId}`;
-    
+
     if (redis) {
       await redis.set(redisKey, 'valid', 'EX', REFRESH_TOKEN_TTL_SECONDS);
+    }
+
+    // Durable session row (reuse-detection spine): only the token hash is
+    // stored. Each rotation moves the family forward and revokes the old row.
+    if (prisma) {
+      await prisma.userSession.create({
+        data: {
+          userId,
+          refreshTokenHash: hashRefreshToken(refreshTokenId),
+          family: family ?? uuidv4(),
+          lastRotatedAt: new Date(),
+          deviceInfo: deviceInfo ?? undefined,
+          ipAddress: ip ?? undefined,
+          userAgent: userAgent ?? undefined,
+          status: 'ACTIVE',
+          expiresAt: new Date(Date.now() + REFRESH_TOKEN_TTL_SECONDS * 1000)
+        }
+      });
     }
 
     return {
@@ -243,12 +270,53 @@ const user = await prisma.$transaction(async (tx) => {
     };
   }
 
-  static async refresh(userId, oldRefreshTokenId) {
-    const redisKey = `refresh:${userId}:${oldRefreshTokenId}`;
+  static async recordSecurityEvent(userId, type, metadata = {}, ip = null, userAgent = null) {
+    if (!prisma) return null;
+    return prisma.securityEvent.create({
+      data: { userId, type, metadata, ipAddress: ip, userAgent }
+    }).catch((err) => {
+      logger.warn({ err, userId, type }, 'Failed to write security event');
+      return null;
+    });
+  }
 
+  /**
+   * Rotates a refresh token. Reuse detection is database-backed: a presented
+   * token whose UserSession row is no longer ACTIVE was already rotated (or
+   * revoked/expired), which means a leaked token is being replayed — every
+   * outstanding session for the account is then revoked and the event is
+   * recorded. Redis remains the atomicity gate for the rotation itself.
+   */
+  static async refresh(userId, oldRefreshTokenId, { ip = null, userAgent = null, deviceInfo = null } = {}) {
+    const hash = hashRefreshToken(oldRefreshTokenId);
+    const session = prisma
+      ? await prisma.userSession.findUnique({ where: { refreshTokenHash: hash } })
+      : null;
+
+    // Reuse: the token maps to a row that was already superseded/revoked.
+    if (session && session.status !== 'ACTIVE') {
+      const revoked = await this.revokeAllRefreshTokens(userId);
+      await this.recordSecurityEvent(
+        userId,
+        'REFRESH_REUSE_DETECTED',
+        { family: session.family, sessionId: session.id, revokedSessions: revoked },
+        ip,
+        userAgent
+      );
+      logger.warn({ userId, family: session.family }, 'Refresh token reuse detected; all sessions revoked');
+      throw new Error('Invalid or expired refresh token');
+    }
+
+    const redisKey = `refresh:${userId}:${oldRefreshTokenId}`;
     if (redis) {
       const consumed = await redis.eval(ROTATE_SCRIPT, 1, redisKey);
       if (!consumed) {
+        // Simply expired (Redis TTL) while the row is still ACTIVE.
+        if (session && session.status === 'ACTIVE' && prisma) {
+          await prisma.userSession
+            .update({ where: { refreshTokenHash: hash }, data: { status: 'EXPIRED' } })
+            .catch(() => {});
+        }
         throw new Error('Invalid or expired refresh token');
       }
     }
@@ -265,25 +333,48 @@ const user = await prisma.$transaction(async (tx) => {
     if (user.isBanned) {
       throw new Error('Account suspended');
     }
-    
+
+    // Legit rotation: supersede the old row; the next token keeps the family.
+    if (session && prisma) {
+      await prisma.userSession.update({
+        where: { refreshTokenHash: hash },
+        data: { status: 'REVOKED' }
+      });
+    }
+
     // Issue new tokens
-    return this.issueTokens(userId);
+    return this.issueTokens(userId, {
+      family: session?.family ?? null,
+      ip,
+      userAgent,
+      deviceInfo
+    });
   }
 
   /**
-   * Revokes every refresh token a user holds. Called on ban so a
-   * suspended account cannot rotate any outstanding refresh token.
+   * Revokes every refresh token and session a user holds. Called on ban (and
+   * internally on refresh-token reuse) so a suspended/compromised account
+   * cannot rotate any outstanding token.
    */
   static async revokeAllRefreshTokens(userId) {
-    if (!redis) return 0;
-    const pattern = `refresh:${userId}:*`;
-    const keys = [];
-    const stream = redis.scanStream({ match: pattern, count: 100 });
-    for await (const batch of stream) keys.push(...batch);
-    if (keys.length > 0) {
-      await redis.del(keys);
+    let redisCount = 0;
+    if (redis) {
+      const pattern = `refresh:${userId}:*`;
+      const keys = [];
+      const stream = redis.scanStream({ match: pattern, count: 100 });
+      for await (const batch of stream) keys.push(...batch);
+      if (keys.length > 0) {
+        await redis.del(keys);
+      }
+      redisCount = keys.length;
     }
-    return keys.length;
+    if (prisma) {
+      await prisma.userSession.updateMany({
+        where: { userId, status: { in: ['ACTIVE', 'EXPIRED'] } },
+        data: { status: 'REVOKED' }
+      });
+    }
+    return redisCount;
   }
 
   /**
@@ -307,6 +398,12 @@ const user = await prisma.$transaction(async (tx) => {
     if (redis) {
       await redis.del(redisKey);
     }
+    if (prisma) {
+      await prisma.userSession.updateMany({
+        where: { userId, refreshTokenHash: hashRefreshToken(refreshTokenId) },
+        data: { status: 'REVOKED' }
+      });
+    }
     return true;
   }
 
@@ -323,6 +420,14 @@ const user = await prisma.$transaction(async (tx) => {
 
     if (!user) throw new Error('User not found');
 
+    // V2 read flip: the profile's balance is the ledger PLAYER_AVAILABLE net,
+    // not the legacy Wallet balance column.
+    const available = await getLedgerAvailable(
+      prisma,
+      userId,
+      user.wallet?.currency ?? 'NGN'
+    );
+
     return {
       id: user.id,
       email: user.email,
@@ -330,7 +435,7 @@ const user = await prisma.$transaction(async (tx) => {
       fullName: user.fullName,
       avatar: user.avatar,
       tier: user.tier,
-      walletBalanceMinorUnits: user.wallet?.balanceMinorUnits.toString() || '0', // BigInt serialization
+      walletBalanceMinorUnits: available.toString(),
       unreadNotifications: user._count.notifications
     };
   }

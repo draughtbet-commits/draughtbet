@@ -19,9 +19,13 @@ return { current, redis.call("PTTL", KEYS[1]) }
 // legitimate play through the whole game while still bounding a flood; the
 // low-volume events are tighter.
 const DEFAULT_BUDGETS = {
+  'move.submit': { max: 60, windowMs: 60 * 1000 },
   move_attempt: { max: 60, windowMs: 60 * 1000 },
+  'match.resign': { max: 10, windowMs: 60 * 1000 },
   resign: { max: 10, windowMs: 60 * 1000 },
+  'match.join': { max: 30, windowMs: 60 * 1000 },
   join_match: { max: 30, windowMs: 60 * 1000 },
+  'clock.sync': { max: 30, windowMs: 60 * 1000 },
 };
 
 const envMax = (eventName) => {

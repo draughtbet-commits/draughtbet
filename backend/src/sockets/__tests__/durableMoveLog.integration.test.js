@@ -4,13 +4,16 @@
 //   node --experimental-vm-modules node_modules/jest/bin/jest.js \
 //     src/sockets/__tests__/durableMoveLog.integration.test.js
 import { jest } from '@jest/globals';
+import http from 'node:http';
 
 const prisma = (await import('../../utils/db.js')).default;
 const redis = (await import('../../utils/redis.js')).default;
 const { debitStakes } = await import('../../services/matchService.js');
-const { reconstructMoveHistory } = await import('../gameManager.js');
+const { reconstructMoveHistory, initializeGame, handleMoveSubmit } = await import('../gameManager.js');
+const { initSocketServer } = await import('../index.js');
 const { settleGame, InvalidSettlementError } = await import('../settlement.js');
 const { createInitialBoard, applyMove, getLegalMoves, COLOR_WHITE } = await import('../../modules/engine/index.js');
+const { ensureUserAccounts, ensureSystemAccount, postLedgerTransaction } = await import('../../services/ledgerService.js');
 
 const describeIntegration =
   process.env.RUN_REDIS_INTEGRATION === '1' ? describe : describe.skip;
@@ -18,6 +21,25 @@ const describeIntegration =
 describeIntegration('Durable move log (real PostgreSQL + Redis)', () => {
   const allUsers = [];
   const allMatches = [];
+
+  // Seeds a wallet's opening balance as a ledger ADJUSTMENT (same shape as the
+  // legacy backfill) so AVAILABLE == the balance everywhere below.
+  const postOpeningBalance = async (wallet, amountMinorUnits) => {
+    await prisma.$transaction(async (tx) => {
+      const accounts = await ensureUserAccounts(tx, wallet.userId, wallet.currency ?? 'NGN');
+      const clearing = await ensureSystemAccount(tx, 'SYSTEM_OPENING_CLEARING', wallet.currency ?? 'NGN');
+      await postLedgerTransaction(tx, {
+        type: 'ADJUSTMENT',
+        description: 'Opening balance carried over from legacy wallet',
+        idempotencyKey: `opening-balance:${wallet.id}`,
+        metadata: { walletId: wallet.id, source: 'legacy-wallet-backfill' },
+        entries: [
+          { accountId: clearing.id, amountMinorUnits: -amountMinorUnits },
+          { accountId: accounts.PLAYER_AVAILABLE.id, amountMinorUnits: amountMinorUnits }
+        ]
+      });
+    });
+  };
 
   const makeEligibleUser = async (suffix, balance = 10000000n) => {
     const user = await prisma.user.create({
@@ -32,7 +54,8 @@ describeIntegration('Durable move log (real PostgreSQL + Redis)', () => {
         }
       }
     });
-    await prisma.wallet.create({ data: { userId: user.id, balanceMinorUnits: balance } });
+    const wallet = await prisma.wallet.create({ data: { userId: user.id } });
+    await postOpeningBalance(wallet, balance);
     allUsers.push(user.id);
     return user;
   };
@@ -46,6 +69,11 @@ describeIntegration('Durable move log (real PostgreSQL + Redis)', () => {
   const moveRows = async (matchId) =>
     prisma.matchMove.findMany({ where: { matchId }, orderBy: { moveNumber: 'asc' } });
 
+  beforeAll(() => {
+    // The V2 accepted-move broadcast needs an initialized Socket.IO server.
+    initSocketServer(http.createServer());
+  });
+
   afterAll(async () => {
     for (const matchId of allMatches) {
       await redis.del(`match:${matchId}`);
@@ -55,10 +83,19 @@ describeIntegration('Durable move log (real PostgreSQL + Redis)', () => {
     for (const userId of allUsers) {
       await redis.del(`user:${userId}:activeMatch`);
     }
-    await prisma.walletTransaction.deleteMany({
-      where: { wallet: { userId: { in: allUsers } } }
-    });
     await prisma.wallet.deleteMany({ where: { userId: { in: allUsers } } });
+    // V2 ledger rows must go before users: user delete cascades LedgerAccount,
+    // but LedgerEntry.account is onDelete Restrict. Opening-balance postings
+    // (source: legacy-wallet-backfill) carry no matchId and must be removed too.
+    await prisma.ledgerTransaction.deleteMany({
+      where: {
+        OR: [
+          { relatedMatchId: { in: allMatches } },
+          { metadata: { path: ['source'], equals: 'legacy-wallet-backfill' } }
+        ]
+      }
+    });
+    await prisma.notification.deleteMany({ where: { userId: { in: allUsers } } });
     await prisma.user.deleteMany({ where: { id: { in: allUsers } } });
     await prisma.$disconnect();
   });
@@ -80,6 +117,65 @@ describeIntegration('Durable move log (real PostgreSQL + Redis)', () => {
     await expect(
       prisma.matchMove.create({ data: { ...base, moveNumber: 1, fromSquare: 47, toSquare: 36 } })
     ).rejects.toMatchObject({ code: 'P2002' });
+  });
+
+  it('enforces one durable row per (matchId, clientMoveId)', async () => {
+    const p1 = await makeEligibleUser('cm-1');
+    const p2 = await makeEligibleUser('cm-2');
+    const match = await stakeAndFund(p1, p2);
+
+    const base = {
+      matchId: match.id,
+      playerId: p1.id,
+      fromSquare: 46,
+      toSquare: 37,
+      capturedSquares: [],
+      isKingMove: false,
+      boardStateAfter: createInitialBoard(),
+      clientMoveId: 'cm_integration_1'
+    };
+
+    await prisma.matchMove.create({ data: { ...base, moveNumber: 1 } });
+    await expect(
+      prisma.matchMove.create({ data: { ...base, toSquare: 36, moveNumber: 2 } })
+    ).rejects.toMatchObject({ code: 'P2002' });
+  });
+
+  it('persists MatchGameState + a MOVE GameEvent through the V2 move.submit path', async () => {
+    const p1 = await makeEligibleUser('submit-1');
+    const p2 = await makeEligibleUser('submit-2');
+    const match = await stakeAndFund(p1, p2);
+    await initializeGame(match.id, p1.id, p2.id, 'PRO');
+
+    const initial = createInitialBoard();
+    const opening = getLegalMoves(initial, COLOR_WHITE)[0];
+    const socket = { id: 'int-socket', user: { userId: p1.id }, emit: jest.fn() };
+
+    await handleMoveSubmit(socket, {
+      matchId: match.id,
+      clientMoveId: 'cm_int_submit_1',
+      expectedStateVersion: 0,
+      from: opening.from,
+      to: opening.to
+    });
+
+    const state = await prisma.matchGameState.findUnique({ where: { matchId: match.id } });
+    expect(state).not.toBeNull();
+    expect(state.stateVersion).toBe(1);
+    expect(state.currentTurn).toBe('DARK');
+
+    const event = await prisma.gameEvent.findFirst({
+      where: { matchId: match.id, type: 'MOVE' },
+      orderBy: { createdAt: 'asc' }
+    });
+    expect(event).not.toBeNull();
+    expect(event.payload.clientMoveId).toBe('cm_int_submit_1');
+
+    const row = await prisma.matchMove.findUnique({
+      where: { matchId_clientMoveId: { matchId: match.id, clientMoveId: 'cm_int_submit_1' } }
+    });
+    expect(row).not.toBeNull();
+    expect(row.path).toEqual([opening.from, opening.to]);
   });
 
   it('replays the durable log through the engine to the exact last persisted board', async () => {
@@ -159,6 +255,13 @@ describeIntegration('Durable move log (real PostgreSQL + Redis)', () => {
     const p2 = await makeEligibleUser('evid-2');
     const match = await stakeAndFund(p1, p2);
 
+    // Settlement is only legal once the match is live: FUNDED -> IN_PLAY (the
+    // server-authoritative start), leaving the durable log empty.
+    const { finalizeMatchActivation } = await import('../../services/gameActivationService.js');
+    await finalizeMatchActivation(
+      (await prisma.gameOutbox.findUnique({ where: { matchId: match.id } })).id
+    );
+
     await expect(
       settleGame(match.id, p1.id, p2.id, 'NO_LEGAL_MOVES')
     ).rejects.toThrow(InvalidSettlementError);
@@ -182,6 +285,6 @@ describeIntegration('Durable move log (real PostgreSQL + Redis)', () => {
     const result = await settleGame(match.id, p1.id, p2.id, 'NO_LEGAL_MOVES');
     expect(result).not.toBeNull();
     const settled = await prisma.match.findUnique({ where: { id: match.id } });
-    expect(settled.status).toBe('COMPLETED');
+    expect(settled.status).toBe('SETTLED');
   });
 });

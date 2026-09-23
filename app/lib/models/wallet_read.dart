@@ -5,6 +5,7 @@ enum WalletEntryKind { deposit, withdrawal, stake, payout, refund, other }
 class WalletProjection {
   const WalletProjection({
     required this.availableMinorUnits,
+    required this.currency,
     this.lockedMinorUnits,
     this.pendingMinorUnits,
     this.verifiedAt,
@@ -13,6 +14,7 @@ class WalletProjection {
   });
 
   final int availableMinorUnits;
+  final String currency;
   final int? lockedMinorUnits;
   final int? pendingMinorUnits;
   final DateTime? verifiedAt;
@@ -20,16 +22,23 @@ class WalletProjection {
   final List<LockedFundItem> lockedFunds;
 
   factory WalletProjection.fromJson(Map<String, dynamic> json) {
-    int? optionalMinor(String key) => int.tryParse(json[key]?.toString() ?? '');
-    final available =
-        optionalMinor('availableBalanceMinorUnits') ??
-        optionalMinor('balanceMinorUnits') ??
-        optionalMinor('balance');
+    final balance = json['balance'];
+    if (balance is! Map) {
+      throw const FormatException('Missing authoritative balance object');
+    }
+    final nested = Map<String, dynamic>.from(balance);
+    final available = _parseMinorUnits(nested['balanceMinorUnits']);
     if (available == null) {
       throw const FormatException('Missing authoritative available balance');
     }
+    final currency = nested['currency']?.toString().trim() ?? '';
+    if (currency.isEmpty) {
+      throw const FormatException('Missing authoritative balance currency');
+    }
+    int? optionalMinor(String key) => _parseMinorUnits(json[key]);
     return WalletProjection(
       availableMinorUnits: available,
+      currency: currency,
       lockedMinorUnits: optionalMinor('lockedBalanceMinorUnits'),
       pendingMinorUnits: optionalMinor('pendingBalanceMinorUnits'),
       verifiedAt: DateTime.tryParse(json['verifiedAt']?.toString() ?? ''),
@@ -99,25 +108,43 @@ class WalletEntry {
       kind == WalletEntryKind.payout ||
       kind == WalletEntryKind.refund;
 
+  String get authoritativeReference {
+    final supplied = reference?.trim();
+    return supplied == null || supplied.isEmpty ? id : supplied;
+  }
+
   factory WalletEntry.fromJson(Map<String, dynamic> json) {
-    final type = json['type']?.toString().toUpperCase() ?? 'OTHER';
+    final id = json['id']?.toString().trim() ?? '';
+    if (id.isEmpty) throw const FormatException('Missing transaction id');
+    final type = json['type']?.toString().toUpperCase() ?? '';
+    if (type.isEmpty) throw const FormatException('Missing transaction type');
     final kind = switch (type) {
       'DEPOSIT' => WalletEntryKind.deposit,
       'WITHDRAWAL' => WalletEntryKind.withdrawal,
-      'STAKE' || 'STAKE_DEBIT' => WalletEntryKind.stake,
-      'PAYOUT' || 'WINNINGS' => WalletEntryKind.payout,
+      'STAKE' => WalletEntryKind.stake,
+      'PAYOUT' => WalletEntryKind.payout,
       'REFUND' => WalletEntryKind.refund,
       _ => WalletEntryKind.other,
     };
     int? optionalMinor(String key) => int.tryParse(json[key]?.toString() ?? '');
+    final amountMinorUnits = optionalMinor('amountMinorUnits');
+    if (amountMinorUnits == null) {
+      throw const FormatException('Missing transaction amount');
+    }
+    final status = json['status']?.toString().trim() ?? '';
+    if (status.isEmpty) {
+      throw const FormatException('Missing transaction status');
+    }
+    final createdAt = DateTime.tryParse(json['createdAt']?.toString() ?? '');
+    if (createdAt == null) {
+      throw const FormatException('Missing transaction timestamp');
+    }
     return WalletEntry(
-      id: json['id']?.toString() ?? '',
+      id: id,
       kind: kind,
-      amountMinorUnits: optionalMinor('amountMinorUnits') ?? 0,
-      status: json['status']?.toString() ?? 'UNKNOWN',
-      createdAt:
-          DateTime.tryParse(json['createdAt']?.toString() ?? '') ??
-          DateTime.fromMillisecondsSinceEpoch(0, isUtc: true),
+      amountMinorUnits: amountMinorUnits,
+      status: status,
+      createdAt: createdAt,
       reference: json['reference']?.toString(),
       relatedMatchId: json['relatedMatchId']?.toString(),
       feeMinorUnits: optionalMinor('feeMinorUnits'),
@@ -125,6 +152,17 @@ class WalletEntry {
       description: json['description']?.toString(),
     );
   }
+}
+
+int? _parseMinorUnits(Object? value) {
+  if (value is int) return value;
+  if (value is num && value.isFinite && value == value.truncateToDouble()) {
+    return value.toInt();
+  }
+  if (value is String && RegExp(r'^-?\d+$').hasMatch(value.trim())) {
+    return int.tryParse(value.trim());
+  }
+  return null;
 }
 
 class WalletFilter {

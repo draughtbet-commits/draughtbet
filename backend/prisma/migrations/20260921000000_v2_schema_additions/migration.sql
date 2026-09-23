@@ -23,7 +23,11 @@ CREATE TYPE "VerificationCheckStatus" AS ENUM ('PENDING', 'PASSED', 'FAILED', 'S
 CREATE TYPE "SaferPlayAction" AS ENUM ('SET', 'UPDATED', 'LIFTED');
 
 -- CreateEnum
-CREATE TYPE "AccountType" AS ENUM ('PLAYER_AVAILABLE', 'PLAYER_LOCKED', 'PLAYER_WITHDRAWAL_PENDING', 'PLATFORM_REVENUE', 'SYSTEM_OPENING_CLEARING', 'SUSPENSE');
+-- (CUSTOMER_LIABILITY is folded in here even though the value was requested by
+-- the earlier backdated 20260920000000_customer_liability migration: an enum
+-- value cannot be added before the type exists, and fresh DBs replay in
+-- lexicographic order, so the value is declared by the CREATE TYPE itself.)
+CREATE TYPE "AccountType" AS ENUM ('PLAYER_AVAILABLE', 'PLAYER_LOCKED', 'PLAYER_WITHDRAWAL_PENDING', 'PLATFORM_REVENUE', 'SYSTEM_OPENING_CLEARING', 'SUSPENSE', 'CUSTOMER_LIABILITY');
 
 -- CreateEnum
 CREATE TYPE "LedgerEntryType" AS ENUM ('DEPOSIT_CREDIT', 'STAKE_LOCK', 'STAKE_RELEASE', 'SETTLEMENT_PAYOUT', 'WITHDRAWAL_RESERVE', 'WITHDRAWAL_COMPLETE', 'WITHDRAWAL_RELEASE', 'ADJUSTMENT');

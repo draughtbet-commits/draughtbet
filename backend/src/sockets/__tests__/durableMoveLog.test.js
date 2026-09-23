@@ -3,8 +3,16 @@ import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 const mockPrisma = {
   matchMove: {
     create: jest.fn(),
-    findMany: jest.fn()
-  }
+    findMany: jest.fn(),
+    findUnique: jest.fn().mockResolvedValue(null)
+  },
+  gameEvent: {
+    create: jest.fn().mockResolvedValue({})
+  },
+  matchGameState: {
+    upsert: jest.fn().mockResolvedValue({})
+  },
+  $transaction: jest.fn(async (fn) => fn(mockPrisma))
 };
 jest.unstable_mockModule('../../utils/db.js', () => ({
   default: mockPrisma
@@ -186,8 +194,20 @@ describe('durable accepted-move log (gameManager)', () => {
     seedMatch('test-match', board, 'white-user', 'black-user');
 
     // First delivery crashed after the DB write but before the CAS, so the
-    // recreate returns P2002 and the projection is still at moveCount 0.
+    // recreate returns P2002 and the projection is still at moveCount 0. The
+    // colliding row resolves to this same legacy move (null clientMoveId), so
+    // it is our own replay and the apply resumes.
     mockPrisma.matchMove.create.mockRejectedValue(p2002());
+    mockPrisma.matchMove.findUnique.mockResolvedValue({
+      id: 'mv1',
+      matchId: 'test-match',
+      moveNumber: 1,
+      playerId: 'white-user',
+      fromSquare: 32,
+      toSquare: 12,
+      capturedSquares: [27, 17],
+      clientMoveId: null
+    });
 
     const socket = { id: 's3', user: { userId: 'white-user' }, emit: jest.fn() };
     await handleMoveAttempt(socket, { matchId: 'test-match', from: 32, to: 12 });
@@ -207,6 +227,16 @@ describe('durable accepted-move log (gameManager)', () => {
     // broadcast again or re-run settlement.
     fakeRedis.pushRead({ moveCount: '1', version: '1' });
     mockPrisma.matchMove.create.mockRejectedValue(p2002());
+    mockPrisma.matchMove.findUnique.mockResolvedValue({
+      id: 'mv1',
+      matchId: 'test-match',
+      moveNumber: 1,
+      playerId: 'white-user',
+      fromSquare: 32,
+      toSquare: 12,
+      capturedSquares: [27, 17],
+      clientMoveId: null
+    });
 
     const socket = { id: 's4', user: { userId: 'white-user' }, emit: jest.fn() };
     await handleMoveAttempt(socket, { matchId: 'test-match', from: 32, to: 12 });

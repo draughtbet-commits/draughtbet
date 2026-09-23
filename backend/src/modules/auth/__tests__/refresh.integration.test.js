@@ -22,7 +22,7 @@ describeIntegration('Refresh token rotation (real PostgreSQL + real Redis)', () 
         isBanned: false
       }
     });
-    await prisma.wallet.create({ data: { userId: user.id, balanceMinorUnits: 0n } });
+    await prisma.wallet.create({ data: { userId: user.id } });
     userIds.push(user.id);
     return user;
   };

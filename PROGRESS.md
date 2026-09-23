@@ -36,11 +36,11 @@
 #### Verification
 
 - Focused contract/lifecycle/gameplay/settlement tests: **62 passed, 0 failed**
-- Complete Flutter suite: **200 passed, 0 failed**
+- Complete Flutter suite after Backend V2 integration: **207 passed, 0 failed**
 - `flutter analyze`: **No issues found** (September 23, 2026)
 - Android debug APK: **built successfully** (September 23, 2026)
 - APK path: `app/build/app/outputs/flutter-apk/app-debug.apk`
-- APK SHA-256: `0b9ad3024200c9d0017c248559cc05103ba4c51babf1e857d82aa35cb6aa0d5e`
+- APK SHA-256: `1ae83467db3d1738b33b6d305ea1cbf5946820241fafad6f5d7a647856ad4e7c`
 - `git diff -- backend`: **empty**
 
 #### Remaining backend contract blockers

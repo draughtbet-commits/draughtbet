@@ -2,14 +2,18 @@ import express from 'express';
 import { processDepositWebhook, parseDecimalMajorToMinor } from '../wallet/service.js';
 import { PaystackGateway } from './PaystackGateway.js';
 import { FlutterwaveGateway } from './FlutterwaveGateway.js';
+import { WithdrawalService } from '../withdrawal/service.js';
 import logger from '../../utils/logger.js';
-import { getIO } from '../../sockets/index.js';
-import { NotificationService } from '../notification/service.js';
 
 export const webhookRouter = express.Router();
 
 const paystackGateway = new PaystackGateway();
 const flutterwaveGateway = new FlutterwaveGateway();
+// Payout webhook handling only reports a result (no provider calls), but the
+// two real gateways are injected for an honest wiring.
+const withdrawalService = new WithdrawalService({
+  providers: { PAYSTACK: paystackGateway, FLUTTERWAVE: flutterwaveGateway }
+});
 
 // Webhooks must use raw body parsing to verify signatures exactly
 webhookRouter.use(express.raw({ type: 'application/json' }));
@@ -17,25 +21,11 @@ webhookRouter.use(express.raw({ type: 'application/json' }));
 // Post-credit events are derived from the DURABLE ledger record returned by
 // the service, never from the raw webhook body, and only fire for a newly
 // applied webhook — a duplicate delivery is acknowledged but emits nothing.
+// The durable DepositIntent COMPLETED transition, ledger mirror, outbox rows
+// (wallet.updated + notification) are all written by the service in the same
+// transaction; the socket push is the outbox drainer's job, never inline here.
 const handleDepositResult = async (res, result, userId) => {
   if (result.handled && !result.alreadyApplied) {
-    const credited = result.transaction.amountMinorUnits.toString();
-    try {
-      getIO().to(`user:${userId}`).emit('wallet_updated', {
-        balanceChange: credited,
-        type: 'DEPOSIT'
-      });
-
-      await NotificationService.create(
-        userId,
-        'DEPOSIT_CONFIRMED',
-        'Deposit Successful',
-        `Your deposit of ${credited} has been credited to your wallet.`,
-        '/wallet'
-      );
-    } catch (e) {
-      logger.warn({ e, userId }, 'Failed to emit events after deposit');
-    }
     return res.status(200).send('OK');
   }
 
@@ -84,6 +74,17 @@ webhookRouter.post('/paystack', async (req, res) => {
       return;
     }
 
+    if (payload.event?.startsWith('transfer.')) {
+      // Payout transfer events. Only a PROCESSING withdrawal transitions; a
+      // duplicated terminal callback is acknowledged without any money move.
+      await withdrawalService.handlePayoutCallback({
+        gateway: 'PAYSTACK',
+        eventType: payload.event,
+        data: payload.data
+      });
+      return res.status(200).send('OK');
+    }
+
     res.status(200).send('OK');
   } catch (error) {
     logger.error({ error }, 'Paystack webhook error');
@@ -127,6 +128,15 @@ webhookRouter.post('/flutterwave', async (req, res) => {
 
       await handleDepositResult(res, result, userId);
       return;
+    }
+
+    if (payload.event?.startsWith('transfer.')) {
+      await withdrawalService.handlePayoutCallback({
+        gateway: 'FLUTTERWAVE',
+        eventType: payload.event,
+        data: payload.data
+      });
+      return res.status(200).send('OK');
     }
 
     res.status(200).send('OK');

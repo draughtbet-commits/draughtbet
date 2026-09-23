@@ -1,6 +1,7 @@
 import { jest } from '@jest/globals';
 
 // Clear env vars to prevent real connections via dotenv
+process.env.NODE_ENV = 'test';
 process.env.DATABASE_URL = '';
 process.env.REDIS_URL = '';
 
@@ -14,6 +15,29 @@ const mockPrisma = {
     findFirst: jest.fn(),
     create: jest.fn(),
     update: jest.fn()
+  },
+  ledgerAccount: {
+    findMany: jest.fn()
+  },
+  ledgerEntry: {
+    aggregate: jest.fn()
+  },
+  adminRoleAssignment: {
+    findMany: jest.fn()
+  },
+  adminAuditLog: {
+    create: jest.fn(),
+    findMany: jest.fn(),
+    count: jest.fn()
+  },
+  userSession: {
+    create: jest.fn(),
+    findUnique: jest.fn(),
+    update: jest.fn(),
+    updateMany: jest.fn()
+  },
+  securityEvent: {
+    create: jest.fn()
   }
 };
 
@@ -55,6 +79,8 @@ beforeEach(() => {
   jest.clearAllMocks();
   // requireAuth looks up the user by id for every protected request.
   mockPrisma.user.findUnique.mockResolvedValue(authedUser);
+  // Default: no admin roles -> the RBAC gate denies (403) any admin route.
+  mockPrisma.adminRoleAssignment.findMany.mockResolvedValue([]);
 });
 
 describe('Auth System', () => {
@@ -62,7 +88,7 @@ describe('Auth System', () => {
   describe('POST /auth/register', () => {
     it('should reject under 18 users via Zod', async () => {
       const res = await request(app)
-        .post('/auth/register')
+        .post('/api/v1/auth/register')
         .send({
           email: 'test@example.com',
           password: 'Password1',
@@ -74,7 +100,7 @@ describe('Auth System', () => {
 
     it('should reject weak passwords via Zod', async () => {
       const res = await request(app)
-        .post('/auth/register')
+        .post('/api/v1/auth/register')
         .send({
           email: 'test@example.com',
           password: 'weak',
@@ -88,7 +114,7 @@ describe('Auth System', () => {
       mockPrisma.$transaction.mockRejectedValueOnce(new Error('DB connection failed'));
 
       const res = await request(app)
-        .post('/auth/register')
+        .post('/api/v1/auth/register')
         .send({
           email: 'test@example.com',
           password: 'StrongPassword1',
@@ -109,7 +135,7 @@ describe('Auth System', () => {
       mockPrisma.$transaction.mockResolvedValueOnce({ id: 'user-id' });
 
       const res = await request(app)
-        .post('/auth/register')
+        .post('/api/v1/auth/register')
         .send({
           email: 'test@example.com',
           password: 'StrongPassword1',
@@ -128,7 +154,7 @@ describe('Auth System', () => {
       mockPrisma.$transaction.mockResolvedValueOnce({ id: 'user-id' });
 
       const res = await request(app)
-        .post('/auth/register')
+        .post('/api/v1/auth/register')
         .send({
           phone: '08031234567',
           username: 'skilled_player',
@@ -147,7 +173,7 @@ describe('Auth System', () => {
     it('should reject registration from a blocked country', async () => {
       mockRedis.get.mockResolvedValueOnce('us');
       const res = await request(app)
-        .post('/auth/register')
+        .post('/api/v1/auth/register')
         .send({
           email: 'test@example.com',
           password: 'StrongPassword1',
@@ -164,7 +190,7 @@ describe('Auth System', () => {
       mockRedis.get.mockResolvedValueOnce(null);
 
       const res = await request(app)
-        .post('/auth/register')
+        .post('/api/v1/auth/register')
         .send({
           email: 'test@example.com',
           password: 'StrongPassword1',
@@ -181,7 +207,7 @@ describe('Auth System', () => {
       mockRedis.get.mockResolvedValueOnce('gh');
 
       const res = await request(app)
-        .post('/auth/register')
+        .post('/api/v1/auth/register')
         .send({
           email: 'test@example.com',
           password: 'StrongPassword1',
@@ -196,7 +222,7 @@ describe('Auth System', () => {
 
     it('should reject registration with neither email nor phone via Zod', async () => {
       const res = await request(app)
-        .post('/auth/register')
+        .post('/api/v1/auth/register')
         .send({
           password: 'StrongPassword1',
           dateOfBirth: '2000-01-01',
@@ -214,7 +240,7 @@ describe('Auth System', () => {
       mockPrisma.user.findUnique.mockResolvedValueOnce({ id: 'existing-user' });
 
       const res = await request(app)
-        .post('/auth/check-availability')
+        .post('/api/v1/auth/check-availability')
         .send({ type: 'email', value: 'taken@example.com' });
 
       expect(res.status).toBe(200);
@@ -228,7 +254,7 @@ describe('Auth System', () => {
       mockPrisma.user.findUnique.mockResolvedValueOnce(null);
 
       const res = await request(app)
-        .post('/auth/check-availability')
+        .post('/api/v1/auth/check-availability')
         .send({ type: 'phone', value: '08031234567' });
 
       expect(res.status).toBe(200);
@@ -255,7 +281,7 @@ describe('Auth System', () => {
 
     it('should return allowed country from coordinates with a geo binding token', async () => {
       const res = await request(app)
-        .post('/auth/geo-locate')
+        .post('/api/v1/auth/geo-locate')
         .send({ lat: 6.5244, lng: 3.3792 });
 
       expect(res.status).toBe(200);
@@ -280,7 +306,7 @@ describe('Auth System', () => {
       });
 
       const res = await request(app)
-        .post('/auth/geo-locate')
+        .post('/api/v1/auth/geo-locate')
         .send({ lat: 40.7128, lng: -74.0060 });
 
       expect(res.status).toBe(200);
@@ -291,7 +317,7 @@ describe('Auth System', () => {
 
     it('should validate coordinate ranges via Zod', async () => {
       const res = await request(app)
-        .post('/auth/geo-locate')
+        .post('/api/v1/auth/geo-locate')
         .send({ lat: 999, lng: 0 });
 
       expect(res.status).toBe(400);
@@ -308,7 +334,7 @@ describe('Auth System', () => {
       });
 
       const res = await request(app)
-        .post('/auth/login')
+        .post('/api/v1/auth/login')
         .send({
           email: 'banned@example.com',
           password: 'StrongPassword1'
@@ -328,7 +354,7 @@ describe('Auth System', () => {
       });
 
       const res = await request(app)
-        .post('/auth/login')
+        .post('/api/v1/auth/login')
         .send({
           email: 'test@example.com',
           password: 'StrongPassword1'
@@ -357,7 +383,7 @@ describe('Auth System', () => {
       });
 
       const res = await request(app)
-        .post('/auth/login')
+        .post('/api/v1/auth/login')
         .send({
           phone: '08123456789',
           password: 'StrongPassword1'
@@ -375,7 +401,7 @@ describe('Auth System', () => {
       mockRedis.eval.mockResolvedValueOnce(1);
 
       const res = await request(app)
-        .post('/auth/refresh')
+        .post('/api/v1/auth/refresh')
         .send({
           userId: 'user-id',
           refreshToken: 'old-token'
@@ -400,7 +426,7 @@ describe('Auth System', () => {
       mockRedis.eval.mockResolvedValueOnce(null);
 
       const res = await request(app)
-        .post('/auth/refresh')
+        .post('/api/v1/auth/refresh')
         .send({ userId: 'user-id', refreshToken: 'stale-token' });
 
       expect(res.status).toBe(401);
@@ -413,7 +439,7 @@ describe('Auth System', () => {
       mockPrisma.user.findUnique.mockResolvedValueOnce({ id: 'user-id', isBanned: true });
 
       const res = await request(app)
-        .post('/auth/refresh')
+        .post('/api/v1/auth/refresh')
         .send({ userId: 'user-id', refreshToken: 'old-token' });
 
       expect(res.status).toBe(401);
@@ -426,7 +452,7 @@ describe('Auth System', () => {
       mockPrisma.user.findUnique.mockResolvedValueOnce(null);
 
       const res = await request(app)
-        .post('/auth/refresh')
+        .post('/api/v1/auth/refresh')
         .send({ userId: 'user-id', refreshToken: 'old-token' });
 
       expect(res.status).toBe(401);
@@ -440,7 +466,7 @@ describe('Auth System', () => {
       const token = (await AuthService.issueTokens('user-id')).accessToken;
 
       const res = await request(app)
-        .patch('/admin/users/other/ban')
+        .patch('/api/v1/admin/users/other/ban')
         .set('Authorization', `Bearer ${token}`);
 
       expect(res.status).toBe(403);
@@ -451,13 +477,16 @@ describe('Auth System', () => {
       mockPrisma.user.findUnique
         .mockResolvedValueOnce({ id: 'admin', isAdmin: true, isBanned: false })
         .mockResolvedValueOnce({ id: 'target', isBanned: false });
+      mockPrisma.adminRoleAssignment.findMany.mockResolvedValue([
+        { role: { name: 'SUPER_ADMIN' } }
+      ]);
       mockPrisma.user.update.mockResolvedValueOnce({ id: 'target', email: 't@t', isBanned: true });
       mockRedis.scanStream.mockImplementation(() => ({
         [Symbol.asyncIterator]: async function* () { yield ['refresh:target:t1']; }
       }));
 
       const res = await request(app)
-        .patch('/admin/users/target/ban')
+        .patch('/api/v1/admin/users/target/ban')
         .set('Authorization', `Bearer ${token}`);
 
       expect(res.status).toBe(200);
@@ -476,9 +505,12 @@ describe('Auth System', () => {
       mockPrisma.user.findUnique
         .mockResolvedValueOnce({ id: 'admin', isAdmin: true, isBanned: false })
         .mockResolvedValueOnce(null);
+      mockPrisma.adminRoleAssignment.findMany.mockResolvedValue([
+        { role: { name: 'SUPER_ADMIN' } }
+      ]);
 
       const res = await request(app)
-        .patch('/admin/users/missing/ban')
+        .patch('/api/v1/admin/users/missing/ban')
         .set('Authorization', `Bearer ${token}`);
 
       expect(res.status).toBe(404);
@@ -491,10 +523,13 @@ describe('Auth System', () => {
       mockPrisma.user.findUnique
         .mockResolvedValueOnce({ id: 'admin', isAdmin: true, isBanned: false })
         .mockResolvedValueOnce({ id: 'target', isBanned: true });
+      mockPrisma.adminRoleAssignment.findMany.mockResolvedValue([
+        { role: { name: 'SUPER_ADMIN' } }
+      ]);
       mockPrisma.user.update.mockResolvedValueOnce({ id: 'target', isBanned: false });
 
       const res = await request(app)
-        .patch('/admin/users/target/unban')
+        .patch('/api/v1/admin/users/target/unban')
         .set('Authorization', `Bearer ${token}`);
 
       expect(res.status).toBe(200);
@@ -509,7 +544,7 @@ describe('Auth System', () => {
       const token = (await AuthService.issueTokens('user-id')).accessToken;
 
       const res = await request(app)
-        .post('/auth/logout')
+        .post('/api/v1/auth/logout')
         .set('Authorization', `Bearer ${token}`)
         .send({ refreshToken: 'token-to-delete' });
 
@@ -521,8 +556,9 @@ describe('Auth System', () => {
   describe('GET /auth/me', () => {
     it('returns profile including the predesigned avatar', async () => {
       const token = (await AuthService.issueTokens('user-id')).accessToken;
-      // Both requireAuth's lookup and getProfile hit findUnique, so mock the
-      // full profile as the persistent return value.
+      // requireAuth's lookup and getProfile both hit user.findUnique; mock the
+      // full profile as the persistent return value. The balance shown comes
+      // from the V2 ledger PLAYER_AVAILABLE net, not the Wallet row.
       mockPrisma.user.findUnique.mockResolvedValue({
         id: 'user-id',
         email: 'test@example.com',
@@ -531,12 +567,16 @@ describe('Auth System', () => {
         avatar: 'avatar_03',
         tier: 'AMATEUR',
         isBanned: false,
-        wallet: { balanceMinorUnits: 1000n },
+        wallet: { currency: 'NGN' },
         _count: { notifications: 2 }
+      });
+      mockPrisma.ledgerAccount.findMany.mockResolvedValue([{ id: 'acc-1' }]);
+      mockPrisma.ledgerEntry.aggregate.mockResolvedValue({
+        _sum: { amountMinorUnits: 1000n }
       });
 
       const res = await request(app)
-        .get('/auth/me')
+        .get('/api/v1/me')
         .set('Authorization', `Bearer ${token}`);
 
       expect(res.status).toBe(200);
@@ -559,7 +599,7 @@ describe('Auth System', () => {
       });
 
       const res = await request(app)
-        .patch('/auth/me')
+        .patch('/api/v1/me')
         .set('Authorization', `Bearer ${token}`)
         .send({ avatar: 'avatar_07' });
 
@@ -575,7 +615,7 @@ describe('Auth System', () => {
       const token = (await AuthService.issueTokens('user-id')).accessToken;
 
       const res = await request(app)
-        .patch('/auth/me')
+        .patch('/api/v1/me')
         .set('Authorization', `Bearer ${token}`)
         .send({ avatar: '' });
 

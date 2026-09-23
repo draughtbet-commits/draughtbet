@@ -10,6 +10,9 @@ const redis = (await import('../../utils/redis.js')).default;
 const { debitStakes } = await import('../../services/matchService.js');
 const { initializeGame, casScript } = await import('../gameManager.js');
 const { processTurnDeadlineSweep } = await import('../../jobs/turnDeadlineSweep.js');
+const { recoverLiveGames } = await import('../gameRecovery.js');
+const { createInitialBoard } = await import('../../modules/engine/index.js');
+const { getUserLedgerProjections, ensureUserAccounts, ensureSystemAccount, postLedgerTransaction } = await import('../../services/ledgerService.js');
 
 const describeIntegration =
   process.env.RUN_REDIS_INTEGRATION === '1' ? describe : describe.skip;
@@ -18,6 +21,25 @@ describeIntegration('Turn deadlines (real PostgreSQL + Redis)', () => {
   const settings = { id: 'singleton', commissionPercent: 10, timeControlSeconds: 60 };
   const allUsers = [];
   const allMatches = [];
+
+  // Seeds a wallet's opening balance as a ledger ADJUSTMENT (same shape as the
+  // legacy backfill) so AVAILABLE == the balance everywhere below.
+  const postOpeningBalance = async (wallet, amountMinorUnits) => {
+    await prisma.$transaction(async (tx) => {
+      const accounts = await ensureUserAccounts(tx, wallet.userId, wallet.currency ?? 'NGN');
+      const clearing = await ensureSystemAccount(tx, 'SYSTEM_OPENING_CLEARING', wallet.currency ?? 'NGN');
+      await postLedgerTransaction(tx, {
+        type: 'ADJUSTMENT',
+        description: 'Opening balance carried over from legacy wallet',
+        idempotencyKey: `opening-balance:${wallet.id}`,
+        metadata: { walletId: wallet.id, source: 'legacy-wallet-backfill' },
+        entries: [
+          { accountId: clearing.id, amountMinorUnits: -amountMinorUnits },
+          { accountId: accounts.PLAYER_AVAILABLE.id, amountMinorUnits: amountMinorUnits }
+        ]
+      });
+    });
+  };
 
   const makeEligibleUser = async (suffix, balance = 10000000n) => {
     const user = await prisma.user.create({
@@ -32,7 +54,8 @@ describeIntegration('Turn deadlines (real PostgreSQL + Redis)', () => {
         }
       }
     });
-    await prisma.wallet.create({ data: { userId: user.id, balanceMinorUnits: balance } });
+    const wallet = await prisma.wallet.create({ data: { userId: user.id } });
+    await postOpeningBalance(wallet, balance);
     allUsers.push(user.id);
     return user;
   };
@@ -44,8 +67,8 @@ describeIntegration('Turn deadlines (real PostgreSQL + Redis)', () => {
   };
 
   const balance = async (userId) => {
-    const w = await prisma.wallet.findUnique({ where: { userId } });
-    return w.balanceMinorUnits;
+    const proj = await getUserLedgerProjections(prisma, userId);
+    return BigInt(proj.available);
   };
 
   beforeEach(async () => {
@@ -65,10 +88,19 @@ describeIntegration('Turn deadlines (real PostgreSQL + Redis)', () => {
     for (const userId of allUsers) {
       await redis.del(`user:${userId}:activeMatch`);
     }
-    await prisma.walletTransaction.deleteMany({
-      where: { wallet: { userId: { in: allUsers } } }
-    });
     await prisma.wallet.deleteMany({ where: { userId: { in: allUsers } } });
+    // V2 ledger rows must go before users: user delete cascades LedgerAccount,
+    // but LedgerEntry.account is onDelete Restrict. Opening-balance postings
+    // (source: legacy-wallet-backfill) carry no matchId and must be removed too.
+    await prisma.ledgerTransaction.deleteMany({
+      where: {
+        OR: [
+          { relatedMatchId: { in: allMatches } },
+          { metadata: { path: ['source'], equals: 'legacy-wallet-backfill' } }
+        ]
+      }
+    });
+    await prisma.notification.deleteMany({ where: { userId: { in: allUsers } } });
     await prisma.user.deleteMany({ where: { id: { in: allUsers } } });
     await prisma.$disconnect();
   });
@@ -89,7 +121,7 @@ describeIntegration('Turn deadlines (real PostgreSQL + Redis)', () => {
     // Non-ending transition on an expired turn is refused atomically.
     await expect(
       redis.eval(casScript, 1, key, '0', board, 'BLACK', 'b', '1', String(now),
-        JSON.stringify({}), '0', 'in_progress', '', String(now + 60000), '60')
+        JSON.stringify({}), '0', 'in_progress', '', String(now + 60000), '60', String(now))
     ).rejects.toThrow('TURN_EXPIRED');
 
     // A turn still inside its deadline lands, persists the deadline for the
@@ -98,7 +130,7 @@ describeIntegration('Turn deadlines (real PostgreSQL + Redis)', () => {
     const appliedDeadline = String(now + 119000);
     await expect(
       redis.eval(casScript, 1, key, '0', board, 'BLACK', 'b', '1', String(now),
-        JSON.stringify({}), '0', 'in_progress', '', appliedDeadline, '60')
+        JSON.stringify({}), '0', 'in_progress', '', appliedDeadline, '60', String(now))
     ).resolves.toBe('OK');
     const live = await redis.hgetall(key);
     expect(live.status).toBe('in_progress');
@@ -110,7 +142,7 @@ describeIntegration('Turn deadlines (real PostgreSQL + Redis)', () => {
     await redis.hset(key, { deadlineAt: String(now - 1000) });
     await expect(
       redis.eval(casScript, 1, key, '1', board, 'BLACK', 'b', '1', String(now),
-        JSON.stringify({}), '0', 'completed', 'a', '', '60')
+        JSON.stringify({}), '0', 'completed', 'a', '', '60', '')
     ).resolves.toBe('OK');
     const after = await redis.hgetall(key);
     expect(after.status).toBe('completed');
@@ -132,7 +164,7 @@ describeIntegration('Turn deadlines (real PostgreSQL + Redis)', () => {
     expect(result.settled).toContain(match.id);
 
     const settled = await prisma.match.findUnique({ where: { id: match.id } });
-    expect(settled.status).toBe('COMPLETED');
+    expect(settled.status).toBe('SETTLED');
     expect(settled.winnerId).toBe(p2.id);
     expect(settled.endReason).toBe('timeout_forfeit');
 
@@ -151,8 +183,37 @@ describeIntegration('Turn deadlines (real PostgreSQL + Redis)', () => {
 
     await processTurnDeadlineSweep();
 
+    // initializeGame is the server-authoritative start: FUNDED -> IN_PLAY, and an
+    // unexpired turn leaves the match live and untouched.
     const active = await prisma.match.findUnique({ where: { id: match.id } });
-    expect(active.status).toBe('ACTIVE');
+    expect(active.status).toBe('IN_PLAY');
     expect(await redis.exists(`match:${match.id}`)).toBe(1);
+  });
+
+  it('boot recovery rehydrates a live match from durable state', async () => {
+    const p1 = await makeEligibleUser('recover-1');
+    const p2 = await makeEligibleUser('recover-2');
+    const match = await stakeAndFund(p1, p2);
+    await initializeGame(match.id, p1.id, p2.id, 'PRO');
+    await prisma.matchGameState.create({
+      data: {
+        matchId: match.id,
+        boardState: createInitialBoard(),
+        currentTurn: 'LIGHT',
+        stateVersion: 0
+      }
+    });
+
+    // A restart lost the projection and the participant pointers.
+    await redis.del(`match:${match.id}`);
+    await redis.del(`user:${p1.id}:activeMatch`);
+    await redis.del(`user:${p2.id}:activeMatch`);
+
+    const result = await recoverLiveGames();
+
+    expect(result.scanned).toBeGreaterThanOrEqual(1);
+    expect(await redis.exists(`match:${match.id}`)).toBe(1);
+    expect(await redis.get(`user:${p1.id}:activeMatch`)).toBe(match.id);
+    expect(await redis.get(`user:${p2.id}:activeMatch`)).toBe(match.id);
   });
 });

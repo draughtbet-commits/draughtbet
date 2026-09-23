@@ -52,6 +52,7 @@ model User {
   verificationChallenges  VerificationChallenge[]
   connectionEvents        MatchConnectionEvent[]
   withdrawals             Withdrawal[]
+  adminMfa                AdminMfa?
 }
 
 enum Tier {
@@ -83,48 +84,15 @@ model Wallet {
   id                  String   @id @default(uuid())
   userId              String   @unique
   user                User     @relation(fields: [userId], references: [id])
-  balanceMinorUnits    BigInt   @default(0)   // kobo for NGN (Phase 1); pence if a GBP wallet is added in Phase 2 — always an integer, never a float
+  // Financial truth lives in the V2 ledger (PLAYER_AVAILABLE etc.); a Wallet
+  // row is only a currency holder + lock serialization point for funds flows.
   currency            Currency @default(NGN)
   updatedAt           DateTime @updatedAt
-  transactions        WalletTransaction[]
   depositIntents      DepositIntent[]
 }
 enum Currency {
   NGN
   GBP
-}
-
-model WalletTransaction {
-  id                String   @id @default(uuid())
-  walletId          String
-  wallet            Wallet   @relation(fields: [walletId], references: [id])
-  type              TxType
-  amountMinorUnits  BigInt   // signed — negative for outflow, same unit as the parent Wallet's currency
-  relatedMatchId    String?
-  gateway           Gateway?
-  gatewayReference  String?  @unique // Paystack/Flutterwave transaction reference (or Stripe, in a future Phase 2 GBP wallet)
-  status            TxStatus @default(COMPLETED)
-  createdAt         DateTime @default(now())
-
-  // At most one ledger entry per (match, type, wallet) so re-runs can never
-  // write duplicate financial entries. PostgreSQL treats NULLs as distinct, so
-  // deposit webhook rows (which have no relatedMatchId) are unaffected.
-  @@unique([relatedMatchId, type, walletId])
-}
-enum TxType {
-  DEPOSIT
-  WITHDRAWAL
-  STAKE
-  PAYOUT
-  COMMISSION
-  REFUND
-}
-
-enum TxStatus {
-  PENDING
-  COMPLETED
-  FAILED
-  REVERSED
 }
 
 enum Gateway {
@@ -289,18 +257,35 @@ model DeviceFingerprint {
   lastSeen        DateTime @default(now())
 }
 
+enum AdminAuditOutcome {
+  SUCCESS
+  FAILURE
+  DENIED
+}
+
 model AdminAuditLog {
-  id          String   @id @default(uuid())
-  adminId     String
-  action      String
-  targetId    String?
-  metadata    Json?
-  createdAt   DateTime @default(now())
+  id         String            @id @default(uuid())
+  adminId    String
+  action     String
+  targetId   String?
+  targetType String?
+  outcome    AdminAuditOutcome @default(SUCCESS)
+  ip         String?
+  userAgent  String?
+  requestId  String?
+  metadata   Json?
+  createdAt  DateTime          @default(now())
+
+  @@index([adminId])
+  @@index([createdAt])
 }
 
 model PlatformSettings {
   id                 String @id @default("singleton")
   commissionPercent  Int    @default(10)
+  // Hours a player must wait before a requested RAISE of their own deposit or
+  // stake limit takes effect. Defaults to 24h; admin-editable later.
+  limitRaiseCoolingHours Int @default(24)
   // Seconds a player has to make their move before the deadline sweep forfeits
   // the game. Snapshot each Match onto `Match.timeControlSeconds` at funding.
   timeControlSeconds Int    @default(60)
@@ -327,12 +312,18 @@ model Notification {
   id          String   @id @default(uuid())
   userId      String
   user        User     @relation(fields: [userId], references: [id])
+  matchId     String?
   type        String   // see 03_BACKEND_SPEC.md §Notifications for the full enum of values in use
   title       String
   message     String
   link        String?
   isRead      Boolean  @default(false)
   createdAt   DateTime @default(now())
+
+  // Exactly one notification of a given type per user per match (settlement
+  // replay-cleanup must never stack duplicate WIN/LOSS notices).
+  @@unique([userId, matchId, type])
+  @@index([matchId])
 }
 
 // Durable activation record written in the SAME transaction that reserves
@@ -387,7 +378,7 @@ model UserSession {
   id               String        @id @default(uuid())
   userId           String
   user             User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  refreshTokenHash String        // SHA-256 hash of the opaque refresh token
+  refreshTokenHash String        @unique // SHA-256 hash of the opaque refresh token
   family           String        // rotation family id — reuse detection key
   lastRotatedAt    DateTime      @default(now())
   deviceInfo       Json?         // { model, os, appVersion } from the client
@@ -533,6 +524,14 @@ model SaferPlayProfile {
   stakeLimitMinorUnits      BigInt?   // per-match stake ceiling; NULL = no limit
   timeoutUntil              DateTime? // temporary break — player cannot join matches until this
   selfExcludedUntil         DateTime? // hard self-exclusion — player cannot transact until this
+  // A requested RAISE of a limit is not applied instantly: it lands in the
+  // pending fields and only becomes effective once the cooling window
+  // (PlatformSettings.limitRaiseCoolingHours) has elapsed. Lowering or
+  // setting a limit for the first time applies immediately.
+  pendingDepositLimitMinorUnits BigInt?
+  pendingDepositLimitRaisedAt   DateTime?
+  pendingStakeLimitMinorUnits   BigInt?
+  pendingStakeLimitRaisedAt     DateTime?
   createdAt                 DateTime  @default(now())
   updatedAt                 DateTime  @updatedAt
 }
@@ -567,6 +566,10 @@ enum AccountType {
   PLATFORM_REVENUE
   SYSTEM_OPENING_CLEARING
   SUSPENSE
+  // Contra for external funds entering player float. Grows negative as player
+  // float grows (system singleton), mirroring SYSTEM_OPENING_CLEARING's sign
+  // convention for money the platform holds on players' behalf.
+  CUSTOMER_LIABILITY
 }
 
 model LedgerAccount {
@@ -634,32 +637,46 @@ model Withdrawal {
   userId            String
   user              User              @relation(fields: [userId], references: [id], onDelete: Cascade)
   amountMinorUnits  BigInt
+  currency          Currency          @default(NGN)
+  // Server-generated payout reference, echoed to the provider as the transfer
+  // reference so a payout webhook can be matched back to this row.
+  reference         String            @unique
+  gateway           Gateway           @default(PAYSTACK) // payout provider (from the bank account)
   bankAccountId     String?
   bankAccount       BankAccount?      @relation(fields: [bankAccountId], references: [id], onDelete: SetNull)
   status            WithdrawalV2Status @default(PENDING_REVIEW)
-  providerRef       String?           @unique // provider payout reference
+  providerRef       String?           @unique // provider payout id (transfer_code / transfer id)
   reviewedBy        String?
   reviewedAt        DateTime?
   processedAt       DateTime?
+  followUpCheckAt   DateTime?       // when the payout follow-up sweep last probed this row
   failureReason     String?
-  idempotencyKey    String?           @unique
+  idempotencyKey    String?           // client-supplied operation key; replay returns the original row
   createdAt         DateTime          @default(now())
   updatedAt         DateTime          @updatedAt
 
   @@index([userId, status])
+  @@index([bankAccountId])
+  @@unique([userId, idempotencyKey])
 }
 
 model BankAccount {
-  id            String   @id @default(uuid())
+  id            String     @id @default(uuid())
   userId        String
-  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  bankCode      String   // e.g. "044" (Access Bank), "057" (Zenith)
+  user          User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  gateway       Gateway    @default(PAYSTACK) // provider used to verify + pay out this destination
+  bankCode      String     // e.g. "044" (Access Bank), "057" (Zenith)
   bankName      String
   accountNumber String
   accountName   String
-  isDefault     Boolean  @default(false)
+  // Provider-side recipient/beneficiary id created at verification time, so a
+  // payout initiation can reference it directly (Paystack recipient_code /
+  // Flutterwave beneficiary id).
+  recipientRef  String?
+  verifiedName  String?    // name returned by the provider's account-resolution
+  isDefault     Boolean    @default(false)
   verifiedAt    DateTime?
-  createdAt     DateTime @default(now())
+  createdAt     DateTime   @default(now())
 
   withdrawals   Withdrawal[]
 
@@ -925,6 +942,8 @@ model DisputeCase {
   status      DisputeStatus @default(OPEN)
   reason      String
   resolution  String?
+  decidedBy   String?
+  decidedAt   DateTime?
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
 
@@ -973,6 +992,14 @@ model OutboxEvent {
   status         OutboxEventStatus @default(PENDING)
   attempts       Int              @default(0)
   lastError      String?
+  // Drainer lease: a PENDING row is claimed with a token + expiry and only the
+  // claimer marks it SENT/FAILED; a crash mid-delivery leaves the lease to
+  // expire so the next drain cycle reclaims it (at-least-once, restart-safe).
+  claimToken     String?          @unique
+  claimExpiresAt DateTime?
+  // Exactly-once enqueue guard for replay/recovery paths (e.g. settlement).
+  // Writers pass a natural business key; a duplicate insert is a no-op.
+  dedupeKey      String?          @unique
   createdAt      DateTime         @default(now())
   updatedAt      DateTime         @updatedAt
 
@@ -987,4 +1014,21 @@ model IdempotencyRecord {
   result    Json?    // cached response
   expiresAt DateTime
   createdAt DateTime @default(now())
+}
+
+// Per-admin TOTP MFA enrollment. The shared static-code hook was
+// replaced by real RFC-6238 TOTP. The base32 secret is stored ENCRYPTED at
+// rest (AES-256-GCM, key from ADMIN_MFA_SECRET_KEY) so a DB leak cannot mint
+// codes. A row exists only after an admin provisions a secret; enabledAt is
+// set once the first correct code is verified (provisioning -> enabled).
+model AdminMfa {
+  id             String    @id @default(uuid())
+  userId         String    @unique
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  secretEnc      String    // AES-256-GCM ciphertext of the TOTP base32 secret
+  enabledAt      DateTime
+  lastVerifiedAt DateTime?
+  createdAt      DateTime  @default(now())
+
+  @@index([enabledAt])
 }

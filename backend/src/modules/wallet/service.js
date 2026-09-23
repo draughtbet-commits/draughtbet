@@ -1,11 +1,8 @@
 import crypto from 'crypto';
 import prisma from '../../utils/db.js';
 import logger from '../../utils/logger.js';
-import {
-  InsufficientFundsError,
-  lockWalletForUpdate
-} from '../../services/matchService.js';
-import { assertEligibleForMoney } from '../../services/eligibilityService.js';
+import { postDepositCredit, getLedgerAvailable, getLedgerTransactions } from '../../services/ledgerService.js';
+import { enqueueWalletUpdated, enqueueNotificationDelivery } from '../../services/outboxService.js';
 
 // Canonical money contract: a non-negative bounded minor-unit integer accepted
 // as a plain-digit string or number. Rejects floats, signs, exponent notation,
@@ -119,7 +116,7 @@ export const processDepositWebhook = async ({ reference, amountMinorUnits, curre
 
   try {
     return await prisma.$transaction(async (tx) => {
-      // 1. The stored intent is the only reference that can authorize a credit.
+      // The stored intent is the only reference that can authorize a credit.
       const intent = await tx.depositIntent.findUnique({ where: { reference } });
       if (!intent) {
         logger.warn({ reference, gateway }, 'Deposit webhook ignored: unknown reference');
@@ -132,211 +129,96 @@ export const processDepositWebhook = async ({ reference, amountMinorUnits, curre
         logger.warn({ reference }, 'Deposit webhook rejected: gateway does not match intent');
         return { handled: false, reason: 'GATEWAY_MISMATCH' };
       }
-      // 2. Who the event claims to be for must match who we created the intent for.
       if (userId && intent.userId !== userId) {
         logger.warn({ reference }, 'Deposit webhook rejected: user does not match intent');
         return { handled: false, reason: 'USER_MISMATCH' };
       }
-      // 3. Exact amount verification — BigInt comparison, no floats anywhere.
+      // Exact BigInt comparison — no floats anywhere.
       if (intent.amountMinorUnits !== webhookAmount) {
         logger.warn({ reference }, 'Deposit webhook rejected: amount does not match intent');
         return { handled: false, reason: 'AMOUNT_MISMATCH' };
       }
-      // 4. Currency must line up on the event, the intent and the wallet.
       const wallet = await tx.wallet.findUnique({ where: { id: intent.walletId } });
       if (!wallet || wallet.currency !== intent.currency || (currency && currency !== intent.currency)) {
         logger.warn({ reference }, 'Deposit webhook rejected: currency does not match wallet/intent');
         return { handled: false, reason: 'CURRENCY_MISMATCH' };
       }
 
-      // 5. Credit from the intent, durably. The unique gatewayReference index
-      //    makes a concurrent duplicate delivery fail with P2002 (caught below),
-      //    so the wallet is credited at most once either way.
-      const txRecord = await tx.walletTransaction.create({
+      // CAS gate: only an intent that has never been credited transitions to
+      // COMPLETED. PENDING wins the credit; a FAILED intent (stale sweep parked
+      // a payment that actually arrived late) may still be legitimately credited
+      // exactly once. A concurrent duplicate sees COMPLETED, matches 0 rows and
+      // is reported as already applied — the clock is irrelevant, the state is.
+      const { count } = await tx.depositIntent.updateMany({
+        where: { id: intent.id, status: { in: ['PENDING', 'FAILED'] } },
+        data: { status: 'COMPLETED', appliedAt: new Date() }
+      });
+      if (count !== 1) {
+        logger.info({ reference }, 'Deposit webhook ignored: already applied (concurrent duplicate)');
+        return { handled: false, alreadyApplied: true };
+      }
+
+      // Ledger credit idempotent per reference; commits only with the CAS.
+      const { transaction: ledgerTx } = await postDepositCredit(tx, {
+        userId: intent.userId,
+        amountMinorUnits: intent.amountMinorUnits,
+        currency: intent.currency,
+        depositIntentId: intent.id,
+        reference: intent.reference
+      });
+
+      // Durable wallet.updated outbox row, atomic with the credit.
+      await enqueueWalletUpdated(tx, {
+        userId: intent.userId,
+        walletId: wallet.id,
+        currency: intent.currency,
+        type: 'DEPOSIT',
+        amountMinorUnits: intent.amountMinorUnits,
+        dedupeKey: `wallet:deposit:${intent.id}`
+      });
+
+      // 8. Deposit notification + its durable delivery event, atomic with the
+      //    credit (the unique [userId, matchId, type] index allows one per
+      //    deposit; matchId is NULL here so different deposits never dedup).
+      const amountMajor = `${intent.amountMinorUnits / 100n}.${(intent.amountMinorUnits % 100n).toString().padStart(2, '0')}`;
+      const depositNotif = await tx.notification.create({
         data: {
-          walletId: wallet.id,
-          type: 'DEPOSIT',
-          amountMinorUnits: intent.amountMinorUnits,
-          gateway,
-          gatewayReference: reference,
-          status: 'COMPLETED'
+          userId: intent.userId,
+          type: 'DEPOSIT_CONFIRMED',
+          title: 'Deposit Successful',
+          message: `Your deposit of ₦${amountMajor} has been credited to your wallet.`,
+          link: '/wallet'
         }
       });
-
-      await tx.wallet.update({
-        where: { id: wallet.id },
-        data: { balanceMinorUnits: { increment: intent.amountMinorUnits } }
-      });
-
-      await tx.depositIntent.update({
-        where: { id: intent.id },
-        data: { status: 'COMPLETED', appliedAt: new Date() }
+      await enqueueNotificationDelivery(tx, depositNotif, {
+        dedupeKey: `notify:deposit:${intent.id}`
       });
 
       logger.info({ reference, gateway }, 'Deposit webhook processed against stored intent');
-      return { handled: true, alreadyApplied: false, intent, transaction: txRecord };
+      return {
+        handled: true,
+        alreadyApplied: false,
+        intent,
+        transaction: { id: intent.reference, amountMinorUnits: intent.amountMinorUnits },
+        ledgerTransactionId: ledgerTx.id
+      };
     });
   } catch (error) {
-    if (error.code === 'P2002') {
-      // A concurrent delivery won the race; the ledger already has this credit.
-      logger.info({ reference, gateway }, 'Deposit webhook ignored: already applied (concurrent duplicate)');
-      return { handled: false, alreadyApplied: true };
-    }
     logger.error({ error, reference, gateway }, 'Failed to process deposit webhook');
     throw error;
   }
 };
 
-/**
- * Request a withdrawal (reserves funds in the same transaction that creates
- * the pending request).
- *  - The wallet row is locked FOR UPDATE before balance reads/debits so
- *    concurrent withdrawals and match-results serialize instead of both
- *    observing the pre-debit balance.
- *  - A client-supplied idempotencyKey makes replays return the original
- *    request instead of debiting twice; the unique (userId, idempotencyKey)
- *    index also rolls back the whole transaction if two requests race.
- */
-export const requestWithdrawal = async (userId, amountMinorUnits, idempotencyKey) => {
-  const amount = parseMinorUnits(amountMinorUnits);
-  if (amount === null) {
-    const error = new Error('Invalid amount');
-    error.name = 'InvalidAmountError';
-    throw error;
-  }
-
-  const key = parseIdempotencyKey(idempotencyKey);
-
-  // Only eligible accounts may move money out (own funds are returned on
-  // deposit, but funds leaving the platform require verified identity).
-  await assertEligibleForMoney(prisma, userId);
-
-  try {
-    return await prisma.$transaction(async (tx) => {
-      // 1. Lock the wallet row so balance checks and debits serialize against
-      //    other money operations on the same wallet.
-      const wallet = await lockWalletForUpdate(tx, userId);
-
-      // 2. Idempotent replay: a request with this key already exists -> return it.
-      if (key !== undefined) {
-        const existing = await tx.withdrawalRequest.findFirst({
-          where: { userId, idempotencyKey: key }
-        });
-        if (existing) return existing;
-      }
-
-      // 3. Verify funds while holding the lock.
-      if (BigInt(wallet.balanceMinorUnits) < amount) {
-        throw new InsufficientFundsError();
-      }
-
-      // 4. Debit balance (row is locked; DB CHECK rejects negatives).
-      await tx.wallet.update({
-        where: { id: wallet.id },
-        data: {
-          balanceMinorUnits: { decrement: amount }
-        }
-      });
-
-      // 5. Create WithdrawalRequest.
-      const withdrawal = await tx.withdrawalRequest.create({
-        data: {
-          userId,
-          amountMinorUnits: amount,
-          status: 'PENDING',
-          ...(key !== undefined ? { idempotencyKey: key } : {})
-        }
-      });
-
-      // 6. Log WalletTransaction.
-      await tx.walletTransaction.create({
-        data: {
-          walletId: wallet.id,
-          type: 'WITHDRAWAL',
-          amountMinorUnits: -amount,
-          status: 'PENDING'
-        }
-      });
-
-      return withdrawal;
-    });
-  } catch (error) {
-    // 7. Two requests raced with the same (userId, idempotencyKey): the whole
-    //    transaction — including our debit — was rolled back by Prisma. Return
-    //    the winner's request so the caller sees an identical result.
-    if (error?.code === 'P2002' && key !== undefined) {
-      const existing = await prisma.withdrawalRequest.findFirst({
-        where: { userId, idempotencyKey: key }
-      });
-      if (existing) return existing;
-    }
-    throw error;
-  }
-};
-
-/**
- * Reject a withdrawal and refund the user.
- */
-export const rejectWithdrawal = async (withdrawalRequestId, adminId) => {
-  return await prisma.$transaction(async (tx) => {
-    // 1. Fetch the request to get amount and userId.
-    const request = await tx.withdrawalRequest.findUnique({
-      where: { id: withdrawalRequestId }
-    });
-    
-    if (!request) {
-      throw new Error('Withdrawal request not found');
-    }
-    
-    // Check-then-act is safe here ONLY IF we also use a conditional update 
-    // or rely on a lock. A conditional update is safest.
-    
-    // 2. Atomically update the status ONLY IF it is PENDING
-    const result = await tx.$executeRaw`
-      UPDATE "WithdrawalRequest"
-      SET status = 'REJECTED', "reviewedBy" = ${adminId}, "reviewedAt" = NOW()
-      WHERE id = ${withdrawalRequestId} AND status = 'PENDING'
-    `;
-    
-    if (result === 0) {
-      // It was already processed (approved, rejected, or missing)
-      return null;
-    }
-    
-    const wallet = await tx.wallet.findUnique({ where: { userId: request.userId } });
-    
-    // 3. Credit the balance back
-    await tx.wallet.update({
-      where: { id: wallet.id },
-      data: {
-        balanceMinorUnits: { increment: request.amountMinorUnits }
-      }
-    });
-    
-    // 4. Log REFUND transaction
-    await tx.walletTransaction.create({
-      data: {
-        walletId: wallet.id,
-        type: 'REFUND',
-        amountMinorUnits: request.amountMinorUnits,
-        status: 'COMPLETED'
-      }
-    });
-    
-    logger.info({ withdrawalRequestId, adminId }, 'Withdrawal rejected and refunded');
-    return true;
-  });
-};
-
 export const getWalletBalance = async (userId) => {
   const wallet = await prisma.wallet.findUnique({
     where: { userId },
-    select: { balanceMinorUnits: true, currency: true }
+    select: { currency: true }
   });
   if (!wallet) return null;
+  const available = await getLedgerAvailable(prisma, userId, wallet.currency ?? 'NGN');
   return {
-    ...wallet,
-    balanceMinorUnits: wallet.balanceMinorUnits.toString()
+    currency: wallet.currency,
+    balanceMinorUnits: available.toString()
   };
 };
 
@@ -344,26 +226,9 @@ export const getWalletTransactions = async (userId, page = 1, limit = 20) => {
   const wallet = await prisma.wallet.findUnique({ where: { userId } });
   if (!wallet) return { transactions: [], total: 0 };
 
-  const skip = (page - 1) * limit;
-  const [transactions, total] = await Promise.all([
-    prisma.walletTransaction.findMany({
-      where: { walletId: wallet.id },
-      orderBy: { createdAt: 'desc' },
-      skip,
-      take: limit
-    }),
-    prisma.walletTransaction.count({
-      where: { walletId: wallet.id }
-    })
-  ]);
-
-  return {
-    transactions: transactions.map(t => ({
-      ...t,
-      amountMinorUnits: t.amountMinorUnits.toString()
-    })),
-    total,
+  return getLedgerTransactions(prisma, userId, {
     page,
-    totalPages: Math.ceil(total / limit)
-  };
+    limit,
+    currency: wallet.currency ?? 'NGN'
+  });
 };

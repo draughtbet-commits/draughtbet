@@ -228,16 +228,14 @@ class SocketService {
       }
     });
 
-    _socket!.on('wallet_updated', (data) {
+    void forwardWalletUpdate(dynamic data) {
       if (data is Map) {
         _walletUpdatedController.add(Map<String, dynamic>.from(data));
       }
-    });
-    _socket!.on('wallet.updated', (data) {
-      if (data is Map) {
-        _walletUpdatedController.add(Map<String, dynamic>.from(data));
-      }
-    });
+    }
+
+    _socket!.on('wallet_updated', forwardWalletUpdate);
+    _socket!.on('wallet.updated', forwardWalletUpdate);
 
     _socket!.on('settlement.completed', (data) {
       if (data is Map) {

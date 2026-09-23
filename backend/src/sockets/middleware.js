@@ -2,8 +2,30 @@ import jwt from 'jsonwebtoken';
 import prisma from '../utils/db.js';
 import logger from '../utils/logger.js';
 import { getJwtSecret } from '../utils/jwtEnv.js';
+import { resolveAppVersionPolicy, isVersionSupported } from '../utils/appVersion.js';
 
 const JWT_SECRET = getJwtSecret();
+
+/**
+ * Rejects sockets from unsupported app builds before the connection is
+ * established. The version arrives via the handshake auth object (preferred,
+ * `auth: { token, version }`) or the x-app-version header; unparseable or
+ * unsupported versions are refused with a distinct upgrade-required error so
+ * the client never silently falls back to older behaviour.
+ */
+const enforceAppVersion = (socket) => {
+  const policy = resolveAppVersionPolicy();
+  if (!policy) return null;
+
+  const version = socket.handshake?.auth?.version
+    || socket.handshake?.headers?.['x-app-version']
+    || null;
+
+  if (!version || !isVersionSupported(version)) {
+    return new Error('UPGRADE_REQUIRED: update the app to continue');
+  }
+  return null;
+};
 
 /**
  * Socket.IO authentication middleware
@@ -28,6 +50,11 @@ export const socketAuthMiddleware = async (socket, next) => {
 
     if (!token) {
       return next(new Error('Authentication error: Token missing'));
+    }
+
+    const versionError = enforceAppVersion(socket);
+    if (versionError) {
+      return next(versionError);
     }
 
     // Verify token

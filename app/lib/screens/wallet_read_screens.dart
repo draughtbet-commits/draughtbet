@@ -305,6 +305,12 @@ class WalletTransactionDetailScreen extends StatelessWidget {
 
   final WalletEntry entry;
 
+  String get _displayReference {
+    final reference = entry.authoritativeReference;
+    if (reference.length <= 20) return reference;
+    return '${reference.substring(0, 8)}…${reference.substring(reference.length - 8)}';
+  }
+
   String get _title => switch (entry.kind) {
     WalletEntryKind.deposit => 'DEPOSIT',
     WalletEntryKind.stake => 'MATCH STAKE',
@@ -350,7 +356,7 @@ class WalletTransactionDetailScreen extends StatelessWidget {
             FlowCard(
               child: Column(
                 children: [
-                  _DetailRow('Reference', entry.reference ?? 'Unavailable'),
+                  _DetailRow('Reference', _displayReference),
                   _DetailRow('Status', entry.status),
                   _DetailRow(
                     'Date',
@@ -390,6 +396,7 @@ class LockedFundsScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final projection = ref.watch(walletProvider).projection;
     final items = projection?.lockedFunds ?? const <LockedFundItem>[];
+    final isDeferred = projection?.lockedMinorUnits == null;
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(title: const Text('LOCKED FUNDS')),
@@ -415,12 +422,21 @@ class LockedFundsScreen extends ConsumerWidget {
                 ),
               ),
               Text(
-                'Currently locked in matches',
+                isDeferred
+                    ? 'Locked funds unavailable'
+                    : 'Currently locked in matches',
                 textAlign: TextAlign.center,
                 style: AppTypography.bodyLarge,
               ),
               const SizedBox(height: 20),
-              if (items.isEmpty)
+              if (isDeferred)
+                const FlowCard(
+                  child: Text(
+                    'Locked and pending balances are deferred until the server provides them. No amount has been estimated.',
+                    textAlign: TextAlign.center,
+                  ),
+                )
+              else if (items.isEmpty)
                 const FlowCard(
                   child: Text(
                     'The server has not provided a match-level locked-funds breakdown.',

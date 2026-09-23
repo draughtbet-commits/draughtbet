@@ -4,6 +4,7 @@ import { AuthService } from './service.js';
 import { GeoService } from '../../services/geoService.js';
 import { requireAuth } from '../../middleware/auth.js';
 import { authRateLimiter, checkRateLimiter } from '../../middleware/rateLimit.js';
+import { requireAppVersion } from '../../middleware/appVersion.js';
 import { getIO } from '../../sockets/index.js';
 
 export const authRouter = express.Router();
@@ -36,7 +37,12 @@ const registerSchema = z.object({
   }, { message: 'Must be at least 18 years old' }),
   countryCode: z.string().length(2),
   geoBinding: z.string().min(8),
-  fingerprintHash: z.string().optional()
+  fingerprintHash: z.string().optional(),
+  deviceInfo: z.object({
+    model: z.string().optional(),
+    os: z.string().optional(),
+    appVersion: z.string().optional()
+  }).optional()
 }).refine((d) => d.email || d.phone, { message: 'Email or phone is required' });
 
 const loginSchema = z.object({
@@ -44,7 +50,12 @@ const loginSchema = z.object({
   phone: z.string().min(6).optional(),
   password: z.string(),
   fingerprintHash: z.string().optional(),
-  fcmToken: z.string().optional()
+  fcmToken: z.string().optional(),
+  deviceInfo: z.object({
+    model: z.string().optional(),
+    os: z.string().optional(),
+    appVersion: z.string().optional()
+  }).optional()
 }).refine((d) => d.email || d.phone, { message: 'Email or phone is required' });
 
 const geolocateSchema = z.object({
@@ -52,17 +63,12 @@ const geolocateSchema = z.object({
   lng: z.number().min(-180).max(180)
 });
 
-const updateProfileSchema = z.object({
-  // Only predesigned avatar ids are accepted. No uploads.
-  avatar: z.string().trim().min(1).max(64)
-});
-
 const availabilitySchema = z.object({
   type: z.enum(['email', 'phone', 'username']),
   value: z.string().min(1)
 });
 
-authRouter.post('/register', authRateLimiter, async (req, res, next) => {
+authRouter.post('/register', authRateLimiter, requireAppVersion, async (req, res, next) => {
   try {
     const data = registerSchema.parse(req.body);
     const user = await AuthService.register({
@@ -79,7 +85,11 @@ authRouter.post('/register', authRateLimiter, async (req, res, next) => {
     });
     // Auto-login: issue tokens in the same call so the app can skip the
     // separate sign-in step after account creation.
-    const tokens = await AuthService.issueTokens(user.id);
+    const tokens = await AuthService.issueTokens(user.id, {
+      ip: req.ip,
+      userAgent: req.get('user-agent'),
+      deviceInfo: data.deviceInfo
+    });
     res.status(201).json({ message: 'User registered successfully', ...tokens });
   } catch (err) {
     if (err && err.name === 'ZodError') {
@@ -99,11 +109,15 @@ authRouter.post('/register', authRateLimiter, async (req, res, next) => {
   }
 });
 
-authRouter.post('/login', authRateLimiter, async (req, res, next) => {
+authRouter.post('/login', authRateLimiter, requireAppVersion, async (req, res, next) => {
   try {
     const data = loginSchema.parse(req.body);
     const identifier = data.email || data.phone;
-    const tokens = await AuthService.login(identifier, data.password, data.fingerprintHash, data.fcmToken);
+    const tokens = await AuthService.login(identifier, data.password, data.fingerprintHash, data.fcmToken, {
+      ip: req.ip,
+      userAgent: req.get('user-agent'),
+      deviceInfo: data.deviceInfo
+    });
     res.json(tokens);
   } catch (err) {
     if (err && err.name === 'ZodError') {
@@ -150,14 +164,18 @@ authRouter.post('/check-availability', checkRateLimiter, async (req, res, next) 
   }
 });
 
-authRouter.post('/refresh', authRateLimiter, async (req, res, next) => {
+authRouter.post('/refresh', authRateLimiter, requireAppVersion, async (req, res, next) => {
   try {
     // Both userId and refreshToken should ideally come from the request
     const { userId, refreshToken } = req.body;
     if (!userId || !refreshToken) {
       return res.status(400).json({ error: 'userId and refreshToken required' });
     }
-    const tokens = await AuthService.refresh(userId, refreshToken);
+    const tokens = await AuthService.refresh(userId, refreshToken, {
+      ip: req.ip,
+      userAgent: req.get('user-agent'),
+      deviceInfo: req.body.deviceInfo
+    });
     res.json(tokens);
   } catch (err) {
     if (err.message === 'Invalid or expired refresh token' || err.message === 'Account suspended') {
@@ -187,31 +205,6 @@ authRouter.post('/logout', requireAuth, async (req, res, next) => {
     }
     res.json({ message: 'Logged out successfully' });
   } catch (err) {
-    next(err);
-  }
-});
-
-authRouter.get('/me', requireAuth, async (req, res, next) => {
-  try {
-    const profile = await AuthService.getProfile(req.user.id);
-    res.json(profile);
-  } catch (err) {
-    next(err);
-  }
-});
-
-authRouter.patch('/me', requireAuth, async (req, res, next) => {
-  try {
-    const data = updateProfileSchema.parse(req.body);
-    const profile = await AuthService.updateProfile(req.user.id, { avatar: data.avatar });
-    res.json(profile);
-  } catch (err) {
-    if (err && err.name === 'ZodError') {
-      return res.status(400).json({ errors: err.errors || err.issues });
-    }
-    if (err.message === 'User not found') {
-      return res.status(404).json({ error: err.message });
-    }
     next(err);
   }
 });

@@ -1,11 +1,24 @@
 import redis from '../utils/redis.js';
 import logger from '../utils/logger.js';
-import { validateMatchIdPayload, validateMoveAttempt } from './payloadGuard.js';
+import { validateClockSync, validateMatchIdPayload, validateMoveAttempt, validateMoveSubmit } from './payloadGuard.js';
 import { createInitialBoard, getLegalMoves, applyMove, checkGameEnd, COLOR_WHITE, COLOR_BLACK, isKing } from '../modules/engine/index.js';
 import { settleGame, settleGameDraw, settleGameWithRetry, settleGameDrawWithRetry } from './settlement.js';
+import {
+  MOVE_ERROR,
+  buildStatePayload,
+  emitMoveRejected,
+  emitMoveAccepted,
+  SIDE_BY_COLOR
+} from './gameProtocol.js';
 import { getIO } from './index.js';
-import { DEFAULT_TIME_CONTROL_SECONDS, TURN_EXPIRED_REASON } from './timeControl.js';
+import {
+  DEFAULT_TIME_CONTROL_SECONDS,
+  TURN_EXPIRED_REASON,
+  disconnectGraceMs,
+  remainingMs
+} from './timeControl.js';
 import prisma from '../utils/db.js';
+import { transitionMatchWhere } from '../modules/match/service.js';
 import * as Sentry from '@sentry/node';
 
 const GAME_STATE_TTL = 24 * 60 * 60; // 24 hours
@@ -48,7 +61,8 @@ redis.call('HSET', key,
   'status',                 ARGV[9],
   'winnerId',               ARGV[10],
   'deadlineAt',             ARGV[11],
-  'timeControlSeconds',     ARGV[12]
+  'timeControlSeconds',     ARGV[12],
+  'turnStartedAtServer',    ARGV[13]
 )
 return 'OK'
 `;
@@ -58,7 +72,7 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // Authoritative server clock (Redis TIME), echoing the guard embedded in the
 // CAS script so the pre-persist expiry check agrees with the atomic one.
-const authoritativeNowMs = async () => {
+export const authoritativeNowMs = async () => {
   const [seconds, microseconds] = await redis.time();
   return Number(seconds) * 1000 + Math.floor(Number(microseconds) / 1000);
 };
@@ -70,32 +84,111 @@ const refuseExpiredTurn = (socket, matchId, state, userId) => {
   const opponentId = state.player1 === userId ? state.player2 : state.player1;
   logger.info({ matchId, forfeitedBy: userId, winner: opponentId },
     'Turn expired — auto-forfeit');
-  socket.emit('move_rejected', { reason: 'turn_expired' });
+  emitMoveRejected(socket, MOVE_ERROR.TURN_EXPIRED);
   settleGameWithRetry(matchId, opponentId, userId, TURN_EXPIRED_REASON);
 };
 
-// Durable write of an accepted move. Returns { persisted: true } on success and
-// { alreadyExists: true } when the (matchId, moveNumber) pair is already on the
-// log (a duplicate delivery of an accepted move). Throws when the write could
-// not be completed after retries — in that case the move is NOT accepted.
-async function persistMatchMove(moveData, retries = 3) {
+// Emits the canonical resync payload so a stale client can rebuild its board
+// from the authoritative projection instead of guessing.
+const emitResync = (socket, matchId, state, nowMs = null) => {
+  const payload = buildStatePayload(matchId, state, nowMs);
+  if (payload) socket.emit('match.state', payload);
+};
+
+// Rejects a move in both protocol shapes. When the authoritative state is
+// known it is attached as a `match.state` resync — this is what makes a stale
+// client recover deterministically rather than replay a dead move.
+const rejectMove = (socket, matchId, state, code, extra = {}) => {
+  emitMoveRejected(socket, code, extra);
+  if (state) emitResync(socket, matchId, state);
+};
+
+// Idempotency: was this exact client move already accepted? Returns the stored
+// row (used to replay the prior result without re-applying it) or null.
+const findMoveByClientId = async (matchId, clientMoveId) => {
+  if (!clientMoveId) return null;
+  return prisma.matchMove.findUnique({
+    where: { matchId_clientMoveId: { matchId, clientMoveId } }
+  });
+};
+
+// Resolves the row behind a P2002 unique violation. A row carrying this exact
+// clientMoveId is our own replayed move; otherwise the colliding row (if any)
+// merely occupies our moveNumber and belongs to a competing move.
+async function resolveUniqueConflict(moveData) {
+  if (moveData.clientMoveId) {
+    const mine = await prisma.matchMove.findUnique({
+      where: {
+        matchId_clientMoveId: {
+          matchId: moveData.matchId,
+          clientMoveId: moveData.clientMoveId
+        }
+      }
+    });
+    if (mine) return mine;
+  }
+  return prisma.matchMove.findUnique({
+    where: {
+      matchId_moveNumber: { matchId: moveData.matchId, moveNumber: moveData.moveNumber }
+    }
+  });
+}
+
+// Durable acceptance of a move. A move is not authoritative until this
+// transaction commits: the immutable move row, the durable GameEvent (audit
+// trail) and the MatchGameState projection are written atomically. The
+// (matchId, moveNumber) and (matchId, clientMoveId) unique constraints make a
+// concurrent or replayed submission unable to create a second row — the loser
+// gets P2002 and is reported as `alreadyExists` with the colliding row
+// (`existing`) so the caller can tell its own replay from a competing move.
+// Throws when the write could not be completed after retries — in that case
+// the move is NOT accepted.
+async function persistAcceptedMove(moveData, durableState, retries = 3) {
   let lastErr = null;
   for (let attempt = 1; attempt <= retries; attempt++) {
     try {
-      await prisma.matchMove.create({ data: moveData });
-      return { persisted: true };
+      const moveRow = await prisma.$transaction(async (tx) => {
+        const created = await tx.matchMove.create({ data: moveData });
+        await tx.gameEvent.create({
+          data: {
+            matchId: moveData.matchId,
+            playerId: moveData.playerId,
+            type: 'MOVE',
+            payload: {
+              moveId: created.id,
+              clientMoveId: moveData.clientMoveId ?? null,
+              moveNumber: moveData.moveNumber,
+              from: moveData.fromSquare,
+              to: moveData.toSquare,
+              path: moveData.path ?? null,
+              capturedSquares: moveData.capturedSquares ?? [],
+              stateVersion: moveData.stateVersion ?? null
+            }
+          }
+        });
+        await tx.matchGameState.upsert({
+          where: { matchId: moveData.matchId },
+          create: { matchId: moveData.matchId, ...durableState },
+          update: { ...durableState }
+        });
+        return created;
+      });
+      return { persisted: true, moveId: moveRow?.id ?? null };
     } catch (err) {
       lastErr = err;
       if (err && err.code === 'P2002') {
-        return { alreadyExists: true };
+        // A P2002 may originate from either unique key. Resolve which row
+        // actually collided so the caller can tell a replay of THIS move from a
+        // competing move that merely holds the same moveNumber.
+        return { alreadyExists: true, existing: await resolveUniqueConflict(moveData) };
       }
       logger.warn({ err, attempt, matchId: moveData.matchId, moveNumber: moveData.moveNumber },
-        'MatchMove persist failed, retrying');
+        'Durable move persist failed, retrying');
       if (attempt < retries) await sleep(attempt * 100);
     }
   }
   logger.error({ err: lastErr, moveData },
-    'CRITICAL: MatchMove persist failed after all retries. Move not accepted.');
+    'CRITICAL: durable move persist failed after all retries. Move not accepted.');
   if (Sentry && typeof Sentry.captureException === 'function') {
     Sentry.captureException(lastErr, {
       level: 'fatal',
@@ -157,6 +250,21 @@ export const reconstructMoveHistory = async (matchId) => {
 export const initializeGame = async (matchId, player1Id, player2Id, stakeTier) => {
   const matchKey = `match:${matchId}`;
 
+  // Server-authoritative start: once Redis is live for a funded match, the game
+  // is PLAYING. Advance the match lifecycle FUNDED/READY -> IN_PLAY with an
+  // idempotent CAS (already-live matches are a no-op). This is what lets the
+  // deadline sweep forfeit a first-turn timeout before any move was made —
+  // settling a READY/FUNDED match is invalid, settling IN_PLAY is correct.
+  try {
+    await transitionMatchWhere(prisma, matchId, ['FUNDED', 'READY'], 'IN_PLAY', {
+      startedAt: new Date()
+    });
+  } catch (err) {
+    // The game is still initialized in Redis; a failed status flip is repaired
+    // by the first move or the reconciliation sweep, so never fail init over it.
+    logger.warn({ err, matchId }, 'Match lifecycle FUNDED/READY -> IN_PLAY skipped');
+  }
+
   // Idempotent by construction: the durable GameOutbox record is the source of
   // truth here. If Redis already holds state for this match (a crash between
   // the Redis write and the outbox ACTIVATED mark), do NOT clobber a possibly
@@ -204,7 +312,10 @@ export const initializeGame = async (matchId, player1Id, player2Id, stakeTier) =
     consecutiveKingMoves: 0,
     lastMoveTs: now,
     deadlineAt: now + timeControlSeconds * 1000,
-    timeControlSeconds
+    timeControlSeconds,
+    // Server-owned turn start and grace snapshot (client-clock independent).
+    turnStartedAtServer: now,
+    disconnectGraceMs: disconnectGraceMs()
   };
   
   try {
@@ -278,7 +389,8 @@ export const handleResign = async (socket, payload) => {
         'completed',
         opponentId,
         '', // deadlineAt — no future deadline on an ended game
-        resignTc.toString()
+        resignTc.toString(),
+        '' // turnStartedAtServer — no running turn on an ended game
       );
 
       success = true;
@@ -368,39 +480,101 @@ const computeNextState = (state, from, to, nowMs = Date.now()) => {
   };
 };
 
-export const handleMoveAttempt = async (socket, payload) => {
+// Emits the previous accepted result of a replayed client move to the sender
+// only. The room already saw the move when it was first accepted, so a retry
+// must never produce a second broadcast (which would double-apply client-side).
+const replayAcceptedMove = (socket, matchId, current, existing, clientMoveId) => {
+  socket.emit('move.accepted', {
+    matchId,
+    clientMoveId,
+    version: String(current.version),
+    stateVersion: Number(current.version),
+    move: {
+      from: existing.fromSquare,
+      to: existing.toSquare,
+      path: existing.path?.length ? existing.path : [existing.fromSquare, existing.toSquare],
+      captured: existing.capturedSquares ?? [],
+      promoted: existing.isKingMove
+    },
+    replayed: true
+  });
+  emitResync(socket, matchId, current);
+};
+
+// Canonical move pipeline shared by the V2 `move.submit` and the legacy
+// `move_attempt` events. Durable-first: the move (plus its audit GameEvent and
+// MatchGameState projection) commits before the live Redis projection advances.
+const submitMove = async (socket, move) => {
   const userId = socket.user?.userId;
   if (!userId) return;
 
-  const validated = validateMoveAttempt(payload);
-  if (!validated.ok) {
-    socket.emit('move_rejected', { reason: 'invalid_payload' });
-    return;
-  }
-  const { matchId, from, to } = validated.data;
+  const { matchId, from, clientMoveId = null, expectedStateVersion } = move;
+  const to = move.to ?? (move.path ? move.path[move.path.length - 1] : undefined);
 
   let retries = 2;
   let success = false;
 
   while (retries >= 0 && !success) {
+    // Declared outside the try so the catch below can attach the authoritative
+    // state to a resync-capable rejection (server_busy / game_already_ended /
+    // turn_expired) instead of throwing a ReferenceError.
+    let state = null;
     try {
-      const state = await getGameState(matchId);
-      
+      state = await getGameState(matchId);
+
+      // Idempotency check FIRST: a replayed client move must return the prior
+      // result without touching the engine, the log or the projection. A null
+      // clientMoveId (legacy) skips straight through.
+      const existing = await findMoveByClientId(matchId, clientMoveId);
+      if (existing) {
+        const current = await getGameState(matchId);
+        if (current && Number.parseInt(current.moveCount, 10) >= existing.moveNumber) {
+          replayAcceptedMove(socket, matchId, current, existing, clientMoveId);
+          return;
+        }
+        // Persisted but never projected (crash between commit and CAS) — fall
+        // through and resume applying the same move.
+      }
+
       const preconditionError = validatePreconditions(state, userId);
       if (preconditionError) {
-        socket.emit('move_rejected', { reason: preconditionError });
+        rejectMove(socket, matchId, state, preconditionError);
+        return;
+      }
+
+      // Staleness gate: the client declares the version it acted on. Once the
+      // authoritative projection has moved, the move is refused and a canonical
+      // resync is pushed so the client rebuilds instead of retrying blindly.
+      if (expectedStateVersion !== undefined && Number(state.version) !== Number(expectedStateVersion)) {
+        rejectMove(socket, matchId, state, MOVE_ERROR.STALE_STATE, {
+          expectedStateVersion,
+          currentVersion: Number(state.version)
+        });
         return;
       }
 
       const nextState = computeNextState(state, from, to);
       if (nextState.error) {
-        socket.emit('move_rejected', { reason: nextState.error });
+        rejectMove(socket, matchId, state, nextState.error);
         return;
+      }
+
+      // Full-capture validation: when the client sends its intended path it
+      // must match the engine's canonical path exactly, so an ambiguous
+      // multi-capture can never be silently reinterpreted.
+      if (move.path) {
+        const canonical = nextState.move.path ?? [from, to];
+        const pathMismatch = canonical.length !== move.path.length
+          || canonical.some((sq, i) => sq !== move.path[i]);
+        if (pathMismatch) {
+          rejectMove(socket, matchId, state, MOVE_ERROR.ILLEGAL_MOVE, { reason: 'path_mismatch' });
+          return;
+        }
       }
 
       const {
         newBoard, nextTurn, nextTurnUserId, moveCount, consecutiveKingMoves,
-        positionCounts, ended, reason, newStatus, winnerId, move, promoted,
+        positionCounts, ended, reason, newStatus, winnerId, move: legalMove, promoted,
         deadlineAt, timeControlSeconds
       } = nextState;
 
@@ -426,36 +600,81 @@ export const handleMoveAttempt = async (socket, payload) => {
       // of it, so an accepted move survives a crash or Redis loss in one
       // replayable history.
       const pieceMoved = JSON.parse(state.board)[from - 1];
+      const nextVersion = Number.parseInt(state.version, 10) + 1;
+      const canonicalPath = move.path ?? legalMove.path ?? [from, to];
+      const captured = legalMove.capturedSquares || [];
+
       let persisted;
       try {
-        persisted = await persistMatchMove({
-          matchId,
-          moveNumber: moveCount,
-          playerId: userId,
-          fromSquare: from,
-          toSquare: to,
-          capturedSquares: move.capturedSquares || [],
-          isKingMove: isKing(pieceMoved),
-          boardStateAfter: newBoard
-        });
+        persisted = await persistAcceptedMove(
+          {
+            matchId,
+            moveNumber: moveCount,
+            playerId: userId,
+            fromSquare: from,
+            toSquare: to,
+            capturedSquares: captured,
+            isKingMove: isKing(pieceMoved),
+            boardStateAfter: newBoard,
+            clientMoveId,
+            path: canonicalPath,
+            stateVersion: expectedStateVersion ?? Number(state.version)
+          },
+          {
+            boardState: newBoard,
+            currentTurn: SIDE_BY_COLOR[nextTurn],
+            stateVersion: nextVersion,
+            turnStartedAt: new Date(nowMs),
+            whiteRemainingMs: timeControlSeconds * 1000,
+            blackRemainingMs: timeControlSeconds * 1000
+          }
+        );
       } catch (err) {
         // Durable acceptance failed — nothing advanced, so the client can
         // safely retry the same move.
-        socket.emit('move_rejected', { reason: 'persist_failed' });
+        rejectMove(socket, matchId, state, MOVE_ERROR.PERSIST_FAILED);
         return;
       }
 
       if (persisted.alreadyExists) {
+        const existing = persisted.existing ?? null;
+
+        // Only a row carrying this exact idempotency key (or, for legacy moves,
+        // the same from/to/captured) is a replay of THIS move. A row that
+        // merely occupies our moveNumber belongs to a competing move: this
+        // submission lost the race and was never applied, so it must be refused
+        // with a resync rather than falsely reported as accepted.
+        const sameMove = clientMoveId != null
+          ? existing?.clientMoveId === clientMoveId
+          : Boolean(
+              existing
+              && existing.fromSquare === from
+              && existing.toSquare === to
+              && JSON.stringify(existing.capturedSquares ?? []) === JSON.stringify(captured)
+            );
+
+        if (!sameMove) {
+          rejectMove(socket, matchId, await getGameState(matchId), MOVE_ERROR.DUPLICATE_MOVE);
+          return;
+        }
+
         // A previous delivery already recorded this exact move. If the
         // projection has advanced past it, this is a duplicate delivery of an
         // accepted move — idempotent, no second broadcast. Otherwise a process
         // died between the DB write and the projection apply; resume it below.
         const current = await getGameState(matchId);
         if (!current) {
-          socket.emit('move_rejected', { reason: 'game_already_ended' });
+          rejectMove(socket, matchId, null, MOVE_ERROR.GAME_NOT_FOUND);
           return;
         }
-        if (parseInt(current.moveCount, 10) >= moveCount) {
+        if (Number.parseInt(current.moveCount, 10) >= moveCount) {
+          replayAcceptedMove(socket, matchId, current, {
+            fromSquare: from,
+            toSquare: to,
+            path: canonicalPath,
+            capturedSquares: captured,
+            isKingMove: isKing(pieceMoved)
+          }, clientMoveId);
           success = true;
           continue;
         }
@@ -476,27 +695,56 @@ export const handleMoveAttempt = async (socket, payload) => {
         newStatus,
         winnerId,
         deadlineAt,
-        timeControlSeconds.toString()
+        timeControlSeconds.toString(),
+        // The next turn's official start is the same server instant that opened
+        // its deadline; an ended game carries no running turn.
+        newStatus === 'in_progress' ? nowMs.toString() : ''
       );
 
       success = true;
 
-      // Emit to room — the board plus the match identity (matchId/version) a
-      // client needs to reconcile state after a reconnect or a duplicate
-      // delivery.
+      // First accepted live move advances the match lifecycle: READY -> IN_PLAY
+      // (idempotent CAS; the startedAt stamp is written once). A retry on an
+      // already-started match finds status IN_PLAY and is a no-op.
+      if (moveCount === 0) {
+        try {
+          await transitionMatchWhere(prisma, matchId, ['READY'], 'IN_PLAY', {
+            startedAt: new Date()
+          });
+        } catch (err) {
+          // The move is already durable and Redis is already advanced; a failed
+          // status flip is repaired by the next move or the reconciliation
+          // sweep. Never reject the move over it.
+          logger.warn({ err, matchId }, 'READY -> IN_PLAY transition skipped');
+        }
+      }
+
+      // Emit to room — legacy `move_applied` plus the V2 `move.accepted`, both
+      // carrying the match identity (matchId/version) a client needs to
+      // reconcile after a reconnect or a duplicate delivery.
       const io = getIO();
       const nextLegalMoves = ended ? [] : getLegalMoves(newBoard, nextTurn);
-      io.to(`match:${matchId}`).emit('move_applied', {
-        matchId,
-        version: String(parseInt(state.version, 10) + 1),
-        from, to,
-        captured: move.capturedSquares || [],
-        promoted,
-        nextTurn,
-        gameEnded: ended,
-        reason,
-        legalMoves: nextLegalMoves,
-        board: newBoard
+      emitMoveAccepted(io, matchId, {
+        clientMoveId,
+        move: {
+          from,
+          to,
+          path: canonicalPath,
+          captured,
+          promoted,
+          nextTurn,
+          ended,
+          reason,
+          legalMoves: nextLegalMoves,
+          newBoard,
+          version: nextVersion
+        },
+        clock: {
+          serverNowMs: nowMs,
+          turnStartedAtServer: newStatus === 'in_progress' ? nowMs : null,
+          deadlineAt: Number(deadlineAt) > 0 ? Number(deadlineAt) : null,
+          remainingMs: newStatus === 'in_progress' ? remainingMs(deadlineAt, nowMs) : null
+        }
       });
 
       // Settlement. The outcome evidence is durable by now: the final move hit
@@ -513,10 +761,10 @@ export const handleMoveAttempt = async (socket, payload) => {
       if (err.message && err.message.includes('VERSION_MISMATCH')) {
         retries--;
         if (retries < 0) {
-          socket.emit('move_rejected', { reason: 'server_busy' });
+          rejectMove(socket, matchId, state, MOVE_ERROR.SERVER_BUSY);
         }
       } else if (err.message && err.message.includes('GAME_NOT_FOUND')) {
-        socket.emit('move_rejected', { reason: 'game_already_ended' });
+        rejectMove(socket, matchId, state, MOVE_ERROR.GAME_NOT_FOUND);
         return;
       } else if (err.message && err.message.includes('TURN_EXPIRED')) {
         // The clock expired in the window between the pre-check and the CAS —
@@ -524,10 +772,79 @@ export const handleMoveAttempt = async (socket, payload) => {
         refuseExpiredTurn(socket, matchId, state, userId);
         return;
       } else {
-        logger.error({ err, matchId }, 'Error in handleMoveAttempt');
+        logger.error({ err, matchId }, 'Error in move submit');
         socket.emit('error', { message: 'Internal server error processing move' });
         return;
       }
     }
   }
+};
+
+// V2 entry point. Required idempotency key + optional expected state version.
+export const handleMoveSubmit = async (socket, payload) => {
+  const validated = validateMoveSubmit(payload);
+  if (!validated.ok) {
+    emitMoveRejected(socket, MOVE_ERROR.INVALID_PAYLOAD);
+    return;
+  }
+  const { matchId, from, to, path, clientMoveId, expectedStateVersion } = validated.data;
+  await submitMove(socket, { matchId, from, to, path, clientMoveId, expectedStateVersion });
+};
+
+// Legacy compatibility adapter. The deployed Flutter client emits `move_attempt`
+// with only { matchId, from, to } and no version/idempotency key; it keeps
+// working (no path validation, no staleness gate) while the app migrates.
+export const handleMoveAttempt = async (socket, payload) => {
+  const validated = validateMoveAttempt(payload);
+  if (!validated.ok) {
+    emitMoveRejected(socket, MOVE_ERROR.INVALID_PAYLOAD);
+    return;
+  }
+  const { matchId, from, to } = validated.data;
+  await submitMove(socket, { matchId, from, to, path: undefined, clientMoveId: null });
+};
+
+// Official clock sync. Answers with the server clock so a client can compute a
+// skew offset and render the authoritative remaining time; never trusts a
+// client-provided time.
+export const handleClockSync = async (socket, payload) => {
+  const userId = socket.user?.userId;
+  if (!userId) return;
+
+  const validated = validateClockSync(payload);
+  if (!validated.ok) {
+    socket.emit('error', { message: 'Invalid payload' });
+    return;
+  }
+  const { matchId, clientSentAt } = validated.data;
+
+  const state = await getGameState(matchId);
+  if (!state) {
+    socket.emit('error', { message: 'Game not found' });
+    return;
+  }
+  if (state.player1 !== userId && state.player2 !== userId) {
+    socket.emit('error', { message: 'Not authorized' });
+    return;
+  }
+
+  const nowMs = await authoritativeNowMs();
+  const deadlineAt = Number(state.deadlineAt) > 0 ? Number(state.deadlineAt) : null;
+  socket.emit('clock.sync', {
+    matchId,
+    serverNowMs: nowMs,
+    clientSentAt: clientSentAt ?? null,
+    version: String(state.version ?? '0'),
+    status: state.status || 'in_progress',
+    currentTurn: state.currentTurn ?? null,
+    currentTurnUserId: state.currentTurnUserId ?? null,
+    turnStartedAtServer: Number(state.turnStartedAtServer) > 0
+      ? Number(state.turnStartedAtServer)
+      : null,
+    deadlineAt,
+    timeControlSeconds: Number(state.timeControlSeconds) > 0
+      ? Number(state.timeControlSeconds)
+      : null,
+    remainingMs: remainingMs(deadlineAt, nowMs)
+  });
 };
