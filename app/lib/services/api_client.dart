@@ -31,18 +31,11 @@ final apiClientProvider = Provider<Dio>((ref) {
       ? dotenv.env['BACKEND_URL']?.trim() ?? ''
       : '';
 
-  // REST routes are mounted under /api/v1 (WS1). Socket.io stays on the
-  // raw host (unversioned), so only this HTTP base gets the prefix.
-  final restBaseUrl = configuredBackendUrl.isNotEmpty
-      ? configuredBackendUrl
-      : 'http://localhost:3000';
-  final v1BaseUrl = restBaseUrl.endsWith('/api/v1')
-      ? restBaseUrl
-      : '${restBaseUrl.endsWith('/') ? restBaseUrl.substring(0, restBaseUrl.length - 1) : restBaseUrl}/api/v1';
-
   final dio = Dio(
     BaseOptions(
-      baseUrl: v1BaseUrl,
+      baseUrl: configuredBackendUrl.isNotEmpty
+          ? configuredBackendUrl
+          : 'http://localhost:3000',
       connectTimeout: const Duration(seconds: 15),
       receiveTimeout: const Duration(seconds: 15),
     ),
@@ -70,20 +63,6 @@ class AuthInterceptor extends QueuedInterceptor {
   final Dio dio;
   final SecureStorageService storage;
   final void Function() onSessionExpired;
-
-  /// Bare client used for token refresh and 401 retries. These are issued
-  /// from inside this interceptor's own onError; routing them through
-  /// [dio] would re-enter the QueuedInterceptor lock and deadlock (the nested
-  /// response can only be delivered once the outer handler settles, which
-  /// waits on the nested request). A client with no interceptors cannot
-  /// deadlock and surfaces a refresh 401 as a plain DioException.
-  late final Dio _refreshClient = Dio(
-    BaseOptions(
-      baseUrl: dio.options.baseUrl,
-      connectTimeout: dio.options.connectTimeout,
-      receiveTimeout: dio.options.receiveTimeout,
-    ),
-  )..httpClientAdapter = dio.httpClientAdapter;
 
   /// Endpoints that must never trigger a refresh (they carry their own
   /// credentials or are the refresh/login calls themselves).
@@ -140,7 +119,7 @@ class AuthInterceptor extends QueuedInterceptor {
         current != null &&
         failedAuth != 'Bearer $current') {
       err.requestOptions.headers['Authorization'] = 'Bearer $current';
-      final cloned = await _refreshClient.fetch<void>(err.requestOptions);
+      final cloned = await dio.fetch<void>(err.requestOptions);
       handler.resolve(cloned);
       return;
     }
@@ -187,7 +166,7 @@ class AuthInterceptor extends QueuedInterceptor {
 
       err.requestOptions.headers['Authorization'] =
           'Bearer ${tokens.accessToken}';
-      final cloned = await _refreshClient.fetch<void>(err.requestOptions);
+      final cloned = await dio.fetch<void>(err.requestOptions);
       handler.resolve(cloned);
     } on DioException catch (refreshError) {
       final refreshStatus = refreshError.response?.statusCode;
@@ -217,7 +196,7 @@ class AuthInterceptor extends QueuedInterceptor {
   }
 
   Future<_RefreshResult> _doRefresh(String userId, String refreshToken) async {
-    final res = await _refreshClient.post(
+    final res = await dio.post(
       '/auth/refresh',
       data: {'userId': userId, 'refreshToken': refreshToken},
     );

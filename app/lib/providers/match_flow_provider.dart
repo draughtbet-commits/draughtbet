@@ -12,6 +12,7 @@ class MatchFlowState {
     this.searchPhase = SearchPhase.idle,
     this.currentIntent,
     this.currentMatchId,
+    this.lifecycle,
     this.message,
   });
 
@@ -21,6 +22,7 @@ class MatchFlowState {
   final SearchPhase searchPhase;
   final MatchFlowIntent? currentIntent;
   final String? currentMatchId;
+  final MatchLifecycleSnapshot? lifecycle;
   final String? message;
 
   MatchFlowState copyWith({
@@ -30,7 +32,9 @@ class MatchFlowState {
     SearchPhase? searchPhase,
     MatchFlowIntent? currentIntent,
     String? currentMatchId,
+    MatchLifecycleSnapshot? lifecycle,
     String? message,
+    bool clearCurrentMatchId = false,
     bool clearMessage = false,
   }) {
     return MatchFlowState(
@@ -39,7 +43,10 @@ class MatchFlowState {
       actionPhase: actionPhase ?? this.actionPhase,
       searchPhase: searchPhase ?? this.searchPhase,
       currentIntent: currentIntent ?? this.currentIntent,
-      currentMatchId: currentMatchId ?? this.currentMatchId,
+      currentMatchId: clearCurrentMatchId
+          ? null
+          : currentMatchId ?? this.currentMatchId,
+      lifecycle: lifecycle ?? this.lifecycle,
       message: clearMessage ? null : message ?? this.message,
     );
   }
@@ -78,6 +85,8 @@ class MatchFlowNotifier extends StateNotifier<MatchFlowState> {
     state = state.copyWith(
       currentIntent: intent,
       actionPhase: MatchActionPhase.idle,
+      searchPhase: SearchPhase.idle,
+      clearCurrentMatchId: true,
       clearMessage: true,
     );
   }
@@ -96,7 +105,9 @@ class MatchFlowNotifier extends StateNotifier<MatchFlowState> {
           intent.openMatchId != null) {
         id = await _gateway.acceptOpenMatch(intent.openMatchId!);
       } else if (intent.kind == MatchEntryKind.created) {
-        id = await _gateway.createOpenMatch(intent.terms);
+        // The active backend returns a callout ID here, not a match ID. A
+        // match exists only after `match_found` supplies its authoritative ID.
+        await _gateway.createOpenMatch(intent.terms);
       } else {
         await _gateway.joinQueue(intent.terms);
       }
@@ -111,6 +122,16 @@ class MatchFlowNotifier extends StateNotifier<MatchFlowState> {
       );
       return id;
     } on DioException catch (error) {
+      if (error.type == DioExceptionType.connectionTimeout ||
+          error.type == DioExceptionType.receiveTimeout ||
+          error.type == DioExceptionType.sendTimeout) {
+        state = state.copyWith(
+          actionPhase: MatchActionPhase.unknown,
+          message:
+              'The server outcome is unknown. Refresh authoritative match state before retrying.',
+        );
+        return null;
+      }
       final body = error.response?.data;
       final message = body is Map && body['error'] is String
           ? body['error'] as String
@@ -131,6 +152,14 @@ class MatchFlowNotifier extends StateNotifier<MatchFlowState> {
 
   void matchFound(String id) {
     state = state.copyWith(searchPhase: SearchPhase.found, currentMatchId: id);
+  }
+
+  void applyLifecycle(MatchLifecycleSnapshot snapshot) {
+    state = state.copyWith(
+      lifecycle: snapshot,
+      currentMatchId: snapshot.matchId,
+      clearMessage: true,
+    );
   }
 
   Future<bool> cancelSearch() async {
@@ -157,6 +186,7 @@ class MatchFlowNotifier extends StateNotifier<MatchFlowState> {
     state = state.copyWith(
       actionPhase: MatchActionPhase.idle,
       searchPhase: SearchPhase.idle,
+      clearCurrentMatchId: true,
       clearMessage: true,
     );
   }
