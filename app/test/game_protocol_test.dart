@@ -25,6 +25,8 @@ class ProtocolSocket extends SocketService {
   Map<String, dynamic>? resignAction;
 
   @override
+  Stream<SocketConnectionPhase> get onConnectionPhase => const Stream.empty();
+  @override
   Stream<Map<String, dynamic>> get onGameState => gameState.stream;
   @override
   Stream<Map<String, dynamic>> get onMoveApplied => moveApplied.stream;
@@ -51,6 +53,9 @@ class ProtocolSocket extends SocketService {
 
   @override
   void joinMatch(String matchId) {}
+
+  @override
+  void requestClockSync(String matchId) {}
 
   @override
   void attemptMove(String matchId, int from, int to) {
@@ -320,7 +325,7 @@ void main() {
   );
 
   test(
-    'draw and resign actions use server state and block duplicates',
+    'unsupported draw events are not emitted and resign blocks duplicates',
     () async {
       final socket = ProtocolSocket();
       final notifier = ProtocolNotifier(socket, Dio());
@@ -329,15 +334,13 @@ void main() {
         gameState: game(),
       );
 
-      expect(notifier.offerDraw(), isTrue);
       expect(notifier.offerDraw(), isFalse);
-      expect(socket.drawAction?['expectedStateVersion'], 12);
+      expect(socket.drawAction, isNull);
 
       socket.drawOffer.add({'offerId': 'offer-2', 'opponentName': 'KingMoves'});
       await Future<void>.delayed(Duration.zero);
       notifier.respondToDraw(false);
-      expect(socket.drawReply?['offerId'], 'offer-2');
-      expect(socket.drawReply?['response'], 'rejected');
+      expect(socket.drawReply, isNull);
 
       notifier.resign();
       notifier.resign();

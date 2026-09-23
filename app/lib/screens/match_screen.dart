@@ -24,17 +24,26 @@ class MatchScreen extends ConsumerStatefulWidget {
   ConsumerState<MatchScreen> createState() => _MatchScreenState();
 }
 
-class _MatchScreenState extends ConsumerState<MatchScreen> {
+class _MatchScreenState extends ConsumerState<MatchScreen>
+    with WidgetsBindingObserver {
   int? _selectedSquare;
   String? _userId;
   StreamSubscription<Map<String, dynamic>>? _errorSubscription;
   Timer? _promotionTimer;
-  Timer? _disconnectTicker;
+  Timer? _uiTicker;
+  final Stopwatch _clockStopwatch = Stopwatch();
+  final Stopwatch _disconnectStopwatch = Stopwatch();
+  int _clockRevisionSeen = -1;
+  int _disconnectSequenceSeen = -1;
   bool _resultOpened = false;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _uiTicker = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() {});
+    });
     SecureStorageService().userId.then((value) {
       if (mounted) {
         ref.read(matchProvider.notifier).setCurrentUserId(value);
@@ -67,24 +76,37 @@ class _MatchScreenState extends ConsumerState<MatchScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _errorSubscription?.cancel();
     _promotionTimer?.cancel();
-    _disconnectTicker?.cancel();
+    _uiTicker?.cancel();
     super.dispose();
   }
 
-  bool _isMyTurn(GameState game) {
-    if (_userId == null) return false;
-    if (game.currentTurn.toUpperCase() == 'WHITE') {
-      return game.player1 == _userId;
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState lifecycleState) {
+    if (lifecycleState == AppLifecycleState.resumed) {
+      ref.read(matchProvider.notifier).handleAppResumed(widget.matchId);
     }
-    return game.player2 == _userId;
+  }
+
+  bool _isMyTurn(GameState game, MatchState state) {
+    final userId = _userId ?? state.currentUserId;
+    if (userId == null) return false;
+    final serverTurnUserId = state.serverClock?.currentTurnUserId;
+    if (serverTurnUserId != null && serverTurnUserId.isNotEmpty) {
+      return serverTurnUserId == userId;
+    }
+    if (game.currentTurn.toUpperCase() == 'WHITE') {
+      return game.player1 == userId;
+    }
+    return game.player2 == userId;
   }
 
   void _onSquareTapped(int square) {
     final state = ref.read(matchProvider);
     final game = state.gameState;
-    if (game == null || !_isMyTurn(game) || state.isMovePending) return;
+    if (game == null || !_isMyTurn(game, state) || state.isMovePending) return;
 
     if (_selectedSquare != null) {
       final move = game.legalMoves.where(
@@ -241,24 +263,20 @@ class _MatchScreenState extends ConsumerState<MatchScreen> {
     });
   }
 
-  void _startDisconnectTicker() {
-    _disconnectTicker?.cancel();
-    _disconnectTicker = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (!mounted || ref.read(matchProvider).opponentConnected) {
-        _disconnectTicker?.cancel();
-        return;
-      }
-      setState(() {});
-    });
-  }
-
   int _remainingReconnectSeconds(MatchState state) {
     final grace = state.opponentGracePeriodMs ?? 60000;
-    final disconnectedAt = state.opponentDisconnectedAt;
-    if (disconnectedAt == null) return (grace / 1000).ceil();
-    final remaining =
-        grace - DateTime.now().difference(disconnectedAt).inMilliseconds;
+    final remaining = grace - _disconnectStopwatch.elapsedMilliseconds;
     return remaining <= 0 ? 0 : (remaining / 1000).ceil();
+  }
+
+  int? _displayRemainingMs(MatchState state) {
+    final snapshot = state.serverClock;
+    if (snapshot == null || state.syncState != MatchSyncState.synced) {
+      return null;
+    }
+    final remaining =
+        snapshot.remainingMs - _clockStopwatch.elapsedMilliseconds;
+    return remaining < 0 ? 0 : remaining;
   }
 
   void _openResult(MatchResultViewData result) {
@@ -280,18 +298,42 @@ class _MatchScreenState extends ConsumerState<MatchScreen> {
       } else if (previous?.promotionVisible == true && !next.promotionVisible) {
         _promotionTimer?.cancel();
       }
-      if (previous?.opponentConnected != false && !next.opponentConnected) {
-        _startDisconnectTicker();
+      if (previous?.opponentDisconnectSequence !=
+          next.opponentDisconnectSequence) {
+        _disconnectSequenceSeen = next.opponentDisconnectSequence;
+        _disconnectStopwatch
+          ..reset()
+          ..start();
       } else if (next.opponentConnected) {
-        _disconnectTicker?.cancel();
+        _disconnectStopwatch.stop();
+      }
+      if (previous?.clockRevision != next.clockRevision) {
+        _clockRevisionSeen = next.clockRevision;
+        _clockStopwatch
+          ..reset()
+          ..start();
       }
     });
+    if (_clockRevisionSeen != state.clockRevision) {
+      _clockRevisionSeen = state.clockRevision;
+      _clockStopwatch
+        ..reset()
+        ..start();
+    }
+    if (!state.opponentConnected &&
+        _disconnectSequenceSeen != state.opponentDisconnectSequence) {
+      _disconnectSequenceSeen = state.opponentDisconnectSequence;
+      _disconnectStopwatch
+        ..reset()
+        ..start();
+    }
     if (state.authoritativeResult != null) {
       _openResult(state.authoritativeResult!);
     }
 
-    final myTurn = game != null && _isMyTurn(game);
+    final myTurn = game != null && _isMyTurn(game, state);
     final stable = state.syncState == MatchSyncState.synced;
+    final displayRemainingMs = _displayRemainingMs(state);
     final inputEnabled =
         game != null &&
         game.status == 'in_progress' &&
@@ -357,8 +399,9 @@ class _MatchScreenState extends ConsumerState<MatchScreen> {
           ),
           actions: [
             _ClockChip(
-              label: _serverClockLabel(state.opponentRemainingMs),
+              label: myTurn ? '--:--' : _serverClockLabel(displayRemainingMs),
               active: !myTurn,
+              urgency: !myTurn ? _clockUrgency(displayRemainingMs) : null,
             ),
             IconButton(
               tooltip: 'Match menu',
@@ -391,10 +434,13 @@ class _MatchScreenState extends ConsumerState<MatchScreen> {
                               title: 'KingMoves',
                               subtitle: myTurn ? 'Waiting' : 'Thinking…',
                               clock: _serverClockLabel(
-                                state.opponentRemainingMs,
+                                myTurn ? null : displayRemainingMs,
                               ),
                               accent: AppColors.valueAccent,
                               active: !myTurn,
+                              urgency: !myTurn
+                                  ? _clockUrgency(displayRemainingMs)
+                                  : null,
                             ),
                             Expanded(
                               child: Align(
@@ -474,13 +520,28 @@ class _MatchScreenState extends ConsumerState<MatchScreen> {
                                               ),
                                             ),
                                           ),
-                                        if (!state.opponentConnected)
+                                        if (!state.opponentConnected &&
+                                            state.recoveryPhase ==
+                                                MatchRecoveryPhase.none)
                                           Positioned.fill(
                                             child: _OpponentDisconnectedOverlay(
                                               remainingSeconds:
                                                   _remainingReconnectSeconds(
                                                     state,
                                                   ),
+                                            ),
+                                          ),
+                                        if (stable &&
+                                            state.opponentConnected &&
+                                            myTurn &&
+                                            displayRemainingMs != null &&
+                                            displayRemainingMs <= 30000)
+                                          Positioned(
+                                            left: 12,
+                                            right: 12,
+                                            bottom: 10,
+                                            child: _TimeWarningPill(
+                                              remainingMs: displayRemainingMs,
                                             ),
                                           ),
                                         if (game.status == 'settling')
@@ -498,9 +559,14 @@ class _MatchScreenState extends ConsumerState<MatchScreen> {
                               subtitle: myTurn
                                   ? 'Your turn'
                                   : 'Opponent’s turn',
-                              clock: _serverClockLabel(state.ownRemainingMs),
+                              clock: _serverClockLabel(
+                                myTurn ? displayRemainingMs : null,
+                              ),
                               accent: AppColors.primaryBright,
                               active: myTurn,
+                              urgency: myTurn
+                                  ? _clockUrgency(displayRemainingMs)
+                                  : null,
                             ),
                             SizedBox(
                               height: compact ? 62 : 70,
@@ -553,6 +619,11 @@ class _MatchScreenState extends ConsumerState<MatchScreen> {
                       },
                     ),
               if (state.promotionVisible) const _PromotionOverlay(),
+              if (state.recoveryPhase != MatchRecoveryPhase.none)
+                _RecoveryOverlay(
+                  phase: state.recoveryPhase,
+                  onRetry: ref.read(matchProvider.notifier).retryConnection,
+                ),
               if (state.incomingDrawOffer != null)
                 _ProtocolDecisionOverlay(
                   icon: LucideIcons.handshake,
@@ -931,8 +1002,9 @@ class _OpponentDisconnectedOverlay extends StatelessWidget {
   Widget build(BuildContext context) {
     return Semantics(
       liveRegion: true,
-      label:
-          'Opponent disconnected. $remainingSeconds seconds remain for reconnection.',
+      label: remainingSeconds > 0
+          ? 'Opponent disconnected. $remainingSeconds seconds remain for reconnection.'
+          : 'Opponent disconnected. Awaiting the server decision.',
       child: ColoredBox(
         color: AppColors.background.withValues(alpha: .72),
         child: Center(
@@ -982,7 +1054,7 @@ class _OpponentDisconnectedOverlay extends StatelessWidget {
                       ),
                     ),
                     child: Text(
-                      '$remainingSeconds',
+                      remainingSeconds > 0 ? '$remainingSeconds' : '…',
                       style: const TextStyle(
                         fontFamily: 'Sora',
                         fontSize: 22,
@@ -991,8 +1063,10 @@ class _OpponentDisconnectedOverlay extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 8),
-                  const Text(
-                    'The server keeps this match open during the reconnect grace period.',
+                  Text(
+                    remainingSeconds > 0
+                        ? 'Your opponent disconnected. The server keeps this match open during the reconnect grace period.'
+                        : 'Grace period elapsed. Waiting for the server to confirm the match outcome.',
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       fontFamily: 'Inter',
@@ -1004,6 +1078,174 @@ class _OpponentDisconnectedOverlay extends StatelessWidget {
                 ],
               ),
             ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _RecoveryOverlay extends StatelessWidget {
+  const _RecoveryOverlay({required this.phase, required this.onRetry});
+
+  final MatchRecoveryPhase phase;
+  final Future<void> Function() onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    final (icon, title, message, spinning) = switch (phase) {
+      MatchRecoveryPhase.connectionLost => (
+        LucideIcons.wifiOff,
+        'CONNECTION LOST',
+        'Moves are paused. Reconnect before continuing this match.',
+        false,
+      ),
+      MatchRecoveryPhase.reconnecting => (
+        LucideIcons.refreshCw,
+        'RECONNECTING',
+        'Restoring the secure game connection.',
+        true,
+      ),
+      MatchRecoveryPhase.appResumed => (
+        LucideIcons.smartphone,
+        'APP RESUMED',
+        'Checking the authoritative match state before play continues.',
+        true,
+      ),
+      MatchRecoveryPhase.resyncing => (
+        LucideIcons.shieldCheck,
+        'CHECKING MATCH STATE',
+        'Waiting for the latest board and server clock.',
+        true,
+      ),
+      MatchRecoveryPhase.none => (LucideIcons.wifi, '', '', false),
+    };
+    if (phase == MatchRecoveryPhase.none) return const SizedBox.shrink();
+    return Semantics(
+      liveRegion: true,
+      label: '$title. $message',
+      child: ColoredBox(
+        color: AppColors.background.withValues(alpha: .82),
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(28),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 340),
+              child: FlowCard(
+                borderColor: AppColors.primaryBright.withValues(alpha: .42),
+                color: AppColors.surface.withValues(alpha: .98),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (spinning)
+                      const SizedBox.square(
+                        dimension: 42,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 3,
+                          color: AppColors.primaryBright,
+                        ),
+                      )
+                    else
+                      Icon(icon, size: 42, color: AppColors.textSecondary),
+                    const SizedBox(height: 16),
+                    Text(
+                      title,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        fontFamily: 'Sora',
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      message,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        fontFamily: 'Inter',
+                        color: AppColors.textSecondary,
+                        fontSize: 11,
+                        height: 1.4,
+                      ),
+                    ),
+                    if (phase == MatchRecoveryPhase.connectionLost) ...[
+                      const SizedBox(height: 18),
+                      PrimaryActionButton(
+                        label: 'Retry connection',
+                        icon: LucideIcons.refreshCw,
+                        onPressed: onRetry,
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+enum _ClockUrgency { low, imminent, awaitingServer }
+
+_ClockUrgency? _clockUrgency(int? remainingMs) {
+  if (remainingMs == null || remainingMs > 30000) return null;
+  if (remainingMs == 0) return _ClockUrgency.awaitingServer;
+  if (remainingMs <= 10000) return _ClockUrgency.imminent;
+  return _ClockUrgency.low;
+}
+
+class _TimeWarningPill extends StatelessWidget {
+  const _TimeWarningPill({required this.remainingMs});
+
+  final int remainingMs;
+
+  @override
+  Widget build(BuildContext context) {
+    final urgency = _clockUrgency(remainingMs)!;
+    final critical = urgency != _ClockUrgency.low;
+    final label = switch (urgency) {
+      _ClockUrgency.low => 'LOW TIME · ${_serverClockLabel(remainingMs)}',
+      _ClockUrgency.imminent =>
+        'TIMEOUT IMMINENT · ${_serverClockLabel(remainingMs)}',
+      _ClockUrgency.awaitingServer => 'AWAITING SERVER RESULT',
+    };
+    return Semantics(
+      liveRegion: true,
+      label: label,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: AppColors.surface.withValues(alpha: .96),
+          borderRadius: BorderRadius.circular(22),
+          border: Border.all(
+            color: critical ? AppColors.danger : AppColors.valueAccent,
+          ),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                LucideIcons.clockAlert,
+                size: 15,
+                color: critical ? AppColors.danger : AppColors.valueAccent,
+              ),
+              const SizedBox(width: 7),
+              Flexible(
+                child: Text(
+                  label,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontFamily: 'Inter',
+                    color: critical ? AppColors.danger : AppColors.valueAccent,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
       ),
@@ -1066,10 +1308,11 @@ class _SettlementPendingOverlay extends StatelessWidget {
 }
 
 class _ClockChip extends StatelessWidget {
-  const _ClockChip({required this.label, required this.active});
+  const _ClockChip({required this.label, required this.active, this.urgency});
 
   final String label;
   final bool active;
+  final _ClockUrgency? urgency;
 
   @override
   Widget build(BuildContext context) {
@@ -1079,7 +1322,12 @@ class _ClockChip extends StatelessWidget {
         color: AppColors.surface,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: active ? AppColors.primaryBright : AppColors.border,
+          color: switch (urgency) {
+            _ClockUrgency.imminent ||
+            _ClockUrgency.awaitingServer => AppColors.danger,
+            _ClockUrgency.low => AppColors.valueAccent,
+            null => active ? AppColors.primaryBright : AppColors.border,
+          },
         ),
       ),
       child: Text(
@@ -1088,6 +1336,12 @@ class _ClockChip extends StatelessWidget {
           fontFamily: 'Inter',
           fontSize: 11,
           fontWeight: FontWeight.w700,
+          color: switch (urgency) {
+            _ClockUrgency.imminent ||
+            _ClockUrgency.awaitingServer => AppColors.danger,
+            _ClockUrgency.low => AppColors.valueAccent,
+            null => AppColors.textPrimary,
+          },
         ),
       ),
     );
@@ -1101,6 +1355,7 @@ class _PlayerStrip extends StatelessWidget {
     required this.clock,
     required this.accent,
     required this.active,
+    this.urgency,
   });
 
   final String title;
@@ -1108,6 +1363,7 @@ class _PlayerStrip extends StatelessWidget {
   final String clock;
   final Color accent;
   final bool active;
+  final _ClockUrgency? urgency;
 
   @override
   Widget build(BuildContext context) {
@@ -1147,7 +1403,7 @@ class _PlayerStrip extends StatelessWidget {
               ],
             ),
           ),
-          _ClockChip(label: clock, active: active),
+          _ClockChip(label: clock, active: active, urgency: urgency),
         ],
       ),
     );

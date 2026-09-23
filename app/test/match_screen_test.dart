@@ -75,6 +75,10 @@ void main() {
         () => mockSocketService.onSettlementCompleted,
       ).thenAnswer((_) => const Stream.empty());
       when(
+        () => mockSocketService.onConnectionPhase,
+      ).thenAnswer((_) => const Stream.empty());
+      when(() => mockSocketService.isV2).thenReturn(false);
+      when(
         () => mockSocketService.attemptMove(any(), any(), any()),
       ).thenReturn(null);
 

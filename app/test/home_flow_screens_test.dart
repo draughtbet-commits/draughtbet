@@ -104,6 +104,8 @@ class NavigationFlowNotifier extends MatchFlowNotifier {
 
 class SilentSocketService extends SocketService {
   @override
+  Stream<SocketConnectionPhase> get onConnectionPhase => const Stream.empty();
+  @override
   Stream<Map<String, dynamic>> get onMatchFound => const Stream.empty();
   @override
   Stream<Map<String, dynamic>> get onGameState => const Stream.empty();
@@ -125,6 +127,8 @@ class SilentSocketService extends SocketService {
   Stream<Map<String, dynamic>> get onMatchEnded => const Stream.empty();
   @override
   void joinMatch(String matchId) {}
+  @override
+  void requestClockSync(String matchId) {}
   @override
   void attemptMove(String matchId, int from, int to) {}
 }

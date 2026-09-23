@@ -96,6 +96,47 @@
 
 final result: passed
 
+## PR9 server clock and reconnect UI extension
+
+**Source visual truth**
+
+- `Draught_Bet_Approved_UI_UX_Handoff_v1/approved-visuals/06-profile-support-gameplay-067-078.png`, using its visible screens 82, 83, and 86 for opponent disconnect, timeout, and disconnect-forfeit treatments.
+- `Draught_Bet_Approved_UI_UX_Handoff_v1/approved-visuals/03-match-entry-stake-ready-alternate.png` for the pre-match opponent-grace visual language.
+- Source board pixels: 1536 x 1024. The board was inspected at native resolution; filenames were not used to override visible content.
+
+**Rendered implementation**
+
+- Combined approved-to-rendered evidence: `app/test/goldens/pr9_qa/comparison.png`.
+- Individual captures: `app/test/goldens/home_flow/43_opponent_disconnected_before_start.png`, `82_opponent_disconnect_countdown.png`, and `pr9_*.png`; disconnect-forfeit capture: `app/test/goldens/settlement_result/72_disconnect_forfeit.png`.
+- Flutter viewport and implementation pixels: 390 x 844 at DPR 1 for every state.
+- Density normalization: individual Flutter captures were inspected at 1:1. The approved 1536 x 1024 board and the 390 x 844 renders were placed in the same Chrome-rendered comparison sheet without altering their source files.
+- States: pre-match grace, connection lost, reconnecting, app resumed, low time, timeout imminent, opponent disconnect grace, and authoritative disconnect forfeit.
+
+**Full-view and focused comparison evidence**
+
+- The combined sheet was opened and inspected after capture generation. The gameplay board remains visible beneath a darkened layer; disconnect and recovery states use the approved centered navy card, emerald outline/progress, restrained icons, uppercase Sora headings, and Inter support copy.
+- Focused 1:1 checks were performed on the live disconnect overlay, connection-lost action card, low-time pill, and disconnect-forfeit result. These regions contain the significant typography, state color, control, and icon detail; no additional crop was needed.
+- The pre-match grace state uses the existing approved Match Room structure and adds a monotonic circular grace indicator without inventing a terminal result or fund release.
+
+**Findings and comparison history**
+
+1. Initial contract inspection found a P0 runtime mismatch: Flutter connected to a nonexistent `/game` namespace and expected nested per-player clock values. It now connects to the backend root namespace and consumes the flat `clock.sync`, `match.state`, and `move.accepted` clock fields.
+2. Initial recovery behavior used device wall-clock timestamps and could resume from network connectivity alone. It now uses monotonic display-only elapsed time, blocks moves through connection loss/reconnect/app resume, and resumes only after canonical server state arrives.
+3. The first focused test pass found stale tests expecting unsupported draw events and a recovery overlay precedence mismatch. Tests and event handling were aligned to the actual Backend V2 contract; unsupported draw commands are no longer emitted.
+4. Post-fix captures have no Flutter exception, clipped persistent control, or render overflow. Typography, spacing, semantic colors, Lucide icons, copy hierarchy, and existing board imagery match the approved component language. No actionable P0, P1, or P2 visual difference remains in the PR9-owned state layer.
+
+**Contract boundary and accessibility**
+
+- The server remains authoritative for clocks, timeout, reconnect grace, forfeit, and result. A local display reaching zero changes only to `AWAITING SERVER RESULT`.
+- Backend V2 supplies a grace duration but no absolute grace-expiry timestamp. The circular countdown is therefore an approximate monotonic display and waits for the server outcome after zero.
+- Recovery and urgent-clock states expose live-region semantics, moves remain disabled while unsynced, retry is a labelled button, and small-screen/text-scaling coverage checks the overlay for overflow.
+
+**Follow-up polish**
+
+- The supporting low-time and app-resumed frames are derived from the approved gameplay card/pill system because the source board provides terminal timeout and disconnect frames rather than dedicated intermediate frames.
+
+final result: passed
+
 ## PR7 withdrawal UI extension
 
 **Approved sources reviewed**

@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>PR9 approved-to-rendered comparison</title>
+    <style>
+      * { box-sizing: border-box; }
+      body { margin: 0; padding: 24px; background: #07111f; color: #f5f7fa; font: 16px Arial, sans-serif; }
+      h1, h2 { margin: 0 0 14px; }
+      h2 { color: #f5c451; font-size: 18px; }
+      .source { width: 100%; margin-bottom: 28px; border: 1px solid #f5c451; }
+      .grid { display: grid; grid-template-columns: repeat(4, 390px); gap: 18px; }
+      figure { margin: 0; }
+      figcaption { min-height: 36px; margin-bottom: 7px; color: #26e6a4; font-weight: 700; }
+      figure img { width: 390px; height: 844px; object-fit: contain; background: #000; border: 1px solid #183c4d; }
+    </style>
+  </head>
+  <body>
+    <h1>PR9 Server Clock and Reconnect UI</h1>
+    <h2>Approved visible-state source (screens 82, 83 and 86)</h2>
+    <img class="source" src="../../../../Draught_Bet_Approved_UI_UX_Handoff_v1/approved-visuals/06-profile-support-gameplay-067-078.png" />
+    <h2>Flutter renders at 390 x 844, DPR 1</h2>
+    <div class="grid">
+      <figure><figcaption>DB-MATCH-028 Pre-match grace</figcaption><img src="../home_flow/43_opponent_disconnected_before_start.png" /></figure>
+      <figure><figcaption>DB-GAME-013 Connection lost</figcaption><img src="../home_flow/pr9_connection_lost.png" /></figure>
+      <figure><figcaption>DB-GAME-014 Reconnecting</figcaption><img src="../home_flow/pr9_reconnecting.png" /></figure>
+      <figure><figcaption>DB-GAME-016 App resumed</figcaption><img src="../home_flow/pr9_app_resumed.png" /></figure>
+      <figure><figcaption>DB-GAME-017 Low time</figcaption><img src="../home_flow/pr9_low_time_warning.png" /></figure>
+      <figure><figcaption>DB-GAME-018 Timeout imminent</figcaption><img src="../home_flow/pr9_timeout_imminent.png" /></figure>
+      <figure><figcaption>DB-GAME-013 Opponent grace</figcaption><img src="../home_flow/82_opponent_disconnect_countdown.png" /></figure>
+      <figure><figcaption>DB-RESULT-006 Disconnect forfeit</figcaption><img src="../settlement_result/72_disconnect_forfeit.png" /></figure>
+    </div>
+  </body>
+</html>
