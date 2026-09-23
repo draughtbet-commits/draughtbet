@@ -17,7 +17,7 @@ import '../widgets/notification_bell.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 class TierSelectScreen extends ConsumerStatefulWidget {
-  const TierSelectScreen({Key? key}) : super(key: key);
+  const TierSelectScreen({super.key});
 
   @override
   ConsumerState<TierSelectScreen> createState() => _TierSelectScreenState();
@@ -29,7 +29,7 @@ class _TierSelectScreenState extends ConsumerState<TierSelectScreen> {
   int stakeMax = 0;
   int calloutMax = 0;
   String? tierError;
-  
+
   int? selectedMatchStake;
   int? selectedCalloutStake;
   String? _selectedStake;
@@ -51,7 +51,7 @@ class _TierSelectScreenState extends ConsumerState<TierSelectScreen> {
     try {
       final dio = ref.read(apiClientProvider);
       final res = await dio.get('/wallet/tier-limits');
-      
+
       if (res.statusCode == 200) {
         setState(() {
           userTier = res.data['tier'];
@@ -83,7 +83,10 @@ class _TierSelectScreenState extends ConsumerState<TierSelectScreen> {
           builder: (context, setDialogState) {
             return AlertDialog(
               backgroundColor: AppColors.surface1,
-              title: const Text('Create Call-out', style: TextStyle(color: AppColors.textMain)),
+              title: const Text(
+                'Create Call-out',
+                style: TextStyle(color: AppColors.textMain),
+              ),
               content: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -94,7 +97,10 @@ class _TierSelectScreenState extends ConsumerState<TierSelectScreen> {
                   const SizedBox(height: 16),
                   Text(
                     'Stake: ${_formatNaira(tempStake)}',
-                    style: const TextStyle(color: AppColors.textMain, fontSize: 18),
+                    style: const TextStyle(
+                      color: AppColors.textMain,
+                      fontSize: 18,
+                    ),
                   ),
                   Slider(
                     value: tempStake.toDouble(),
@@ -113,7 +119,10 @@ class _TierSelectScreenState extends ConsumerState<TierSelectScreen> {
               actions: [
                 TextButton(
                   onPressed: () => Navigator.pop(context),
-                  child: const Text('Cancel', style: TextStyle(color: AppColors.textMuted)),
+                  child: const Text(
+                    'Cancel',
+                    style: TextStyle(color: AppColors.textMuted),
+                  ),
                 ),
                 ElevatedButton(
                   style: ElevatedButton.styleFrom(
@@ -121,10 +130,15 @@ class _TierSelectScreenState extends ConsumerState<TierSelectScreen> {
                   ),
                   onPressed: () {
                     setState(() => selectedCalloutStake = tempStake);
-                    ref.read(matchProvider.notifier).createCallout(userTier!, tempStake);
+                    ref
+                        .read(matchProvider.notifier)
+                        .createCallout(userTier!, tempStake);
                     Navigator.pop(context);
                   },
-                  child: const Text('Create Call-out', style: TextStyle(color: AppColors.textMain)),
+                  child: const Text(
+                    'Create Call-out',
+                    style: TextStyle(color: AppColors.textMain),
+                  ),
                 ),
               ],
             );
@@ -154,17 +168,27 @@ class _TierSelectScreenState extends ConsumerState<TierSelectScreen> {
             children: [
               const CircularProgressIndicator(),
               const SizedBox(height: 20),
-              const Text('Searching for opponent...', style: TextStyle(color: AppColors.textMain)),
+              const Text(
+                'Searching for opponent...',
+                style: TextStyle(color: AppColors.textMain),
+              ),
               const SizedBox(height: 20),
               ElevatedButton(
-                style: ElevatedButton.styleFrom(backgroundColor: AppColors.surface3),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.surface3,
+                ),
                 onPressed: () {
                   if (userTier != null && selectedMatchStake != null) {
-                    ref.read(matchProvider.notifier).leaveQueue(userTier!, selectedMatchStake!);
+                    ref
+                        .read(matchProvider.notifier)
+                        .leaveQueue(userTier!, selectedMatchStake!);
                   }
                 },
-                child: const Text('Cancel Search', style: TextStyle(color: AppColors.textMain)),
-              )
+                child: const Text(
+                  'Cancel Search',
+                  style: TextStyle(color: AppColors.textMain),
+                ),
+              ),
             ],
           ),
         ),
@@ -193,7 +217,11 @@ class _TierSelectScreenState extends ConsumerState<TierSelectScreen> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Icon(LucideIcons.alertTriangle, color: AppColors.danger, size: 48),
+                const Icon(
+                  LucideIcons.alertTriangle,
+                  color: AppColors.danger,
+                  size: 48,
+                ),
                 const SizedBox(height: 16),
                 Text(tierError!, style: AppTypography.bodyLarge),
               ],
@@ -213,16 +241,14 @@ class _TierSelectScreenState extends ConsumerState<TierSelectScreen> {
         backgroundColor: AppColors.voidBg,
         titleSpacing: 16,
         title: const LobbyHeader(),
-        actions: const [
-          NotificationBell(),
-          SizedBox(width: 8),
-        ],
+        actions: const [NotificationBell(), SizedBox(width: 8)],
       ),
       body: SafeArea(
         child: LayoutBuilder(
           builder: (context, constraints) {
-            final contentMaxWidth =
-                constraints.maxWidth > 640 ? 640.0 : constraints.maxWidth;
+            final contentMaxWidth = constraints.maxWidth > 640
+                ? 640.0
+                : constraints.maxWidth;
             return Center(
               child: ConstrainedBox(
                 constraints: BoxConstraints(maxWidth: contentMaxWidth),
@@ -238,7 +264,9 @@ class _TierSelectScreenState extends ConsumerState<TierSelectScreen> {
                           // Jump-straight-into-a-match card.
                           Container(
                             padding: const EdgeInsets.symmetric(
-                                horizontal: 16, vertical: 12),
+                              horizontal: 16,
+                              vertical: 12,
+                            ),
                             decoration: BoxDecoration(
                               color: AppColors.brandDeep,
                               borderRadius: BorderRadius.circular(14),
@@ -306,42 +334,45 @@ class _TierSelectScreenState extends ConsumerState<TierSelectScreen> {
                           Row(
                             children: [
                               Expanded(
-                                  child: _StakeCard(
-                                amount: '500',
-                                selected: _selectedStake == '500',
-                                onTap: () => setState(
-                                    () => _selectedStake = '500'),
-                              )),
+                                child: _StakeCard(
+                                  amount: '500',
+                                  selected: _selectedStake == '500',
+                                  onTap: () =>
+                                      setState(() => _selectedStake = '500'),
+                                ),
+                              ),
                               const SizedBox(width: 8),
                               Expanded(
-                                  child: _StakeCard(
-                                amount: '1k',
-                                selected: _selectedStake == '1k',
-                                onTap: () =>
-                                    setState(() => _selectedStake = '1k'),
-                              )),
+                                child: _StakeCard(
+                                  amount: '1k',
+                                  selected: _selectedStake == '1k',
+                                  onTap: () =>
+                                      setState(() => _selectedStake = '1k'),
+                                ),
+                              ),
                               const SizedBox(width: 8),
                               Expanded(
-                                  child: _StakeCard(
-                                amount: '2k',
-                                selected: _selectedStake == '2k',
-                                onTap: () =>
-                                    setState(() => _selectedStake = '2k'),
-                              )),
+                                child: _StakeCard(
+                                  amount: '2k',
+                                  selected: _selectedStake == '2k',
+                                  onTap: () =>
+                                      setState(() => _selectedStake = '2k'),
+                                ),
+                              ),
                               const SizedBox(width: 8),
                               Expanded(
-                                  child: _StakeCard(
-                                amount: '5k',
-                                selected: _selectedStake == '5k',
-                                onTap: () =>
-                                    setState(() => _selectedStake = '5k'),
-                              )),
+                                child: _StakeCard(
+                                  amount: '5k',
+                                  selected: _selectedStake == '5k',
+                                  onTap: () =>
+                                      setState(() => _selectedStake = '5k'),
+                                ),
+                              ),
                             ],
                           ),
                           const SizedBox(height: 12),
                           Row(
-                            mainAxisAlignment:
-                                MainAxisAlignment.spaceBetween,
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
                               Row(
                                 children: [
@@ -376,7 +407,9 @@ class _TierSelectScreenState extends ConsumerState<TierSelectScreen> {
                                 onTap: () {},
                                 child: Container(
                                   padding: const EdgeInsets.symmetric(
-                                      horizontal: 16, vertical: 10),
+                                    horizontal: 16,
+                                    vertical: 10,
+                                  ),
                                   decoration: BoxDecoration(
                                     color: AppColors.brandDeep,
                                     borderRadius: BorderRadius.circular(12),
@@ -404,8 +437,7 @@ class _TierSelectScreenState extends ConsumerState<TierSelectScreen> {
                         padding: const EdgeInsets.symmetric(horizontal: 16),
                         sliver: SliverToBoxAdapter(
                           child: Row(
-                            mainAxisAlignment:
-                                MainAxisAlignment.spaceBetween,
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
                               Flexible(
                                 child: Text(
@@ -413,19 +445,23 @@ class _TierSelectScreenState extends ConsumerState<TierSelectScreen> {
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                   style: const TextStyle(
-                                      color: AppColors.textMain,
-                                      fontSize: 20,
-                                      fontWeight: FontWeight.bold),
+                                    color: AppColors.textMain,
+                                    fontSize: 20,
+                                    fontWeight: FontWeight.bold,
+                                  ),
                                 ),
                               ),
                               TextButton.icon(
-                                onPressed: () =>
-                                    _showCalloutDialog(context),
-                                icon: Icon(LucideIcons.plus,
-                                    color: theme.primaryColor, size: 16),
-                                label: Text('Create Call-out',
-                                    style: TextStyle(
-                                        color: theme.primaryColor)),
+                                onPressed: () => _showCalloutDialog(context),
+                                icon: Icon(
+                                  LucideIcons.plus,
+                                  color: theme.primaryColor,
+                                  size: 16,
+                                ),
+                                label: Text(
+                                  'Create Call-out',
+                                  style: TextStyle(color: theme.primaryColor),
+                                ),
                               ),
                             ],
                           ),
@@ -438,13 +474,15 @@ class _TierSelectScreenState extends ConsumerState<TierSelectScreen> {
                             ? SliverToBoxAdapter(
                                 child: Padding(
                                   padding: const EdgeInsets.symmetric(
-                                      vertical: 32),
+                                    vertical: 32,
+                                  ),
                                   child: Center(
                                     child: Text(
                                       'No open call-outs in your tier.',
                                       textAlign: TextAlign.center,
                                       style: const TextStyle(
-                                          color: AppColors.textMuted),
+                                        color: AppColors.textMuted,
+                                      ),
                                     ),
                                   ),
                                 ),
@@ -455,8 +493,9 @@ class _TierSelectScreenState extends ConsumerState<TierSelectScreen> {
                                   final callout =
                                       matchState.openCallouts[index];
                                   // Only show ones that haven't expired yet.
-                                  if (callout.expiresAt
-                                      .isBefore(DateTime.now())) {
+                                  if (callout.expiresAt.isBefore(
+                                    DateTime.now(),
+                                  )) {
                                     return const SizedBox.shrink();
                                   }
                                   return CalloutCard(
@@ -482,7 +521,8 @@ class _TierSelectScreenState extends ConsumerState<TierSelectScreen> {
                               'Call-outs are only available for Master and Pro tiers.',
                               textAlign: TextAlign.center,
                               style: const TextStyle(
-                                  color: AppColors.textMuted),
+                                color: AppColors.textMuted,
+                              ),
                             ),
                           ),
                         ),

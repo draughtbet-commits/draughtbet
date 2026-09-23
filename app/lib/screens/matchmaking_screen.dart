@@ -50,8 +50,7 @@ class _MatchmakingScreenState extends ConsumerState<MatchmakingScreen> {
     final flow = ref.watch(matchFlowProvider);
     final profile = ref.watch(profileProvider).profile;
     final intent = flow.currentIntent;
-    final found =
-        flow.searchPhase == SearchPhase.found || flow.currentMatchId != null;
+    final found = flow.searchPhase == SearchPhase.found;
     final pendingCancel = flow.searchPhase == SearchPhase.cancelling;
     final timedOut = flow.searchPhase == SearchPhase.timeout;
     final degraded = flow.searchPhase == SearchPhase.degraded;
@@ -95,7 +94,9 @@ class _MatchmakingScreenState extends ConsumerState<MatchmakingScreen> {
       );
     }
 
-    final canCancel = intent.kind == MatchEntryKind.quick;
+    final canCancel =
+        intent.kind == MatchEntryKind.quick ||
+        (intent.kind == MatchEntryKind.created && flow.currentMatchId != null);
     final compact = MediaQuery.sizeOf(context).height < 700;
     return PopScope(
       canPop: found,

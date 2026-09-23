@@ -1,4 +1,5 @@
 import 'package:draughts_arena/models/game_state.dart';
+import 'package:draughts_arena/models/game_protocol.dart';
 import 'package:draughts_arena/models/match_flow.dart';
 import 'package:draughts_arena/providers/match_flow_provider.dart';
 import 'package:draughts_arena/providers/match_provider.dart';
@@ -11,6 +12,7 @@ import 'package:draughts_arena/screens/match_confirmation_screen.dart';
 import 'package:draughts_arena/screens/match_result_screen.dart';
 import 'package:draughts_arena/screens/match_room_screen.dart';
 import 'package:draughts_arena/screens/match_screen.dart';
+import 'package:draughts_arena/screens/game_move_history_screen.dart';
 import 'package:draughts_arena/screens/matchmaking_screen.dart';
 import 'package:draughts_arena/theme/app_theme.dart';
 import 'package:draughts_arena/widgets/draught_board.dart';
@@ -52,6 +54,7 @@ Widget _captureApp(
       ),
     ],
     child: MaterialApp(
+      debugShowCheckedModeBanner: false,
       theme: AppTheme.dark,
       home: RepaintBoundary(key: _captureKey, child: child),
     ),
@@ -128,6 +131,16 @@ Future<void> _settleCapture(WidgetTester tester, String name) async {
   expect(tester.takeException(), isNull);
   await expectLater(
     find.byKey(_captureKey),
+    matchesGoldenFile('goldens/home_flow/$name.png'),
+  );
+}
+
+Future<void> _settleOverlayCapture(WidgetTester tester, String name) async {
+  await tester.pump();
+  await tester.pump(const Duration(milliseconds: 180));
+  expect(tester.takeException(), isNull);
+  await expectLater(
+    find.byType(Overlay).first,
     matchesGoldenFile('goldens/home_flow/$name.png'),
   );
 }
@@ -419,7 +432,9 @@ void main() {
             terms: fixtures.referenceTerms,
             reason: 'You defeated KingMoves',
             settlement: SettlementPhase.confirmed,
+            payoutMinorUnits: 390000,
             receiptReference: 'DB-214567',
+            serverVerified: true,
           ),
         ),
       ),
@@ -439,6 +454,7 @@ void main() {
             reason: 'Better luck next time',
             settlement: SettlementPhase.confirmed,
             receiptReference: 'DB-214567',
+            serverVerified: true,
           ),
         ),
       ),
@@ -527,10 +543,172 @@ void main() {
             reason: 'You defeated KingMoves',
             settlement: SettlementPhase.delayed,
             receiptReference: 'DB-214567',
+            serverVerified: true,
           ),
         ),
       ),
     );
     await _settleCapture(tester, '90_settlement_delayed');
+  });
+
+  testWidgets('capture PR8 mandatory capture', (tester) async {
+    _setViewport(tester);
+    final game = fixtures.gameFixture(
+      legalMoves: const [
+        LegalMove(from: 31, to: 13, path: [22, 13], capturedSquares: [27, 18]),
+      ],
+    );
+    await tester.pumpWidget(
+      _captureApp(
+        const MatchScreen(matchId: '214567'),
+        match: MatchState(currentMatchId: '214567', gameState: game),
+      ),
+    );
+    await _settleCapture(tester, 'pr8_mandatory_capture');
+  });
+
+  testWidgets('capture PR8 illegal move', (tester) async {
+    _setViewport(tester);
+    await tester.pumpWidget(
+      _captureApp(
+        const MatchScreen(matchId: '214567'),
+        match: MatchState(
+          currentMatchId: '214567',
+          gameState: fixtures.gameFixture(),
+          moveRejection: const MoveRejection(
+            code: GameRejectionCode.illegalMove,
+            rawCode: 'ILLEGAL_MOVE',
+          ),
+        ),
+      ),
+    );
+    await _settleCapture(tester, 'pr8_illegal_move');
+  });
+
+  testWidgets('capture PR8 state resync', (tester) async {
+    _setViewport(tester);
+    await tester.pumpWidget(
+      _captureApp(
+        const MatchScreen(matchId: '214567'),
+        match: MatchState(
+          currentMatchId: '214567',
+          gameState: fixtures.gameFixture(),
+          syncState: MatchSyncState.syncing,
+          moveRejection: const MoveRejection(
+            code: GameRejectionCode.stateVersionConflict,
+            rawCode: 'STATE_VERSION_CONFLICT',
+          ),
+        ),
+      ),
+    );
+    await _settleCapture(tester, 'pr8_state_resync');
+  });
+
+  testWidgets('capture PR8 draw offer received', (tester) async {
+    _setViewport(tester);
+    await tester.pumpWidget(
+      _captureApp(
+        const MatchScreen(matchId: '214567'),
+        match: MatchState(
+          currentMatchId: '214567',
+          gameState: fixtures.gameFixture(),
+          incomingDrawOffer: DrawOffer(
+            offerId: 'offer-214567',
+            opponentName: 'KingMoves',
+          ),
+        ),
+      ),
+    );
+    await _settleCapture(tester, 'pr8_draw_offer_received');
+  });
+
+  testWidgets('capture PR8 draw offer rejected', (tester) async {
+    _setViewport(tester);
+    await tester.pumpWidget(
+      _captureApp(
+        const MatchScreen(matchId: '214567'),
+        match: MatchState(
+          currentMatchId: '214567',
+          gameState: fixtures.gameFixture(),
+          drawOfferRejected: true,
+        ),
+      ),
+    );
+    await _settleCapture(tester, 'pr8_draw_offer_rejected');
+  });
+
+  testWidgets('capture PR8 offer draw confirmation', (tester) async {
+    _setViewport(tester);
+    await tester.pumpWidget(
+      _captureApp(
+        const MatchScreen(matchId: '214567'),
+        match: MatchState(
+          currentMatchId: '214567',
+          gameState: fixtures.gameFixture(),
+        ),
+      ),
+    );
+    await tester.tap(find.text('Offer Draw'));
+    await tester.pumpAndSettle();
+    expect(find.text('OFFER A DRAW'), findsOneWidget);
+    await _settleOverlayCapture(tester, 'pr8_offer_draw_confirmation');
+  });
+
+  testWidgets('capture PR8 resign confirmation', (tester) async {
+    _setViewport(tester);
+    await tester.pumpWidget(
+      _captureApp(
+        const MatchScreen(matchId: '214567'),
+        match: MatchState(
+          currentMatchId: '214567',
+          gameState: fixtures.gameFixture(),
+        ),
+      ),
+    );
+    await tester.tap(find.text('Resign'));
+    await tester.pumpAndSettle();
+    expect(find.text('RESIGN MATCH?'), findsOneWidget);
+    await _settleOverlayCapture(tester, 'pr8_resign_confirmation');
+  });
+
+  testWidgets('capture PR8 match menu', (tester) async {
+    _setViewport(tester);
+    await tester.pumpWidget(
+      _captureApp(
+        const MatchScreen(matchId: '214567'),
+        match: MatchState(
+          currentMatchId: '214567',
+          gameState: fixtures.gameFixture(),
+        ),
+      ),
+    );
+    await tester.tap(find.text('Menu'));
+    await tester.pumpAndSettle();
+    expect(find.text('Match options'), findsOneWidget);
+    await _settleOverlayCapture(tester, 'pr8_match_menu');
+  });
+
+  testWidgets('capture PR8 move history', (tester) async {
+    _setViewport(tester);
+    await tester.pumpWidget(
+      _captureApp(
+        const GameMoveHistoryScreen(
+          matchId: '214567',
+          autoLoad: false,
+          initialMoves: [
+            AcceptedGameMove(sequence: 1, from: 31, path: [26], side: 'WHITE'),
+            AcceptedGameMove(sequence: 2, from: 18, path: [23], side: 'BLACK'),
+            AcceptedGameMove(
+              sequence: 3,
+              from: 26,
+              path: [17, 8],
+              capturedSquares: [22, 13],
+              side: 'WHITE',
+            ),
+          ],
+        ),
+      ),
+    );
+    await _settleCapture(tester, 'pr8_move_history');
   });
 }

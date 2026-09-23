@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:dio/dio.dart';
 import '../models/game_state.dart';
+import '../models/game_protocol.dart';
 import '../models/callout.dart';
 import '../services/api_client.dart';
 import '../services/socket_service.dart';
@@ -19,6 +20,12 @@ class MatchState {
   final List<Callout> openCallouts;
   final bool isMovePending;
   final String? rejectionReason;
+  final MoveRejection? moveRejection;
+  final String? pendingClientMoveId;
+  final DrawOffer? incomingDrawOffer;
+  final bool drawOfferPending;
+  final bool drawOfferRejected;
+  final bool resignPending;
   final bool promotionVisible;
   final List<int> lastCapturedSquares;
   final bool opponentConnected;
@@ -27,6 +34,10 @@ class MatchState {
   final SettlementPhase settlementPhase;
   final int? confirmedPayoutMinorUnits;
   final String? endReason;
+  final MatchResultViewData? authoritativeResult;
+  final int? ownRemainingMs;
+  final int? opponentRemainingMs;
+  final DateTime? serverClockAt;
 
   const MatchState({
     this.gameState,
@@ -36,6 +47,12 @@ class MatchState {
     this.openCallouts = const [],
     this.isMovePending = false,
     this.rejectionReason,
+    this.moveRejection,
+    this.pendingClientMoveId,
+    this.incomingDrawOffer,
+    this.drawOfferPending = false,
+    this.drawOfferRejected = false,
+    this.resignPending = false,
     this.promotionVisible = false,
     this.lastCapturedSquares = const [],
     this.opponentConnected = true,
@@ -44,6 +61,10 @@ class MatchState {
     this.settlementPhase = SettlementPhase.pending,
     this.confirmedPayoutMinorUnits,
     this.endReason,
+    this.authoritativeResult,
+    this.ownRemainingMs,
+    this.opponentRemainingMs,
+    this.serverClockAt,
   });
 
   MatchState copyWith({
@@ -54,6 +75,14 @@ class MatchState {
     List<Callout>? openCallouts,
     bool? isMovePending,
     String? rejectionReason,
+    MoveRejection? moveRejection,
+    String? pendingClientMoveId,
+    bool clearPendingMove = false,
+    DrawOffer? incomingDrawOffer,
+    bool clearDrawOffer = false,
+    bool? drawOfferPending,
+    bool? drawOfferRejected,
+    bool? resignPending,
     bool clearRejection = false,
     bool? promotionVisible,
     List<int>? lastCapturedSquares,
@@ -64,7 +93,11 @@ class MatchState {
     SettlementPhase? settlementPhase,
     int? confirmedPayoutMinorUnits,
     String? endReason,
+    MatchResultViewData? authoritativeResult,
     bool clearResult = false,
+    int? ownRemainingMs,
+    int? opponentRemainingMs,
+    DateTime? serverClockAt,
   }) {
     return MatchState(
       gameState: gameState ?? this.gameState,
@@ -76,6 +109,18 @@ class MatchState {
       rejectionReason: clearRejection
           ? null
           : rejectionReason ?? this.rejectionReason,
+      moveRejection: clearRejection
+          ? null
+          : moveRejection ?? this.moveRejection,
+      pendingClientMoveId: clearPendingMove
+          ? null
+          : pendingClientMoveId ?? this.pendingClientMoveId,
+      incomingDrawOffer: clearDrawOffer
+          ? null
+          : incomingDrawOffer ?? this.incomingDrawOffer,
+      drawOfferPending: drawOfferPending ?? this.drawOfferPending,
+      drawOfferRejected: drawOfferRejected ?? this.drawOfferRejected,
+      resignPending: resignPending ?? this.resignPending,
       promotionVisible: promotionVisible ?? this.promotionVisible,
       lastCapturedSquares: lastCapturedSquares ?? this.lastCapturedSquares,
       opponentConnected: opponentConnected ?? this.opponentConnected,
@@ -90,6 +135,12 @@ class MatchState {
           ? null
           : confirmedPayoutMinorUnits ?? this.confirmedPayoutMinorUnits,
       endReason: clearResult ? null : endReason ?? this.endReason,
+      authoritativeResult: clearResult
+          ? null
+          : authoritativeResult ?? this.authoritativeResult,
+      ownRemainingMs: ownRemainingMs ?? this.ownRemainingMs,
+      opponentRemainingMs: opponentRemainingMs ?? this.opponentRemainingMs,
+      serverClockAt: serverClockAt ?? this.serverClockAt,
     );
   }
 }
@@ -100,11 +151,19 @@ class MatchNotifier extends StateNotifier<MatchState> {
   final SecureStorageService _storage = SecureStorageService();
 
   bool _isReconnecting = false;
+  int _actionSequence = 0;
+  String? _currentUserId;
   final List<StreamSubscription<Map<String, dynamic>>> _subscriptions = [];
   StreamSubscription<List<ConnectivityResult>>? _connectivitySubscription;
 
   MatchNotifier(this._socketService, this._dio) : super(const MatchState()) {
     _initListeners();
+  }
+
+  void setCurrentUserId(String? userId) {
+    if (userId != null && userId.trim().isNotEmpty) {
+      _currentUserId = userId;
+    }
   }
 
   void _initListeners() {
@@ -133,24 +192,90 @@ class MatchNotifier extends StateNotifier<MatchState> {
 
     _subscriptions.add(
       _socketService.onGameState.listen((data) {
-        final gameState = GameState.fromJson(data);
-        state = state.copyWith(
-          gameState: gameState,
-          syncState: MatchSyncState.synced,
-          isMovePending: false,
-          clearRejection: true,
-        );
+        try {
+          final gameState = GameState.fromJson(data);
+          state = state.copyWith(
+            gameState: gameState,
+            syncState: MatchSyncState.synced,
+            isMovePending: false,
+            clearPendingMove: true,
+            clearRejection: true,
+          );
+        } catch (_) {
+          state = state.copyWith(syncState: MatchSyncState.syncing);
+          // The contract intentionally leaves the final compact board
+          // encoding unresolved. Do not loop or invent a board when a V2
+          // snapshot uses an unsupported encoding.
+          if (!_socketService.isV2) {
+            final matchId = state.currentMatchId;
+            if (matchId != null) unawaited(fetchGameState(matchId));
+          }
+        }
       }),
     );
 
     _subscriptions.add(
       _socketService.onMoveApplied.listen((data) {
-        final event = MoveAppliedEvent.fromJson(data);
+        final eventMatchId = data['matchId']?.toString();
+        if (eventMatchId != null &&
+            eventMatchId.isNotEmpty &&
+            eventMatchId != state.currentMatchId) {
+          return;
+        }
+        MoveAppliedEvent event;
+        try {
+          event = MoveAppliedEvent.fromJson(data);
+        } catch (_) {
+          state = state.copyWith(
+            isMovePending: false,
+            clearPendingMove: true,
+            syncState: MatchSyncState.syncing,
+          );
+          final matchId = state.currentMatchId;
+          if (matchId != null) unawaited(fetchGameState(matchId));
+          return;
+        }
         if (state.gameState == null) return;
+
+        final currentVersion = state.gameState!.stateVersion;
+        final incomingVersion = event.stateVersion;
+        if (incomingVersion != null && incomingVersion <= currentVersion) {
+          // Duplicate or stale accepted event. The canonical board already
+          // includes it, so never apply it a second time.
+          return;
+        }
+        if (incomingVersion != null && incomingVersion > currentVersion + 1) {
+          state = state.copyWith(syncState: MatchSyncState.syncing);
+          final matchId = state.currentMatchId;
+          if (matchId != null) unawaited(fetchGameState(matchId));
+          return;
+        }
+
+        final pendingId = state.pendingClientMoveId;
+        if (event.clientMoveId != null &&
+            pendingId != null &&
+            event.clientMoveId != pendingId) {
+          return;
+        }
+
+        // V2 acknowledgements may omit the board. Never calculate it locally;
+        // request the canonical snapshot instead.
+        if (event.board.isEmpty) {
+          state = state.copyWith(
+            isMovePending: false,
+            clearPendingMove: true,
+            syncState: MatchSyncState.syncing,
+          );
+          final matchId = state.currentMatchId;
+          if (matchId != null) unawaited(fetchGameState(matchId));
+          return;
+        }
 
         final newState = state.gameState!.copyWith(
           board: event.board,
           currentTurn: event.nextTurn,
+          stateVersion: incomingVersion ?? currentVersion + 1,
+          moveCount: incomingVersion ?? state.gameState!.moveCount + 1,
           // `move_applied` intentionally does not include winner/payout truth.
           // Keep the UI in a terminal-pending state until `match_ended` arrives.
           status: event.gameEnded ? 'settling' : 'in_progress',
@@ -161,6 +286,7 @@ class MatchNotifier extends StateNotifier<MatchState> {
           gameState: newState,
           syncState: MatchSyncState.synced,
           isMovePending: false,
+          clearPendingMove: true,
           promotionVisible: event.promoted,
           lastCapturedSquares: event.captured,
           settlementPhase: event.gameEnded
@@ -174,28 +300,54 @@ class MatchNotifier extends StateNotifier<MatchState> {
 
     _subscriptions.add(
       _socketService.onMoveRejected.listen((data) async {
-        final reason = data['reason']?.toString() ?? 'move_rejected';
+        final rejection = MoveRejection.fromServer(data);
         state = state.copyWith(
           isMovePending: false,
-          rejectionReason: reason,
-          syncState: reason == 'illegal_move'
-              ? MatchSyncState.synced
-              : MatchSyncState.syncing,
+          clearPendingMove: true,
+          rejectionReason: rejection.rawCode,
+          moveRejection: rejection,
+          syncState: rejection.requiresResync
+              ? MatchSyncState.syncing
+              : MatchSyncState.synced,
         );
-        if (reason != 'illegal_move' && state.currentMatchId != null) {
+        if (rejection.requiresResync && state.currentMatchId != null) {
           await fetchGameState(state.currentMatchId!);
         }
       }),
     );
 
     _subscriptions.add(
+      _socketService.onDrawOffer.listen((data) {
+        final offer = DrawOffer.fromServer(data);
+        if (offer.offerId.isEmpty) return;
+        state = state.copyWith(incomingDrawOffer: offer);
+      }),
+    );
+    _subscriptions.add(
+      _socketService.onDrawResponse.listen((data) {
+        final response = data['response']?.toString().toLowerCase();
+        state = state.copyWith(
+          drawOfferPending: false,
+          drawOfferRejected: response == 'rejected' || response == 'declined',
+        );
+      }),
+    );
+
+    _subscriptions.add(
       _socketService.onOpponentDisconnected.listen((data) {
+        final disconnectedAt = DateTime.now();
+        final graceEndsAt = DateTime.tryParse(
+          data['graceEndsAt']?.toString() ?? '',
+        );
+        final explicitGrace = int.tryParse(
+          data['gracePeriodMs']?.toString() ?? '',
+        );
         state = state.copyWith(
           opponentConnected: false,
-          opponentDisconnectedAt: DateTime.now(),
-          opponentGracePeriodMs: int.tryParse(
-            data['gracePeriodMs']?.toString() ?? '',
-          ),
+          opponentDisconnectedAt: disconnectedAt,
+          opponentGracePeriodMs:
+              explicitGrace ??
+              graceEndsAt?.difference(disconnectedAt).inMilliseconds,
         );
       }),
     );
@@ -208,15 +360,27 @@ class MatchNotifier extends StateNotifier<MatchState> {
       }),
     );
     _subscriptions.add(
+      _socketService.onClockSync.listen((data) {
+        final white = int.tryParse(data['whiteRemainingMs']?.toString() ?? '');
+        final black = int.tryParse(data['blackRemainingMs']?.toString() ?? '');
+        if (white == null || black == null) return;
+        final game = state.gameState;
+        final userIsWhite = game != null && _currentUserId == game.player1;
+        state = state.copyWith(
+          ownRemainingMs: userIsWhite ? white : black,
+          opponentRemainingMs: userIsWhite ? black : white,
+          serverClockAt: DateTime.tryParse(data['serverNow']?.toString() ?? ''),
+        );
+      }),
+    );
+    _subscriptions.add(
       _socketService.onMatchEndedResign.listen((data) {
         final current = state.gameState;
         if (current == null) return;
         state = state.copyWith(
-          gameState: current.copyWith(
-            status: 'completed',
-            winnerId: data['winnerId']?.toString(),
-          ),
+          gameState: current.copyWith(status: 'settling'),
           isMovePending: false,
+          resignPending: false,
           settlementPhase: SettlementPhase.pending,
           endReason: 'resign',
         );
@@ -227,19 +391,52 @@ class MatchNotifier extends StateNotifier<MatchState> {
       _socketService.onMatchEnded.listen((data) {
         final current = state.gameState;
         if (current == null) return;
-        final winnerId = data['winnerId']?.toString();
-        final payout = int.tryParse(data['payout']?.toString() ?? '');
+        final currentUserId = _currentUserId;
+        final matchId = state.currentMatchId;
+        final opponentId = currentUserId == current.player1
+            ? current.player2
+            : current.player1;
+        final result =
+            MatchResultViewData.tryFromServer(
+              data,
+              fallbackOpponent: MatchPlayer(id: opponentId, name: 'Opponent'),
+            ) ??
+            (currentUserId == null || matchId == null
+                ? null
+                : MatchResultViewData.tryFromActiveMatchEnded(
+                    data,
+                    matchId: matchId,
+                    currentUserId: currentUserId,
+                    opponentId: opponentId,
+                  ));
         state = state.copyWith(
           gameState: current.copyWith(
-            status: winnerId == null || winnerId.isEmpty ? 'draw' : 'completed',
-            winnerId: winnerId,
+            status: result == null ? 'settling' : 'completed',
           ),
           isMovePending: false,
-          settlementPhase: SettlementPhase.confirmed,
-          confirmedPayoutMinorUnits: payout,
-          endReason: data['reason']?.toString(),
+          resignPending: false,
+          settlementPhase: result?.settlement ?? SettlementPhase.pending,
+          confirmedPayoutMinorUnits: result?.payoutMinorUnits,
+          endReason: result?.reason,
+          authoritativeResult: result,
         );
-        unawaited(_storage.clearActiveMatchId());
+        if (result != null) unawaited(_storage.clearActiveMatchId());
+      }),
+    );
+    _subscriptions.add(
+      _socketService.onSettlementCompleted.listen((data) {
+        final eventMatchId = data['matchId']?.toString();
+        if (eventMatchId == null || eventMatchId != state.currentMatchId) {
+          return;
+        }
+        final result = state.authoritativeResult;
+        state = state.copyWith(
+          settlementPhase: SettlementPhase.confirmed,
+          authoritativeResult: result?.copyWith(
+            settlement: SettlementPhase.confirmed,
+            receiptReference: data['receiptId']?.toString(),
+          ),
+        );
       }),
     );
 
@@ -260,11 +457,15 @@ class MatchNotifier extends StateNotifier<MatchState> {
   }
 
   Future<void> fetchGameState(String matchId) async {
+    state = state.copyWith(
+      currentMatchId: matchId,
+      syncState: MatchSyncState.syncing,
+    );
+    if (_socketService.isV2) {
+      _socketService.requestCanonicalState(matchId);
+      return;
+    }
     try {
-      state = state.copyWith(
-        currentMatchId: matchId,
-        syncState: MatchSyncState.syncing,
-      );
       final response = await _dio.get('/matches/$matchId/state');
 
       if (response.statusCode == 200) {
@@ -338,7 +539,7 @@ class MatchNotifier extends StateNotifier<MatchState> {
     }
   }
 
-  void attemptMove(int from, int to) {
+  void attemptMove(int from, int to, {List<int>? path}) {
     if (state.currentMatchId == null ||
         state.gameState == null ||
         state.isMovePending ||
@@ -347,8 +548,24 @@ class MatchNotifier extends StateNotifier<MatchState> {
     }
 
     // Optimistic UI update could go here. For now, we trust the server.
-    state = state.copyWith(isMovePending: true, clearRejection: true);
-    _socketService.attemptMove(state.currentMatchId!, from, to);
+    final game = state.gameState!;
+    final clientMoveId = _newActionId('move');
+    state = state.copyWith(
+      isMovePending: true,
+      pendingClientMoveId: clientMoveId,
+      clearRejection: true,
+    );
+    if (game.protocolVersion >= 2) {
+      _socketService.submitMoveV2(
+        matchId: state.currentMatchId!,
+        clientMoveId: clientMoveId,
+        expectedStateVersion: game.stateVersion,
+        from: from,
+        path: path == null || path.isEmpty ? <int>[to] : path,
+      );
+    } else {
+      _socketService.attemptMove(state.currentMatchId!, from, to);
+    }
   }
 
   void joinMatch(String matchId) {
@@ -369,10 +586,60 @@ class MatchNotifier extends StateNotifier<MatchState> {
     state = state.copyWith(clearRejection: true);
   }
 
-  void resign() {
-    if (state.currentMatchId != null) {
-      _socketService.resign(state.currentMatchId!);
+  bool offerDraw() {
+    final matchId = state.currentMatchId;
+    final game = state.gameState;
+    if (matchId == null ||
+        game == null ||
+        game.protocolVersion < 2 ||
+        state.drawOfferPending) {
+      return false;
     }
+    state = state.copyWith(drawOfferPending: true, drawOfferRejected: false);
+    _socketService.offerDraw(
+      matchId: matchId,
+      actionId: _newActionId('draw'),
+      expectedStateVersion: game.stateVersion,
+    );
+    return true;
+  }
+
+  void respondToDraw(bool accept) {
+    final matchId = state.currentMatchId;
+    final offer = state.incomingDrawOffer;
+    if (matchId == null || offer == null) return;
+    state = state.copyWith(clearDrawOffer: true);
+    _socketService.respondToDraw(
+      matchId: matchId,
+      actionId: _newActionId('draw-response'),
+      offerId: offer.offerId,
+      response: accept ? 'accepted' : 'rejected',
+    );
+  }
+
+  void clearDrawRejected() {
+    state = state.copyWith(drawOfferRejected: false);
+  }
+
+  void resign() {
+    final matchId = state.currentMatchId;
+    final game = state.gameState;
+    if (matchId == null || game == null || state.resignPending) return;
+    state = state.copyWith(resignPending: true);
+    if (game.protocolVersion >= 2) {
+      _socketService.resignV2(
+        matchId: matchId,
+        actionId: _newActionId('resign'),
+        expectedStateVersion: game.stateVersion,
+      );
+    } else {
+      _socketService.resign(matchId);
+    }
+  }
+
+  String _newActionId(String prefix) {
+    _actionSequence += 1;
+    return '$prefix-${DateTime.now().microsecondsSinceEpoch}-$_actionSequence';
   }
 
   @override

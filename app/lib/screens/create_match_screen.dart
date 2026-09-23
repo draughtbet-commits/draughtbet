@@ -3,7 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../models/match_flow.dart';
 import '../providers/match_flow_provider.dart';
-import '../providers/profile_provider.dart';
 import '../theme/colors.dart';
 import '../widgets/flow_widgets.dart';
 
@@ -16,23 +15,12 @@ class CreateMatchScreen extends ConsumerStatefulWidget {
 
 class _CreateMatchScreenState extends ConsumerState<CreateMatchScreen> {
   int _stake = 200000;
-  String _timeControl = '10 minutes';
-  String _gameType = 'Classic';
-  String _board = '10×10 (International)';
-  String _visibility = 'Anyone';
-  bool _privateRoom = false;
-  String? _error;
+  static const _timeControl = 'Server configured';
+  static const _gameType = 'Classic';
+  static const _board = '10×10 (International)';
+  static const _visibility = 'Same tier';
 
   void _review() {
-    final balance = ref.read(profileProvider).profile?.walletBalanceMinorUnits;
-    if (_stake < 50000) {
-      setState(() => _error = 'Choose a stake of at least ₦500.');
-      return;
-    }
-    if (balance != null && balance < _stake) {
-      setState(() => _error = 'Available balance is below this stake.');
-      return;
-    }
     final intent = MatchFlowIntent(
       kind: MatchEntryKind.created,
       terms: MatchTerms(
@@ -41,7 +29,7 @@ class _CreateMatchScreenState extends ConsumerState<CreateMatchScreen> {
         gameType: _gameType,
         board: _board,
         visibility: _visibility,
-        privateRoom: _privateRoom,
+        privateRoom: false,
       ),
     );
     ref.read(matchFlowProvider.notifier).review(intent);
@@ -103,66 +91,23 @@ class _CreateMatchScreenState extends ConsumerState<CreateMatchScreen> {
               ),
               const SizedBox(height: 13),
               _fieldLabel('Time Control'),
-              DropdownButtonFormField<String>(
-                isExpanded: true,
-                initialValue: _timeControl,
-                items: const ['5 minutes', '10 minutes', '15 minutes']
-                    .map(
-                      (value) =>
-                          DropdownMenuItem(value: value, child: Text(value)),
-                    )
-                    .toList(),
-                onChanged: (value) =>
-                    setState(() => _timeControl = value ?? _timeControl),
-              ),
+              const _ServerConfiguredField(value: _timeControl),
               const SizedBox(height: 13),
               _fieldLabel('Game Type'),
-              DropdownButtonFormField<String>(
-                isExpanded: true,
-                initialValue: _gameType,
-                items: const ['Classic', 'Rated']
-                    .map(
-                      (value) =>
-                          DropdownMenuItem(value: value, child: Text(value)),
-                    )
-                    .toList(),
-                onChanged: (value) =>
-                    setState(() => _gameType = value ?? _gameType),
-              ),
+              const _ServerConfiguredField(value: _gameType),
               const SizedBox(height: 13),
               _fieldLabel('Board'),
-              DropdownButtonFormField<String>(
-                isExpanded: true,
-                initialValue: _board,
-                items: const ['10×10 (International)']
-                    .map(
-                      (value) =>
-                          DropdownMenuItem(value: value, child: Text(value)),
-                    )
-                    .toList(),
-                onChanged: (value) => setState(() => _board = value ?? _board),
-              ),
+              const _ServerConfiguredField(value: _board),
               const SizedBox(height: 13),
               _fieldLabel('Who can join?'),
-              DropdownButtonFormField<String>(
-                isExpanded: true,
-                initialValue: _visibility,
-                items: const ['Anyone', 'Same tier']
-                    .map(
-                      (value) =>
-                          DropdownMenuItem(value: value, child: Text(value)),
-                    )
-                    .toList(),
-                onChanged: (value) =>
-                    setState(() => _visibility = value ?? _visibility),
-              ),
+              const _ServerConfiguredField(value: _visibility),
               const SizedBox(height: 10),
               Material(
                 color: AppColors.transparent,
                 child: SwitchListTile.adaptive(
                   contentPadding: EdgeInsets.zero,
-                  value: _privateRoom,
-                  onChanged: (value) => setState(() => _privateRoom = value),
+                  value: false,
+                  onChanged: null,
                   title: Text(
                     'Private Room (Optional)',
                     style: TextStyle(
@@ -172,7 +117,7 @@ class _CreateMatchScreenState extends ConsumerState<CreateMatchScreen> {
                     ),
                   ),
                   subtitle: Text(
-                    'Generate a private room code',
+                    'Unavailable in the current server contract',
                     style: TextStyle(
                       fontFamily: 'Inter',
                       fontSize: 10,
@@ -200,20 +145,41 @@ class _CreateMatchScreenState extends ConsumerState<CreateMatchScreen> {
                   ],
                 ),
               ),
-              if (_error != null) ...[
-                const SizedBox(height: 10),
-                Text(
-                  _error!,
-                  style: TextStyle(
-                    fontFamily: 'Inter',
-                    color: AppColors.danger,
-                    fontSize: 12,
-                  ),
-                ),
-              ],
               const SizedBox(height: 16),
               PrimaryActionButton(label: 'Review Match', onPressed: _review),
             ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ServerConfiguredField extends StatelessWidget {
+  const _ServerConfiguredField({required this.value});
+
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      readOnly: true,
+      value: value,
+      child: InputDecorator(
+        decoration: const InputDecoration(
+          suffixIcon: Icon(
+            Icons.lock_outline_rounded,
+            size: 18,
+            color: AppColors.textSecondary,
+          ),
+        ),
+        child: Text(
+          value,
+          style: const TextStyle(
+            fontFamily: 'Inter',
+            color: AppColors.textPrimary,
+            fontSize: 16,
+            fontWeight: FontWeight.w600,
           ),
         ),
       ),

@@ -10,7 +10,7 @@ import '../theme/tier_theme.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 class PlayerCard extends ConsumerWidget {
-  const PlayerCard({Key? key}) : super(key: key);
+  const PlayerCard({super.key});
 
   String _formatNaira(int minorUnits) {
     final format = NumberFormat.currency(symbol: '₦', decimalDigits: 0);
@@ -152,7 +152,10 @@ class PlayerCard extends ConsumerWidget {
                     border: Border.all(color: AppColors.brand, width: 2),
                   ),
                   child: ClipOval(
-                    child: SvgPicture.asset(avatar.assetPath, fit: BoxFit.cover),
+                    child: SvgPicture.asset(
+                      avatar.assetPath,
+                      fit: BoxFit.cover,
+                    ),
                   ),
                 ),
                 Positioned(
@@ -197,7 +200,9 @@ class PlayerCard extends ConsumerWidget {
                     const SizedBox(width: 8),
                     Container(
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 8, vertical: 3),
+                        horizontal: 8,
+                        vertical: 3,
+                      ),
                       decoration: BoxDecoration(
                         color: theme.primaryColor.withValues(alpha: 0.15),
                         borderRadius: BorderRadius.circular(20),

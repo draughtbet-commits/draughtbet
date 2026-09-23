@@ -11,11 +11,11 @@ class CalloutCard extends StatefulWidget {
   final VoidCallback onAccept;
 
   const CalloutCard({
-    Key? key,
+    super.key,
     required this.callout,
     required this.tierCalloutMax,
     required this.onAccept,
-  }) : super(key: key);
+  });
 
   @override
   State<CalloutCard> createState() => _CalloutCardState();
@@ -29,7 +29,10 @@ class _CalloutCardState extends State<CalloutCard> {
   void initState() {
     super.initState();
     _updateTimeLeft();
-    _timer = Timer.periodic(const Duration(seconds: 1), (_) => _updateTimeLeft());
+    _timer = Timer.periodic(
+      const Duration(seconds: 1),
+      (_) => _updateTimeLeft(),
+    );
   }
 
   @override
@@ -64,13 +67,16 @@ class _CalloutCardState extends State<CalloutCard> {
 
   @override
   Widget build(BuildContext context) {
-    final isUrgent = _timeLeft <= const Duration(minutes: 2) && !_timeLeft.isNegative;
+    final isUrgent =
+        _timeLeft <= const Duration(minutes: 2) && !_timeLeft.isNegative;
     final isFeatured = widget.callout.stakeMinorUnits >= widget.tierCalloutMax;
     final showGoldMotif = isUrgent || isFeatured;
 
     final theme = TierTheme.forTier(widget.callout.tier);
     final numberFormat = NumberFormat.currency(symbol: '₦', decimalDigits: 0);
-    final formattedStake = numberFormat.format(widget.callout.stakeMinorUnits / 100);
+    final formattedStake = numberFormat.format(
+      widget.callout.stakeMinorUnits / 100,
+    );
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),

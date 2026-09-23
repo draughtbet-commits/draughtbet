@@ -141,24 +141,15 @@ class _WalletDashboardBody extends StatelessWidget {
           children: [
             Expanded(
               child: FilledButton(
-                onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Add money will be enabled in Deposit V2.'),
-                  ),
-                ),
+                onPressed: () => context.push('/wallet/add-money'),
                 child: const Text('Add money'),
               ),
             ),
             const SizedBox(width: 10),
             Expanded(
               child: OutlinedButton(
-                onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text(
-                      'Withdrawals will be enabled in Withdrawal V2.',
-                    ),
-                  ),
-                ),
+                onPressed: () =>
+                    context.push('/wallet/withdraw/withdraw-money'),
                 child: const Text('Withdraw'),
               ),
             ),
