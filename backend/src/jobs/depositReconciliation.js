@@ -112,6 +112,30 @@ export const reconcileDeposits = async () => {
       logger.error({ anomaly }, 'CRITICAL deposit reconciliation anomaly — manual review required');
     }
 
+    // Anomalies get typed ReconciliationIssue rows on a FAILED run, so the
+    // operator queue can query them; a clean sweep writes nothing.
+    if (anomalies.length > 0) {
+      const run = await prisma.financialReconciliationRun.create({
+        data: {
+          status: 'FAILED',
+          discrepancies: anomalies.map((a) => `${a.check}: ${a.reference}`),
+          checkedAt: new Date()
+        }
+      });
+      await prisma.reconciliationIssue.createMany({
+        data: anomalies.map((a) => ({
+          runId: run.id,
+          type: 'DEPOSIT_PROVIDER_MISMATCH',
+          severity: 'HIGH',
+          entityType: 'DepositIntent',
+          entityId: a.intentId,
+          expected: a.expected ?? null,
+          actual: a.actual ?? null,
+          details: a
+        }))
+      });
+    }
+
     if (missed.count > 0) {
       logger.info({ missedCount: missed.count }, 'Parked stale PENDING deposit intents as FAILED');
     }

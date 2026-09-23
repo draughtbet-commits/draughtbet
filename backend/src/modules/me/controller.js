@@ -3,6 +3,12 @@ import { z } from 'zod';
 import { AuthService } from '../auth/service.js';
 import { requireAuth } from '../../middleware/auth.js';
 import { EligibilityService } from '../eligibility/service.js';
+import {
+  registerPushToken,
+  listPushTokens,
+  revokePushToken,
+  PushTokenError
+} from './pushTokenService.js';
 
 export const meRouter = express.Router();
 
@@ -16,6 +22,12 @@ const eligibilityQuerySchema = z.object({
 const updateProfileSchema = z.object({
   // Only predesigned avatar ids are accepted. No uploads.
   avatar: z.string().trim().min(1).max(64)
+});
+
+const pushTokenSchema = z.object({
+  token: z.string().trim().min(1).max(4096),
+  platform: z.enum(['ios', 'android', 'web']),
+  deviceId: z.string().trim().min(1).max(128).optional()
 });
 
 meRouter.get('/', requireAuth, async (req, res, next) => {
@@ -62,6 +74,43 @@ meRouter.delete('/sessions/:sessionId', requireAuth, async (req, res, next) => {
   } catch (err) {
     if (err && err.name === 'VerificationChallengeError') {
       return res.status(err.status ?? 400).json({ error: { code: err.code, message: err.message } });
+    }
+    next(err);
+  }
+});
+
+meRouter.post('/push-tokens', requireAuth, async (req, res, next) => {
+  try {
+    const data = pushTokenSchema.parse(req.body ?? {});
+    const token = await registerPushToken(req.user.id, data);
+    res.status(201).json({ data: token });
+  } catch (err) {
+    if (err && err.name === 'ZodError') {
+      return res.status(400).json({ errors: err.errors || err.issues });
+    }
+    if (err && err.name === 'PushTokenError') {
+      return res.status(400).json({ error: err.message });
+    }
+    next(err);
+  }
+});
+
+meRouter.get('/push-tokens', requireAuth, async (req, res, next) => {
+  try {
+    const tokens = await listPushTokens(req.user.id);
+    res.json({ data: tokens });
+  } catch (err) {
+    next(err);
+  }
+});
+
+meRouter.delete('/push-tokens/:id', requireAuth, async (req, res, next) => {
+  try {
+    const result = await revokePushToken(req.user.id, req.params.id);
+    res.json({ data: result });
+  } catch (err) {
+    if (err && err.name === 'PushTokenError') {
+      return res.status(404).json({ error: err.message });
     }
     next(err);
   }

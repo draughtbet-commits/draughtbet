@@ -23,6 +23,10 @@ jest.unstable_mockModule('../../wallet/service.js', () => ({
 jest.unstable_mockModule('../../../utils/logger.js', () => ({
   default: { info: jest.fn(), warn: jest.fn(), error: jest.fn() }
 }));
+jest.unstable_mockModule('../webhookEventLog.js', () => ({
+  recordWebhookReceived: jest.fn(async (args) => `evt:${args.providerReference || args.providerEventId || 'unknown'}`),
+  recordWebhookResult: jest.fn(async () => {})
+}));
 jest.unstable_mockModule('../../../sockets/index.js', () => ({
   getIO: () => ioMock
 }));
@@ -48,6 +52,7 @@ jest.unstable_mockModule('../FlutterwaveGateway.js', () => ({
 const express = (await import('express')).default;
 const { default: request } = await import('supertest');
 const { webhookRouter } = await import('../webhookController.js');
+const { recordWebhookReceived, recordWebhookResult } = await import('../webhookEventLog.js');
 
 const app = express();
 app.use(webhookRouter);
@@ -96,6 +101,20 @@ describe('webhookController (S08: credit only from verified stored intents)', ()
     // Socket delivery is durable: enqueued in the credit tx and published by
     // the outbox drainer, so the webhook layer emits nothing.
     expect(ioMock.emit).not.toHaveBeenCalled();
+    // Forensic log: one RECEIVED row finalized as PROCESSED.
+    expect(recordWebhookReceived).toHaveBeenCalledWith(
+      expect.objectContaining({
+        provider: 'PAYSTACK',
+        signatureValid: true,
+        eventType: 'charge.success'
+      })
+    );
+    expect(recordWebhookResult).toHaveBeenCalledWith({
+      provider: 'PAYSTACK',
+      dedupeKey: 'evt:paystack-intent-ref',
+      processingStatus: 'PROCESSED',
+      errorCode: undefined
+    });
   });
 
   it('Paystack: rejects a bad signature with 401 before anything else', async () => {
@@ -106,6 +125,13 @@ describe('webhookController (S08: credit only from verified stored intents)', ()
 
     expect(res.status).toBe(401);
     expect(mockProcessDepositWebhook).not.toHaveBeenCalled();
+    // A forged/bad signature is still forensically recorded as REJECTED.
+    expect(recordWebhookReceived).toHaveBeenCalledWith(
+      expect.objectContaining({ provider: 'PAYSTACK', signatureValid: false })
+    );
+    expect(recordWebhookResult).toHaveBeenCalledWith(
+      expect.objectContaining({ processingStatus: 'REJECTED', errorCode: 'INVALID_SIGNATURE' })
+    );
   });
 
   it('Paystack: a mismatched-amount event is acknowledged with no credit and no emit', async () => {

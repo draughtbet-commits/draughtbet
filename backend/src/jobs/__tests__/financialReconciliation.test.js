@@ -2,6 +2,7 @@ import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 
 const mockPrisma = {
   financialReconciliationRun: { create: jest.fn(), update: jest.fn() },
+  reconciliationIssue: { createMany: jest.fn(async ({ data }) => ({ count: data.length })) },
   ledgerEntry: { groupBy: jest.fn() },
   ledgerTransaction: { count: jest.fn(), findMany: jest.fn(), findUnique: jest.fn() },
   ledgerAccount: { findMany: jest.fn(), count: jest.fn() },
@@ -76,6 +77,11 @@ describe('runFinancialReconciliation', () => {
     expect(result.status).toBe('FAILED');
     expect(result.discrepancies.length).toBeGreaterThan(0);
     expect(result.discrepancies.join(' ')).toMatch(/ledger\.transactions_balanced/);
+    // Typed rows land beside the JSON summary.
+    expect(result.issues.length).toBeGreaterThan(0);
+    expect(mockPrisma.reconciliationIssue.createMany).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.arrayContaining([expect.objectContaining({ type: 'LEDGER_UNBALANCED', severity: 'HIGH', runId: 'run-1', entityType: 'LedgerTransaction' })]) })
+    );
   });
 
   it('fails when player float + system accounts do not net to zero', async () => {

@@ -3,6 +3,7 @@ import { processDepositWebhook, parseDecimalMajorToMinor } from '../wallet/servi
 import { PaystackGateway } from './PaystackGateway.js';
 import { FlutterwaveGateway } from './FlutterwaveGateway.js';
 import { WithdrawalService } from '../withdrawal/service.js';
+import { recordWebhookReceived, recordWebhookResult } from './webhookEventLog.js';
 import logger from '../../utils/logger.js';
 
 export const webhookRouter = express.Router();
@@ -18,6 +19,10 @@ const withdrawalService = new WithdrawalService({
 // Webhooks must use raw body parsing to verify signatures exactly
 webhookRouter.use(express.raw({ type: 'application/json' }));
 
+// Every verified webhook is recorded as a PaymentWebhookEvent forensic row on
+// entry (RECEIVED) and finalized with the processing outcome below. The row is
+// written best-effort only — a storage failure must never block the money
+// path — and the unique dedupeKey makes a redelivered webhook a single row.
 // Post-credit events are derived from the DURABLE ledger record returned by
 // the service, never from the raw webhook body, and only fire for a newly
 // applied webhook — a duplicate delivery is acknowledged but emits nothing.
@@ -26,29 +31,57 @@ webhookRouter.use(express.raw({ type: 'application/json' }));
 // transaction; the socket push is the outbox drainer's job, never inline here.
 const handleDepositResult = async (res, result, userId) => {
   if (result.handled && !result.alreadyApplied) {
-    return res.status(200).send('OK');
+    return { status: 'PROCESSED' };
   }
 
   if (result.alreadyApplied) {
     logger.info('Deposit webhook already applied (duplicate) — acknowledged without re-credit');
-    return res.status(200).send('OK');
+    return { status: 'IGNORED_DUPLICATE' };
   }
 
   logger.warn({ reason: result.reason }, 'Deposit webhook acknowledged without credit');
-  return res.status(200).send('OK');
+  return { status: 'REJECTED', errorCode: result.reason };
 };
 
+const respond = (res, outcome) =>
+  res.status(outcome?.status === 'INVALID_SIGNATURE' ? 401 : 200).send('OK');
+
+const finalize = async ({ provider, dedupeKey }, outcome) =>
+  recordWebhookResult({ provider, dedupeKey, processingStatus: outcome.status, errorCode: outcome.errorCode });
+
 webhookRouter.post('/paystack', async (req, res) => {
+  let dedupeKey;
+  let providerReference;
   try {
     const signature = req.headers['x-paystack-signature'];
     const rawBody = req.body; // This is a Buffer because of express.raw
 
+    const payload = JSON.parse(rawBody.toString('utf8'));
+    providerReference = payload.data?.reference;
+    const eventType = payload.event;
+
     if (!paystackGateway.verifyWebhookSignature(rawBody, signature)) {
       logger.warn('Invalid Paystack webhook signature');
-      return res.status(401).send('Unauthorized');
+      dedupeKey = await recordWebhookReceived({
+        provider: 'PAYSTACK',
+        providerEventId: eventType,
+        providerReference,
+        eventType,
+        signatureValid: false,
+        rawBody
+      });
+      await finalize({ provider: 'PAYSTACK', dedupeKey }, { status: 'REJECTED', errorCode: 'INVALID_SIGNATURE' });
+      return respond(res, { status: 'INVALID_SIGNATURE' });
     }
 
-    const payload = JSON.parse(rawBody.toString('utf8'));
+    dedupeKey = await recordWebhookReceived({
+      provider: 'PAYSTACK',
+      providerEventId: eventType,
+      providerReference,
+      eventType,
+      signatureValid: true,
+      rawBody
+    });
 
     if (payload.event === 'charge.success') {
       const data = payload.data;
@@ -59,6 +92,7 @@ webhookRouter.post('/paystack', async (req, res) => {
 
       if (!userId) {
         logger.error({ reference }, 'Paystack webhook payload missing userId in metadata');
+        await finalize({ provider: 'PAYSTACK', dedupeKey }, { status: 'REJECTED', errorCode: 'MISSING_USER_ID' });
         return res.status(400).send('Missing userId in metadata');
       }
 
@@ -70,8 +104,9 @@ webhookRouter.post('/paystack', async (req, res) => {
         userId
       });
 
-      await handleDepositResult(res, result, userId);
-      return;
+      const outcome = await handleDepositResult(res, result, userId);
+      await finalize({ provider: 'PAYSTACK', dedupeKey }, outcome);
+      return respond(res, outcome);
     }
 
     if (payload.event?.startsWith('transfer.')) {
@@ -82,27 +117,57 @@ webhookRouter.post('/paystack', async (req, res) => {
         eventType: payload.event,
         data: payload.data
       });
-      return res.status(200).send('OK');
+      await finalize({ provider: 'PAYSTACK', dedupeKey }, { status: 'PROCESSED' });
+      return respond(res, { status: 'PROCESSED' });
     }
 
-    res.status(200).send('OK');
+    await finalize({ provider: 'PAYSTACK', dedupeKey }, { status: 'PROCESSED' });
+    respond(res, { status: 'PROCESSED' });
   } catch (error) {
     logger.error({ error }, 'Paystack webhook error');
+    await recordWebhookResult({
+      provider: 'PAYSTACK',
+      dedupeKey,
+      processingStatus: 'FAILED',
+      errorCode: 'INTERNAL_ERROR'
+    });
     res.status(500).send('Internal Server Error');
   }
 });
 
 webhookRouter.post('/flutterwave', async (req, res) => {
+  let dedupeKey;
+  let providerReference;
   try {
     const signature = req.headers['verif-hash'];
     const rawBody = req.body;
 
+    const payload = JSON.parse(rawBody.toString('utf8'));
+    providerReference = payload.data?.tx_ref;
+    const eventType = payload.event;
+
     if (!flutterwaveGateway.verifyWebhookSignature(rawBody, signature)) {
       logger.warn('Invalid Flutterwave webhook signature');
-      return res.status(401).send('Unauthorized');
+      dedupeKey = await recordWebhookReceived({
+        provider: 'FLUTTERWAVE',
+        providerEventId: eventType,
+        providerReference,
+        eventType,
+        signatureValid: false,
+        rawBody
+      });
+      await finalize({ provider: 'FLUTTERWAVE', dedupeKey }, { status: 'REJECTED', errorCode: 'INVALID_SIGNATURE' });
+      return respond(res, { status: 'INVALID_SIGNATURE' });
     }
 
-    const payload = JSON.parse(rawBody.toString('utf8'));
+    dedupeKey = await recordWebhookReceived({
+      provider: 'FLUTTERWAVE',
+      providerEventId: eventType,
+      providerReference,
+      eventType,
+      signatureValid: true,
+      rawBody
+    });
 
     if (payload.event === 'charge.completed' && payload.data.status === 'successful') {
       const data = payload.data;
@@ -115,6 +180,7 @@ webhookRouter.post('/flutterwave', async (req, res) => {
 
       if (!userId) {
         logger.error({ reference }, 'Flutterwave webhook payload missing userId in meta');
+        await finalize({ provider: 'FLUTTERWAVE', dedupeKey }, { status: 'REJECTED', errorCode: 'MISSING_USER_ID' });
         return res.status(400).send('Missing userId in meta');
       }
 
@@ -126,8 +192,9 @@ webhookRouter.post('/flutterwave', async (req, res) => {
         userId
       });
 
-      await handleDepositResult(res, result, userId);
-      return;
+      const outcome = await handleDepositResult(res, result, userId);
+      await finalize({ provider: 'FLUTTERWAVE', dedupeKey }, outcome);
+      return respond(res, outcome);
     }
 
     if (payload.event?.startsWith('transfer.')) {
@@ -136,12 +203,22 @@ webhookRouter.post('/flutterwave', async (req, res) => {
         eventType: payload.event,
         data: payload.data
       });
-      return res.status(200).send('OK');
+      await finalize({ provider: 'FLUTTERWAVE', dedupeKey }, { status: 'PROCESSED' });
+      return respond(res, { status: 'PROCESSED' });
     }
 
-    res.status(200).send('OK');
+    await finalize({ provider: 'FLUTTERWAVE', dedupeKey }, { status: 'PROCESSED' });
+    respond(res, { status: 'PROCESSED' });
   } catch (error) {
     logger.error({ error }, 'Flutterwave webhook error');
+    await recordWebhookResult({
+      provider: 'FLUTTERWAVE',
+      dedupeKey,
+      processingStatus: 'FAILED',
+      errorCode: 'INTERNAL_ERROR'
+    });
     res.status(500).send('Internal Server Error');
   }
 });
+
+export default webhookRouter;

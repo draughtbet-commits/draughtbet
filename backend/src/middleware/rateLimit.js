@@ -210,6 +210,13 @@ export const verificationRateLimiter = limiterFor({
   message: 'Too many verification requests, please try again after a minute',
 });
 
+export const supportRateLimiter = limiterFor({
+  prefix: 'http:support:',
+  windowMs: 60 * 1000,
+  max: process.env.NODE_ENV === 'test' ? 1000 : 10,
+  message: 'Too many support requests, please try again after a minute',
+});
+
 export const saferPlayRateLimiter = limiterFor({
   prefix: 'http:saferplay:',
   windowMs: 60 * 1000,

@@ -15,7 +15,8 @@ import {
   matchRateLimiter,
   calloutRateLimiter,
   matchmakingRateLimiter,
-  notificationRateLimiter
+  notificationRateLimiter,
+  supportRateLimiter
 } from './middleware/rateLimit.js';
 import { requestIdMiddleware, finalErrorHandler } from './middleware/requestId.js';
 import { authRouter } from './modules/auth/controller.js';
@@ -31,6 +32,7 @@ import { webhookRouter } from './modules/payment/webhookController.js';
 import { notificationRouter } from './modules/notification/controller.js';
 import { verificationRouter } from './modules/verification/controller.js';
 import { saferPlayRouter } from './modules/saferPlay/controller.js';
+import { supportRouter } from './modules/support/controller.js';
 
 const app = express();
 // Prisma initialized in utils/db.js
@@ -95,6 +97,7 @@ app.use('/api/v1/deposits', walletRateLimiter, depositsRouter);
 app.use('/api/v1/withdrawals', walletRateLimiter, withdrawalUserRouter);
 app.use('/api/v1/verification', verificationRateLimiter, verificationRouter);
 app.use('/api/v1/safer-play', saferPlayRateLimiter, saferPlayRouter);
+app.use('/api/v1/support', supportRateLimiter, supportRouter);
 app.use('/api/v1/notifications', notificationRateLimiter, notificationRouter);
 
 // Liveness probe: the process is up. No dependencies are checked here — that

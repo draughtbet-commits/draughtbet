@@ -30,9 +30,18 @@ const mockPrisma = {
     create: jest.fn(),
     update: jest.fn()
   },
+  rulesetVersion: {
+    findFirst: jest.fn(async () => ({ id: 'draughts-x1-w' }))
+  },
+  platformConfigVersion: {
+    findFirst: jest.fn(async () => ({ id: 'cfg-v1' }))
+  },
   stakeReservation: {
     findUnique: jest.fn(),
     create: jest.fn()
+  },
+  saferPlayDailyUsage: {
+    upsert: jest.fn()
   },
   gameOutbox: {
     create: jest.fn()
@@ -112,6 +121,8 @@ describe('matchService debitStakes', () => {
         stakeMinorUnits: 5000n,
         settlementCommissionPercent: 20,
         timeControlSeconds: 45,
+        rulesetDefId: 'draughts-x1-w',
+        configVersionId: 'cfg-v1',
         participants: {
           create: [
             { userId: 'player-a', side: 'LIGHT' },

@@ -1,4 +1,5 @@
 import { postStakeReservation, postStakeRelease } from '../../services/ledgerService.js';
+import { recordDailyUsage } from '../../services/dailyUsageService.js';
 
 /**
  * StakeService — V2 stake lifecycle.
@@ -29,14 +30,20 @@ export class StakeReservationAlreadySettledError extends Error {
  * Idempotent per [matchId, userId]: an existing row is returned untouched so a
  * replayed funding can never double-reserve a player.
  */
-export async function reserveStake(tx, { matchId, userId, amountMinorUnits }) {
+export async function reserveStake(tx, { matchId, userId, amountMinorUnits, currency }) {
   const existing = await tx.stakeReservation.findUnique({
     where: { matchId_userId: { matchId, userId } }
   });
   if (existing) return existing;
-  return await tx.stakeReservation.create({
+  const row = await tx.stakeReservation.create({
     data: { matchId, userId, amountMinorUnits, status: 'RESERVED' }
   });
+  // Count the committed stake in today's usage bucket only on a fresh reserve,
+  // so a replayed funding can never double-count (see reserveStake idempotency).
+  if (currency) {
+    await recordDailyUsage(tx, { userId, currency, stakeCommittedMinorUnits: amountMinorUnits });
+  }
+  return row;
 }
 
 /**
@@ -70,7 +77,12 @@ export async function reserveBothStakes(
 
   for (const { userId, wallet } of resolved) {
     reservedOrders.push(
-      await reserveStake(tx, { matchId, userId, amountMinorUnits })
+      await reserveStake(tx, {
+        matchId,
+        userId,
+        amountMinorUnits,
+        currency: wallet?.currency ?? 'NGN'
+      })
     );
 
     ledgerReservations.push({

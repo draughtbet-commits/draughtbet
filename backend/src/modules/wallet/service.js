@@ -3,6 +3,7 @@ import prisma from '../../utils/db.js';
 import logger from '../../utils/logger.js';
 import { postDepositCredit, getLedgerTransactions, getUserLedgerProjections } from '../../services/ledgerService.js';
 import { enqueueWalletUpdated, enqueueNotificationDelivery } from '../../services/outboxService.js';
+import { recordDailyUsage } from '../../services/dailyUsageService.js';
 
 // Canonical money contract: a non-negative bounded minor-unit integer accepted
 // as a plain-digit string or number. Rejects floats, signs, exponent notation,
@@ -193,6 +194,14 @@ export const processDepositWebhook = async ({ reference, amountMinorUnits, curre
         currency: intent.currency,
         depositIntentId: intent.id,
         reference: intent.reference
+      });
+
+      // Count the accepted deposit in today's safer-play usage bucket (atomic
+      // with the credit; only reachable when the CAS above wins once).
+      await recordDailyUsage(tx, {
+        userId: intent.userId,
+        currency: intent.currency,
+        depositCommittedMinorUnits: intent.amountMinorUnits
       });
 
       // Durable wallet.updated outbox row, atomic with the credit.

@@ -10,6 +10,12 @@ const mockPrisma = {
   },
   ledgerEntry: {
     findFirst: jest.fn()
+  },
+  financialReconciliationRun: {
+    create: jest.fn(async () => ({ id: 'run-fr-1' }))
+  },
+  reconciliationIssue: {
+    createMany: jest.fn(async ({ data }) => ({ count: data.length }))
   }
 };
 
@@ -145,6 +151,31 @@ describe('depositReconciliation', () => {
     const summary = await reconcileDeposits();
 
     expect(summary).toMatchObject({ intentsChecked: 1, anomalies: [] });
+  });
+
+  it('writes a FAILED run + typed issue rows for a missing-credit anomaly', async () => {
+    mockPrisma.ledgerTransaction.findUnique.mockResolvedValue(null);
+    mockPrisma.depositIntent.findMany.mockResolvedValue([COMPLETED]);
+
+    const summary = await reconcileDeposits();
+
+    expect(summary.anomalies[0].check).toBe('ledgerPostingMissing');
+    expect(mockPrisma.financialReconciliationRun.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ status: 'FAILED' })
+    });
+    expect(mockPrisma.reconciliationIssue.createMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: [
+          expect.objectContaining({
+            runId: 'run-fr-1',
+            type: 'DEPOSIT_PROVIDER_MISMATCH',
+            severity: 'HIGH',
+            entityType: 'DepositIntent',
+            entityId: 'intent-1'
+          })
+        ]
+      })
+    );
   });
 
   it('accepts the contract DEPOSIT_CONFIRMED type as the credit evidence', async () => {

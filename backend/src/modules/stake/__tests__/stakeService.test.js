@@ -14,6 +14,9 @@ const makeTx = () => ({
     findUnique: jest.fn(),
     create: jest.fn(),
     updateMany: jest.fn()
+  },
+  saferPlayDailyUsage: {
+    upsert: jest.fn()
   }
 });
 
@@ -54,6 +57,8 @@ describe('stake/service reserveStake', () => {
 
     expect(row).toBe(existing);
     expect(tx.stakeReservation.create).not.toHaveBeenCalled();
+    // A replay counts nothing again — no usage upsert on an existing reserve.
+    expect(tx.saferPlayDailyUsage.upsert).not.toHaveBeenCalled();
   });
 });
 
@@ -79,6 +84,13 @@ describe('stake/service reserveBothStakes', () => {
       { userId: 'player-a', currency: 'NGN', amountMinorUnits: 5000n },
       { userId: 'player-b', currency: 'NGN', amountMinorUnits: 5000n }
     ]);
+    // Fresh reserves count into today's safer-play usage bucket per player.
+    expect(tx.saferPlayDailyUsage.upsert).toHaveBeenCalledTimes(2);
+    expect(tx.saferPlayDailyUsage.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        create: expect.objectContaining({ userId: 'player-a', stakeCommittedMinorUnits: 5000n, currency: 'NGN' })
+      })
+    );
   });
 
   it('refuses to reserve for a player whose wallet was not locked', async () => {

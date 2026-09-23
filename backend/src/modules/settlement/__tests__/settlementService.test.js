@@ -15,6 +15,8 @@ const mockPrisma = {
     create: jest.fn(({ data }) => ({ id: 'notif-1', ...data, createdAt: new Date() }))
   },
   wallet: { findUnique: jest.fn(() => ({ id: 'wallet-1', currency: 'NGN' })) },
+  playerStats: { findUnique: jest.fn(() => null), upsert: jest.fn(async ({ data }) => ({ id: 'ps-1', ...data })) },
+  ratingEvent: { createMany: jest.fn(async ({ data }) => ({ count: data.length })) },
   outboxEvent: {
     create: jest.fn(({ data }) => ({ id: 'ob-1', ...data })),
     findUnique: jest.fn(() => null)
@@ -105,6 +107,18 @@ describe('SettlementService', () => {
         where: { matchId: 'm1' },
         data: { status: 'SETTLED' }
       });
+
+      // player stats + rating history (K=32 Elo, 1200 start): equal expectation so
+      // a win moves +16 and a loss -16.
+      expect(mockPrisma.playerStats.upsert).toHaveBeenCalledTimes(2);
+      expect(mockPrisma.ratingEvent.createMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: [
+            expect.objectContaining({ userId: 'player-1', matchId: 'm1', ratingAfter: 1216, delta: 16 }),
+            expect.objectContaining({ userId: 'player-2', matchId: 'm1', ratingAfter: 1184, delta: -16 })
+          ]
+        })
+      );
 
       // durable delivery events for the drainer: win/loss notifications +
       // winner wallet.updated, atomic with the claim

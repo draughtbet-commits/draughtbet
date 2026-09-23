@@ -4,6 +4,7 @@ import logger from '../../utils/logger.js';
 import { postSettlementWin, postSettlementDraw } from '../../services/ledgerService.js';
 import { enqueueNotificationDelivery, enqueueWalletUpdated } from '../../services/outboxService.js';
 import { LIVE_STATUSES, isLiveStatus } from '../match/service.js';
+import { applyMatchOutcome } from './playerStatsService.js';
 
 /**
  * Settlement V2. Financial settlement leaves the socket layer and lives here:
@@ -307,6 +308,12 @@ export async function settleMatch(matchId, terminalResult) {
 
     await tx.matchReceipt.createMany({
       data: receiptsFor(match, winnerId, settledPayout, settledCommission)
+    });
+
+    await applyMatchOutcome(tx, {
+      matchId,
+      players: [match.playerLightId, match.playerDarkId].filter(Boolean),
+      winnerId
     });
 
     await enqueueSettlementEvents(tx, {

@@ -33,10 +33,12 @@ import { requireIdempotencyKey } from '../../middleware/idempotency.js';
 import { auditRouter } from '../audit/controller.js';
 import { riskRouter } from '../risk/controller.js';
 import { disputeAdminRouter } from '../disputes/controller.js';
+import { supportAdminRouter } from '../support/controller.js';
 import {
   listVerificationCases,
   approveVerificationCase,
   rejectVerificationCase,
+  listCaseDocuments,
   VerificationCaseNotFoundError,
   VerificationCaseNotReviewableError,
   KYC_STATUSES
@@ -44,6 +46,7 @@ import {
 import { clearTimeoutByAdmin, endSelfExclusionByAdmin } from '../saferPlay/service.js';
 import { AdminService } from './service.js';
 import { InsufficientFundsError, InvalidAmountError } from '../../services/ledgerService.js';
+import { updatePlatformConfig, settingsPayload } from '../../services/configVersionsService.js';
 
 export const adminRouter = express.Router();
 
@@ -142,7 +145,28 @@ adminRouter.use(requireAdminMfa);
 adminRouter.use(requireIdempotencyKey({ scope: 'admin' }));
 adminRouter.use('/audit', auditRouter);
 adminRouter.use(disputeAdminRouter);
+adminRouter.use(supportAdminRouter);
 adminRouter.use(riskRouter);
+
+// ---------------------------------------------------------------------------
+// Platform configuration (SUPER_ADMIN) — versioned via PlatformConfigVersion
+// ---------------------------------------------------------------------------
+adminRouter.post('/platform/settings', requirePermission(PERMISSIONS.ROLES_ADMIN), async (req, res, next) => {
+  try {
+    const updates = req.body ?? {};
+    const updated = await updatePlatformConfig({ userId: req.user.id, updates });
+    await audit(req, 'admin.platform.settings', {
+      targetType: 'platform',
+      metadata: { fields: Object.keys(updates) }
+    });
+    res.json(settingsPayload(updated));
+  } catch (error) {
+    if (error?.message === 'No supported settings supplied') {
+      return res.status(400).json({ error: error.message });
+    }
+    next(error);
+  }
+});
 
 // ---------------------------------------------------------------------------
 // Account status (SUPPORT / SUPER_ADMIN)
@@ -468,6 +492,20 @@ adminRouter.post(
     } catch (error) {
       if (error.name === 'VerificationCaseNotFoundError') return res.status(404).json({ error: error.message });
       if (error.name === 'VerificationCaseNotReviewableError') return res.status(409).json({ error: error.message });
+      next(error);
+    }
+  }
+);
+
+adminRouter.get(
+  '/kyc/cases/:id/documents',
+  requirePermission(PERMISSIONS.VERIFICATION_REVIEW),
+  async (req, res, next) => {
+    try {
+      const { case: evidence, documents } = await listCaseDocuments(req.params.id);
+      res.json({ case: evidence, documents });
+    } catch (error) {
+      if (error.name === 'VerificationCaseNotFoundError') return res.status(404).json({ error: error.message });
       next(error);
     }
   }

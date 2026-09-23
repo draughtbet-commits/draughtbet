@@ -10,9 +10,22 @@ import { PLAYER_ACCOUNT_TYPES } from '../services/ledgerService.js';
 
 const PAGE_SIZE = 200;
 
-const check = (results, name, ok, detail) => {
+const check = (results, name, ok, detail, typed = {}) => {
   results.checks.push({ name, ok, detail: ok ? null : detail });
-  if (!ok) results.discrepancies.push(`${name}: ${detail}`);
+  if (!ok) {
+    results.discrepancies.push(`${name}: ${detail}`);
+    if (typed.type) {
+      results.issues.push({
+        type: typed.type,
+        severity: typed.severity ?? 'MEDIUM',
+        entityType: typed.entityType ?? null,
+        entityId: typed.entityId ?? null,
+        expected: typed.expected ?? null,
+        actual: typed.actual ?? null,
+        details: typed.details ?? { check: name, detail }
+      });
+    }
+  }
 };
 
 export async function runFinancialReconciliation({ clock = () => new Date() } = {}) {
@@ -21,7 +34,7 @@ export async function runFinancialReconciliation({ clock = () => new Date() } = 
     data: { status: 'RUNNING' }
   });
 
-  const results = { discrepancies: [], checks: [] };
+  const results = { discrepancies: [], checks: [], issues: [] };
 
   // ── Core ledger integrity ─────────────────────────────────────────
   // Every transaction must be double-entry: >= 2 entries netting to zero.
@@ -32,11 +45,13 @@ export async function runFinancialReconciliation({ clock = () => new Date() } = 
   });
   const unbalanced = balances.filter((b) => (b._sum.amountMinorUnits ?? 0n) !== 0n || b._count._all < 2);
   const emptyTx = await prisma.ledgerTransaction.count({ where: { entries: { none: {} } } });
+  const unbalancedIds = unbalanced.map((b) => b.transactionId);
   check(
     results,
     'ledger.transactions_balanced',
     unbalanced.length === 0 && emptyTx === 0,
-    `${unbalanced.length} transaction(s) unbalanced/undersized, ${emptyTx} empty`
+    `${unbalanced.length} transaction(s) unbalanced/undersized, ${emptyTx} empty`,
+    { type: 'LEDGER_UNBALANCED', severity: 'HIGH', entityType: 'LedgerTransaction', entityId: unbalancedIds[0] ?? null, actual: `${unbalanced.length} unbalanced` + (emptyTx ? `, ${emptyTx} empty` : '') }
   );
 
   // ── Closed book: player float must net against system accounts ────
@@ -60,12 +75,24 @@ export async function runFinancialReconciliation({ clock = () => new Date() } = 
     results,
     'ledger.closed_book',
     netBook === 0n,
-    `player float + system accounts must net to zero: playerFloat=${playerFloat}, systemFloat=${systemFloat}, net=${netBook}`
+    `player float + system accounts must net to zero: playerFloat=${playerFloat}, systemFloat=${systemFloat}, net=${netBook}`,
+    {
+      type: 'LEDGER_UNBALANCED',
+      severity: 'HIGH',
+      entityType: 'Ledger',
+      expected: '0',
+      actual: netBook.toString()
+    }
   );
 
   // ── Liability singleton ───────────────────────────────────────────
   const liability = await prisma.ledgerAccount.count({ where: { type: 'CUSTOMER_LIABILITY' } });
-  check(results, 'ledger.liability_singleton', liability === 1, `found ${liability} CUSTOMER_LIABILITY accounts`);
+  check(results, 'ledger.liability_singleton', liability === 1, `found ${liability} CUSTOMER_LIABILITY accounts`, {
+    type: 'OTHER',
+    severity: 'HIGH',
+    entityType: 'LedgerAccount',
+    actual: String(liability)
+  });
 
   // ── Withdrawal postings per status ────────────────────────────────
   let withdrawalSkip = 0;
@@ -83,6 +110,7 @@ export async function runFinancialReconciliation({ clock = () => new Date() } = 
         `withdrawal:complete:${w.id}`,
         `withdrawal:release:${w.id}`
       ];
+      const withdrawalIssue = { type: 'WITHDRAWAL_PROVIDER_MISMATCH', severity: 'HIGH', entityType: 'Withdrawal', entityId: w.id };
       const txs = await prisma.ledgerTransaction.findMany({
         where: { idempotencyKey: { in: keys } },
         include: { entries: true },
@@ -95,25 +123,26 @@ export async function runFinancialReconciliation({ clock = () => new Date() } = 
         results,
         `withdrawal.${w.id}.reserve`,
         Boolean(reserve),
-        `missing withdrawal:reserve posting`
+        `missing withdrawal:reserve posting`,
+        withdrawalIssue
       );
       if (reserve) {
         const net = reserve.entries.reduce((sum, e) => sum + e.amountMinorUnits, 0n);
         const sizeOk = reserve.entries.length >= 2 && net === 0n;
         const amountOk = reserve.entries.some((e) => e.amountMinorUnits === w.amountMinorUnits);
-        check(results, `withdrawal.${w.id}.reserve.amount`, sizeOk && amountOk, `reserve posting does not cover the reserved amount`);
+        check(results, `withdrawal.${w.id}.reserve.amount`, sizeOk && amountOk, `reserve posting does not cover the reserved amount`, withdrawalIssue);
       }
 
       const complete = byKey.get(`withdrawal:complete:${w.id}`);
       const release = byKey.get(`withdrawal:release:${w.id}`);
       if (w.status === 'COMPLETED') {
-        check(results, `withdrawal.${w.id}.complete`, Boolean(complete), `COMPLETED without withdrawal:complete posting`);
-        check(results, `withdrawal.${w.id}.complete.exclusive`, !release, `COMPLETED also has a release posting`);
+        check(results, `withdrawal.${w.id}.complete`, Boolean(complete), `COMPLETED without withdrawal:complete posting`, withdrawalIssue);
+        check(results, `withdrawal.${w.id}.complete.exclusive`, !release, `COMPLETED also has a release posting`, withdrawalIssue);
       } else if (w.status === 'RELEASED') {
-        check(results, `withdrawal.${w.id}.release`, Boolean(release), `RELEASED without withdrawal:release posting`);
-        check(results, `withdrawal.${w.id}.release.exclusive`, !complete, `RELEASED also has a complete posting`);
+        check(results, `withdrawal.${w.id}.release`, Boolean(release), `RELEASED without withdrawal:release posting`, withdrawalIssue);
+        check(results, `withdrawal.${w.id}.release.exclusive`, !complete, `RELEASED also has a complete posting`, withdrawalIssue);
       } else {
-        check(results, `withdrawal.${w.id}.no_terminal`, !complete && !release, `non-terminal withdrawal has a terminal posting`);
+        check(results, `withdrawal.${w.id}.no_terminal`, !complete && !release, `non-terminal withdrawal has a terminal posting`, withdrawalIssue);
       }
     }
     withdrawalSkip += withdrawalRows.length;
@@ -130,13 +159,14 @@ export async function runFinancialReconciliation({ clock = () => new Date() } = 
       select: { id: true, status: true, reference: true, amountMinorUnits: true }
     });
     for (const d of deposits) {
+      const depositIssue = { type: 'DEPOSIT_PROVIDER_MISMATCH', severity: 'HIGH', entityType: 'DepositIntent', entityId: d.id };
       const credit = await prisma.ledgerTransaction.findUnique({
         where: { idempotencyKey: `deposit:credit:${d.reference}` },
         include: { entries: { select: { accountId: true, amountMinorUnits: true } } }
       });
       const overlap = d.status === 'PENDING' || d.status === 'FAILED';
       if (d.status === 'COMPLETED') {
-        check(results, `deposit.${d.id}.credit`, Boolean(credit), `COMPLETED without deposit:credit posting`);
+        check(results, `deposit.${d.id}.credit`, Boolean(credit), `COMPLETED without deposit:credit posting`, depositIssue);
         if (credit) {
           const net = credit.entries.reduce((sum, e) => sum + e.amountMinorUnits, 0n);
           const hasDebit = credit.entries.some((e) => e.amountMinorUnits === -d.amountMinorUnits);
@@ -145,11 +175,12 @@ export async function runFinancialReconciliation({ clock = () => new Date() } = 
             results,
             `deposit.${d.id}.credit.amount`,
             net === 0n && hasDebit && hasCredit,
-            `deposit:credit posting does not match the intent amount`
+            `deposit:credit posting does not match the intent amount`,
+            depositIssue
           );
         }
       } else if (overlap && credit) {
-        check(results, `deposit.${d.id}.credit.exclusive`, false, `${d.status} intent already has a deposit:credit posting`);
+        check(results, `deposit.${d.id}.credit.exclusive`, false, `${d.status} intent already has a deposit:credit posting`, depositIssue);
       }
     }
     depositCursor += deposits.length;
@@ -160,15 +191,16 @@ export async function runFinancialReconciliation({ clock = () => new Date() } = 
     select: { matchId: true, netPayoutMinorUnits: true }
   });
   for (const s of settlements) {
+    const settlementIssue = { type: 'MATCH_SETTLEMENT_MISMATCH', severity: 'HIGH', entityType: 'Match', entityId: s.matchId };
     const posting = await prisma.ledgerTransaction.findUnique({
       where: { idempotencyKey: `MATCH_SETTLEMENT:${s.matchId}` },
       include: { entries: { select: { amountMinorUnits: true } } }
     });
-    check(results, `settlement.${s.matchId}.posting`, Boolean(posting), `settled match without MATCH_SETTLEMENT posting`);
+    check(results, `settlement.${s.matchId}.posting`, Boolean(posting), `settled match without MATCH_SETTLEMENT posting`, settlementIssue);
     if (posting) {
       const net = posting.entries.reduce((sum, e) => sum + e.amountMinorUnits, 0n);
       const coversPayout = posting.entries.some((e) => e.amountMinorUnits === s.netPayoutMinorUnits);
-      check(results, `settlement.${s.matchId}.posting.amount`, net === 0n && coversPayout, `settlement posting does not cover the recorded payout`);
+      check(results, `settlement.${s.matchId}.posting.amount`, net === 0n && coversPayout, `settlement posting does not cover the recorded payout`, settlementIssue);
     }
   }
 
@@ -182,12 +214,20 @@ export async function runFinancialReconciliation({ clock = () => new Date() } = 
     }
   });
 
+  // Typed rows beside the JSON summary give each failure a queryable record.
+  if (results.issues.length > 0) {
+    await prisma.reconciliationIssue.createMany({
+      data: results.issues.map((issue) => ({ ...issue, runId: run.id })),
+      skipDuplicates: true
+    });
+  }
+
   if (results.discrepancies.length > 0) {
     logger.error({ runId: run.id, count: results.discrepancies.length }, 'Financial reconciliation flagged discrepancies');
   } else {
     logger.info({ runId: run.id }, 'Financial reconciliation passed');
   }
-  return { runId: run.id, status, discrepancies: results.discrepancies, checks: results.checks };
+  return { runId: run.id, status, discrepancies: results.discrepancies, checks: results.checks, issues: results.issues };
 }
 
 let isSweeping = false;

@@ -20,6 +20,9 @@ const mockPrisma = {
   ledgerEntry: {
     create: jest.fn()
   },
+  saferPlayDailyUsage: {
+    upsert: jest.fn()
+  },
   outboxEvent: {
     create: jest.fn(({ data }) => ({ id: 'ob-1', ...data })),
     findUnique: jest.fn(() => null)
@@ -100,6 +103,11 @@ describe('Deposit Webhook Processing (stored-intent verified)', () => {
         idempotencyKey: 'deposit:credit:paystack-ref-123'
       })
     });
+    expect(mockPrisma.saferPlayDailyUsage.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        create: expect.objectContaining({ userId: 'user-1', currency: 'NGN', depositCommittedMinorUnits: 50000n })
+      })
+    );
     expect(mockPrisma.ledgerEntry.create).toHaveBeenNthCalledWith(1, {
       data: expect.objectContaining({
         accountId: 'system:CUSTOMER_LIABILITY:NGN',

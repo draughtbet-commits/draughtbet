@@ -121,6 +121,7 @@ jest.unstable_mockModule('../../verification/service.js', () => ({
   listVerificationCases: jest.fn(),
   approveVerificationCase: jest.fn(),
   rejectVerificationCase: jest.fn(),
+  listCaseDocuments: jest.fn(),
   KYC_STATUSES: ['STARTED', 'PENDING', 'UNDER_REVIEW', 'REJECTED', 'EXPIRED', 'VERIFIED'],
   VerificationCaseNotFoundError: class VerificationCaseNotFoundError extends Error {
     constructor(message) {

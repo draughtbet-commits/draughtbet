@@ -16,6 +16,7 @@ import { startProviderFollowUp } from './jobs/providerFollowUp.js';
 import { startFinancialReconciliation } from './jobs/financialReconciliation.js';
 import { startGameRecovery } from './sockets/gameRecovery.js';
 import { startReadyGateSweep } from './jobs/readyGateSweep.js';
+import { ensureActiveConfigVersions } from './services/configVersionsService.js';
 
 const PORT = process.env.PORT || 3000;
 
@@ -48,6 +49,12 @@ const server = app.listen(PORT, () => {
 
 // Initialize Socket.IO
 initSocketServer(server);
+
+// Seed the frozen ruleset + active platform-config version once (idempotent),
+// so matches created from here on are stamped with a ruleset/config version.
+ensureActiveConfigVersions().catch((err) => {
+  logger.error({ err }, 'Failed to seed active config versions');
+});
 
 // Start background jobs AFTER the server and socket layer are up.
 startBackgroundJobs();

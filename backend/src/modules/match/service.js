@@ -95,6 +95,22 @@ export async function createMatch(
     currency
   }
 ) {
+  // Stamp the frozen ruleset and platform-config version in effect at funding,
+  // so later changes never retroactively alter what this match was played under.
+  // Both resolve to null on schema lag so a match can never be blocked.
+  const rulesetDefId =
+    client?.rulesetVersion?.findFirst
+      ? (await client.rulesetVersion.findFirst({ where: { active: true } }))?.id
+      : null;
+  const configVersionId =
+    client?.platformConfigVersion?.findFirst
+      ? (
+          await client.platformConfigVersion.findFirst({
+            where: { activeTo: null },
+            orderBy: { activeFrom: 'desc' }
+          })
+        )?.id
+      : null;
   return await client.match.create({
     data: {
       id: matchId,
@@ -106,6 +122,8 @@ export async function createMatch(
       settlementCommissionPercent: commissionPercent,
       timeControlSeconds,
       ...(currency !== undefined && currency !== null ? { currency } : {}),
+      ...(rulesetDefId ? { rulesetDefId } : {}),
+      ...(configVersionId ? { configVersionId } : {}),
       participants: {
         create: [
           { userId: playerLightId, side: 'LIGHT' },

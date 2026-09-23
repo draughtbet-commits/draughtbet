@@ -399,3 +399,124 @@ export const rejectVerificationCase = async (
     return { case: updated, replayed: false };
   });
 };
+
+// ---------------------------------------------------------------------------
+// KycDocument — producer-side document evidence attached to an in-flight
+// verification case. Rows are private storage references (objectKey) with a
+// sha256 for integrity; content/PII is never echoed to clients or admin.
+// ---------------------------------------------------------------------------
+
+export const KYC_DOCUMENT_TYPES = Object.freeze([
+  'national_id',
+  'passport',
+  'driver_license',
+  'proof_of_address',
+  'selfie',
+  'nin_slip'
+]);
+
+export class KycDocumentError extends Error {
+  constructor(message = 'Document could not be attached') {
+    super(message);
+    this.name = 'KycDocumentError';
+  }
+}
+
+const SHA256_RE = /^[0-9a-f]{64}$/;
+
+const toDocumentView = (row) => ({
+  id: row.id,
+  documentType: row.documentType,
+  objectKey: row.objectKey,
+  mimeType: row.mimeType,
+  sizeBytes: row.sizeBytes.toString(),
+  sha256: row.sha256,
+  uploadedAt: row.uploadedAt,
+  deleted: !!row.deletedAt
+});
+
+const inFlightCaseQuery = (userId) => ({
+  userId,
+  status: { in: ['STARTED', 'PENDING', 'UNDER_REVIEW'] }
+});
+
+/**
+ * Attaches a document reference to the player's current in-flight case.
+ * Re-attaching the same sha256/objectKey is idempotent and returns the first row.
+ */
+export const attachDocument = async (
+  userId,
+  { documentType, objectKey, mimeType, sizeBytes, sha256 },
+  { dbp = prisma } = {}
+) => {
+  if (!KYC_DOCUMENT_TYPES.includes(documentType)) {
+    throw new InvalidVerificationTypeError('Unsupported document type');
+  }
+  if (typeof objectKey !== 'string' || !objectKey.trim()) {
+    throw new KycDocumentError('Missing document reference');
+  }
+  if (typeof sha256 !== 'string' || !SHA256_RE.test(sha256)) {
+    throw new KycDocumentError('Invalid document checksum');
+  }
+  if (!Number.isInteger(sizeBytes) || sizeBytes <= 0) {
+    throw new KycDocumentError('Invalid document size');
+  }
+
+  const existing = await dbp.kycDocument.findUnique({ where: { objectKey } });
+  if (existing && existing.userId === userId && existing.sha256 === sha256 && !existing.deletedAt) {
+    return toDocumentView(existing);
+  }
+
+  const active = await dbp.verificationCase.findFirst({
+    where: inFlightCaseQuery(userId),
+    orderBy: { createdAt: 'desc' }
+  });
+  if (!active) throw new KycDocumentError('No verification case in progress');
+
+  const row = await dbp.kycDocument.create({
+    data: {
+      userId,
+      verificationCaseId: active.id,
+      documentType,
+      objectKey,
+      mimeType: typeof mimeType === 'string' && mimeType ? mimeType : 'application/octet-stream',
+      sizeBytes: BigInt(sizeBytes),
+      sha256
+    }
+  });
+  logger.info({ userId, caseId: active.id, documentType }, 'KYC document attached');
+  return toDocumentView(row);
+};
+
+/** The player's own current (non-revoked) document evidence. */
+export const listMyDocuments = async (userId, { dbp = prisma } = {}) => {
+  const rows = await dbp.kycDocument.findMany({
+    where: { userId, deletedAt: null },
+    orderBy: { uploadedAt: 'desc' }
+  });
+  return rows.map(toDocumentView);
+};
+
+/** Soft-revokes a document the player owns. */
+export const revokeDocument = async (userId, documentId, { dbp = prisma } = {}) => {
+  const { count } = await dbp.kycDocument.updateMany({
+    where: { id: documentId, userId, deletedAt: null },
+    data: { deletedAt: new Date() }
+  });
+  if (count === 0) throw new KycDocumentError('Document not found');
+  return { revoked: true };
+};
+
+/**
+ * Admin evidence read: every document ever attached to a case (revoked ones
+ * are flagged), with case context. Content is never returned.
+ */
+export const listCaseDocuments = async (caseId, { dbp = prisma } = {}) => {
+  const vc = await dbp.verificationCase.findUnique({ where: { id: caseId } });
+  if (!vc) throw new VerificationCaseNotFoundError();
+  const rows = await dbp.kycDocument.findMany({
+    where: { verificationCaseId: caseId },
+    orderBy: { uploadedAt: 'asc' }
+  });
+  return { case: { id: vc.id, userId: vc.userId, status: vc.status }, documents: rows.map(toDocumentView) };
+};
