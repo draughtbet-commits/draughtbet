@@ -9,6 +9,12 @@ export const STAKE_PRESETS = {
   PRO: [3000000n, 5000000n, 6000000n]
 };
 
+// Format minor-unit (kobo) amounts as human-readable naira, e.g. 200000n -> "₦2,000".
+export const formatMinorUnitsAsNaira = (minorUnits) => {
+  const naira = minorUnits / 100n;
+  return `₦${naira.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`;
+};
+
 /**
  * Validates a user's stake against their tier limits.
  * @param {boolean} isCallout - If true, validates against call-out ceiling instead of strict presets.
@@ -56,7 +62,7 @@ export const requireValidStake = (isCallout = false) => {
 
         if (stake < minP || stake > calloutMaxP) {
           return res.status(400).json({ 
-            error: `Call-out stake out of bounds. Must be between ${minP} and ${calloutMaxP} for ${tier} tier.` 
+            error: `Call-out stake out of bounds. Must be between ${formatMinorUnitsAsNaira(minP)} and ${formatMinorUnitsAsNaira(calloutMaxP)} for ${tier} tier.` 
           });
         }
       } else {
@@ -65,7 +71,7 @@ export const requireValidStake = (isCallout = false) => {
         const allowedPresets = STAKE_PRESETS[tier];
         if (!allowedPresets.includes(stake)) {
           return res.status(400).json({ 
-            error: `Invalid matchmaking stake for ${tier} tier. Must be one of: ${allowedPresets.join(', ')}` 
+            error: `Invalid matchmaking stake for ${tier} tier. Must be one of: ${allowedPresets.map(formatMinorUnitsAsNaira).join(', ')}` 
           });
         }
 
