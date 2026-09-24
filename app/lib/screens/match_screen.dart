@@ -269,7 +269,9 @@ class _MatchScreenState extends ConsumerState<MatchScreen> {
       }
     });
     if (game != null &&
-        (game.status == 'completed' || game.status == 'draw') &&
+        (game.status == 'completed' ||
+            game.status == 'draw' ||
+            game.status == 'settled') &&
         _userId != null) {
       _openResult(game, state);
     }

@@ -149,7 +149,9 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         path: '/matches/:id/receipt',
         builder: (context, state) => MatchReceiptScreen(
           matchId: state.pathParameters['id']!,
-          initialReceipt: state.extra as MatchReceiptData?,
+          initialReceipt: state.extra is MatchReceiptData
+              ? state.extra as MatchReceiptData
+              : null,
         ),
       ),
       GoRoute(
