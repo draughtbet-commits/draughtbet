@@ -183,6 +183,15 @@ class AuthInterceptor extends QueuedInterceptor {
   }
 
   Future<_RefreshResult>? _refreshInFlight;
+  Dio? _refreshDio;
+
+  /// A dedicated refresh client, isolated from the app-wide [Dio] so a refresh
+  /// round-trip cannot deadlock the QueuedInterceptor chain (an inner error on
+  /// the same interceptor would wait for the very request whose callback is
+  /// blocked awaiting it). It shares the transport adapter and base options but
+  /// carries no AuthInterceptor of its own.
+  Dio get _refreshClient => _refreshDio ??= Dio(dio.options)
+    ..httpClientAdapter = dio.httpClientAdapter;
 
   Future<_RefreshResult> _refresh(String userId, String refreshToken) {
     // Dedupe concurrent refreshes to a single in-flight call.
@@ -196,7 +205,7 @@ class AuthInterceptor extends QueuedInterceptor {
   }
 
   Future<_RefreshResult> _doRefresh(String userId, String refreshToken) async {
-    final res = await dio.post(
+    final res = await _refreshClient.post(
       '/auth/refresh',
       data: {'userId': userId, 'refreshToken': refreshToken},
     );
