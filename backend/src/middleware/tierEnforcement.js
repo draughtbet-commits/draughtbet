@@ -4,7 +4,7 @@ import logger from '../utils/logger.js';
 // The allowed matchmaking presets per tier (in minor units / kobo)
 // These align with the Option A product decision for discrete stake buckets.
 export const STAKE_PRESETS = {
-  AMATEUR: [50000n, 100000n, 500000n],
+  AMATEUR: [50000n, 100000n, 200000n, 500000n],
   MASTER: [1000000n, 1500000n, 3000000n],
   PRO: [3000000n, 5000000n, 6000000n]
 };
