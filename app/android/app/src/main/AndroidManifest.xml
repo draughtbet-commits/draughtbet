@@ -6,6 +6,12 @@
         android:label="draughts_arena"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
+        <!-- Impeller fails to create an EGL context on software-rendered
+             emulators (black screen). Fall back to Skia until the emulator
+             exposes working host/virtual GLES. -->
+        <meta-data
+            android:name="io.flutter.embedding.android.EnableImpeller"
+            android:value="false" />
         <activity
             android:name=".MainActivity"
             android:exported="true"
