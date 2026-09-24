@@ -6,8 +6,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../models/game_state.dart';
+import '../models/game_protocol.dart';
 import '../models/match_flow.dart';
-import '../providers/match_flow_provider.dart';
 import '../providers/match_provider.dart';
 import '../services/secure_storage.dart';
 import '../services/socket_service.dart';
@@ -36,7 +36,10 @@ class _MatchScreenState extends ConsumerState<MatchScreen> {
   void initState() {
     super.initState();
     SecureStorageService().userId.then((value) {
-      if (mounted) setState(() => _userId = value);
+      if (mounted) {
+        ref.read(matchProvider.notifier).setCurrentUserId(value);
+        setState(() => _userId = value);
+      }
     });
     WidgetsBinding.instance.addPostFrameCallback((_) {
       ref.read(matchProvider.notifier).joinMatch(widget.matchId);
@@ -89,7 +92,10 @@ class _MatchScreenState extends ConsumerState<MatchScreen> {
             candidate.from == _selectedSquare && candidate.to == square,
       );
       if (move.isNotEmpty) {
-        ref.read(matchProvider.notifier).attemptMove(_selectedSquare!, square);
+        final acceptedMove = move.first;
+        ref
+            .read(matchProvider.notifier)
+            .attemptMove(_selectedSquare!, square, path: acceptedMove.path);
         setState(() => _selectedSquare = null);
         return;
       }
@@ -130,13 +136,16 @@ class _MatchScreenState extends ConsumerState<MatchScreen> {
       ),
     );
     if (confirmed != true || !mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text(
-          'Draw offers are not supported by the current server contract.',
+    final submitted = ref.read(matchProvider.notifier).offerDraw();
+    if (!submitted && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Draw offers are unavailable until the match server enables Game Protocol V2.',
+          ),
         ),
-      ),
-    );
+      );
+    }
   }
 
   void _chatUnavailable() {
@@ -168,6 +177,38 @@ class _MatchScreenState extends ConsumerState<MatchScreen> {
                 ),
               ),
               const SizedBox(height: 12),
+              ListTile(
+                leading: const Icon(LucideIcons.history),
+                title: const Text('Move History'),
+                subtitle: const Text('Server-confirmed moves'),
+                onTap: () {
+                  Navigator.pop(context);
+                  GoRouter.maybeOf(
+                    context,
+                  )?.push('/matches/${widget.matchId}/moves');
+                },
+              ),
+              ListTile(
+                leading: const Icon(LucideIcons.bookOpen),
+                title: const Text('Game Rules'),
+                onTap: () {
+                  Navigator.pop(context);
+                  ScaffoldMessenger.of(this.context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Game rules are not available offline.'),
+                    ),
+                  );
+                },
+              ),
+              ListTile(
+                leading: const Icon(LucideIcons.wifi),
+                title: const Text('Connection Status'),
+                subtitle: Text(
+                  ref.read(matchProvider).syncState == MatchSyncState.synced
+                      ? 'Match state synced'
+                      : 'Match state needs attention',
+                ),
+              ),
               ListTile(
                 leading: const Icon(LucideIcons.handshake),
                 title: const Text('Offer Draw'),
@@ -220,35 +261,12 @@ class _MatchScreenState extends ConsumerState<MatchScreen> {
     return remaining <= 0 ? 0 : (remaining / 1000).ceil();
   }
 
-  void _openResult(GameState game, MatchState matchState) {
+  void _openResult(MatchResultViewData result) {
     if (_resultOpened) return;
     _resultOpened = true;
-    final intent = ref.read(matchFlowProvider).currentIntent;
-    final opponentId = game.player1 == _userId ? game.player2 : game.player1;
-    final won = game.winnerId != null && game.winnerId == _userId;
-    final draw = game.winnerId == null || game.winnerId!.isEmpty;
-    final result = MatchResultViewData(
-      kind: draw
-          ? ResultKind.draw
-          : won
-          ? ResultKind.victory
-          : ResultKind.defeat,
-      opponent:
-          intent?.opponent ??
-          MatchPlayer(id: opponentId, name: 'Opponent', avatarId: 'avatar_04'),
-      terms: intent?.terms ?? const MatchTerms(stakeMinorUnits: 0),
-      matchId: widget.matchId,
-      reason:
-          matchState.endReason ??
-          (draw
-              ? 'Match drawn'
-              : won
-              ? 'You won the match'
-              : 'Match completed'),
-      settlement: matchState.settlementPhase,
-    );
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) context.go('/play/result', extra: result);
+      if (!mounted) return;
+      GoRouter.maybeOf(context)?.go('/play/result', extra: result);
     });
   }
 
@@ -268,12 +286,8 @@ class _MatchScreenState extends ConsumerState<MatchScreen> {
         _disconnectTicker?.cancel();
       }
     });
-    if (game != null &&
-        (game.status == 'completed' ||
-            game.status == 'draw' ||
-            game.status == 'settled') &&
-        _userId != null) {
-      _openResult(game, state);
+    if (state.authoritativeResult != null) {
+      _openResult(state.authoritativeResult!);
     }
 
     final myTurn = game != null && _isMyTurn(game);
@@ -292,9 +306,16 @@ class _MatchScreenState extends ConsumerState<MatchScreen> {
         ? const <int>[]
         : <int>[
             _selectedSquare!,
-            ...selectedMove.first.capturedSquares,
-            selectedMove.first.to,
+            ...(selectedMove.first.path.isNotEmpty
+                ? selectedMove.first.path
+                : <int>[
+                    ...selectedMove.first.capturedSquares,
+                    selectedMove.first.to,
+                  ]),
           ];
+    final mandatoryCapture =
+        game?.legalMoves.any((move) => move.capturedSquares.isNotEmpty) ??
+        false;
 
     return PopScope(
       canPop: game == null || game.status != 'in_progress',
@@ -335,7 +356,10 @@ class _MatchScreenState extends ConsumerState<MatchScreen> {
             ],
           ),
           actions: [
-            _ClockChip(label: '--:--', active: !myTurn),
+            _ClockChip(
+              label: _serverClockLabel(state.opponentRemainingMs),
+              active: !myTurn,
+            ),
             IconButton(
               tooltip: 'Match menu',
               onPressed: _showMatchMenu,
@@ -366,7 +390,9 @@ class _MatchScreenState extends ConsumerState<MatchScreen> {
                             _PlayerStrip(
                               title: 'KingMoves',
                               subtitle: myTurn ? 'Waiting' : 'Thinking…',
-                              clock: '--:--',
+                              clock: _serverClockLabel(
+                                state.opponentRemainingMs,
+                              ),
                               accent: AppColors.valueAccent,
                               active: !myTurn,
                             ),
@@ -393,6 +419,20 @@ class _MatchScreenState extends ConsumerState<MatchScreen> {
                                           inputEnabled: inputEnabled,
                                           capturePath: capturePath,
                                         ),
+                                        if (mandatoryCapture &&
+                                            _selectedSquare == null &&
+                                            myTurn &&
+                                            stable)
+                                          const Positioned(
+                                            top: 10,
+                                            left: 12,
+                                            right: 12,
+                                            child: _BoardStatusPill(
+                                              icon: LucideIcons.crosshair,
+                                              label:
+                                                  'Capture required · choose a highlighted piece',
+                                            ),
+                                          ),
                                         if (!myTurn && stable)
                                           Positioned.fill(
                                             child: IgnorePointer(
@@ -458,7 +498,7 @@ class _MatchScreenState extends ConsumerState<MatchScreen> {
                               subtitle: myTurn
                                   ? 'Your turn'
                                   : 'Opponent’s turn',
-                              clock: '--:--',
+                              clock: _serverClockLabel(state.ownRemainingMs),
                               accent: AppColors.primaryBright,
                               active: myTurn,
                             ),
@@ -513,21 +553,186 @@ class _MatchScreenState extends ConsumerState<MatchScreen> {
                       },
                     ),
               if (state.promotionVisible) const _PromotionOverlay(),
+              if (state.incomingDrawOffer != null)
+                _ProtocolDecisionOverlay(
+                  icon: LucideIcons.handshake,
+                  accent: AppColors.valueAccent,
+                  title: 'DRAW OFFER RECEIVED',
+                  message:
+                      '${state.incomingDrawOffer?.opponentName ?? 'Your opponent'} offered a draw. Accepting ends the match as a draw.',
+                  primaryLabel: 'Accept draw',
+                  secondaryLabel: 'Decline',
+                  onPrimary: () =>
+                      ref.read(matchProvider.notifier).respondToDraw(true),
+                  onSecondary: () =>
+                      ref.read(matchProvider.notifier).respondToDraw(false),
+                ),
+              if (state.drawOfferRejected)
+                _ProtocolDecisionOverlay(
+                  icon: LucideIcons.circleX,
+                  accent: AppColors.danger,
+                  title: 'DRAW OFFER REJECTED',
+                  message:
+                      'Your opponent declined the draw offer. The match continues.',
+                  primaryLabel: 'Keep playing',
+                  onPrimary: ref.read(matchProvider.notifier).clearDrawRejected,
+                ),
+              if (state.moveRejection != null || state.rejectionReason != null)
+                _MoveRejectedOverlay(
+                  rejection:
+                      state.moveRejection ??
+                      MoveRejection.fromServer({'code': state.rejectionReason}),
+                  onDismiss: ref.read(matchProvider.notifier).clearRejection,
+                ),
             ],
           ),
         ),
-        floatingActionButton: state.rejectionReason == null
-            ? null
-            : FloatingActionButton.extended(
-                onPressed: ref.read(matchProvider.notifier).clearRejection,
-                backgroundColor: AppColors.danger,
-                icon: const Icon(LucideIcons.circleAlert, size: 18),
-                label: Text(
-                  state.rejectionReason == 'illegal_move'
-                      ? 'Move rejected'
-                      : 'State refreshed',
+      ),
+    );
+  }
+}
+
+class _BoardStatusPill extends StatelessWidget {
+  const _BoardStatusPill({required this.icon, required this.label});
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: AppColors.surface.withValues(alpha: .94),
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: AppColors.valueAccent),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, size: 14, color: AppColors.valueAccent),
+            const SizedBox(width: 7),
+            Flexible(
+              child: Text(
+                label,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontFamily: 'Inter',
+                  fontSize: 10,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _MoveRejectedOverlay extends StatelessWidget {
+  const _MoveRejectedOverlay({
+    required this.rejection,
+    required this.onDismiss,
+  });
+
+  final MoveRejection rejection;
+  final VoidCallback onDismiss;
+
+  @override
+  Widget build(BuildContext context) {
+    return _ProtocolDecisionOverlay(
+      icon: rejection.code == GameRejectionCode.stateVersionConflict
+          ? LucideIcons.refreshCw
+          : LucideIcons.circleX,
+      accent: rejection.code == GameRejectionCode.stateVersionConflict
+          ? AppColors.valueAccent
+          : AppColors.danger,
+      title: rejection.title,
+      message: rejection.message,
+      primaryLabel: rejection.requiresResync
+          ? 'Continue'
+          : 'Choose another move',
+      onPrimary: onDismiss,
+    );
+  }
+}
+
+class _ProtocolDecisionOverlay extends StatelessWidget {
+  const _ProtocolDecisionOverlay({
+    required this.icon,
+    required this.accent,
+    required this.title,
+    required this.message,
+    required this.primaryLabel,
+    required this.onPrimary,
+    this.secondaryLabel,
+    this.onSecondary,
+  });
+
+  final IconData icon;
+  final Color accent;
+  final String title;
+  final String message;
+  final String primaryLabel;
+  final VoidCallback onPrimary;
+  final String? secondaryLabel;
+  final VoidCallback? onSecondary;
+
+  @override
+  Widget build(BuildContext context) {
+    return ColoredBox(
+      color: AppColors.background.withValues(alpha: .74),
+      child: Center(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(28),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 360),
+            child: FlowCard(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(icon, size: 44, color: accent),
+                  const SizedBox(height: 14),
+                  Text(
+                    title,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      fontFamily: 'Sora',
+                      fontSize: 18,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    message,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      fontFamily: 'Inter',
+                      color: AppColors.textSecondary,
+                      fontSize: 12,
+                      height: 1.4,
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                  PrimaryActionButton(
+                    label: primaryLabel,
+                    onPressed: onPrimary,
+                  ),
+                  if (secondaryLabel != null && onSecondary != null) ...[
+                    const SizedBox(height: 8),
+                    SecondaryActionButton(
+                      label: secondaryLabel!,
+                      onPressed: onSecondary!,
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -947,6 +1152,14 @@ class _PlayerStrip extends StatelessWidget {
       ),
     );
   }
+}
+
+String _serverClockLabel(int? milliseconds) {
+  if (milliseconds == null || milliseconds < 0) return '--:--';
+  final totalSeconds = milliseconds ~/ 1000;
+  final minutes = totalSeconds ~/ 60;
+  final seconds = totalSeconds % 60;
+  return '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
 }
 
 class _GameAction extends StatelessWidget {

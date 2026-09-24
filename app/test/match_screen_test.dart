@@ -63,6 +63,18 @@ void main() {
         () => mockSocketService.onMatchEnded,
       ).thenAnswer((_) => matchEndedController.stream);
       when(
+        () => mockSocketService.onDrawOffer,
+      ).thenAnswer((_) => const Stream.empty());
+      when(
+        () => mockSocketService.onDrawResponse,
+      ).thenAnswer((_) => const Stream.empty());
+      when(
+        () => mockSocketService.onClockSync,
+      ).thenAnswer((_) => const Stream.empty());
+      when(
+        () => mockSocketService.onSettlementCompleted,
+      ).thenAnswer((_) => const Stream.empty());
+      when(
         () => mockSocketService.attemptMove(any(), any(), any()),
       ).thenReturn(null);
 
@@ -116,16 +128,20 @@ void main() {
 
       // Settlement truth is accepted only from the existing server event.
       matchEndedController.add({
-        'winnerId': 'uuid-1',
-        'payout': '390000',
-        'reason': 'capture',
+        'result': {
+          'kind': 'victory',
+          'matchId': 'test-match',
+          'reason': 'capture',
+          'opponent': {'id': 'uuid-2', 'username': 'Opponent'},
+          'settlement': {'status': 'complete', 'payoutMinorUnits': 390000},
+        },
       });
       await tester.pump();
 
       expect(realNotifier.state.gameState?.status, 'completed');
-      expect(realNotifier.state.gameState?.winnerId, 'uuid-1');
       expect(realNotifier.state.settlementPhase, SettlementPhase.confirmed);
       expect(realNotifier.state.confirmedPayoutMinorUnits, 390000);
+      expect(realNotifier.state.authoritativeResult?.kind, ResultKind.victory);
     },
   );
 }

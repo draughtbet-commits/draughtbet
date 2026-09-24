@@ -61,8 +61,14 @@ void main() {
       expect(gateway.createCalls, 1);
 
       gateway.completer.complete('callout-1');
-      expect(await first, 'callout-1');
+      expect(await first, isNull);
       expect(notifier.state.actionPhase, MatchActionPhase.succeeded);
+      expect(notifier.state.searchPhase, SearchPhase.searching);
+      expect(notifier.state.currentMatchId, isNull);
+
+      notifier.matchFound('match-1');
+      expect(notifier.state.currentMatchId, 'match-1');
+      expect(notifier.state.searchPhase, SearchPhase.found);
     },
   );
 }

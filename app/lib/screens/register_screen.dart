@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../providers/auth_provider.dart';
 import '../services/auth_check_service.dart';
@@ -10,7 +11,7 @@ import '../services/geo_service.dart';
 import '../theme/colors.dart';
 
 class RegisterScreen extends ConsumerStatefulWidget {
-  const RegisterScreen({Key? key}) : super(key: key);
+  const RegisterScreen({super.key});
 
   @override
   ConsumerState<RegisterScreen> createState() => _RegisterScreenState();
@@ -106,7 +107,6 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
             colorScheme: const ColorScheme.dark(
               primary: AppColors.brand,
               surface: AppColors.surface1,
-              background: AppColors.voidBg,
             ),
           ),
           child: child!,
@@ -123,7 +123,11 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
   }
 
   /// Debounced real-time uniqueness checks against /auth/check-availability.
-  void _scheduleAvailabilityCheck(String type, String value, void Function(bool?) update) {
+  void _scheduleAvailabilityCheck(
+    String type,
+    String value,
+    void Function(bool?) update,
+  ) {
     _availabilityDebounce?.cancel();
     if (value.trim().isEmpty) {
       setState(() => update(null));
@@ -191,11 +195,21 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
 
     final auth = ref.read(authProvider.notifier);
     final ok = await auth.register(
-      email: _emailController.text.trim().isEmpty ? null : _emailController.text.trim(),
-      phone: _phoneController.text.trim().isEmpty ? null : _phoneController.text.trim(),
-      username: _usernameController.text.trim().isEmpty ? null : _usernameController.text.trim(),
-      fullName: _fullNameController.text.trim().isEmpty ? null : _fullNameController.text.trim(),
-      address: _addressController.text.trim().isEmpty ? null : _addressController.text.trim(),
+      email: _emailController.text.trim().isEmpty
+          ? null
+          : _emailController.text.trim(),
+      phone: _phoneController.text.trim().isEmpty
+          ? null
+          : _phoneController.text.trim(),
+      username: _usernameController.text.trim().isEmpty
+          ? null
+          : _usernameController.text.trim(),
+      fullName: _fullNameController.text.trim().isEmpty
+          ? null
+          : _fullNameController.text.trim(),
+      address: _addressController.text.trim().isEmpty
+          ? null
+          : _addressController.text.trim(),
       password: _passwordController.text,
       dateOfBirth: _dateOfBirth!,
       countryCode: _countryCode,
@@ -213,7 +227,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
       padding: const EdgeInsets.only(top: 6, left: 4),
       child: Text(
         message,
-        style: TextStyle(fontFamily: 'Inter',
+        style: GoogleFonts.inter(
           fontSize: 12,
           fontWeight: FontWeight.w400,
           color: AppColors.danger,
@@ -231,7 +245,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
     return InputDecoration(
       labelText: label,
       hintText: hint,
-      hintStyle: TextStyle(fontFamily: 'Inter',
+      hintStyle: GoogleFonts.inter(
         fontSize: 15,
         fontWeight: FontWeight.w400,
         color: AppColors.textMuted,
@@ -287,7 +301,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                 const SizedBox(height: 16),
                 Text(
                   'Create account',
-                  style: TextStyle(fontFamily: 'Sora',
+                  style: GoogleFonts.sora(
                     fontSize: 28,
                     fontWeight: FontWeight.w700,
                     height: 1.2,
@@ -297,7 +311,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                 const SizedBox(height: 8),
                 Text(
                   "Let's get you started",
-                  style: TextStyle(fontFamily: 'Inter',
+                  style: GoogleFonts.inter(
                     fontSize: 15,
                     fontWeight: FontWeight.w400,
                     height: 1.4,
@@ -308,9 +322,12 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                 TextFormField(
                   controller: _usernameController,
                   autocorrect: false,
-                  onChanged: (v) =>
-                      _scheduleAvailabilityCheck('username', v, (t) => _usernameTaken = t),
-                  style: TextStyle(fontFamily: 'Inter',
+                  onChanged: (v) => _scheduleAvailabilityCheck(
+                    'username',
+                    v,
+                    (t) => _usernameTaken = t,
+                  ),
+                  style: GoogleFonts.inter(
                     fontSize: 15,
                     fontWeight: FontWeight.w400,
                     color: AppColors.textPrimary,
@@ -318,7 +335,11 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                   decoration: _decoration(
                     label: 'Username',
                     hint: 'Enter your username',
-                    prefixIcon: const Icon(LucideIcons.userRound, color: AppColors.textMuted, size: 20),
+                    prefixIcon: const Icon(
+                      LucideIcons.userRound,
+                      color: AppColors.textMuted,
+                      size: 20,
+                    ),
                   ),
                   validator: (value) {
                     if (value == null || value.trim().isEmpty) {
@@ -330,15 +351,21 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                     return null;
                   },
                 ),
-                _availabilityHelp(_usernameTaken, 'This username is already taken.'),
+                _availabilityHelp(
+                  _usernameTaken,
+                  'This username is already taken.',
+                ),
                 const SizedBox(height: 16),
                 TextFormField(
                   controller: _emailController,
                   keyboardType: TextInputType.emailAddress,
                   autocorrect: false,
-                  onChanged: (v) =>
-                      _scheduleAvailabilityCheck('email', v, (t) => _emailTaken = t),
-                  style: TextStyle(fontFamily: 'Inter',
+                  onChanged: (v) => _scheduleAvailabilityCheck(
+                    'email',
+                    v,
+                    (t) => _emailTaken = t,
+                  ),
+                  style: GoogleFonts.inter(
                     fontSize: 15,
                     fontWeight: FontWeight.w400,
                     color: AppColors.textPrimary,
@@ -346,7 +373,11 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                   decoration: _decoration(
                     label: 'Email',
                     hint: 'Enter your email',
-                    prefixIcon: const Icon(LucideIcons.mail, color: AppColors.textMuted, size: 20),
+                    prefixIcon: const Icon(
+                      LucideIcons.mail,
+                      color: AppColors.textMuted,
+                      size: 20,
+                    ),
                   ),
                   validator: (value) {
                     if (value == null || !value.contains('@')) {
@@ -358,12 +389,15 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                     return null;
                   },
                 ),
-                _availabilityHelp(_emailTaken, 'This email is already registered.'),
+                _availabilityHelp(
+                  _emailTaken,
+                  'This email is already registered.',
+                ),
                 const SizedBox(height: 16),
                 TextFormField(
                   controller: _fullNameController,
                   autocorrect: false,
-                  style: TextStyle(fontFamily: 'Inter',
+                  style: GoogleFonts.inter(
                     fontSize: 15,
                     fontWeight: FontWeight.w400,
                     color: AppColors.textPrimary,
@@ -371,7 +405,11 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                   decoration: _decoration(
                     label: 'Full Name',
                     hint: 'Enter your full name',
-                    prefixIcon: const Icon(LucideIcons.idCard, color: AppColors.textMuted, size: 20),
+                    prefixIcon: const Icon(
+                      LucideIcons.idCard,
+                      color: AppColors.textMuted,
+                      size: 20,
+                    ),
                   ),
                   validator: (value) {
                     if (value == null || value.trim().isEmpty) {
@@ -384,7 +422,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                 TextFormField(
                   controller: _addressController,
                   autocorrect: false,
-                  style: TextStyle(fontFamily: 'Inter',
+                  style: GoogleFonts.inter(
                     fontSize: 15,
                     fontWeight: FontWeight.w400,
                     color: AppColors.textPrimary,
@@ -392,7 +430,11 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                   decoration: _decoration(
                     label: 'Residential Address',
                     hint: 'Enter your residential address',
-                    prefixIcon: const Icon(LucideIcons.mapPin, color: AppColors.textMuted, size: 20),
+                    prefixIcon: const Icon(
+                      LucideIcons.mapPin,
+                      color: AppColors.textMuted,
+                      size: 20,
+                    ),
                   ),
                   validator: (value) {
                     if (value == null || value.trim().isEmpty) {
@@ -406,9 +448,12 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                   controller: _phoneController,
                   keyboardType: TextInputType.phone,
                   autocorrect: false,
-                  onChanged: (v) =>
-                      _scheduleAvailabilityCheck('phone', v, (t) => _phoneTaken = t),
-                  style: TextStyle(fontFamily: 'Inter',
+                  onChanged: (v) => _scheduleAvailabilityCheck(
+                    'phone',
+                    v,
+                    (t) => _phoneTaken = t,
+                  ),
+                  style: GoogleFonts.inter(
                     fontSize: 15,
                     fontWeight: FontWeight.w400,
                     color: AppColors.textPrimary,
@@ -416,7 +461,11 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                   decoration: _decoration(
                     label: 'Phone',
                     hint: 'Enter your phone number',
-                    prefixIcon: const Icon(LucideIcons.phone, color: AppColors.textMuted, size: 20),
+                    prefixIcon: const Icon(
+                      LucideIcons.phone,
+                      color: AppColors.textMuted,
+                      size: 20,
+                    ),
                   ),
                   validator: (value) {
                     if (value == null || value.trim().isEmpty) {
@@ -431,12 +480,15 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                     return null;
                   },
                 ),
-                _availabilityHelp(_phoneTaken, 'This phone number is already registered.'),
+                _availabilityHelp(
+                  _phoneTaken,
+                  'This phone number is already registered.',
+                ),
                 const SizedBox(height: 16),
                 TextFormField(
                   controller: _passwordController,
                   obscureText: _obscurePassword,
-                  style: TextStyle(fontFamily: 'Inter',
+                  style: GoogleFonts.inter(
                     fontSize: 15,
                     fontWeight: FontWeight.w400,
                     color: AppColors.textPrimary,
@@ -450,7 +502,11 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                   decoration: _decoration(
                     label: 'Password',
                     hint: 'Enter your password',
-                    prefixIcon: const Icon(LucideIcons.lock, color: AppColors.textMuted, size: 20),
+                    prefixIcon: const Icon(
+                      LucideIcons.lock,
+                      color: AppColors.textMuted,
+                      size: 20,
+                    ),
                     suffixIcon: IconButton(
                       icon: Icon(
                         _obscurePassword ? LucideIcons.eye : LucideIcons.eyeOff,
@@ -490,12 +546,14 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                         value: strength / 4,
                         minHeight: 4,
                         backgroundColor: AppColors.surface3,
-                        valueColor: AlwaysStoppedAnimation<Color>(_strengthColor(strength)),
+                        valueColor: AlwaysStoppedAnimation<Color>(
+                          _strengthColor(strength),
+                        ),
                       ),
                       const SizedBox(height: 4),
                       Text(
                         '${_strengthLabel(strength)} — use 8+ chars with upper, lower and a number',
-                        style: TextStyle(fontFamily: 'Inter',
+                        style: GoogleFonts.inter(
                           fontSize: 13,
                           fontWeight: FontWeight.w400,
                           color: _strengthColor(strength),
@@ -511,7 +569,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                   obscureText: _obscureConfirm,
                   // Only this field validates live (against the password);
                   autovalidateMode: AutovalidateMode.onUserInteraction,
-                  style: TextStyle(fontFamily: 'Inter',
+                  style: GoogleFonts.inter(
                     fontSize: 15,
                     fontWeight: FontWeight.w400,
                     color: AppColors.textPrimary,
@@ -519,7 +577,11 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                   decoration: _decoration(
                     label: 'Confirm password',
                     hint: 'Re-enter your password',
-                    prefixIcon: const Icon(LucideIcons.lock, color: AppColors.textMuted, size: 20),
+                    prefixIcon: const Icon(
+                      LucideIcons.lock,
+                      color: AppColors.textMuted,
+                      size: 20,
+                    ),
                     suffixIcon: IconButton(
                       icon: Icon(
                         _obscureConfirm ? LucideIcons.eye : LucideIcons.eyeOff,
@@ -542,7 +604,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                 TextFormField(
                   readOnly: true,
                   onTap: _pickDateOfBirth,
-                  style: TextStyle(fontFamily: 'Inter',
+                  style: GoogleFonts.inter(
                     fontSize: 15,
                     fontWeight: FontWeight.w400,
                     color: AppColors.textPrimary,
@@ -551,7 +613,11 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                   decoration: _decoration(
                     label: 'Date of birth',
                     hint: 'Select your date of birth',
-                    prefixIcon: const Icon(LucideIcons.calendar, color: AppColors.textMuted, size: 20),
+                    prefixIcon: const Icon(
+                      LucideIcons.calendar,
+                      color: AppColors.textMuted,
+                      size: 20,
+                    ),
                   ),
                   validator: (value) {
                     if (_dateOfBirth == null) {
@@ -577,7 +643,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                   activeColor: AppColors.brand,
                   title: Text(
                     'I confirm I am 18 or older.',
-                    style: TextStyle(fontFamily: 'Inter',
+                    style: GoogleFonts.inter(
                       fontSize: 13,
                       fontWeight: FontWeight.w400,
                       color: AppColors.textMuted,
@@ -588,7 +654,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                   const SizedBox(height: 4),
                   Text(
                     'You must confirm you are 18 or older.',
-                    style: TextStyle(fontFamily: 'Inter',
+                    style: GoogleFonts.inter(
                       fontSize: 13,
                       fontWeight: FontWeight.w400,
                       color: AppColors.danger,
@@ -608,7 +674,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                   activeColor: AppColors.brand,
                   title: Text(
                     'I agree to the Terms and Conditions.',
-                    style: TextStyle(fontFamily: 'Inter',
+                    style: GoogleFonts.inter(
                       fontSize: 13,
                       fontWeight: FontWeight.w400,
                       color: AppColors.textMuted,
@@ -619,7 +685,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                   const SizedBox(height: 4),
                   Text(
                     'You must accept the terms before creating an account.',
-                    style: TextStyle(fontFamily: 'Inter',
+                    style: GoogleFonts.inter(
                       fontSize: 13,
                       fontWeight: FontWeight.w400,
                       color: AppColors.danger,
@@ -631,13 +697,15 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                   Container(
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
-                      color: AppColors.danger.withOpacity(0.12),
+                      color: AppColors.danger.withValues(alpha: 0.12),
                       borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: AppColors.danger.withOpacity(0.4)),
+                      border: Border.all(
+                        color: AppColors.danger.withValues(alpha: 0.4),
+                      ),
                     ),
                     child: Text(
                       showError,
-                      style: TextStyle(fontFamily: 'Inter',
+                      style: GoogleFonts.inter(
                         fontSize: 13,
                         fontWeight: FontWeight.w400,
                         color: AppColors.danger,
@@ -650,7 +718,11 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                   width: double.infinity,
                   height: 52,
                   child: ElevatedButton(
-                    onPressed: isBusy || _usernameTaken == true || _emailTaken == true || _phoneTaken == true
+                    onPressed:
+                        isBusy ||
+                            _usernameTaken == true ||
+                            _emailTaken == true ||
+                            _phoneTaken == true
                         ? null
                         : _submit,
                     style: ElevatedButton.styleFrom(
@@ -671,7 +743,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                           )
                         : Text(
                             'Create account',
-                            style: TextStyle(fontFamily: 'Inter',
+                            style: GoogleFonts.inter(
                               fontSize: 16,
                               fontWeight: FontWeight.w600,
                             ),
@@ -684,7 +756,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                   children: [
                     Text(
                       'Already have an account?',
-                      style: TextStyle(fontFamily: 'Inter',
+                      style: GoogleFonts.inter(
                         fontSize: 14,
                         fontWeight: FontWeight.w400,
                         color: AppColors.textSecondary,
@@ -695,7 +767,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                       onPressed: () => context.go('/login'),
                       child: Text(
                         'Sign in',
-                        style: TextStyle(fontFamily: 'Inter',
+                        style: GoogleFonts.inter(
                           fontSize: 14,
                           fontWeight: FontWeight.w600,
                           color: AppColors.brand,

@@ -1,13 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:google_fonts/google_fonts.dart';
 import '../providers/ui_providers.dart';
 import '../theme/colors.dart';
 
 class LandingPage extends ConsumerStatefulWidget {
   static const String route = '/landing';
 
-  const LandingPage({Key? key}) : super(key: key);
+  const LandingPage({super.key});
 
   @override
   ConsumerState<LandingPage> createState() => _LandingPageState();
@@ -107,7 +108,7 @@ class _LandingPageState extends ConsumerState<LandingPage> {
                         onPressed: _finishOnboarding,
                         child: Text(
                           'Skip',
-                          style: TextStyle(fontFamily: 'Inter',
+                          style: GoogleFonts.inter(
                             fontSize: 15,
                             fontWeight: FontWeight.w500,
                             color: AppColors.textMuted,
@@ -146,22 +147,28 @@ class _LandingPageState extends ConsumerState<LandingPage> {
 }
 
 class SplashSlide extends StatelessWidget {
-  const SplashSlide({Key? key}) : super(key: key);
+  const SplashSlide({super.key});
 
   @override
   Widget build(BuildContext context) {
     final wordmark = RichText(
       textAlign: TextAlign.center,
       text: TextSpan(
-        style: TextStyle(fontFamily: 'Sora',
+        style: GoogleFonts.sora(
           fontSize: 44,
           fontWeight: FontWeight.w700,
           letterSpacing: 4,
           height: 1.15,
         ),
         children: const [
-          TextSpan(text: 'DRAUGHT\n', style: TextStyle(color: AppColors.textPrimary)),
-          TextSpan(text: 'BET', style: TextStyle(color: AppColors.primaryAction)),
+          TextSpan(
+            text: 'DRAUGHT\n',
+            style: TextStyle(color: AppColors.textPrimary),
+          ),
+          TextSpan(
+            text: 'BET',
+            style: TextStyle(color: AppColors.primaryAction),
+          ),
         ],
       ),
     );
@@ -173,16 +180,14 @@ class SplashSlide extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         const SizedBox(height: 24),
-        Expanded(
-          child: FlexibleArtwork(image: 'assets/images/splash.jpg'),
-        ),
+        Expanded(child: FlexibleArtwork(image: 'assets/images/splash.jpg')),
         const SizedBox(height: 24),
         wordmark,
         const SizedBox(height: 16),
         Text(
           'Play smart. Compete fairly',
           textAlign: TextAlign.center,
-          style: TextStyle(fontFamily: 'Inter',
+          style: GoogleFonts.inter(
             fontSize: 15,
             fontWeight: FontWeight.w400,
             color: AppColors.textMuted,
@@ -218,14 +223,14 @@ class OnboardingSlide extends StatelessWidget {
   final VoidCallback onNext;
   final VoidCallback onFinish;
   const OnboardingSlide({
-    Key? key,
+    super.key,
     required this.image,
     required this.index,
     required this.total,
     required this.currentIndex,
     required this.onNext,
     required this.onFinish,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -236,10 +241,12 @@ class OnboardingSlide extends StatelessWidget {
       subtitle = 'Compete against real\nplayers in live\ndraught matches.';
     } else if (index == 2) {
       title = 'Every move\ncounts.';
-      subtitle = 'Matches follow verified\nrules and server controlled\ngame logic';
+      subtitle =
+          'Matches follow verified\nrules and server controlled\ngame logic';
     } else {
       title = 'Know where\nyour money\ngoes';
-      subtitle = 'See your stake, payout\nand settlement clearly\nbefore and after every\nmatch';
+      subtitle =
+          'See your stake, payout\nand settlement clearly\nbefore and after every\nmatch';
     }
 
     return Column(
@@ -254,7 +261,7 @@ class OnboardingSlide extends StatelessWidget {
               children: [
                 Text(
                   title,
-                  style: TextStyle(fontFamily: 'Sora',
+                  style: GoogleFonts.sora(
                     fontSize: 28,
                     fontWeight: FontWeight.w700,
                     height: 1.2,
@@ -264,7 +271,7 @@ class OnboardingSlide extends StatelessWidget {
                 const SizedBox(height: 10),
                 Text(
                   subtitle,
-                  style: TextStyle(fontFamily: 'Inter',
+                  style: GoogleFonts.inter(
                     fontSize: 15,
                     fontWeight: FontWeight.w400,
                     height: 1.4,
@@ -304,7 +311,7 @@ class OnboardingSlide extends StatelessWidget {
                 ),
                 child: Text(
                   'Get Started',
-                  style: TextStyle(fontFamily: 'Inter',
+                  style: GoogleFonts.inter(
                     fontSize: 16,
                     fontWeight: FontWeight.w600,
                   ),
@@ -324,7 +331,9 @@ class OnboardingSlide extends StatelessWidget {
                 width: active ? 22 : 8,
                 height: 8,
                 decoration: BoxDecoration(
-                  color: active ? AppColors.brand : AppColors.textMuted.withValues(alpha: 0.4),
+                  color: active
+                      ? AppColors.brand
+                      : AppColors.textMuted.withValues(alpha: 0.4),
                   borderRadius: BorderRadius.circular(4),
                 ),
               );
@@ -342,14 +351,17 @@ class OnboardingSlide extends StatelessWidget {
                   backgroundColor: AppColors.voidBg,
                   foregroundColor: AppColors.textPrimary,
                   side: BorderSide(color: AppColors.brand, width: 1.5),
-                  padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 14),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 32,
+                    vertical: 14,
+                  ),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),
                   ),
                 ),
                 child: Text(
                   'Next',
-                  style: TextStyle(fontFamily: 'Inter',
+                  style: GoogleFonts.inter(
                     fontSize: 16,
                     fontWeight: FontWeight.w600,
                   ),
@@ -369,11 +381,11 @@ class FlexibleArtwork extends StatelessWidget {
   final double fadeStrength;
   final double fadeHeight;
   const FlexibleArtwork({
-    Key? key,
+    super.key,
     required this.image,
     this.fadeStrength = 0.6,
     this.fadeHeight = 60,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -383,11 +395,12 @@ class FlexibleArtwork extends StatelessWidget {
     return ClipRect(
       child: Stack(
         children: [
-          Positioned.fill(
-            child: Image.asset(image, fit: BoxFit.cover),
-          ),
+          Positioned.fill(child: Image.asset(image, fit: BoxFit.cover)),
           Positioned(
-            left: 0, right: 0, top: 0, height: fadeHeight,
+            left: 0,
+            right: 0,
+            top: 0,
+            height: fadeHeight,
             child: DecoratedBox(
               decoration: BoxDecoration(
                 gradient: LinearGradient(
@@ -402,7 +415,10 @@ class FlexibleArtwork extends StatelessWidget {
             ),
           ),
           Positioned(
-            left: 0, right: 0, bottom: 0, height: fadeHeight,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            height: fadeHeight,
             child: DecoratedBox(
               decoration: BoxDecoration(
                 gradient: LinearGradient(
@@ -423,7 +439,7 @@ class FlexibleArtwork extends StatelessWidget {
 }
 
 class WelcomeView extends StatelessWidget {
-  const WelcomeView({Key? key}) : super(key: key);
+  const WelcomeView({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -447,7 +463,7 @@ class WelcomeView extends StatelessWidget {
             Text(
               'Play draughts.',
               textAlign: TextAlign.center,
-              style: TextStyle(fontFamily: 'Sora',
+              style: GoogleFonts.sora(
                 fontSize: 32,
                 fontWeight: FontWeight.w700,
                 height: 1.2,
@@ -458,7 +474,7 @@ class WelcomeView extends StatelessWidget {
             Text(
               'Prove your skill.',
               textAlign: TextAlign.center,
-              style: TextStyle(fontFamily: 'Sora',
+              style: GoogleFonts.sora(
                 fontSize: 22,
                 fontWeight: FontWeight.w600,
                 height: 1.2,
@@ -485,7 +501,7 @@ class WelcomeView extends StatelessWidget {
                       ),
                       child: Text(
                         'Create Account',
-                        style: TextStyle(fontFamily: 'Inter',
+                        style: GoogleFonts.inter(
                           fontSize: 16,
                           fontWeight: FontWeight.w600,
                         ),
@@ -501,14 +517,17 @@ class WelcomeView extends StatelessWidget {
                       style: OutlinedButton.styleFrom(
                         backgroundColor: AppColors.voidBg,
                         foregroundColor: AppColors.textPrimary,
-                        side: const BorderSide(color: AppColors.hairline, width: 1.5),
+                        side: const BorderSide(
+                          color: AppColors.hairline,
+                          width: 1.5,
+                        ),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(12),
                         ),
                       ),
                       child: Text(
                         'Sign In',
-                        style: TextStyle(fontFamily: 'Inter',
+                        style: GoogleFonts.inter(
                           fontSize: 16,
                           fontWeight: FontWeight.w600,
                         ),

@@ -10,7 +10,7 @@ import '../theme/colors.dart';
 import '../theme/typography.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
-  const SettingsScreen({Key? key}) : super(key: key);
+  const SettingsScreen({super.key});
 
   @override
   ConsumerState<SettingsScreen> createState() => _SettingsScreenState();
@@ -52,7 +52,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
   Future<void> _loadVersion() async {
     final info = await PackageInfo.fromPlatform();
-    if (mounted) setState(() => _version = '${info.version} (${info.buildNumber})');
+    if (mounted) {
+      setState(() => _version = '${info.version} (${info.buildNumber})');
+    }
   }
 
   Future<void> _loadProfile() async {
@@ -60,7 +62,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       final token = await _storage.accessToken;
       if (token == null) return;
       final dio = ref.read(apiClientProvider);
-      final res = await dio.get('/me');
+      final res = await dio.get('/auth/me');
       if (res.statusCode == 200 && res.data is Map && mounted) {
         final data = Map<String, dynamic>.from(res.data);
         setState(() {
@@ -75,7 +77,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
   Future<void> _togglePush(bool value) async {
     setState(() => _pushEnabled = value);
-    await _storage.write(key: 'pref_push_notifications', value: value.toString());
+    await _storage.write(
+      key: 'pref_push_notifications',
+      value: value.toString(),
+    );
   }
 
   Future<void> _toggleSound(bool value) async {
@@ -84,16 +89,16 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   String get _tierLabel => switch (_tier) {
-        'MASTER' => 'Master',
-        'PRO' => 'Pro',
-        _ => 'Amateur',
-      };
+    'MASTER' => 'Master',
+    'PRO' => 'Pro',
+    _ => 'Amateur',
+  };
 
   Color get _tierColor => switch (_tier) {
-        'MASTER' => AppColors.tierMaster,
-        'PRO' => AppColors.tierPro,
-        _ => AppColors.tierAmateur,
-      };
+    'MASTER' => AppColors.tierMaster,
+    'PRO' => AppColors.tierPro,
+    _ => AppColors.tierAmateur,
+  };
 
   Future<void> _confirmLogout() async {
     final confirmed = await showDialog<bool>(
@@ -112,11 +117,17 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel', style: TextStyle(color: AppColors.textSecondary)),
+            child: const Text(
+              'Cancel',
+              style: TextStyle(color: AppColors.textSecondary),
+            ),
           ),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('Log out', style: TextStyle(color: AppColors.danger)),
+            child: const Text(
+              'Log out',
+              style: TextStyle(color: AppColors.danger),
+            ),
           ),
         ],
       ),
@@ -208,7 +219,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 ],
               ),
             ),
-            if (trailing != null) trailing,
+            ?trailing,
           ],
         ),
       ),
@@ -238,6 +249,17 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 _tierLabel,
                 style: AppTypography.labelBold.copyWith(color: _tierColor),
               ),
+            ),
+            const SizedBox(height: 8),
+            _tile(
+              icon: LucideIcons.landmark,
+              title: 'Saved bank accounts',
+              subtitle: 'Verified withdrawal destinations',
+              trailing: const Icon(
+                LucideIcons.chevronRight,
+                color: AppColors.textMuted,
+              ),
+              onTap: () => context.push('/profile/saved-bank-accounts'),
             ),
             _sectionLabel('Notifications'),
             if (_loadedPrefs) ...[
@@ -271,14 +293,20 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             _tile(
               icon: LucideIcons.scrollText,
               title: 'Terms of Service',
-              trailing: const Icon(LucideIcons.chevronRight, color: AppColors.textMuted),
+              trailing: const Icon(
+                LucideIcons.chevronRight,
+                color: AppColors.textMuted,
+              ),
               onTap: () => _showLegalDoc('Terms of Service', _termsBody),
             ),
             const SizedBox(height: 8),
             _tile(
               icon: LucideIcons.shieldCheck,
               title: 'Privacy Policy',
-              trailing: const Icon(LucideIcons.chevronRight, color: AppColors.textMuted),
+              trailing: const Icon(
+                LucideIcons.chevronRight,
+                color: AppColors.textMuted,
+              ),
               onTap: () => _showLegalDoc('Privacy Policy', _privacyBody),
             ),
             _sectionLabel('About'),
@@ -293,12 +321,24 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               borderRadius: BorderRadius.circular(12),
               child: Ink(
                 color: AppColors.surface1,
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 16,
+                ),
                 child: Row(
                   children: [
-                    const Icon(LucideIcons.logOut, color: AppColors.danger, size: 22),
+                    const Icon(
+                      LucideIcons.logOut,
+                      color: AppColors.danger,
+                      size: 22,
+                    ),
                     const SizedBox(width: 16),
-                    Text('Log out', style: AppTypography.bodyLarge.copyWith(color: AppColors.danger)),
+                    Text(
+                      'Log out',
+                      style: AppTypography.bodyLarge.copyWith(
+                        color: AppColors.danger,
+                      ),
+                    ),
                   ],
                 ),
               ),

@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart';
-import 'package:go_router/go_router.dart';
 import '../theme/colors.dart';
 import '../theme/typography.dart';
 
+enum CheckoutExit { returned }
+
 class CheckoutWebviewScreen extends StatefulWidget {
-  final String authorizationUrl;
+  final Uri authorizationUrl;
 
   const CheckoutWebviewScreen({super.key, required this.authorizationUrl});
 
@@ -25,18 +26,14 @@ class _CheckoutWebviewScreenState extends State<CheckoutWebviewScreen> {
       ..setNavigationDelegate(
         NavigationDelegate(
           onNavigationRequest: (NavigationRequest request) {
-            // In a real app, you would check if the redirect URL matches your webhook/callback
-            // to automatically close the webview. For now, the user can manually close or
-            // rely on the wallet_updated socket event.
-            if (request.url.contains('callback') || request.url.contains('success')) {
-              context.pop();
-              return NavigationDecision.prevent;
-            }
+            // A provider URL is never evidence of payment success. Every
+            // navigation remains inside checkout until the user returns to
+            // the app, which then reads authoritative status from the API.
             return NavigationDecision.navigate;
           },
         ),
       )
-      ..loadRequest(Uri.parse(widget.authorizationUrl));
+      ..loadRequest(widget.authorizationUrl);
   }
 
   @override
@@ -48,7 +45,7 @@ class _CheckoutWebviewScreenState extends State<CheckoutWebviewScreen> {
         title: Text('Complete Payment', style: AppTypography.heading3),
         leading: IconButton(
           icon: const Icon(Icons.close, color: AppColors.textPrimary),
-          onPressed: () => context.pop(),
+          onPressed: () => Navigator.of(context).pop(CheckoutExit.returned),
         ),
       ),
       body: WebViewWidget(controller: _controller),

@@ -74,7 +74,7 @@ class _ArenaScreenState extends ConsumerState<ArenaScreen> {
       ref.read(matchFlowProvider.notifier).loadArena();
       return;
     }
-    context.push('/play/match-details', extra: match);
+    context.push('/play/open-details', extra: match);
   }
 
   @override

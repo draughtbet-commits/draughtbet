@@ -67,4 +67,95 @@
 
 - Replace the preserved avatar catalog and restrained decorative effects only if client-owned, production-ready exports are supplied.
 
+## PR3 wallet reads and PR4 match lifecycle extension
+
+**Approved sources reviewed**
+
+- `04-wallet-deposits-transactions-043-054.png` and `10-empty-loading-error-states-108-119.png` for wallet read screens and supporting states.
+- `02-match-entry-stake-ready-031-042.png`, `03-match-entry-stake-ready-alternate.png`, and the existing approved Screens 6–18 flow for match-entry continuity.
+- Supporting documents were used for behavior and state requirements; the approved boards remained the visual authority.
+
+**Rendered evidence**
+
+- Wallet comparison: `design-qa-artifacts/pr3-wallet-reference-comparison.png`.
+- Match lifecycle comparison: `design-qa-artifacts/pr4-match-lifecycle-reference-comparison.png`.
+- Wallet captures: `app/test/goldens/wallet_read/` (9 states at 412 × 915, DPR 1).
+- Match lifecycle captures: `app/test/goldens/match_lifecycle/` (16 states at 412 × 915, DPR 1).
+
+**Findings and resolution**
+
+1. The initial PR3/PR4 pass matched the approved palette, card system, typography hierarchy, action treatment, and server-authoritative state language.
+2. The initial PR4 capture lacked the approved illustration weight in insufficient-balance, stake-limit, and pre-start disconnect states because no matching production exports were present. Isolated transparent replacements were generated in the established emerald/gold/dark style, bundled locally, accessibility-labelled, and re-captured.
+3. The final PR4 comparison confirms the replacement illustrations now carry the intended hierarchy without introducing raw UI colours or changing the backend contract.
+4. No Flutter exceptions, render overflow, P0, P1, or actionable P2 mismatch remains in the captured PR3/PR4 states.
+
+**Remaining source constraints**
+
+- Player discovery continues to use the repository avatar-ID catalog. Client-owned portrait exports can replace those assets later without changing screen structure.
+- Live balances, lock/release progress, eligibility, ready state, room codes, challenges, and opponent presence still require authoritative backend payloads. Production screens do not manufacture those values.
+
+final result: passed
+
+## PR7 withdrawal UI extension
+
+**Approved sources reviewed**
+
+- `04-wallet-deposits-transactions-043-054.png` for Withdraw Money and Select Bank Account.
+- `07-gameplay-results-settlement-079-090.png` for the visible Pending Review, Provider Processing, Confirmed, and Reversed withdrawal variants.
+- `13-money-lifecycle-extra-states.png`, `14-withdrawal-status-variants.png`, and `10-empty-loading-error-states-108-119.png` for review, bank-verification failure, and supporting state patterns.
+- `FLOW-06-withdrawal` and the state/contract manifests for behavior only. The incorrectly named withdrawal/KYC board was not treated as visual truth because its checked-in contents show unrelated screens.
+
+**Rendered evidence**
+
+- Twelve deterministic 412 x 915 captures are stored in `app/test/goldens/withdrawal_flow/`.
+- Captures cover Withdraw Money, Select Bank Account, Add Bank Account, Verifying Bank Account, Withdrawal Review, Verification Required, Pending Review, Processing, Successful, Reversed, Limit Reached, and Saved Bank Accounts.
+- Each capture was opened at rendered resolution after golden generation. The focused visual suite was then rerun without `--update-goldens` to prove stable output.
+
+**Findings and resolution**
+
+1. The implementation follows the approved black background, navy card surfaces, emerald primary actions, gold pending treatment, red reversal treatment, outlined secondary actions, rounded geometry, and Sora/Inter hierarchy.
+2. The initial amount capture exposed a missing Naira glyph in the input prefix. The prefix now explicitly uses bundled Inter and was re-captured.
+3. Status cards were expanded to show only server-returned amount, provider fee, net/requested amount, destination, masked reference, status, and available balance. No fee, payout, limit, or balance is calculated in Flutter.
+4. Exact dedicated frames for several middle withdrawal states are absent from the usable approved board checked into this repository. Those states use the approved component language and the manifest-defined hierarchy without inventing a second visual direction.
+5. No Flutter exception or render overflow remains in the focused standard-phone and small-phone/text-scaling checks.
+
+**Contract boundary**
+
+- Production uses `POST /withdrawals/quote`, `GET /bank-accounts`, `POST /bank-accounts/verify`, `POST /withdrawals`, and safe status reads from the existing withdrawal reference.
+- The current backend does not yet expose those V2 routes. The UI therefore shows approved unavailable or pending states and never falls back to local financial truth.
+- A create response never implies success; only a server-returned terminal status can show Confirmed or Reversed. Polling is bounded, cancelable, and cannot submit another withdrawal.
+
+final result: passed
+
+## PR8 game protocol UI extension
+
+**Approved sources reviewed**
+
+- `00-core-foundations-screens-001-018.jpeg` for Match Room, Live Match, Move Selection, multi-capture/flying-king, King Promotion, and Opponent Thinking.
+- The board visibly containing screens 79-90 for Offer Draw, Draw Rejected, and Resign confirmation treatments.
+- `12-postgame-disputes-safer-play-extra.png` for the paired-turn Move History table.
+- Gameplay contracts were used for behavior only: Flutter sends intentions and renders canonical server state; it never determines legal moves, applies a board mutation, or decides a result locally.
+
+**Rendered evidence**
+
+- Existing captures `11_match_room.png` through `16_opponent_thinking.png` continue to cover the approved core gameplay states.
+- Nine new deterministic 390 x 844 captures are stored in `app/test/goldens/home_flow/pr8_*.png`.
+- New captures cover Mandatory Capture, Illegal Move, State Resync, Draw Offer Received, Draw Offer Rejected, Offer Draw confirmation, Resign confirmation, Match Menu, and Move History.
+- The visual suite passed after golden generation and again without `--update-goldens`.
+
+**Findings and resolution**
+
+1. Draw and resign dialog screenshots initially excluded Flutter's overlay layer. Capture targeting was corrected so the full modal and bottom-sheet treatment is verified.
+2. Move History initially rendered one accepted move per row. It now follows the approved paired-turn layout while remaining sourced exclusively from the durable server move log.
+3. Illegal/stale move feedback now uses the approved centered gameplay card instead of a floating action button. Stable server rejection codes provide safe copy; a state-version conflict blocks input and requests canonical state without retrying the move.
+4. Mandatory capture and full multi-capture paths are visually distinct, accessible, and server-provided. Promotion remains driven only by an accepted server event.
+5. V1 and V2 Socket.IO names coexist during migration. Read-only room joins may use both names; every state-changing move, draw, or resign command selects exactly one protocol path, preventing duplicate mutations.
+6. Standard-phone and 320 x 568 small-screen checks show no Flutter exception or render overflow.
+
+**Contract boundary**
+
+- The checked-in backend currently exposes the legacy gameplay event names and a V1 canonical state read. V2 dotted events, draw actions, stable rejection codes, and durable accepted move history must be supplied by the PR8 backend before every production state can be live.
+- The current `GET /matches/:id/state` response does not expose the durable accepted-move log required by Move History. The screen therefore shows an approved unavailable/empty state rather than reconstructing moves in Flutter.
+- PR9 owns authoritative clocks, low-time warnings, reconnect timing, app-resume recovery, and disconnect-forfeit rules. PR8 does not infer or implement those outcomes.
+
 final result: passed

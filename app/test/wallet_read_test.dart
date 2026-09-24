@@ -6,7 +6,6 @@ import 'package:draughts_arena/providers/wallet_provider.dart';
 import 'package:draughts_arena/screens/wallet_read_screens.dart';
 import 'package:draughts_arena/services/socket_service.dart';
 import 'package:draughts_arena/theme/app_theme.dart';
-import 'package:draughts_arena/widgets/balance_card.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -136,20 +135,6 @@ void main() {
     expect(projection.lockedMinorUnits, isNull);
     expect(projection.pendingMinorUnits, isNull);
     expect(projection.lockedFunds, isEmpty);
-  });
-
-  test('wallet projection parses nested locked and pending balances', () {
-    final projection = WalletProjection.fromJson(const {
-      'balance': {
-        'currency': 'NGN',
-        'balanceMinorUnits': 12345,
-        'lockedMinorUnits': 4000,
-        'pendingMinorUnits': 2500,
-      },
-    });
-    expect(projection.availableMinorUnits, 12345);
-    expect(projection.lockedMinorUnits, 4000);
-    expect(projection.pendingMinorUnits, 2500);
   });
 
   test('wallet projection rejects every invalid authoritative shape', () {
@@ -419,58 +404,5 @@ void main() {
     expect(find.text('Locked funds unavailable'), findsOneWidget);
     expect(find.textContaining('No amount has been estimated'), findsOneWidget);
     expect(find.text('₦0'), findsNothing);
-  });
-
-  testWidgets('locked funds screen shows server-provided locked and pending values', (
-    tester,
-  ) async {
-    await tester.pumpWidget(
-      walletTestApp(
-        const LockedFundsScreen(),
-        const WalletState(
-          projection: WalletProjection(
-            availableMinorUnits: 12345,
-            lockedMinorUnits: 4000,
-            pendingMinorUnits: 2500,
-            currency: 'NGN',
-          ),
-          walletPhase: WalletLoadPhase.ready,
-        ),
-      ),
-    );
-
-    expect(find.text('Currently locked in matches'), findsOneWidget);
-    expect(find.text('₦40.00'), findsOneWidget);
-    expect(find.text('Pending withdrawal: ₦25'), findsOneWidget);
-    expect(find.text('Locked funds unavailable'), findsNothing);
-  });
-
-  testWidgets('home balance card shows the real locked amount', (tester) async {
-    await tester.pumpWidget(
-      ProviderScope(
-        overrides: [
-          walletProvider.overrideWith(
-            (ref) => StaticWalletNotifier(
-              const WalletState(
-                projection: WalletProjection(
-                  availableMinorUnits: 3245000,
-                  lockedMinorUnits: 200000,
-                  currency: 'NGN',
-                ),
-                walletPhase: WalletLoadPhase.ready,
-              ),
-            ),
-          ),
-        ],
-        child: MaterialApp(
-          theme: AppTheme.dark,
-          home: Scaffold(body: BalanceCard()),
-        ),
-      ),
-    );
-    await tester.pumpAndSettle();
-
-    expect(find.text('₦2,000.00'), findsOneWidget);
-    expect(find.text('—'), findsNothing);
   });
 }

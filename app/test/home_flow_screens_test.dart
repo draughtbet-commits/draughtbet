@@ -14,6 +14,7 @@ import 'package:draughts_arena/screens/arena_screen.dart';
 import 'package:draughts_arena/screens/create_match_screen.dart';
 import 'package:draughts_arena/screens/home_lobby_screen.dart';
 import 'package:draughts_arena/screens/match_confirmation_screen.dart';
+import 'package:draughts_arena/screens/match_lifecycle_screens.dart';
 import 'package:draughts_arena/screens/match_result_screen.dart';
 import 'package:draughts_arena/screens/match_room_screen.dart';
 import 'package:draughts_arena/screens/match_screen.dart';
@@ -234,6 +235,11 @@ Widget navigationApp({
       GoRoute(
         path: '/play/confirm',
         builder: (context, state) => const MatchConfirmationScreen(),
+      ),
+      GoRoute(
+        path: '/play/open-details',
+        builder: (context, state) =>
+            OpenMatchDetailsScreen(match: state.extra! as OpenMatch),
       ),
       GoRoute(
         path: '/play/search',
@@ -521,7 +527,7 @@ void main() {
       find.text('Opponent disconnected · waiting for reconnect'),
       findsOneWidget,
     );
-    expect(find.text('State refreshed'), findsOneWidget);
+    expect(find.text('STATE RESYNC'), findsOneWidget);
     expect(find.text('Opponent’s turn'), findsOneWidget);
     expect(find.text('OPPONENT DISCONNECTED'), findsOneWidget);
     expect(find.text('60'), findsOneWidget);
@@ -581,6 +587,16 @@ void main() {
         match: MatchState(
           currentMatchId: 'match-123',
           gameState: gameFixture(status: 'completed', winnerId: 'player-1'),
+          authoritativeResult: const MatchResultViewData(
+            kind: ResultKind.victory,
+            opponent: opponent,
+            terms: referenceTerms,
+            matchId: 'match-123',
+            reason: 'Server confirmed victory',
+            settlement: SettlementPhase.confirmed,
+            payoutMinorUnits: 390000,
+            serverVerified: true,
+          ),
         ),
       ),
     );
@@ -602,6 +618,7 @@ void main() {
               opponent: opponent,
               terms: referenceTerms,
               settlement: SettlementPhase.pending,
+              serverVerified: true,
             ),
           ),
         ),
@@ -610,7 +627,7 @@ void main() {
         find.text(kind == ResultKind.victory ? 'VICTORY' : 'DEFEAT'),
         findsOneWidget,
       );
-      expect(find.text('Settlement processing'), findsOneWidget);
+      expect(find.text('Result final · settlement processing'), findsOneWidget);
     }
   });
 
@@ -723,6 +740,10 @@ void main() {
     invokeButton(tester, 'JOIN');
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 400));
+    expect(find.text('OPEN MATCH'), findsOneWidget);
+    invokeButton(tester, 'Join match');
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
     expect(find.text('Match Confirmation'), findsOneWidget);
     invokeButton(tester, 'Confirm & Lock Stake');
     await tester.pump();
@@ -780,12 +801,13 @@ void main() {
       terms: referenceTerms,
       settlement: SettlementPhase.delayed,
       receiptReference: 'DB-123',
+      serverVerified: true,
     );
     await tester.pumpWidget(
       navigationApp(initialLocation: '/result', result: result),
     );
     expect(
-      find.text('Settlement delayed — your result is safe'),
+      find.text('Settlement delayed · result remains final'),
       findsOneWidget,
     );
     invokeButton(tester, 'Back to Home');

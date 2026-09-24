@@ -2,12 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:go_router/go_router.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../providers/auth_provider.dart';
 import '../theme/colors.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
-  const LoginScreen({Key? key}) : super(key: key);
+  const LoginScreen({super.key});
 
   @override
   ConsumerState<LoginScreen> createState() => _LoginScreenState();
@@ -33,6 +34,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       _emailController.text.trim(),
       _passwordController.text,
     );
+    if (!mounted) return;
     if (ok) {
       context.go('/home');
     }
@@ -47,7 +49,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     return InputDecoration(
       labelText: label,
       hintText: hint,
-      hintStyle: TextStyle(fontFamily: 'Inter',
+      hintStyle: GoogleFonts.inter(
         fontSize: 15,
         fontWeight: FontWeight.w400,
         color: AppColors.textMuted,
@@ -99,7 +101,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 const SizedBox(height: 16),
                 Text(
                   'Welcome back',
-                  style: TextStyle(fontFamily: 'Sora',
+                  style: GoogleFonts.sora(
                     fontSize: 28,
                     fontWeight: FontWeight.w700,
                     height: 1.2,
@@ -109,7 +111,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 const SizedBox(height: 8),
                 Text(
                   'Enter your details to continue',
-                  style: TextStyle(fontFamily: 'Inter',
+                  style: GoogleFonts.inter(
                     fontSize: 15,
                     fontWeight: FontWeight.w400,
                     height: 1.4,
@@ -121,7 +123,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   controller: _emailController,
                   keyboardType: TextInputType.emailAddress,
                   autocorrect: false,
-                  style: TextStyle(fontFamily: 'Inter',
+                  style: GoogleFonts.inter(
                     fontSize: 15,
                     fontWeight: FontWeight.w400,
                     color: AppColors.textPrimary,
@@ -129,13 +131,18 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   decoration: _decoration(
                     label: 'Email or phone',
                     hint: 'Enter your email or phone',
-                    prefixIcon: const Icon(LucideIcons.mail, color: AppColors.textMuted, size: 20),
+                    prefixIcon: const Icon(
+                      LucideIcons.mail,
+                      color: AppColors.textMuted,
+                      size: 20,
+                    ),
                   ),
                   validator: (value) {
                     if (value == null || value.isEmpty) {
                       return 'Enter a valid email or phone';
                     }
-                    if (!value.contains('@') && !RegExp(r'^[0-9+\s-]{7,15}$').hasMatch(value)) {
+                    if (!value.contains('@') &&
+                        !RegExp(r'^[0-9+\s-]{7,15}$').hasMatch(value)) {
                       return 'Enter a valid email or phone';
                     }
                     return null;
@@ -145,7 +152,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 TextFormField(
                   controller: _passwordController,
                   obscureText: _obscurePassword,
-                  style: TextStyle(fontFamily: 'Inter',
+                  style: GoogleFonts.inter(
                     fontSize: 15,
                     fontWeight: FontWeight.w400,
                     color: AppColors.textPrimary,
@@ -153,7 +160,11 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   decoration: _decoration(
                     label: 'Password',
                     hint: 'Enter your password',
-                    prefixIcon: const Icon(LucideIcons.lock, color: AppColors.textMuted, size: 20),
+                    prefixIcon: const Icon(
+                      LucideIcons.lock,
+                      color: AppColors.textMuted,
+                      size: 20,
+                    ),
                     suffixIcon: IconButton(
                       icon: Icon(
                         _obscurePassword ? LucideIcons.eye : LucideIcons.eyeOff,
@@ -171,34 +182,36 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     }
                     return null;
                   },
-),
-                  const SizedBox(height: 4),
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: TextButton(
-                      onPressed: () {},
-                      child: Text(
-                        'Forgot password?',
-                        style: TextStyle(fontFamily: 'Inter',
-                          fontSize: 14,
-                          fontWeight: FontWeight.w500,
-                          color: AppColors.textMuted,
-                        ),
+                ),
+                const SizedBox(height: 4),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton(
+                    onPressed: () {},
+                    child: Text(
+                      'Forgot password?',
+                      style: GoogleFonts.inter(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
+                        color: AppColors.textMuted,
                       ),
                     ),
                   ),
-                  if (authState.error != null) ...[
+                ),
+                if (authState.error != null) ...[
                   const SizedBox(height: 16),
                   Container(
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
-                      color: AppColors.danger.withOpacity(0.12),
+                      color: AppColors.danger.withValues(alpha: 0.12),
                       borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: AppColors.danger.withOpacity(0.4)),
+                      border: Border.all(
+                        color: AppColors.danger.withValues(alpha: 0.4),
+                      ),
                     ),
                     child: Text(
                       authState.error!,
-                      style: TextStyle(fontFamily: 'Inter',
+                      style: GoogleFonts.inter(
                         fontSize: 13,
                         fontWeight: FontWeight.w400,
                         color: AppColors.danger,
@@ -230,7 +243,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                           )
                         : Text(
                             'Sign In',
-                            style: TextStyle(fontFamily: 'Inter',
+                            style: GoogleFonts.inter(
                               fontSize: 16,
                               fontWeight: FontWeight.w600,
                             ),
@@ -245,7 +258,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       padding: const EdgeInsets.symmetric(horizontal: 12),
                       child: Text(
                         'or',
-                        style: TextStyle(fontFamily: 'Inter',
+                        style: GoogleFonts.inter(
                           fontSize: 14,
                           fontWeight: FontWeight.w400,
                           color: AppColors.textMuted,
@@ -264,7 +277,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     style: OutlinedButton.styleFrom(
                       backgroundColor: AppColors.voidBg,
                       foregroundColor: AppColors.textPrimary,
-                      side: const BorderSide(color: AppColors.hairline, width: 1.5),
+                      side: const BorderSide(
+                        color: AppColors.hairline,
+                        width: 1.5,
+                      ),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12),
                       ),
@@ -280,7 +296,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                         const SizedBox(width: 10),
                         Text(
                           'Continue with Google',
-                          style: TextStyle(fontFamily: 'Inter',
+                          style: GoogleFonts.inter(
                             fontSize: 16,
                             fontWeight: FontWeight.w600,
                           ),
@@ -295,7 +311,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   children: [
                     Text(
                       "Don't have an account?",
-                      style: TextStyle(fontFamily: 'Inter',
+                      style: GoogleFonts.inter(
                         fontSize: 14,
                         fontWeight: FontWeight.w400,
                         color: AppColors.textSecondary,
@@ -306,7 +322,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       onPressed: () => context.go('/register'),
                       child: Text(
                         'Sign up',
-                        style: TextStyle(fontFamily: 'Inter',
+                        style: GoogleFonts.inter(
                           fontSize: 14,
                           fontWeight: FontWeight.w600,
                           color: AppColors.brand,

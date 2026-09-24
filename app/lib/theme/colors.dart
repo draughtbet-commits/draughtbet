@@ -2,7 +2,8 @@ import 'package:flutter/material.dart';
 
 class AppColors {
   // Client-approved semantic palette.
-  static const Color background = Color(0xFF07111F);
+  static const Color black = Color(0xFF000000);
+  static const Color background = black;
   static const Color surface = Color(0xFF0C1B2A);
   static const Color surfaceRaised = Color(0xFF132638);
   static const Color surfaceQuiet = Color(0xFF102131);
@@ -18,7 +19,6 @@ class AppColors {
   static const Color disabled = Color(0xFF53677A);
   static const Color transparent = Color(0x00000000);
   static const Color primaryGlow = Color(0x2218C986);
-  static const Color black = Color(0xFF000000);
   static final Color pieceShadow = black.withValues(alpha: .35);
   static const Color monoText = Color(0xFFF4F2ED);
 

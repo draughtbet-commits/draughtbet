@@ -1,7 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/match_flow.dart';
-import '../services/api_client.dart';
 import '../services/settlement_gateway.dart';
 
 enum SettlementLoadPhase { initial, refreshing, ready, unavailable, error }
@@ -100,10 +99,6 @@ class SettlementNotifier extends StateNotifier<SettlementUiState> {
     }
   }
 }
-
-final settlementGatewayProvider = Provider<SettlementGateway>((ref) {
-  return SettlementGateway(ref.watch(apiClientProvider));
-});
 
 final settlementProvider = StateNotifierProvider.autoDispose
     .family<SettlementNotifier, SettlementUiState, String>((ref, matchId) {

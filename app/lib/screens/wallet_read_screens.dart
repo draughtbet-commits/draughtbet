@@ -141,24 +141,15 @@ class _WalletDashboardBody extends StatelessWidget {
           children: [
             Expanded(
               child: FilledButton(
-                onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Add money will be enabled in Deposit V2.'),
-                  ),
-                ),
+                onPressed: () => context.push('/wallet/add-money'),
                 child: const Text('Add money'),
               ),
             ),
             const SizedBox(width: 10),
             Expanded(
               child: OutlinedButton(
-                onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text(
-                      'Withdrawals will be enabled in Withdrawal V2.',
-                    ),
-                  ),
-                ),
+                onPressed: () =>
+                    context.push('/wallet/withdraw/withdraw-money'),
                 child: const Text('Withdraw'),
               ),
             ),
@@ -405,9 +396,7 @@ class LockedFundsScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final projection = ref.watch(walletProvider).projection;
     final items = projection?.lockedFunds ?? const <LockedFundItem>[];
-    final locked = projection?.lockedMinorUnits;
-    final pending = projection?.pendingMinorUnits;
-    final isDeferred = locked == null || pending == null;
+    final isDeferred = projection?.lockedMinorUnits == null;
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(title: const Text('LOCKED FUNDS')),
@@ -426,7 +415,7 @@ class LockedFundsScreen extends ConsumerWidget {
               ),
               const SizedBox(height: 12),
               WalletAmount(
-                locked,
+                projection?.lockedMinorUnits,
                 style: AppTypography.balance.copyWith(
                   fontSize: 32,
                   fontWeight: FontWeight.w600,
@@ -443,14 +432,7 @@ class LockedFundsScreen extends ConsumerWidget {
               if (isDeferred)
                 const FlowCard(
                   child: Text(
-                    'Locked and pending balances are not available yet. No amount has been estimated.',
-                    textAlign: TextAlign.center,
-                  ),
-                )
-              else if (pending > 0)
-                FlowCard(
-                  child: Text(
-                    'Pending withdrawal: ${Money(pending).format()}',
+                    'Locked and pending balances are deferred until the server provides them. No amount has been estimated.',
                     textAlign: TextAlign.center,
                   ),
                 )

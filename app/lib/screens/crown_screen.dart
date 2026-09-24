@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../theme/colors.dart';
 
 class CrownScreen extends StatelessWidget {
-  const CrownScreen({Key? key}) : super(key: key);
+  const CrownScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -33,7 +34,7 @@ class CrownScreen extends StatelessWidget {
                 const SizedBox(height: 20),
                 Text(
                   'Crown',
-                  style: TextStyle(fontFamily: 'Sora',
+                  style: GoogleFonts.sora(
                     fontSize: 22,
                     fontWeight: FontWeight.w700,
                     color: AppColors.textPrimary,
@@ -43,7 +44,7 @@ class CrownScreen extends StatelessWidget {
                 Text(
                   'Coming soon.',
                   textAlign: TextAlign.center,
-                  style: TextStyle(fontFamily: 'Inter',
+                  style: GoogleFonts.inter(
                     fontSize: 14,
                     color: AppColors.textMuted,
                   ),

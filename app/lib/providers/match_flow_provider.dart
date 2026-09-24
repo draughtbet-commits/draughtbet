@@ -1,5 +1,6 @@
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../config/backend_contract.dart';
 import '../models/match_flow.dart';
 import '../services/api_client.dart';
 import '../services/match_flow_gateway.dart';
@@ -12,6 +13,7 @@ class MatchFlowState {
     this.searchPhase = SearchPhase.idle,
     this.currentIntent,
     this.currentMatchId,
+    this.searchId,
     this.lifecycle,
     this.message,
   });
@@ -22,6 +24,7 @@ class MatchFlowState {
   final SearchPhase searchPhase;
   final MatchFlowIntent? currentIntent;
   final String? currentMatchId;
+  final String? searchId;
   final MatchLifecycleSnapshot? lifecycle;
   final String? message;
 
@@ -32,9 +35,11 @@ class MatchFlowState {
     SearchPhase? searchPhase,
     MatchFlowIntent? currentIntent,
     String? currentMatchId,
+    String? searchId,
     MatchLifecycleSnapshot? lifecycle,
     String? message,
     bool clearCurrentMatchId = false,
+    bool clearSearchId = false,
     bool clearMessage = false,
   }) {
     return MatchFlowState(
@@ -46,6 +51,7 @@ class MatchFlowState {
       currentMatchId: clearCurrentMatchId
           ? null
           : currentMatchId ?? this.currentMatchId,
+      searchId: clearSearchId ? null : searchId ?? this.searchId,
       lifecycle: lifecycle ?? this.lifecycle,
       message: clearMessage ? null : message ?? this.message,
     );
@@ -87,6 +93,7 @@ class MatchFlowNotifier extends StateNotifier<MatchFlowState> {
       actionPhase: MatchActionPhase.idle,
       searchPhase: SearchPhase.idle,
       clearCurrentMatchId: true,
+      clearSearchId: true,
       clearMessage: true,
     );
   }
@@ -105,20 +112,21 @@ class MatchFlowNotifier extends StateNotifier<MatchFlowState> {
           intent.openMatchId != null) {
         id = await _gateway.acceptOpenMatch(intent.openMatchId!);
       } else if (intent.kind == MatchEntryKind.created) {
-        // The active backend returns a callout ID here, not a match ID. A
-        // match exists only after `match_found` supplies its authoritative ID.
-        await _gateway.createOpenMatch(intent.terms);
+        final createdId = await _gateway.createOpenMatch(intent.terms);
+        // V2 creates the authoritative match directly. The active legacy
+        // backend creates only a callout and supplies the match later.
+        if (_gateway.isV2) id = createdId;
       } else {
         await _gateway.joinQueue(intent.terms);
       }
+      final waitsForMatch =
+          intent.kind == MatchEntryKind.quick ||
+          intent.kind == MatchEntryKind.created;
       state = state.copyWith(
         actionPhase: MatchActionPhase.succeeded,
-        searchPhase:
-            intent.kind == MatchEntryKind.quick ||
-                intent.kind == MatchEntryKind.created
-            ? SearchPhase.searching
-            : SearchPhase.found,
+        searchPhase: waitsForMatch ? SearchPhase.searching : SearchPhase.found,
         currentMatchId: id,
+        searchId: _gateway.lastSearchId,
       );
       return id;
     } on DioException catch (error) {
@@ -132,10 +140,9 @@ class MatchFlowNotifier extends StateNotifier<MatchFlowState> {
         );
         return null;
       }
-      final body = error.response?.data;
-      final message = body is Map && body['error'] is String
-          ? body['error'] as String
-          : 'The reservation could not be confirmed. Try again.';
+      final message =
+          apiErrorMessage(error.response?.data) ??
+          'The reservation could not be confirmed. Try again.';
       state = state.copyWith(
         actionPhase: MatchActionPhase.failed,
         message: message,
@@ -162,6 +169,24 @@ class MatchFlowNotifier extends StateNotifier<MatchFlowState> {
     );
   }
 
+  Future<MatchLifecycleSnapshot?> refreshLifecycle() async {
+    final matchId = state.currentMatchId;
+    final terms = state.currentIntent?.terms;
+    if (matchId == null || terms == null) return null;
+    final snapshot = await _gateway.fetchMatch(matchId, terms);
+    if (snapshot != null) applyLifecycle(snapshot);
+    return snapshot;
+  }
+
+  Future<MatchLifecycleSnapshot?> markReady() async {
+    final matchId = state.currentMatchId;
+    final terms = state.currentIntent?.terms;
+    if (matchId == null || terms == null) return null;
+    final snapshot = await _gateway.markReady(matchId, terms);
+    if (snapshot != null) applyLifecycle(snapshot);
+    return snapshot;
+  }
+
   Future<bool> cancelSearch() async {
     if (state.searchPhase == SearchPhase.cancelling) return false;
     final intent = state.currentIntent;
@@ -169,9 +194,15 @@ class MatchFlowNotifier extends StateNotifier<MatchFlowState> {
     state = state.copyWith(searchPhase: SearchPhase.cancelling);
     try {
       if (intent.kind == MatchEntryKind.quick) {
-        await _gateway.leaveQueue(intent.terms);
+        await _gateway.leaveQueue(intent.terms, searchId: state.searchId);
+      } else if (intent.kind == MatchEntryKind.created &&
+          state.currentMatchId != null) {
+        await _gateway.cancelMatch(state.currentMatchId!, intent.terms);
       }
-      state = state.copyWith(searchPhase: SearchPhase.cancelled);
+      state = state.copyWith(
+        searchPhase: SearchPhase.cancelled,
+        clearSearchId: true,
+      );
       return true;
     } catch (_) {
       state = state.copyWith(
@@ -187,13 +218,17 @@ class MatchFlowNotifier extends StateNotifier<MatchFlowState> {
       actionPhase: MatchActionPhase.idle,
       searchPhase: SearchPhase.idle,
       clearCurrentMatchId: true,
+      clearSearchId: true,
       clearMessage: true,
     );
   }
 }
 
 final matchFlowGatewayProvider = Provider<MatchFlowGateway>((ref) {
-  return MatchFlowGateway(ref.watch(apiClientProvider));
+  return MatchFlowGateway(
+    ref.watch(apiClientProvider),
+    contract: ref.watch(backendContractProvider),
+  );
 });
 
 final matchFlowProvider =

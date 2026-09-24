@@ -1,8 +1,66 @@
 # Draughts Arena — Project Progress & State
 
-**Last Updated:** October 2026
+**Last Updated:** September 23, 2026
 
 ## ⏳ Current Status: Week 10 (Admin Backend)
+
+## Flutter UI PR Progress
+
+### PR4–PR8 Backend V2 Contract Alignment — Completed Locally
+
+- **Source branch:** `ui/pr4-pr8-contract-alignment`
+- **Integration target:** `refactor/backend-v2`
+- **Worktree:** `/home/uplix/uplix/draughtbet-pr4-pr8-audit`
+- **Topology verified:** PR4 → PR5 → PR6 → PR7 → PR8 remains sequential.
+- **Scope:** Flutter contract alignment only. No backend files were changed.
+
+#### Completed repairs
+
+- Added an explicit `BACKEND_CONTRACT` switch. It defaults to `legacy`; V2 routes and Socket.IO events are enabled only when configured.
+- **PR4 — Match lifecycle:** maps the V2 match, matchmaking, ready, cancel, stake, and release contracts while retaining the legacy path; waits for authoritative match-found state and preserves idempotency keys across uncertain mutations.
+- **PR5 — Settlement results:** renders only server-provided outcomes and amounts, reads the V2 receipt contract, and consumes authoritative `settlement.completed` events without initiating settlement.
+- **PR6 — Deposits:** creates V2 deposit intents with idempotency and safely reads deposit status; hosted-checkout return never implies success.
+- **PR7 — Withdrawals:** maps V2 bank-account and withdrawal endpoints with idempotency and masking; keeps the action unavailable when the server cannot provide an authoritative quote.
+- **PR8 — Gameplay protocol:** connects to the V2 `/game` namespace, maps canonical events, resyncs safely, renders server clocks/disconnect grace, and rejects unresolved board encodings instead of inventing a client mapping.
+- Added focused V2 request/response regression coverage and updated existing gameplay/settlement tests for the aligned contracts.
+
+#### Local correction commits
+
+- `03b687c` — PR4 match lifecycle contract alignment
+- `e24b0dc` — PR5 settlement contract alignment
+- `35cd7c5` — PR6 deposit contract alignment
+- `c29773e` — PR7 withdrawal contract alignment
+- `03b1e20` — PR8 game protocol contract alignment
+- `28feeb3`, `5c359a4`, `b3ac318` — PR4 cross-audit, visual, and stale-test follow-ups
+
+#### Verification
+
+- Focused contract/lifecycle/gameplay/settlement tests: **62 passed, 0 failed**
+- Complete Flutter suite after Backend V2 integration: **207 passed, 0 failed**
+- `flutter analyze`: **No issues found** (September 23, 2026)
+- Android debug APK: **built successfully** (September 23, 2026)
+- APK path: `app/build/app/outputs/flutter-apk/app-debug.apk`
+- APK SHA-256: `1ae83467db3d1738b33b6d305ea1cbf5946820241fafad6f5d7a647856ad4e7c`
+- `git diff -- backend`: **empty**
+
+#### Remaining backend contract blockers
+
+- No deposit payment-method or quote-discovery contract is available, so Flutter cannot safely invent provider options, fees, or currency choices.
+- No withdrawal quote/eligibility contract provides authoritative fee, net amount, and limit values, so submission remains unavailable until those values exist.
+- No settlement-status read endpoint is documented; Flutter relies on authoritative result/receipt reads and settlement events.
+- The final canonical board encoding and square numbering are unresolved in the Backend V2 contract, so unknown encodings are rejected and resynced.
+- No chat send/history API, Socket.IO event contract, or persistence contract exists; gameplay chat remains unavailable.
+
+#### Remote status
+
+- The earlier audit baseline exists remotely as `ui/pr4-pr8-contract-alignment` at `b3ac318`.
+- The latest Backend V2 contract-alignment changes and verification results remain local until explicitly pushed.
+- No backend file was changed by this Flutter alignment batch.
+- The unrelated modified `Draught_Bet_Approved_UI_UX_Handoff_v1/index.html` in the original checkout remains untouched.
+
+#### Next UI PR
+
+PR9 — Server Clock + Reconnect UI is the next new Flutter implementation after this audit.
 
 ## ✅ Completed Phases
 
