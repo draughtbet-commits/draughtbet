@@ -60,7 +60,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       final token = await _storage.accessToken;
       if (token == null) return;
       final dio = ref.read(apiClientProvider);
-      final res = await dio.get('/auth/me');
+      final res = await dio.get('/me');
       if (res.statusCode == 200 && res.data is Map && mounted) {
         final data = Map<String, dynamic>.from(res.data);
         setState(() {

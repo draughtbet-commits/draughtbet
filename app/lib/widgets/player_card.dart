@@ -7,7 +7,6 @@ import '../providers/profile_provider.dart';
 import '../theme/avatars.dart';
 import '../theme/colors.dart';
 import '../theme/tier_theme.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 class PlayerCard extends ConsumerWidget {
   const PlayerCard({Key? key}) : super(key: key);
@@ -49,7 +48,7 @@ class PlayerCard extends ConsumerWidget {
                 Text(
                   'Choose your avatar',
                   textAlign: TextAlign.center,
-                  style: GoogleFonts.sora(
+                  style: TextStyle(fontFamily: 'Sora',
                     fontSize: 18,
                     fontWeight: FontWeight.w700,
                     color: AppColors.textPrimary,
@@ -59,7 +58,7 @@ class PlayerCard extends ConsumerWidget {
                 Text(
                   'Pick from our predesigned avatars — no uploads',
                   textAlign: TextAlign.center,
-                  style: GoogleFonts.inter(
+                  style: TextStyle(fontFamily: 'Inter',
                     fontSize: 13,
                     color: AppColors.textMuted,
                   ),
@@ -187,7 +186,7 @@ class PlayerCard extends ConsumerWidget {
                         profile?.displayName ?? 'Player',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: GoogleFonts.sora(
+                        style: TextStyle(fontFamily: 'Sora',
                           fontSize: 18,
                           fontWeight: FontWeight.w700,
                           color: AppColors.textPrimary,
@@ -204,7 +203,7 @@ class PlayerCard extends ConsumerWidget {
                       ),
                       child: Text(
                         theme.displayName,
-                        style: GoogleFonts.inter(
+                        style: TextStyle(fontFamily: 'Inter',
                           fontSize: 11,
                           fontWeight: FontWeight.w600,
                           color: theme.primaryColor,
@@ -216,7 +215,7 @@ class PlayerCard extends ConsumerWidget {
                 const SizedBox(height: 6),
                 Text(
                   _formatNaira(profile?.walletBalanceMinorUnits ?? 0),
-                  style: GoogleFonts.inter(
+                  style: TextStyle(fontFamily: 'Inter',
                     fontSize: 14,
                     fontWeight: FontWeight.w600,
                     color: AppColors.textMuted,
@@ -225,7 +224,7 @@ class PlayerCard extends ConsumerWidget {
                 const SizedBox(height: 2),
                 Text(
                   'Tap your avatar to change it',
-                  style: GoogleFonts.inter(
+                  style: TextStyle(fontFamily: 'Inter',
                     fontSize: 12,
                     color: AppColors.textMuted.withValues(alpha: 0.7),
                   ),

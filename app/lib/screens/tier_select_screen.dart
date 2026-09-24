@@ -3,7 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
-import 'package:google_fonts/google_fonts.dart';
 import '../providers/match_provider.dart';
 import '../providers/profile_provider.dart';
 import '../services/api_client.dart';
@@ -258,7 +257,7 @@ class _TierSelectScreenState extends ConsumerState<TierSelectScreen> {
                                     children: [
                                       Text(
                                         'FIND A MATCH',
-                                        style: GoogleFonts.inter(
+                                        style: TextStyle(fontFamily: 'Inter',
                                           fontSize: 18,
                                           fontWeight: FontWeight.w700,
                                           letterSpacing: 1.2,
@@ -268,7 +267,7 @@ class _TierSelectScreenState extends ConsumerState<TierSelectScreen> {
                                       const SizedBox(height: 2),
                                       Text(
                                         'Start a new match',
-                                        style: GoogleFonts.sora(
+                                        style: TextStyle(fontFamily: 'Sora',
                                           fontSize: 14,
                                           fontWeight: FontWeight.w500,
                                           color: AppColors.textSecondary,
@@ -288,7 +287,7 @@ class _TierSelectScreenState extends ConsumerState<TierSelectScreen> {
                           const SizedBox(height: 24),
                           Text(
                             'Quick Match',
-                            style: GoogleFonts.sora(
+                            style: TextStyle(fontFamily: 'Sora',
                               fontSize: 20,
                               fontWeight: FontWeight.w700,
                               color: AppColors.textPrimary,
@@ -297,7 +296,7 @@ class _TierSelectScreenState extends ConsumerState<TierSelectScreen> {
                           const SizedBox(height: 4),
                           Text(
                             'Choose your stake',
-                            style: GoogleFonts.inter(
+                            style: TextStyle(fontFamily: 'Inter',
                               fontSize: 13,
                               color: AppColors.textMuted,
                             ),
@@ -347,7 +346,7 @@ class _TierSelectScreenState extends ConsumerState<TierSelectScreen> {
                                 children: [
                                   Text(
                                     'or filter',
-                                    style: GoogleFonts.inter(
+                                    style: TextStyle(fontFamily: 'Inter',
                                       fontSize: 13,
                                       color: AppColors.textPrimary,
                                     ),
@@ -355,7 +354,7 @@ class _TierSelectScreenState extends ConsumerState<TierSelectScreen> {
                                   const SizedBox(width: 4),
                                   Text(
                                     '>',
-                                    style: GoogleFonts.inter(
+                                    style: TextStyle(fontFamily: 'Inter',
                                       fontSize: 13,
                                       fontWeight: FontWeight.w700,
                                       color: AppColors.brand,
@@ -364,7 +363,7 @@ class _TierSelectScreenState extends ConsumerState<TierSelectScreen> {
                                   const SizedBox(width: 2),
                                   Text(
                                     'Classic',
-                                    style: GoogleFonts.inter(
+                                    style: TextStyle(fontFamily: 'Inter',
                                       fontSize: 13,
                                       fontWeight: FontWeight.w600,
                                       color: AppColors.brand,
@@ -383,7 +382,7 @@ class _TierSelectScreenState extends ConsumerState<TierSelectScreen> {
                                   ),
                                   child: Text(
                                     'Find Opponent',
-                                    style: GoogleFonts.inter(
+                                    style: TextStyle(fontFamily: 'Inter',
                                       fontSize: 14,
                                       fontWeight: FontWeight.w600,
                                       color: AppColors.textPrimary,
@@ -535,7 +534,7 @@ class _StakeCard extends StatelessWidget {
           children: [
             Text(
               '₦',
-              style: GoogleFonts.inter(
+              style: TextStyle(fontFamily: 'Inter',
                 fontSize: 12,
                 fontWeight: FontWeight.w700,
                 color: color,
@@ -544,7 +543,7 @@ class _StakeCard extends StatelessWidget {
             const SizedBox(width: 1),
             Text(
               amount,
-              style: GoogleFonts.inter(
+              style: TextStyle(fontFamily: 'Inter',
                 fontSize: 15,
                 fontWeight: FontWeight.w700,
                 color: color,

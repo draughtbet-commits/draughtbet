@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../providers/auth_provider.dart';
 import '../services/auth_check_service.dart';
@@ -214,7 +213,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
       padding: const EdgeInsets.only(top: 6, left: 4),
       child: Text(
         message,
-        style: GoogleFonts.inter(
+        style: TextStyle(fontFamily: 'Inter',
           fontSize: 12,
           fontWeight: FontWeight.w400,
           color: AppColors.danger,
@@ -232,7 +231,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
     return InputDecoration(
       labelText: label,
       hintText: hint,
-      hintStyle: GoogleFonts.inter(
+      hintStyle: TextStyle(fontFamily: 'Inter',
         fontSize: 15,
         fontWeight: FontWeight.w400,
         color: AppColors.textMuted,
@@ -288,7 +287,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                 const SizedBox(height: 16),
                 Text(
                   'Create account',
-                  style: GoogleFonts.sora(
+                  style: TextStyle(fontFamily: 'Sora',
                     fontSize: 28,
                     fontWeight: FontWeight.w700,
                     height: 1.2,
@@ -298,7 +297,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                 const SizedBox(height: 8),
                 Text(
                   "Let's get you started",
-                  style: GoogleFonts.inter(
+                  style: TextStyle(fontFamily: 'Inter',
                     fontSize: 15,
                     fontWeight: FontWeight.w400,
                     height: 1.4,
@@ -311,7 +310,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                   autocorrect: false,
                   onChanged: (v) =>
                       _scheduleAvailabilityCheck('username', v, (t) => _usernameTaken = t),
-                  style: GoogleFonts.inter(
+                  style: TextStyle(fontFamily: 'Inter',
                     fontSize: 15,
                     fontWeight: FontWeight.w400,
                     color: AppColors.textPrimary,
@@ -339,7 +338,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                   autocorrect: false,
                   onChanged: (v) =>
                       _scheduleAvailabilityCheck('email', v, (t) => _emailTaken = t),
-                  style: GoogleFonts.inter(
+                  style: TextStyle(fontFamily: 'Inter',
                     fontSize: 15,
                     fontWeight: FontWeight.w400,
                     color: AppColors.textPrimary,
@@ -364,7 +363,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                 TextFormField(
                   controller: _fullNameController,
                   autocorrect: false,
-                  style: GoogleFonts.inter(
+                  style: TextStyle(fontFamily: 'Inter',
                     fontSize: 15,
                     fontWeight: FontWeight.w400,
                     color: AppColors.textPrimary,
@@ -385,7 +384,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                 TextFormField(
                   controller: _addressController,
                   autocorrect: false,
-                  style: GoogleFonts.inter(
+                  style: TextStyle(fontFamily: 'Inter',
                     fontSize: 15,
                     fontWeight: FontWeight.w400,
                     color: AppColors.textPrimary,
@@ -409,7 +408,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                   autocorrect: false,
                   onChanged: (v) =>
                       _scheduleAvailabilityCheck('phone', v, (t) => _phoneTaken = t),
-                  style: GoogleFonts.inter(
+                  style: TextStyle(fontFamily: 'Inter',
                     fontSize: 15,
                     fontWeight: FontWeight.w400,
                     color: AppColors.textPrimary,
@@ -437,7 +436,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                 TextFormField(
                   controller: _passwordController,
                   obscureText: _obscurePassword,
-                  style: GoogleFonts.inter(
+                  style: TextStyle(fontFamily: 'Inter',
                     fontSize: 15,
                     fontWeight: FontWeight.w400,
                     color: AppColors.textPrimary,
@@ -496,7 +495,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                       const SizedBox(height: 4),
                       Text(
                         '${_strengthLabel(strength)} — use 8+ chars with upper, lower and a number',
-                        style: GoogleFonts.inter(
+                        style: TextStyle(fontFamily: 'Inter',
                           fontSize: 13,
                           fontWeight: FontWeight.w400,
                           color: _strengthColor(strength),
@@ -512,7 +511,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                   obscureText: _obscureConfirm,
                   // Only this field validates live (against the password);
                   autovalidateMode: AutovalidateMode.onUserInteraction,
-                  style: GoogleFonts.inter(
+                  style: TextStyle(fontFamily: 'Inter',
                     fontSize: 15,
                     fontWeight: FontWeight.w400,
                     color: AppColors.textPrimary,
@@ -543,7 +542,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                 TextFormField(
                   readOnly: true,
                   onTap: _pickDateOfBirth,
-                  style: GoogleFonts.inter(
+                  style: TextStyle(fontFamily: 'Inter',
                     fontSize: 15,
                     fontWeight: FontWeight.w400,
                     color: AppColors.textPrimary,
@@ -578,7 +577,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                   activeColor: AppColors.brand,
                   title: Text(
                     'I confirm I am 18 or older.',
-                    style: GoogleFonts.inter(
+                    style: TextStyle(fontFamily: 'Inter',
                       fontSize: 13,
                       fontWeight: FontWeight.w400,
                       color: AppColors.textMuted,
@@ -589,7 +588,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                   const SizedBox(height: 4),
                   Text(
                     'You must confirm you are 18 or older.',
-                    style: GoogleFonts.inter(
+                    style: TextStyle(fontFamily: 'Inter',
                       fontSize: 13,
                       fontWeight: FontWeight.w400,
                       color: AppColors.danger,
@@ -609,7 +608,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                   activeColor: AppColors.brand,
                   title: Text(
                     'I agree to the Terms and Conditions.',
-                    style: GoogleFonts.inter(
+                    style: TextStyle(fontFamily: 'Inter',
                       fontSize: 13,
                       fontWeight: FontWeight.w400,
                       color: AppColors.textMuted,
@@ -620,7 +619,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                   const SizedBox(height: 4),
                   Text(
                     'You must accept the terms before creating an account.',
-                    style: GoogleFonts.inter(
+                    style: TextStyle(fontFamily: 'Inter',
                       fontSize: 13,
                       fontWeight: FontWeight.w400,
                       color: AppColors.danger,
@@ -638,7 +637,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                     ),
                     child: Text(
                       showError,
-                      style: GoogleFonts.inter(
+                      style: TextStyle(fontFamily: 'Inter',
                         fontSize: 13,
                         fontWeight: FontWeight.w400,
                         color: AppColors.danger,
@@ -672,7 +671,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                           )
                         : Text(
                             'Create account',
-                            style: GoogleFonts.inter(
+                            style: TextStyle(fontFamily: 'Inter',
                               fontSize: 16,
                               fontWeight: FontWeight.w600,
                             ),
@@ -685,7 +684,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                   children: [
                     Text(
                       'Already have an account?',
-                      style: GoogleFonts.inter(
+                      style: TextStyle(fontFamily: 'Inter',
                         fontSize: 14,
                         fontWeight: FontWeight.w400,
                         color: AppColors.textSecondary,
@@ -696,7 +695,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                       onPressed: () => context.go('/login'),
                       child: Text(
                         'Sign in',
-                        style: GoogleFonts.inter(
+                        style: TextStyle(fontFamily: 'Inter',
                           fontSize: 14,
                           fontWeight: FontWeight.w600,
                           color: AppColors.brand,

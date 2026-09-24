@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:google_fonts/google_fonts.dart';
 import '../providers/ui_providers.dart';
 import '../theme/colors.dart';
 
@@ -108,7 +107,7 @@ class _LandingPageState extends ConsumerState<LandingPage> {
                         onPressed: _finishOnboarding,
                         child: Text(
                           'Skip',
-                          style: GoogleFonts.inter(
+                          style: TextStyle(fontFamily: 'Inter',
                             fontSize: 15,
                             fontWeight: FontWeight.w500,
                             color: AppColors.textMuted,
@@ -154,7 +153,7 @@ class SplashSlide extends StatelessWidget {
     final wordmark = RichText(
       textAlign: TextAlign.center,
       text: TextSpan(
-        style: GoogleFonts.sora(
+        style: TextStyle(fontFamily: 'Sora',
           fontSize: 44,
           fontWeight: FontWeight.w700,
           letterSpacing: 4,
@@ -183,7 +182,7 @@ class SplashSlide extends StatelessWidget {
         Text(
           'Play smart. Compete fairly',
           textAlign: TextAlign.center,
-          style: GoogleFonts.inter(
+          style: TextStyle(fontFamily: 'Inter',
             fontSize: 15,
             fontWeight: FontWeight.w400,
             color: AppColors.textMuted,
@@ -255,7 +254,7 @@ class OnboardingSlide extends StatelessWidget {
               children: [
                 Text(
                   title,
-                  style: GoogleFonts.sora(
+                  style: TextStyle(fontFamily: 'Sora',
                     fontSize: 28,
                     fontWeight: FontWeight.w700,
                     height: 1.2,
@@ -265,7 +264,7 @@ class OnboardingSlide extends StatelessWidget {
                 const SizedBox(height: 10),
                 Text(
                   subtitle,
-                  style: GoogleFonts.inter(
+                  style: TextStyle(fontFamily: 'Inter',
                     fontSize: 15,
                     fontWeight: FontWeight.w400,
                     height: 1.4,
@@ -305,7 +304,7 @@ class OnboardingSlide extends StatelessWidget {
                 ),
                 child: Text(
                   'Get Started',
-                  style: GoogleFonts.inter(
+                  style: TextStyle(fontFamily: 'Inter',
                     fontSize: 16,
                     fontWeight: FontWeight.w600,
                   ),
@@ -350,7 +349,7 @@ class OnboardingSlide extends StatelessWidget {
                 ),
                 child: Text(
                   'Next',
-                  style: GoogleFonts.inter(
+                  style: TextStyle(fontFamily: 'Inter',
                     fontSize: 16,
                     fontWeight: FontWeight.w600,
                   ),
@@ -448,7 +447,7 @@ class WelcomeView extends StatelessWidget {
             Text(
               'Play draughts.',
               textAlign: TextAlign.center,
-              style: GoogleFonts.sora(
+              style: TextStyle(fontFamily: 'Sora',
                 fontSize: 32,
                 fontWeight: FontWeight.w700,
                 height: 1.2,
@@ -459,7 +458,7 @@ class WelcomeView extends StatelessWidget {
             Text(
               'Prove your skill.',
               textAlign: TextAlign.center,
-              style: GoogleFonts.sora(
+              style: TextStyle(fontFamily: 'Sora',
                 fontSize: 22,
                 fontWeight: FontWeight.w600,
                 height: 1.2,
@@ -486,7 +485,7 @@ class WelcomeView extends StatelessWidget {
                       ),
                       child: Text(
                         'Create Account',
-                        style: GoogleFonts.inter(
+                        style: TextStyle(fontFamily: 'Inter',
                           fontSize: 16,
                           fontWeight: FontWeight.w600,
                         ),
@@ -509,7 +508,7 @@ class WelcomeView extends StatelessWidget {
                       ),
                       child: Text(
                         'Sign In',
-                        style: GoogleFonts.inter(
+                        style: TextStyle(fontFamily: 'Inter',
                           fontSize: 16,
                           fontWeight: FontWeight.w600,
                         ),
