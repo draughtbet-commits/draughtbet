@@ -135,7 +135,7 @@ const readStateVersion = async (matchId) => {
 // receipt means the push is skipped rather than failing the settlement.
 const emitSettlementCompleted = async (matchId) => {
   try {
-    const receipt = await prisma.matchReceipt.findUnique({
+    const receipt = await prisma.matchReceipt.findFirst({
       where: { matchId },
       select: { id: true }
     });

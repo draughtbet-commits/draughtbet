@@ -3,7 +3,7 @@ import { jest } from '@jest/globals';
 const mockPrisma = {
   match: { findUnique: jest.fn() },
   matchSettlement: { findUnique: jest.fn() },
-  matchReceipt: { findUnique: jest.fn().mockResolvedValue({ id: 'r1' }) }
+  matchReceipt: { findFirst: jest.fn().mockResolvedValue({ id: 'r1' }) }
 };
 
 const mockRedis = {
