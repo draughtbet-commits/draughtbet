@@ -24,6 +24,8 @@ class MatchState {
   final bool opponentConnected;
   final DateTime? opponentDisconnectedAt;
   final int? opponentGracePeriodMs;
+  final bool? playerReadyConfirmed;
+  final bool? opponentReadyConfirmed;
   final SettlementPhase settlementPhase;
   final int? confirmedPayoutMinorUnits;
   final String? endReason;
@@ -41,6 +43,8 @@ class MatchState {
     this.opponentConnected = true,
     this.opponentDisconnectedAt,
     this.opponentGracePeriodMs,
+    this.playerReadyConfirmed,
+    this.opponentReadyConfirmed,
     this.settlementPhase = SettlementPhase.pending,
     this.confirmedPayoutMinorUnits,
     this.endReason,
@@ -61,6 +65,8 @@ class MatchState {
     DateTime? opponentDisconnectedAt,
     bool clearOpponentDisconnect = false,
     int? opponentGracePeriodMs,
+    bool? playerReadyConfirmed,
+    bool? opponentReadyConfirmed,
     SettlementPhase? settlementPhase,
     int? confirmedPayoutMinorUnits,
     String? endReason,
@@ -85,6 +91,10 @@ class MatchState {
       opponentGracePeriodMs: clearOpponentDisconnect
           ? null
           : opponentGracePeriodMs ?? this.opponentGracePeriodMs,
+      playerReadyConfirmed:
+          playerReadyConfirmed ?? this.playerReadyConfirmed,
+      opponentReadyConfirmed:
+          opponentReadyConfirmed ?? this.opponentReadyConfirmed,
       settlementPhase: settlementPhase ?? this.settlementPhase,
       confirmedPayoutMinorUnits: clearResult
           ? null
@@ -100,11 +110,14 @@ class MatchNotifier extends StateNotifier<MatchState> {
   final SecureStorageService _storage = SecureStorageService();
 
   bool _isReconnecting = false;
+  String? _myUserId;
   final List<StreamSubscription<Map<String, dynamic>>> _subscriptions = [];
   StreamSubscription<List<ConnectivityResult>>? _connectivitySubscription;
+  StreamSubscription<void>? _reconnectSubscription;
 
   MatchNotifier(this._socketService, this._dio) : super(const MatchState()) {
     _initListeners();
+    _storage.userId.then((value) => _myUserId = value);
   }
 
   void _initListeners() {
@@ -132,14 +145,14 @@ class MatchNotifier extends StateNotifier<MatchState> {
     );
 
     _subscriptions.add(
+      _socketService.onMatchState.listen((data) {
+        _applyCanonicalPayload(data);
+      }),
+    );
+
+    _subscriptions.add(
       _socketService.onGameState.listen((data) {
-        final gameState = GameState.fromJson(data);
-        state = state.copyWith(
-          gameState: gameState,
-          syncState: MatchSyncState.synced,
-          isMovePending: false,
-          clearRejection: true,
-        );
+        _applyCanonicalPayload(data);
       }),
     );
 
@@ -257,6 +270,15 @@ class MatchNotifier extends StateNotifier<MatchState> {
         state = state.copyWith(syncState: MatchSyncState.offline);
       }
     });
+
+    // A re-established socket must rejoin the match room and resync so the
+    // play/room projection stays live after a backend drop or reconnect.
+    _reconnectSubscription = _socketService.onReconnected.listen((_) {
+      final matchId = state.currentMatchId;
+      if (matchId == null || matchId.isEmpty) return;
+      _socketService.joinMatch(matchId);
+      unawaited(fetchGameState(matchId));
+    });
   }
 
   Future<void> fetchGameState(String matchId) async {
@@ -361,6 +383,76 @@ class MatchNotifier extends StateNotifier<MatchState> {
     _socketService.joinMatch(matchId);
   }
 
+  void markReady() {
+    final matchId = state.currentMatchId;
+    if (matchId == null) return;
+    _socketService.markReady(matchId);
+  }
+
+  /// Applies a canonical `match.state` payload (socket `match.state`/`game_state`
+  /// resync) into the projection. Derives per-player readiness from the
+  /// `participants[]` array and opponent presence from `connection[]`.
+  void _applyCanonicalPayload(Map<String, dynamic> data) {
+    var payload = Map<String, dynamic>.from(data);
+    bool? myReady;
+    bool? oppReady;
+    String? lightId;
+    String? darkId;
+    if (payload['participants'] is List && _myUserId != null) {
+      for (final raw in payload['participants'] as List) {
+        final entry = raw is Map ? Map<String, dynamic>.from(raw) : null;
+        if (entry == null) continue;
+        final userId = entry['userId']?.toString();
+        final ready = entry['ready'] == true;
+        if (entry['side']?.toString() == 'LIGHT' && userId != null) {
+          lightId = userId;
+        }
+        if (entry['side']?.toString() == 'DARK' && userId != null) {
+          darkId = userId;
+        }
+        if (userId == _myUserId) {
+          myReady = ready;
+        } else if (userId != null && userId.isNotEmpty) {
+          oppReady = ready;
+        }
+      }
+    }
+    bool opponentConnected = state.opponentConnected;
+    if (payload['connection'] is List && _myUserId != null) {
+      for (final raw in payload['connection'] as List) {
+        final entry = raw is Map ? Map<String, dynamic>.from(raw) : null;
+        if (entry == null) continue;
+        if (entry['userId']?.toString() == _myUserId) continue;
+        opponentConnected = entry['status']?.toString() != 'disconnected';
+      }
+    }
+
+    // `match.state` carries participants, not player ids; map sides back so
+    // GameState can derive player1/player2 for turn ownership checks.
+    if (lightId != null || darkId != null) {
+      payload['players'] = <String, dynamic>{
+        'light': lightId ?? payload['player1'] ?? '',
+        'dark': darkId ?? payload['player2'] ?? '',
+      };
+    }
+
+    GameState? gameState;
+    try {
+      gameState = GameState.fromJson(payload);
+    } catch (_) {
+      return;
+    }
+    state = state.copyWith(
+      gameState: gameState,
+      syncState: MatchSyncState.synced,
+      isMovePending: false,
+      clearRejection: true,
+      playerReadyConfirmed: myReady ?? state.playerReadyConfirmed,
+      opponentReadyConfirmed: oppReady ?? state.opponentReadyConfirmed,
+      opponentConnected: opponentConnected,
+    );
+  }
+
   void dismissPromotion() {
     state = state.copyWith(promotionVisible: false);
   }
@@ -381,6 +473,7 @@ class MatchNotifier extends StateNotifier<MatchState> {
       subscription.cancel();
     }
     _connectivitySubscription?.cancel();
+    _reconnectSubscription?.cancel();
     super.dispose();
   }
 }

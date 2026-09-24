@@ -74,14 +74,7 @@ class _ArenaScreenState extends ConsumerState<ArenaScreen> {
       ref.read(matchFlowProvider.notifier).loadArena();
       return;
     }
-    final intent = MatchFlowIntent(
-      kind: MatchEntryKind.openMatch,
-      terms: match.terms,
-      openMatchId: match.id,
-      opponent: match.host,
-    );
-    ref.read(matchFlowProvider.notifier).review(intent);
-    context.go('/play/confirm');
+    context.push('/play/match-details', extra: match);
   }
 
   @override

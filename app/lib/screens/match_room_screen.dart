@@ -9,6 +9,7 @@ import '../providers/match_provider.dart';
 import '../providers/profile_provider.dart';
 import '../theme/colors.dart';
 import '../widgets/flow_widgets.dart';
+import 'match_lifecycle_screens.dart';
 
 class MatchRoomScreen extends ConsumerStatefulWidget {
   const MatchRoomScreen({super.key, required this.matchId});
@@ -41,9 +42,10 @@ class _MatchRoomScreenState extends ConsumerState<MatchRoomScreen> {
   @override
   void initState() {
     super.initState();
-    Future.microtask(
-      () => ref.read(matchProvider.notifier).fetchGameState(widget.matchId),
-    );
+    Future.microtask(() {
+      ref.read(matchProvider.notifier).joinMatch(widget.matchId);
+      ref.read(matchProvider.notifier).fetchGameState(widget.matchId);
+    });
   }
 
   Future<void> _enterMatch() async {
@@ -63,10 +65,42 @@ class _MatchRoomScreenState extends ConsumerState<MatchRoomScreen> {
         game.gameState != null && game.syncState == MatchSyncState.synced;
     final offline = game.syncState == MatchSyncState.offline;
     final opponentDisconnected = !game.opponentConnected;
+    final status = (game.gameState?.status ?? '').toLowerCase();
+    final inProgress = status == 'in_progress';
     final ended =
-        game.gameState?.status == 'completed' ||
-        game.gameState?.status == 'draw';
+        status == 'completed' || status == 'draw';
     final opponent = intent?.opponent;
+
+    // --- Pre-start lifecycle phases (the real readiness machine) -----------
+    // A funded match sits in `ready_pending` until BOTH participants emit
+    // `player.ready`. The server broadcasts each side's readiness and the
+    // eventual in_progress flip over `match.state`, which the provider applies
+    // into `playerReadyConfirmed` / `opponentReadyConfirmed`.
+    final lifecycleSnapshot = MatchLifecycleSnapshot(
+      phase: MatchLifecyclePhase.readyCheck,
+      terms: terms,
+      matchId: widget.matchId,
+      opponent: opponent,
+      playerReady: game.playerReadyConfirmed == true
+          ? AuthoritativeProgress.confirmed
+          : AuthoritativeProgress.pending,
+      opponentReady: game.opponentReadyConfirmed == true
+          ? AuthoritativeProgress.confirmed
+          : AuthoritativeProgress.pending,
+    );
+
+    if (game.gameState != null && !ended && !inProgress) {
+      if (opponentDisconnected) {
+        return OpponentDisconnectedBeforeStartScreen(snapshot: lifecycleSnapshot);
+      }
+      if (game.playerReadyConfirmed == true) {
+        return WaitingOpponentReadyScreen(snapshot: lifecycleSnapshot);
+      }
+      return ReadyCheckScreen(
+        snapshot: lifecycleSnapshot,
+        onReady: () async => ref.read(matchProvider.notifier).markReady(),
+      );
+    }
 
     return PopScope(
       canPop: game.gameState == null,

@@ -23,9 +23,9 @@ export const processReadyGateSweep = async ({ now = Date.now(), timeoutMs = READ
   const rows = await prisma.match.findMany({
     where: {
       status: { in: ['FUNDED', 'READY'] },
-      updatedAt: { lt: threshold }
+      createdAt: { lt: threshold }
     },
-    orderBy: { updatedAt: 'asc' },
+    orderBy: { createdAt: 'asc' },
     take: 50,
     select: { id: true, playerLightId: true, playerDarkId: true }
   });

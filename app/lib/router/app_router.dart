@@ -10,6 +10,7 @@ import '../screens/match_screen.dart';
 import '../screens/arena_screen.dart';
 import '../screens/create_match_screen.dart';
 import '../screens/match_confirmation_screen.dart';
+import '../screens/match_lifecycle_screens.dart';
 import '../screens/matchmaking_screen.dart';
 import '../screens/match_room_screen.dart';
 import '../screens/match_result_screen.dart';
@@ -19,6 +20,7 @@ import '../screens/wallet_read_screens.dart';
 import '../models/wallet_read.dart';
 import '../screens/checkout_webview_screen.dart';
 import '../screens/settings_screen.dart';
+import '../screens/settlement_result_screens.dart';
 import '../screens/results_screen.dart';
 import '../widgets/main_layout.dart';
 
@@ -115,6 +117,12 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         builder: (context, state) => const MatchConfirmationScreen(),
       ),
       GoRoute(
+        path: '/play/match-details',
+        redirect: (context, state) => state.extra is OpenMatch ? null : '/arena',
+        builder: (context, state) =>
+            OpenMatchDetailsScreen(match: state.extra! as OpenMatch),
+      ),
+      GoRoute(
         path: '/play/search',
         builder: (context, state) => const MatchmakingScreen(),
       ),
@@ -136,6 +144,13 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           final matchId = state.pathParameters['id']!;
           return MatchScreen(matchId: matchId);
         },
+      ),
+      GoRoute(
+        path: '/matches/:id/receipt',
+        builder: (context, state) => MatchReceiptScreen(
+          matchId: state.pathParameters['id']!,
+          initialReceipt: state.extra as MatchReceiptData?,
+        ),
       ),
       GoRoute(
         path: '/checkout',
