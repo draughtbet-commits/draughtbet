@@ -1,4 +1,4 @@
-const TODAY = () => new Date().toISOString().slice(0, 10);
+const TODAY = () => new Date(new Date().toISOString().slice(0, 10));
 
 /**
  * SaferPlayDailyUsage — a per-user, per-day, per-currency accumulator for the
