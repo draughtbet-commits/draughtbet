@@ -53,10 +53,15 @@ class RecordingAdapter implements HttpClientAdapter {
 
 (Dio, RecordingAdapter) client() {
   final adapter = RecordingAdapter();
-  final dio = Dio(BaseOptions(baseUrl: 'https://api.example.test'));
+  // The v2 contract keeps the versioned prefix on the base URL (the app's
+  // .env ships BACKEND_URL=http://<host>:3000/api/v1); gateway paths stay
+  // relative, so the wire request is baseUrl + path.
+  final dio = Dio(BaseOptions(baseUrl: 'https://api.example.test/api/v1'));
   dio.httpClientAdapter = adapter;
   return (dio, adapter);
 }
+
+String wireUrl(RequestOptions request) => '${request.baseUrl}${request.path}';
 
 void main() {
   group('PR4 match V2 contract', () {
@@ -85,7 +90,7 @@ void main() {
         contract: v2,
       ).loadOpenMatches();
 
-      expect(adapter.requests.single.path, '/api/v1/matches');
+      expect(wireUrl(adapter.requests.single), 'https://api.example.test/api/v1/matches');
       expect(matches.single.id, 'mat_1');
       expect(matches.single.terms.stakeMinorUnits, 200000);
       expect(matches.single.host.name, 'KingMoves');
@@ -110,7 +115,7 @@ void main() {
 
         final request = adapter.requests.single;
         expect(id, 'mat_2');
-        expect(request.path, '/api/v1/matches');
+        expect(wireUrl(request), 'https://api.example.test/api/v1/matches');
         expect(request.headers['Idempotency-Key'], isNotEmpty);
         expect(request.data, {
           'stakeMinor': 200000,
@@ -137,9 +142,9 @@ void main() {
       await gateway.leaveQueue(terms);
 
       expect(gateway.lastSearchId, isNull);
-      expect(adapter.requests[0].path, '/api/v1/matchmaking/search');
+      expect(wireUrl(adapter.requests[0]), 'https://api.example.test/api/v1/matchmaking/search');
       expect(adapter.requests[1].method, 'DELETE');
-      expect(adapter.requests[1].path, '/api/v1/matchmaking/search/mm_1');
+      expect(wireUrl(adapter.requests[1]), 'https://api.example.test/api/v1/matchmaking/search/mm_1');
       expect(adapter.requests[1].headers['Idempotency-Key'], isNotEmpty);
     });
   });
@@ -173,7 +178,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(adapter.requests.single.path, '/api/v1/me/matches');
+      expect(wireUrl(adapter.requests.single), 'https://api.example.test/api/v1/me/matches');
       expect(find.text('VICTORY'), findsOneWidget);
       expect(find.text('₦3,600'), findsOneWidget);
       expect(find.text('Payout'), findsOneWidget);
@@ -198,7 +203,7 @@ void main() {
 
       final receipt = await SettlementGateway(dio, v2).fetchReceipt('mat_1');
 
-      expect(adapter.requests.single.path, '/api/v1/matches/mat_1/receipt');
+      expect(wireUrl(adapter.requests.single), 'https://api.example.test/api/v1/matches/mat_1/receipt');
       expect(receipt, isNotNull);
       expect(receipt!.result, isNull);
       expect(receipt.opponent, isNull);
@@ -246,9 +251,9 @@ void main() {
 
       expect(intent.reference, 'dep_1');
       expect(intent.reference, isNot(contains('provider-secret')));
-      expect(adapter.requests[0].path, '/api/v1/deposits');
+      expect(wireUrl(adapter.requests[0]), 'https://api.example.test/api/v1/deposits');
       expect(adapter.requests[0].headers['Idempotency-Key'], 'deposit-key-1');
-      expect(adapter.requests[1].path, '/api/v1/deposits/dep_1');
+      expect(wireUrl(adapter.requests[1]), 'https://api.example.test/api/v1/deposits/dep_1');
       expect(confirmed!.status, DepositStatus.successful);
     });
   });
@@ -303,12 +308,12 @@ void main() {
       );
 
       expect(account.maskedAccountNumber, '******1234');
-      expect(adapter.requests[1].path, '/api/v1/withdrawals');
+      expect(wireUrl(adapter.requests[1]), 'https://api.example.test/api/v1/withdrawals');
       expect(
         adapter.requests[1].headers['Idempotency-Key'],
         'withdrawal-key-1',
       );
-      expect(adapter.requests[2].path, '/api/v1/withdrawals/wd_1');
+      expect(wireUrl(adapter.requests[2]), 'https://api.example.test/api/v1/withdrawals/wd_1');
       expect(confirmed!.status, WithdrawalStatus.successful);
     });
 

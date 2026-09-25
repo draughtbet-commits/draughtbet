@@ -113,6 +113,20 @@ Future<Map<String, dynamic>?> getPendingChallenge(String token) async {
   }
 }
 
+const parkSeconds = int.fromEnvironment('PARK_SECONDS', defaultValue: 0);
+const readytap = int.fromEnvironment('READYTAP', defaultValue: 0);
+
+void logVisible(WidgetTester tester, String tag) {
+  final texts = <String>{};
+  for (final w in tester.allWidgets) {
+    if (w is Text && w.data != null && w.data!.isNotEmpty) {
+      texts.add(w.data!);
+    }
+  }
+  // ignore: avoid_print
+  print('=== $tag visible text: ${texts.toList()..sort()}');
+}
+
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
@@ -195,7 +209,33 @@ void main() {
         isNotEmpty,
         reason: 'the inviter should reach the ready screen after the join',
       );
+
+      if (readytap > 0) {
+        await tester.tap(find.text('I am ready'));
+        await tester.pump(const Duration(seconds: 2));
+        final waitDeadline = DateTime.now().add(const Duration(seconds: 20));
+        while (find.text('WAITING FOR OPPONENT').evaluate().isEmpty &&
+            DateTime.now().isBefore(waitDeadline)) {
+          await tester.pump(const Duration(seconds: 1));
+        }
+        expect(
+          find.text('WAITING FOR OPPONENT').evaluate(),
+          isNotEmpty,
+          reason: 'tapping I am ready should land on the waiting-for-opponent screen',
+        );
+        logVisible(tester, 'WAITING FOR OPPONENT parked');
+      } else {
+        logVisible(tester, 'READY CHECK parked');
+      }
+      if (parkSeconds > 0) {
+        final holdUntil = DateTime.now().add(Duration(seconds: parkSeconds));
+        while (DateTime.now().isBefore(holdUntil)) {
+          await tester.pump(const Duration(seconds: 5));
+        }
+      }
     },
-    timeout: const Timeout(Duration(minutes: 5)),
+    timeout: Timeout(
+      Duration(minutes: parkSeconds > 0 ? parkSeconds ~/ 60 + 5 : 5),
+    ),
   );
 }

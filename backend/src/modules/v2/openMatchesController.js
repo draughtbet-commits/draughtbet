@@ -20,6 +20,7 @@ import {
   createOpenMatch,
   fundOpenMatch,
   listOpenMatches,
+  listActiveMatches,
   buildLifecycleSnapshot,
   markReady,
   MatchNotFoundError,
@@ -319,6 +320,18 @@ openMatchRouter.post('/:id/decline', requireAuth, requireIdempotencyKey({ scope:
     if (err instanceof JoinUnavailableError) {
       return res.status(409).json({ error: { code: 'MATCH_NOT_AVAILABLE', message: err.message } });
     }
+    next(err);
+  }
+});
+
+// ALL pre-start matches the caller holds as participants (OPEN / FUNDED /
+// READY), newest first, as lifecycle snapshots. Registered before /:id so the
+// literal path is not mistaken for a match id.
+openMatchRouter.get('/active', requireAuth, async (req, res, next) => {
+  try {
+    const matches = await listActiveMatches(req.user.id);
+    res.json({ data: matches });
+  } catch (err) {
     next(err);
   }
 });

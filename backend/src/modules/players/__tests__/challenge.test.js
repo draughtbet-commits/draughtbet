@@ -85,6 +85,7 @@ jest.unstable_mockModule('../../../modules/v2/lifecycleService.js', () => ({
     return Promise.reject(lifecycleJoin.fundError);
   }),
   listOpenMatches: jest.fn(),
+  listActiveMatches: jest.fn(),
   buildLifecycleSnapshot: jest.fn(),
   markReady: jest.fn(),
   matchesJoinedOpenStatuses: jest.fn()

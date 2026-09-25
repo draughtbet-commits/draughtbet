@@ -20,6 +20,7 @@ const targetPassword = String.fromEnvironment(
   defaultValue: 'Draughts@Dev2026',
 );
 const targetStakeMinor = int.fromEnvironment('TARGET_STAKEMINOR', defaultValue: 3000000);
+const targetLimitMinor = int.fromEnvironment('TARGET_LIMITMINOR', defaultValue: 3000000);
 
 const _base = 'http://10.0.2.2:3000/api/v1';
 
@@ -128,7 +129,7 @@ MatchLifecycleSnapshot snapshotFor(String route, String matchId, int balance) {
     matchId: matchId,
     terms: terms,
     availableBalanceMinorUnits: balance,
-    limitMinorUnits: 10000000,
+    limitMinorUnits: targetLimitMinor,
     roomCode: route == '/play/private-room' ? 'BETA-NGX4' : null,
     playerReady: AuthoritativeProgress.confirmed,
     opponentReady:

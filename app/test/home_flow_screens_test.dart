@@ -73,6 +73,9 @@ class StaticFlowNotifier extends MatchFlowNotifier {
 
   @override
   Future<void> loadArena() async {}
+
+  @override
+  Future<void> loadActiveMatches() async {}
 }
 
 class NavigationFlowNotifier extends MatchFlowNotifier {
@@ -82,6 +85,9 @@ class NavigationFlowNotifier extends MatchFlowNotifier {
 
   @override
   Future<void> loadArena() async {}
+
+  @override
+  Future<void> loadActiveMatches() async {}
 
   @override
   Future<String?> confirm() async {
@@ -328,7 +334,7 @@ void main() {
     expect(find.text('FIND A MATCH'), findsOneWidget);
     expect(find.text('Quick Match'), findsOneWidget);
     expect(find.text('₦2K'), findsOneWidget);
-    expect(find.text('MATCH IN PROGRESS'), findsOneWidget);
+    expect(find.text('ACTIVE MATCHES'), findsOneWidget);
   });
 
   testWidgets('Arena renders approved open-match card content', (tester) async {

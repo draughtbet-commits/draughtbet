@@ -648,6 +648,30 @@ export const listOpenMatches = async (userId) => {
   return matches.map((m) => openMatchListing(m));
 };
 
+/** Every pre-start match the user holds (OPEN / FUNDED / READY) as a lifecycle
+ *  snapshot, newest first. Lets the app Home surface stranded pre-play matches.
+ */
+export const listActiveMatches = async (userId) => {
+  const rows = await prisma.match.findMany({
+    where: {
+      status: { in: ['OPEN', 'FUNDED', 'READY'] },
+      OR: [{ playerLightId: userId }, { playerDarkId: userId }]
+    },
+    orderBy: { createdAt: 'desc' },
+    take: 50,
+    select: { id: true }
+  });
+  const snapshots = await Promise.all(
+    rows.map(({ id }) =>
+      buildLifecycleSnapshot(prisma, id, userId).catch((err) => {
+        logger.warn({ err, matchId: id }, 'active match snapshot failed');
+        return null;
+      })
+    )
+  );
+  return snapshots.filter((snapshot) => snapshot !== null);
+};
+
 export default {
   buildLifecycleSnapshot,
   markReady,
@@ -655,6 +679,7 @@ export default {
   createChallengeMatch,
   fundOpenMatch,
   listOpenMatches,
+  listActiveMatches,
   openMatchListing,
   startWhenBothReady
 };

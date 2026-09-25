@@ -16,6 +16,7 @@ class MatchFlowState {
     this.searchId,
     this.lifecycle,
     this.message,
+    this.activeMatches = const [],
   });
 
   final LoadPhase arenaPhase;
@@ -27,6 +28,7 @@ class MatchFlowState {
   final String? searchId;
   final MatchLifecycleSnapshot? lifecycle;
   final String? message;
+  final List<MatchLifecycleSnapshot> activeMatches;
 
   MatchFlowState copyWith({
     LoadPhase? arenaPhase,
@@ -38,6 +40,7 @@ class MatchFlowState {
     String? searchId,
     MatchLifecycleSnapshot? lifecycle,
     String? message,
+    List<MatchLifecycleSnapshot>? activeMatches,
     bool clearCurrentMatchId = false,
     bool clearSearchId = false,
     bool clearMessage = false,
@@ -54,6 +57,7 @@ class MatchFlowState {
       searchId: clearSearchId ? null : searchId ?? this.searchId,
       lifecycle: lifecycle ?? this.lifecycle,
       message: clearMessage ? null : message ?? this.message,
+      activeMatches: activeMatches ?? this.activeMatches,
     );
   }
 }
@@ -84,6 +88,20 @@ class MatchFlowNotifier extends StateNotifier<MatchFlowState> {
         arenaPhase: LoadPhase.error,
         message: 'We could not refresh the Arena. Try again.',
       );
+    }
+  }
+
+  /// Refresh the caller's pre-start matches (OPEN / FUNDED / READY) surfaced
+  /// on Home so stranded, still-locked matches are never invisible.
+  Future<void> loadActiveMatches() async {
+    try {
+      final matches = await _gateway.loadActiveMatches();
+      state = state.copyWith(
+        activeMatches: matches,
+        actionPhase: MatchActionPhase.idle,
+      );
+    } catch (_) {
+      state = state.copyWith(activeMatches: const []);
     }
   }
 

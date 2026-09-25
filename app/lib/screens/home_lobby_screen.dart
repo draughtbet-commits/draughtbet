@@ -30,6 +30,7 @@ class _HomeLobbyScreenState extends ConsumerState<HomeLobbyScreen> {
     Future.microtask(() {
       ref.read(profileProvider.notifier).load();
       ref.read(matchFlowProvider.notifier).loadArena();
+      ref.read(matchFlowProvider.notifier).loadActiveMatches();
       ref.read(matchProvider.notifier).restoreActiveMatch();
     });
   }
@@ -52,6 +53,8 @@ class _HomeLobbyScreenState extends ConsumerState<HomeLobbyScreen> {
     final matchState = ref.watch(matchProvider);
     final flow = ref.watch(matchFlowProvider);
     final actionPending = flow.actionPhase == MatchActionPhase.submitting;
+    final hasActiveMatches = flow.activeMatches.isNotEmpty;
+    final hasStartedMatch = matchState.currentMatchId != null;
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -295,10 +298,10 @@ class _HomeLobbyScreenState extends ConsumerState<HomeLobbyScreen> {
                 ),
               ),
             ],
-            if (matchState.currentMatchId != null) ...[
+            if (hasActiveMatches || hasStartedMatch) ...[
               const SizedBox(height: 18),
               Text(
-                'MATCH IN PROGRESS',
+                'ACTIVE MATCHES',
                 style: TextStyle(
                   fontFamily: 'Inter',
                   color: AppColors.valueAccent,
@@ -308,56 +311,150 @@ class _HomeLobbyScreenState extends ConsumerState<HomeLobbyScreen> {
                 ),
               ),
               const SizedBox(height: 8),
-              FlowCard(
-                borderColor: AppColors.primaryAction.withValues(alpha: .6),
-                child: Row(
-                  children: [
-                    const GameAvatar(size: 40, label: 'Opponent'),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Active match',
-                            style: TextStyle(
-                              fontFamily: 'Sora',
-                              fontSize: 13,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                          Text(
-                            matchState.syncState == MatchSyncState.offline
-                                ? 'Offline · reconnect to continue'
-                                : 'Your turn · state verified',
-                            style: TextStyle(
-                              fontFamily: 'Inter',
-                              color: AppColors.textSecondary,
-                              fontSize: 10,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    OutlinedButton(
-                      onPressed: () =>
-                          context.go('/match/${matchState.currentMatchId}'),
-                      style: OutlinedButton.styleFrom(
-                        minimumSize: const Size(0, 42),
-                        side: const BorderSide(color: AppColors.primaryBright),
-                      ),
-                      child: const Text(
-                        'Return to Match',
-                        style: TextStyle(fontSize: 11),
-                      ),
-                    ),
-                  ],
+              ...flow.activeMatches.map(
+                (active) => Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: _ActiveMatchCard(snapshot: active),
                 ),
               ),
+              if (hasStartedMatch) ...[
+                const SizedBox(height: 8),
+                FlowCard(
+                  borderColor: AppColors.primaryAction.withValues(alpha: .6),
+                  child: Row(
+                    children: [
+                      const GameAvatar(size: 40, label: 'Opponent'),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'In play',
+                              style: TextStyle(
+                                fontFamily: 'Sora',
+                                fontSize: 13,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            Text(
+                              matchState.syncState == MatchSyncState.offline
+                                  ? 'Offline · reconnect to continue'
+                                  : 'Your turn · state verified',
+                              style: TextStyle(
+                                fontFamily: 'Inter',
+                                color: AppColors.textSecondary,
+                                fontSize: 10,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      OutlinedButton(
+                        onPressed: () =>
+                            context.go('/match/${matchState.currentMatchId}'),
+                        style: OutlinedButton.styleFrom(
+                          minimumSize: const Size(0, 42),
+                          side: const BorderSide(color: AppColors.primaryBright),
+                        ),
+                        child: const Text(
+                          'Return to Match',
+                          style: TextStyle(fontSize: 11),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ],
             const SizedBox(height: 12),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// One pre-start match the caller holds (OPEN / FUNDED / READY), surfaced so a
+/// still-locked match is never invisible. Return routes to the correct
+/// lifecycle screen carrying the real snapshot.
+class _ActiveMatchCard extends StatelessWidget {
+  const _ActiveMatchCard({required this.snapshot});
+
+  final MatchLifecycleSnapshot snapshot;
+
+  String get _route => switch (snapshot.phase) {
+        MatchLifecyclePhase.readyCheck => '/play/ready',
+        MatchLifecyclePhase.waitingOpponentReady => '/play/waiting-ready',
+        _ => '/play/waiting-stake',
+      };
+
+  String get _status => switch (snapshot.phase) {
+        MatchLifecyclePhase.readyCheck =>
+          'Both stakes confirmed · ready to start',
+        MatchLifecyclePhase.waitingOpponentReady =>
+          'Waiting for opponent to confirm',
+        _ => 'Waiting for an opponent stake',
+      };
+
+  String get _opponentLabel {
+    final name = snapshot.opponent?.name ?? '';
+    return name.isEmpty ? '?' : name.substring(0, 1);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final opponentName = snapshot.opponent?.name ?? 'No opponent yet';
+    return FlowCard(
+      borderColor: AppColors.primaryAction.withValues(alpha: .6),
+      child: Row(
+        children: [
+          GameAvatar(size: 40, label: _opponentLabel),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  opponentName,
+                  style: const TextStyle(
+                    fontFamily: 'Sora',
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                Text(
+                  Money(snapshot.terms.stakeMinorUnits).format(),
+                  style: TextStyle(
+                    fontFamily: 'Inter',
+                    color: AppColors.valueAccent,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                Text(
+                  _status,
+                  style: TextStyle(
+                    fontFamily: 'Inter',
+                    color: AppColors.textSecondary,
+                    fontSize: 10,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          OutlinedButton(
+            onPressed: () => context.go(_route, extra: snapshot),
+            style: OutlinedButton.styleFrom(
+              minimumSize: const Size(0, 42),
+              side: const BorderSide(color: AppColors.primaryBright),
+            ),
+            child: const Text(
+              'Return to Room',
+              style: TextStyle(fontSize: 11),
+            ),
+          ),
+        ],
       ),
     );
   }

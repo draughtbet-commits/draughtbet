@@ -249,6 +249,24 @@ class MatchFlowGateway {
     return _lifecycleFromV2(unwrapData(response.data), fallbackTerms);
   }
 
+  /// Every pre-start match the caller holds (OPEN / FUNDED / READY), newest
+  /// first, as lifecycle snapshots served by GET /matches/active.
+  Future<List<MatchLifecycleSnapshot>> loadActiveMatches() async {
+    if (!isV2) return const [];
+    final response = await _dio.get<dynamic>('/matches/active');
+    final list = unwrapDataList(response.data) ?? const [];
+    const fallback = MatchTerms(stakeMinorUnits: 0);
+    return list
+        .map((item) => item is Map
+            ? _lifecycleFromV2(
+                Map<String, dynamic>.from(item),
+                fallback,
+              )
+            : null)
+        .whereType<MatchLifecycleSnapshot>()
+        .toList(growable: false);
+  }
+
   Future<MatchLifecycleSnapshot?> markReady(
     String matchId,
     MatchTerms fallbackTerms,
