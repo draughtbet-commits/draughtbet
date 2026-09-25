@@ -26,6 +26,9 @@ const mockPrisma = {
   match: {
     findFirst: jest.fn()
   },
+  gameOutbox: {
+    findUnique: jest.fn()
+  },
   idempotencyRecord: {
     findUnique: jest.fn(),
     create: jest.fn(),
@@ -63,15 +66,24 @@ const namedError = (name) =>
     }
   };
 
+// The controller's copy of the lifecycle mock is selected by jest's module mock
+// registry, so per-request outcomes are steered through a shared behavior object
+// the factory reads rather than through the test-side mock binding.
+const lifecycleJoin = { calls: [], fundError: null };
+
 jest.unstable_mockModule('../../../modules/v2/lifecycleService.js', () => ({
   MatchNotFoundError: namedError('MatchNotFoundError'),
   NotParticipantError: namedError('NotParticipantError'),
   MatchNotReadyError: namedError('MatchNotReadyError'),
+  ActiveMatchError: namedError('ActiveMatchError'),
   JoinUnavailableError: namedError('JoinUnavailableError'),
   TierMismatchError: namedError('TierMismatchError'),
   createOpenMatch: jest.fn(),
   createChallengeMatch: jest.fn(),
-  fundOpenMatch: jest.fn(),
+  fundOpenMatch: jest.fn((...args) => {
+    lifecycleJoin.calls.push(args);
+    return Promise.reject(lifecycleJoin.fundError);
+  }),
   listOpenMatches: jest.fn(),
   buildLifecycleSnapshot: jest.fn(),
   markReady: jest.fn(),
@@ -123,6 +135,8 @@ const targetRow = (overrides = {}) => ({
 describe('Player challenge surface', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    lifecycleJoin.calls.length = 0;
+    lifecycleJoin.fundError = new lifecycle.ActiveMatchError('You already have an active match');
     mockPrisma.idempotencyRecord.findUnique.mockResolvedValue(null);
     mockPrisma.idempotencyRecord.create.mockResolvedValue({});
     mockPrisma.idempotencyRecord.update.mockResolvedValue({});
@@ -421,6 +435,36 @@ describe('Player challenge surface', () => {
         null,
         'match-1'
       );
+    });
+  });
+
+  describe('POST /api/v1/matches/:id/join', () => {
+    it('returns 409 when the joiner already holds an active match', async () => {
+      lifecycleJoin.fundError = new lifecycle.ActiveMatchError('You already have an active match');
+
+      const res = await request(app)
+        .post('/api/v1/matches/match-1/join')
+        .set(authHeaders);
+
+      expect(res.status).toBe(409);
+      expect(res.body).toEqual({
+        error: 'You already have an active match'
+      });
+      expect(lifecycleJoin.calls).toEqual([
+        ['user-1', 'match-1', { tier: 'AMATEUR' }]
+      ]);
+      expect(activation.finalizeMatchActivation).not.toHaveBeenCalled();
+    });
+
+    it('returns 404 when the target match does not exist', async () => {
+      lifecycleJoin.fundError = new lifecycle.MatchNotFoundError('Match not found');
+
+      const res = await request(app)
+        .post('/api/v1/matches/match-missing/join')
+        .set({ ...authHeaders, 'Idempotency-Key': 'match-join-0002' });
+
+      expect(res.status).toBe(404);
+      expect(res.body).toEqual({ error: 'Match not found' });
     });
   });
 });

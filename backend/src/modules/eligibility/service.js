@@ -37,7 +37,17 @@ const CODES_BY_NAME = {
   SelfExcludedError: 403,
   TimeoutActiveError: 403,
   StakeLimitExceededError: 422,
-  DepositLimitExceededError: 422
+  DepositLimitExceededError: 422,
+  // v2 match lifecycle domain errors (fund/join/decline/cancel surface).
+  ActiveMatchError: 409,
+  NotParticipantError: 403,
+  MatchNotFoundError: 404,
+  MatchNotReadyError: 409,
+  SelfJoinError: 400,
+  JoinUnavailableError: 409,
+  TierMismatchError: 409,
+  NotEligibleError: 403,
+  InsufficientFundsError: 402
 };
 
 /**

@@ -16,7 +16,8 @@ import { getIO } from '../../sockets/index.js';
 import { assertEligibleForMoney } from '../../services/eligibilityService.js';
 import {
   lockWalletsInOrder,
-  lockWalletForUpdate
+  lockWalletForUpdate,
+  ActiveMatchError
 } from '../../services/matchService.js';
 import { getLedgerAvailable } from '../../services/ledgerService.js';
 import { reserveBothStakes } from '../stake/service.js';
@@ -515,7 +516,7 @@ export const fundOpenMatch = async (joinerId, matchId, { tier: joinerTier } = {}
     // OPEN listing is this match, so it is excluded below.
     const competing = await matchesJoinedOpenStatuses(tx, joinerId, matchId);
     if (competing) {
-      throw new Error('Joiner already has an active match');
+      throw new ActiveMatchError('You already have an active match');
     }
 
     const [wLight, wDark] = await lockWalletsInOrder(

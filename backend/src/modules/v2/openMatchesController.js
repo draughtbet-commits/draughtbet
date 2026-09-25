@@ -53,6 +53,8 @@ const errorStatusFor = (err) => {
     case 'MatchNotFoundError':
       return 404;
     case 'JoinUnavailableError':
+    case 'ActiveMatchError':
+    case 'MatchNotReadyError':
       return 409;
     default:
       return 500;
