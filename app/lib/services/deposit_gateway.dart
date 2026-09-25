@@ -24,7 +24,7 @@ class DepositGateway {
     required DepositPaymentMethod method,
   }) async {
     final response = await _dio.post<dynamic>(
-      contract.isV2 ? '/api/v1/deposits' : '/wallet/deposit-intent',
+      contract.isV2 ? '/deposits' : '/wallet/deposit-intent',
       data: contract.isV2
           ? {
               'amountMinor': quote.amountMinorUnits,
@@ -60,7 +60,7 @@ class DepositGateway {
     DepositIntentData? previous,
   }) async {
     if (!contract.isV2) return null;
-    final response = await _dio.get<dynamic>('/api/v1/deposits/$reference');
+    final response = await _dio.get<dynamic>('/deposits/$reference');
     return DepositIntentData.tryFromServer(response.data, previous: previous);
   }
 }

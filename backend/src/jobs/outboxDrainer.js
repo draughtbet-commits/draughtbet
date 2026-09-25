@@ -85,6 +85,7 @@ export const deliverEvent = async (event) => {
       message: p.message,
       link: p.link,
       matchId: p.matchId,
+      isRead: p.isRead ?? false,
       createdAt: p.createdAt
     });
     if (!sockets || sockets.length === 0) {

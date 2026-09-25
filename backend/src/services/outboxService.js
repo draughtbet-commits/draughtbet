@@ -70,6 +70,7 @@ export async function enqueueNotificationDelivery(tx, notification, { dedupeKey 
       message: notification.message,
       link: notification.link ?? null,
       matchId: notification.matchId ?? null,
+      isRead: notification.isRead ?? false,
       createdAt: notification.createdAt ? notification.createdAt.toISOString() : null
     }
   });

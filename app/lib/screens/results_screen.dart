@@ -41,7 +41,7 @@ class _ResultsScreenState extends ConsumerState<ResultsScreen> {
       _currentUserId = _usingV2 ? null : await _storage.userId;
       final dio = ref.read(apiClientProvider);
       final res = await dio.get(
-        _usingV2 ? '/api/v1/me/matches' : '/matches/history',
+        _usingV2 ? '/me/matches' : '/matches/history',
       );
 
       if (res.statusCode == 200 && res.data is Map) {

@@ -17,7 +17,7 @@ class MatchFlowGateway {
 
   Future<List<OpenMatch>> loadOpenMatches() async {
     if (isV2) {
-      final response = await _dio.get<dynamic>('/api/v1/matches');
+      final response = await _dio.get<dynamic>('/matches');
       return (unwrapDataList(response.data) ?? const [])
           .map(_openMatchFromV2)
           .whereType<OpenMatch>()
@@ -80,7 +80,7 @@ class MatchFlowGateway {
   Future<String?> acceptOpenMatch(String matchId) async {
     final operation = 'match-join:$matchId';
     final response = await _dio.post<dynamic>(
-      isV2 ? '/api/v1/matches/$matchId/join' : '/callouts/$matchId/accept',
+      isV2 ? '/matches/$matchId/join' : '/callouts/$matchId/accept',
       options: isV2 ? _idempotent(operation) : null,
     );
     _complete(operation);
@@ -96,7 +96,7 @@ class MatchFlowGateway {
     final operation =
         'match-create:${terms.stakeMinorUnits}:${terms.timeControl}:${terms.gameType}:${terms.visibility}';
     final response = await _dio.post<dynamic>(
-      isV2 ? '/api/v1/matches' : '/callouts',
+      isV2 ? '/matches' : '/callouts',
       data: isV2
           ? {
               'stakeMinor': terms.stakeMinorUnits,
@@ -127,7 +127,7 @@ class MatchFlowGateway {
     final operation =
         'matchmaking-search:${terms.stakeMinorUnits}:${terms.timeControl}:${terms.gameType}';
     final response = await _dio.post<dynamic>(
-      '/api/v1/matchmaking/search',
+      '/matchmaking/search',
       data: {
         'stakeMinor': terms.stakeMinorUnits,
         'timeControlSeconds': _timeControlSeconds(terms.timeControl),
@@ -153,7 +153,7 @@ class MatchFlowGateway {
     }
     final operation = 'matchmaking-cancel:$id';
     await _dio.delete<dynamic>(
-      '/api/v1/matchmaking/search/$id',
+      '/matchmaking/search/$id',
       options: _idempotent(operation),
     );
     _complete(operation);
@@ -165,7 +165,7 @@ class MatchFlowGateway {
     MatchTerms fallbackTerms,
   ) async {
     if (!isV2) return null;
-    final response = await _dio.get<dynamic>('/api/v1/matches/$matchId');
+    final response = await _dio.get<dynamic>('/matches/$matchId');
     return _lifecycleFromV2(unwrapData(response.data), fallbackTerms);
   }
 
@@ -176,7 +176,7 @@ class MatchFlowGateway {
     if (!isV2) return null;
     final operation = 'match-ready:$matchId';
     final response = await _dio.post<dynamic>(
-      '/api/v1/matches/$matchId/ready',
+      '/matches/$matchId/ready',
       options: _idempotent(operation),
     );
     _complete(operation);
@@ -190,7 +190,7 @@ class MatchFlowGateway {
     if (!isV2) return null;
     final operation = 'match-cancel:$matchId';
     final response = await _dio.post<dynamic>(
-      '/api/v1/matches/$matchId/cancel',
+      '/matches/$matchId/cancel',
       data: {'reason': 'CREATOR_CANCELLED'},
       options: _idempotent(operation),
     );

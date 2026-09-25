@@ -86,9 +86,14 @@ class SocketService {
     }
 
     final backendUrl = dotenv.env['BACKEND_URL'] ?? 'http://localhost:3000';
+    // BACKEND_URL is the REST base (…/api/v1); Socket.IO lives at the bare
+    // origin with its default /socket.io path on the root namespace (V2 event
+    // names like match.state are served there too). Connecting via the API
+    // prefix 404s, so strip it before handing the URL to socket.io-client.
+    final socketUrl = backendUrl.replaceFirst(RegExp(r'/?api/v1/?$'), '');
 
     _socket = socket_io.io(
-      contract.isV2 ? '$backendUrl/game' : backendUrl,
+      socketUrl,
       socket_io.OptionBuilder()
           .setTransports(['websocket'])
           .disableAutoConnect()

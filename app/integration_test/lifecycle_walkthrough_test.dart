@@ -39,7 +39,8 @@ void main() {
     await tester.pump(const Duration(seconds: 3));
 
     // Phase 0: reach the Home arena tab no matter where login lands us
-    // (landing page -> login screen -> home). Real network + socket here.
+    // (landing carousel -> welcome -> login screen -> home). Real network +
+    // socket here.
     const email = 'seed.dev@draughtsarena.net';
     const password = 'Draughts@Dev2026';
     final loginDeadline = DateTime.now().add(const Duration(minutes: 2));
@@ -59,9 +60,28 @@ void main() {
         await tester.pump(const Duration(seconds: 1));
         continue;
       }
-      final signIn = find.text('Sign In');
-      if (signIn.evaluate().isNotEmpty) {
-        await tester.tap(signIn);
+      // First run: leave the onboarding carousel. Slide 0 is a bare splash
+      // (swipe only); later slides expose Skip.
+      final pageView = find.byType(PageView);
+      if (pageView.evaluate().isNotEmpty) {
+        final skip = find.text('Skip');
+        if (skip.evaluate().isNotEmpty) {
+          await tester.tap(skip);
+          await tester.pump(const Duration(seconds: 1));
+          continue;
+        }
+        await tester.fling(
+          pageView,
+          const Offset(-420, 0),
+          1200,
+        );
+        await tester.pump(const Duration(seconds: 1));
+        continue;
+      }
+      // Welcome screen: open the login form.
+      final welcomeSignIn = find.text('Sign In');
+      if (welcomeSignIn.evaluate().isNotEmpty) {
+        await tester.tap(welcomeSignIn);
         await tester.pump(const Duration(seconds: 1));
         continue;
       }
@@ -98,35 +118,41 @@ void main() {
     );
     await tester.tap(find.text('Confirm & Lock Stake'));
 
-    // Phase 4: the room's real pre-start machine — ReadyCheck.
+    // Phase 4: the merged room syncs the canonical state; readiness is
+    // signaled server-side (seed via REST /ready, p2 via the watcher), then
+    // the game starts and the room unlocks Enter Match.
     await pumpUntil(
       tester,
-      find.text('READY CHECK'),
+      find.text('READY TO PLAY'),
       timeout: const Duration(seconds: 45),
-      what: 'ReadyCheck screen',
+      what: 'room synced',
     );
-    logVisible(tester, 'ready-check');
-    await tester.tap(find.text('I am ready'));
+    logVisible(tester, 'room');
 
-    // Phase 5: p2 watcher readies us into in_progress -> READY TO PLAY.
+    // Phase 5: both ready -> in_progress -> Enter Match.
     await pumpUntil(
       tester,
       find.text('Enter Match'),
       timeout: const Duration(seconds: 60),
       what: 'Enter Match (in_progress)',
     );
-    logVisible(tester, 'ready-to-play');
     await tester.tap(find.text('Enter Match'));
 
     // Phase 6: live play screen (p2 resigns after a beat -> seed wins).
     await pumpUntil(
       tester,
       find.byWidgetPredicate(
-        (w) => w is Text && (w.data == 'Victory' || w.data == 'Defeat'),
+        (w) =>
+            w is Text &&
+            (w.data?.toUpperCase() == 'VICTORY' ||
+                w.data?.toUpperCase() == 'DEFEAT'),
       ),
       timeout: const Duration(seconds: 90),
       what: 'result screen',
     );
     logVisible(tester, 'result');
+    // Let late socket-driven frames settle before teardown (the live clock can
+    // otherwise trip the binding's pending-frame assert).
+    await tester.pump(const Duration(seconds: 3));
   });
 }

@@ -22,7 +22,7 @@ class WithdrawalGateway {
 
   Future<List<WithdrawalBankAccount>?> fetchBankAccounts() async {
     if (!contract.isV2) return null;
-    final response = await _dio.get<dynamic>('/api/v1/me/bank-accounts');
+    final response = await _dio.get<dynamic>('/me/bank-accounts');
     final values = unwrapDataList(response.data);
     if (values == null) return null;
     return values
@@ -39,7 +39,7 @@ class WithdrawalGateway {
   }) async {
     if (!contract.isV2) return null;
     final response = await _dio.post<dynamic>(
-      '/api/v1/me/bank-accounts',
+      '/me/bank-accounts',
       data: {'bankCode': bankCode, 'accountNumber': accountNumber},
       options: Options(
         headers: {
@@ -64,7 +64,7 @@ class WithdrawalGateway {
   }) async {
     if (!contract.isV2) return null;
     final response = await _dio.post<dynamic>(
-      '/api/v1/withdrawals',
+      '/withdrawals',
       data: {
         'amountMinor': quote.amountMinorUnits,
         'bankAccountId': bankAccount.id,
@@ -87,7 +87,7 @@ class WithdrawalGateway {
     WithdrawalData? previous,
   }) async {
     if (!contract.isV2) return null;
-    final response = await _dio.get<dynamic>('/api/v1/withdrawals/$reference');
+    final response = await _dio.get<dynamic>('/withdrawals/$reference');
     return WithdrawalData.tryFromServer(response.data, previous: previous);
   }
 }

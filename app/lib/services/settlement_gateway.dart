@@ -28,7 +28,7 @@ class SettlementGateway {
   Future<MatchReceiptData?> fetchReceipt(String matchId) async {
     if (!contract.isV2 || _dio == null) return null;
     final response = await _dio.get<dynamic>(
-      '/api/v1/matches/$matchId/receipt',
+      '/matches/$matchId/receipt',
     );
     final body = response.data;
     if (body is! Map) return null;
