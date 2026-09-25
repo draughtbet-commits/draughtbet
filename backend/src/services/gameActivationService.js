@@ -118,7 +118,7 @@ export class MatchNotCancellableError extends Error {
  * live match (IN_PLAY/ACTIVE) can never be cancelled — resign, draw, timeout,
  * forfeit, server result or a later dispute are the terminal paths.
  */
-export const cancelPreplayMatch = async (matchId) => {
+export const cancelPreplayMatch = async (matchId, { endReason = 'cancelled_pre_play' } = {}) => {
   return await prisma.$transaction(async (tx) => {
     const match = await tx.match.findUnique({
       where: { id: matchId },
@@ -139,7 +139,7 @@ export const cancelPreplayMatch = async (matchId) => {
       await transitionMatch(tx, matchId, 'CANCELLED');
       await tx.match.update({
         where: { id: matchId },
-        data: { endReason: 'cancelled_pre_play', endedAt: new Date() }
+        data: { endReason, endedAt: new Date() }
       });
       return { matchId, status: 'CANCELLED', refunded: false };
     }
@@ -159,7 +159,7 @@ export const cancelPreplayMatch = async (matchId) => {
       });
       await tx.match.update({
         where: { id: matchId },
-        data: { endReason: 'cancelled_pre_play', endedAt: new Date() }
+        data: { endReason, endedAt: new Date() }
       });
       // Freeze the durable activation intent: the sweep's early PENDING/
       // ACTIVATING claim path sees RELEASED and backs off for good.

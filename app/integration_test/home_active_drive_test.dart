@@ -1,9 +1,76 @@
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:draughts_arena/main.dart' as app;
 
+const _base = 'http://10.0.2.2:3000/api/v1';
+
 const parkSeconds = int.fromEnvironment('PARK_SECONDS', defaultValue: 0);
+const skipChallenge = int.fromEnvironment('SKIP_CHALLENGE', defaultValue: 0);
+
+Future<Map<String, dynamic>> _readJson(HttpClientRequest request) async {
+  final response = await request.close();
+  final buffer = StringBuffer();
+  await for (final chunk in response.transform(utf8.decoder)) {
+    buffer.write(chunk);
+  }
+  return Map<String, dynamic>.from(jsonDecode(buffer.toString()));
+}
+
+Future<void> _post(String path, Map<String, dynamic> body,
+    {String? token, String? key}) async {
+  final client = HttpClient();
+  try {
+    final request = await client.postUrl(Uri.parse('$_base$path'));
+    request.headers.contentType = ContentType.json;
+    if (token != null) {
+      request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $token');
+    }
+    if (key != null) {
+      request.headers.set('Idempotency-Key', key);
+    }
+    request.write(jsonEncode(body));
+    final json = await _readJson(request);
+    // ignore: avoid_print
+    print('API $_base$path -> $json');
+  } finally {
+    client.close();
+  }
+}
+
+Future<String> loginToken(String email, String password) async {
+  final client = HttpClient();
+  try {
+    final request =
+        await client.postUrl(Uri.parse('$_base/auth/login'));
+    request.headers.contentType = ContentType.json;
+    request.write(jsonEncode({'email': email, 'password': password}));
+    final json = await _readJson(request);
+    return json['accessToken'] as String;
+  } finally {
+    client.close();
+  }
+}
+
+Future<Map<String, dynamic>?> getPendingChallenge(String token) async {
+  final client = HttpClient();
+  try {
+    final request =
+        await client.getUrl(Uri.parse('$_base/players/challenges'));
+    request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $token');
+    final json = await _readJson(request);
+    final items = (json['data']?['challenges'] ?? const []) as List;
+    for (final item in items.whereType<Map<String, dynamic>>()) {
+      if (item['status'] == 'PENDING') return item;
+    }
+    return null;
+  } finally {
+    client.close();
+  }
+}
 
 void logVisible(WidgetTester tester, String tag) {
   final texts = <String>{};
@@ -20,7 +87,7 @@ void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
   testWidgets(
-    'Home drive: seed signs in and parks on Home',
+    'Home drive: seed creates a real funded match and parks on Home',
     (tester) async {
       app.main();
       await tester.pump(const Duration(seconds: 3));
@@ -67,9 +134,87 @@ void main() {
         await tester.pump(const Duration(seconds: 1));
       }
 
-      await tester.tap(find.text('Home'));
+      if (skipChallenge > 0) {
+        // Park whatever pre-play match already holds this account.
+        final settle = DateTime.now().add(const Duration(seconds: 10));
+        while (DateTime.now().isBefore(settle)) {
+          await tester.pump(const Duration(seconds: 1));
+        }
+        logVisible(tester, 'HOME parked');
+        if (parkSeconds > 0) {
+          final holdUntil = DateTime.now().add(Duration(seconds: parkSeconds));
+          while (DateTime.now().isBefore(holdUntil)) {
+            await tester.pump(const Duration(seconds: 5));
+          }
+        }
+        return;
+      }
+
+      await tester.tap(find.text('Arena'));
+      await tester.pump(const Duration(seconds: 2));
+
+      await tester.tap(find.byTooltip('Find opponent by username'));
+      await tester.pump(const Duration(seconds: 2));
+
+      await tester.enterText(find.byType(TextField), 'p2');
+      await tester.pump(const Duration(seconds: 1));
+      final resultsDeadline = DateTime.now().add(const Duration(seconds: 20));
+      while (find.text('p2arena').evaluate().isEmpty) {
+        if (DateTime.now().isAfter(resultsDeadline)) {
+          fail('Timed out waiting for p2arena search result');
+        }
+        await tester.pump(const Duration(milliseconds: 500));
+      }
+      await tester.tap(find.text('p2arena'));
       await tester.pump(const Duration(seconds: 3));
-      // Let the active-matches request settle before logging.
+
+      await tester.tap(find.text('Challenge Player'));
+      await tester.pump(const Duration(seconds: 2));
+
+      expect(
+        find.text('Challenge stake').evaluate(),
+        isNotEmpty,
+        reason: 'the stake picker sheet should appear',
+      );
+      await tester.tap(find.text('₦15,000'));
+      await tester.pump(const Duration(seconds: 3));
+
+      final sentDeadline = DateTime.now().add(const Duration(seconds: 15));
+      while (find.text('CHALLENGE SENT').evaluate().isEmpty) {
+        if (DateTime.now().isAfter(sentDeadline)) {
+          fail('CHALLENGE SENT never appeared');
+        }
+        await tester.pump(const Duration(milliseconds: 500));
+      }
+
+      final p2Token = await loginToken(
+        'p2.arena+1790254924343@draughtsarena.net',
+        'Arena-Match-P2-77!',
+      );
+      final challenge = await getPendingChallenge(p2Token);
+      expect(challenge, isNotNull,
+          reason: 'p2 should see the pending challenge');
+      final joinKey =
+          'drive-join-${DateTime.now().millisecondsSinceEpoch}';
+      await _post('/matches/${challenge!['matchId']}/join',
+          {'stakeMinorUnits': 1500000, 'timeControlSeconds': 600},
+          token: p2Token, key: joinKey);
+
+      final readyDeadline = DateTime.now().add(const Duration(seconds: 30));
+      while (find.text('READY CHECK').evaluate().isEmpty &&
+          DateTime.now().isBefore(readyDeadline)) {
+        await tester.pump(const Duration(seconds: 1));
+      }
+      expect(
+        find.text('READY CHECK').evaluate(),
+        isNotEmpty,
+        reason: 'the inviter should reach the ready screen after the join',
+      );
+
+      // Head to Home so the ACTIVE MATCHES card and locked balance are backed
+      // by the real funded match.
+      await tester.tap(find.text('Home'));
+      await tester.pump(const Duration(seconds: 4));
       final settle = DateTime.now().add(const Duration(seconds: 10));
       while (DateTime.now().isBefore(settle)) {
         await tester.pump(const Duration(seconds: 1));
@@ -84,7 +229,7 @@ void main() {
       }
     },
     timeout: Timeout(
-      Duration(minutes: parkSeconds > 0 ? parkSeconds ~/ 60 + 5 : 5),
+      Duration(minutes: parkSeconds > 0 ? parkSeconds ~/ 60 + 5 : 10),
     ),
   );
 }

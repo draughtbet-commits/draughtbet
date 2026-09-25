@@ -33,7 +33,7 @@ export const processReadyGateSweep = async ({ now = Date.now(), timeoutMs = READ
   let released = 0;
   for (const row of rows) {
     try {
-      await cancelPreplayMatch(row.id);
+      await cancelPreplayMatch(row.id, { endReason: 'ready_gate_timeout' });
       released++;
       // Best-effort live-state cleanup: the stale holding projection (and any
       // activeMatch pointers) must not outlive a released match.

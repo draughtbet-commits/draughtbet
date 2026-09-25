@@ -397,13 +397,23 @@ MatchLifecycleSnapshot? _lifecycleFromV2(
       opponentStakeStatus == 'CONFIRMED';
   final youReady = raw['youReady'] == true;
   final opponentReady = raw['opponentReady'] == true;
+  final youConnected = raw['youConnected'] != false;
+  final opponentConnected = raw['opponentConnected'] != false;
   final phase = switch (status) {
-    'FUNDED' => MatchLifecyclePhase.readyCheck,
-    'READY' =>
-      opponentReady
-          ? MatchLifecyclePhase.readyCheck
-          : MatchLifecyclePhase.waitingOpponentReady,
+    'FUNDED' => !opponentConnected && youConnected
+        ? MatchLifecyclePhase.opponentDisconnected
+        : MatchLifecyclePhase.readyCheck,
+    'READY' => !opponentConnected && youConnected
+        ? MatchLifecyclePhase.opponentDisconnected
+        : opponentReady
+            ? MatchLifecyclePhase.readyCheck
+            : MatchLifecyclePhase.waitingOpponentReady,
     'IN_PLAY' => MatchLifecyclePhase.readyCheck,
+    'RELEASED' =>
+      raw['reason']?.toString() == 'ready_gate_timeout'
+          ? MatchLifecyclePhase.readyTimeout
+          : MatchLifecyclePhase.unavailable,
+    'EXPIRED' => MatchLifecyclePhase.challengeExpired,
     'CANCELLED' || 'CANCELED' => MatchLifecyclePhase.unavailable,
     _ => MatchLifecyclePhase.waitingOpponentStake,
   };

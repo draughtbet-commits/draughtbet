@@ -31,6 +31,7 @@ import '../screens/withdrawal_flow_screens.dart';
 import '../screens/settings_screen.dart';
 import '../screens/results_screen.dart';
 import '../screens/game_move_history_screen.dart';
+import '../services/socket_service.dart';
 import '../widgets/main_layout.dart';
 
 final appRouterProvider = Provider<GoRouter>((ref) {
@@ -196,15 +197,17 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         builder: (context, state) => Consumer(
           builder: (context, ref, _) {
             final snapshot = state.extra! as MatchLifecycleSnapshot;
-            return ReadyCheckScreen(
-              snapshot: snapshot,
-              onReady: () async {
-                final updated = await ref
-                    .read(matchFlowProvider.notifier)
-                    .markReady();
-                if (!context.mounted || updated == null) return;
-                context.go('/play/waiting-ready', extra: updated);
-              },
+            return _PrePlayLifecycleWatcher(
+              child: ReadyCheckScreen(
+                snapshot: snapshot,
+                onReady: () async {
+                  final updated = await ref
+                      .read(matchFlowProvider.notifier)
+                      .markReady();
+                  if (!context.mounted || updated == null) return;
+                  context.go('/play/waiting-ready', extra: updated);
+                },
+              ),
             );
           },
         ),
@@ -213,8 +216,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         path: '/play/waiting-ready',
         redirect: (context, state) =>
             state.extra is MatchLifecycleSnapshot ? null : '/play/unavailable',
-        builder: (context, state) => WaitingOpponentReadyScreen(
-          snapshot: state.extra! as MatchLifecycleSnapshot,
+        builder: (context, state) => _PrePlayLifecycleWatcher(
+          child: WaitingOpponentReadyScreen(
+            snapshot: state.extra! as MatchLifecycleSnapshot,
+          ),
         ),
       ),
       GoRoute(
@@ -484,8 +489,83 @@ class _SentChallengeWatcherState extends ConsumerState<_SentChallengeWatcher> {
     if (!context.mounted) return;
     if (phase == MatchLifecyclePhase.unavailable) {
       context.go('/arena');
+    } else if (phase == MatchLifecyclePhase.challengeExpired) {
+      // The server sweep expired the pending challenge; re-render the same
+      // screen with the expired status so the inviter sees it as over.
+      context.go('/play/challenge', extra: next);
     } else {
       context.go('/play/ready', extra: next);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
+}
+
+/// Polls a pre-play snapshot (ready check / waiting for opponent) and advances
+/// when the server releases the match (ready-gate sweep) or records the
+/// opponent dropping their socket before the opening. Mirrors the sent
+/// challenge watcher: no dedicated socket event reaches the parked player.
+class _PrePlayLifecycleWatcher extends ConsumerStatefulWidget {
+  const _PrePlayLifecycleWatcher({required this.child});
+
+  final Widget child;
+
+  @override
+  ConsumerState<_PrePlayLifecycleWatcher> createState() =>
+      _PrePlayLifecycleWatcherState();
+}
+
+class _PrePlayLifecycleWatcherState
+    extends ConsumerState<_PrePlayLifecycleWatcher> {
+  Timer? _timer;
+  StreamSubscription<Map<String, dynamic>>? _disconnectSub;
+
+  @override
+  void initState() {
+    super.initState();
+    _timer = Timer.periodic(const Duration(seconds: 2), (_) => _tick());
+    // The server pings the parked opponent's user room the moment the
+    // pre-start socket drops; refresh immediately instead of waiting on the
+    // next poll, then the phase change navigates.
+    _disconnectSub = socketService.onOpponentDisconnected.listen((_) => _tick());
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    _disconnectSub?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _tick() async {
+    MatchLifecycleSnapshot? next;
+    try {
+      next = await ref.read(matchFlowProvider.notifier).refreshLifecycle();
+    } catch (_) {
+      return; // transient network hiccup; keep waiting
+    }
+    if (!mounted || next == null) return;
+    final phase = next.phase;
+    if (phase == MatchLifecyclePhase.readyCheck ||
+        phase == MatchLifecyclePhase.waitingOpponentReady ||
+        phase == MatchLifecyclePhase.challengeSent ||
+        phase == MatchLifecyclePhase.waitingOpponentStake) {
+      return; // nothing changed from the player's perspective
+    }
+    _timer?.cancel();
+    if (!context.mounted) return;
+    switch (phase) {
+      case MatchLifecyclePhase.readyTimeout:
+        context.go('/play/ready-timeout', extra: next);
+      case MatchLifecyclePhase.opponentDisconnected:
+        context.go('/play/disconnected-before-start', extra: next);
+      case MatchLifecyclePhase.challengeExpired:
+        context.go('/play/challenge', extra: next);
+      case MatchLifecyclePhase.unavailable:
+        context.go('/arena');
+      default:
+        context.go('/play/ready', extra: next);
     }
   }
 

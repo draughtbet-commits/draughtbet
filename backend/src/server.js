@@ -16,6 +16,7 @@ import { startProviderFollowUp } from './jobs/providerFollowUp.js';
 import { startFinancialReconciliation } from './jobs/financialReconciliation.js';
 import { startGameRecovery } from './sockets/gameRecovery.js';
 import { startReadyGateSweep } from './jobs/readyGateSweep.js';
+import { startChallengeExpirySweep } from './jobs/challengeExpirySweep.js';
 import { ensureActiveConfigVersions } from './services/configVersionsService.js';
 
 const PORT = process.env.PORT || 3000;
@@ -37,6 +38,7 @@ const startBackgroundJobs = () => {
   startFinancialReconciliation();
   startGameRecovery();
   startReadyGateSweep();
+  startChallengeExpirySweep();
 };
 
 // Wait (bounded) for Redis so the shared rate limiter is in service before the

@@ -26,6 +26,10 @@ const MAX_ROOMS_PER_CONNECTION = 5;
 const recordPresence = async (matchId, state, userId, status, graceEndsAt = null) => {
   const side = state && state.player1 === userId ? 'LIGHT' : state && state.player2 === userId ? 'DARK' : null;
   if (!side) return;
+  await writePresence(matchId, side, userId, status, graceEndsAt);
+};
+
+const writePresence = async (matchId, side, userId, status, graceEndsAt = null) => {
   const field = `conn${side}`;
   const value = status === 'disconnected'
     ? JSON.stringify({ status, graceEndsAt: graceEndsAt ?? null })
@@ -52,7 +56,17 @@ export async function handleDisconnect(socket) {
     }
 
     const matchId = await getActiveGameForUser(userId);
-    if (!matchId) return;
+    const preStart = await isPreStartMatch(matchId);
+    if (preStart) {
+      // Pre-start (FUNDED/READY) disconnect: the match is not live yet, so the
+      // opponent is told directly about the dropped connection so the app can
+      // surface the disconnected-before-start state. Note the match may hold an
+      // activeMatch pointer even before play starts (the holding projection is
+      // reserved at funding), so this branch keys on durable status instead of
+      // pointer absence.
+      await notifyPreStartDisconnect(userId, socket);
+      return;
+    }
 
     const state = await getGameState(matchId);
     const grace = resolveDisconnectGraceMs(state);
@@ -92,6 +106,68 @@ export async function handleDisconnect(socket) {
       'Player disconnected, started grace period and sent warning');
   } catch (err) {
     logger.error({ err, userId }, 'Error handling disconnect');
+  }
+}
+
+/**
+ * A participant's socket dropped while the match is still pre-play (FUNDED or
+ * READY, no live game). The opponent gets a direct presence ping the same way a
+ * live disconnect pings the match room, so the parked app can surface the
+ * disconnected-before-start state without polling. Best-effort: the match may
+ * have been concurrently released.
+ */
+/**
+ * True when the user's active match is still pre-play (FUNDED/READY). The
+ * holding projection reserves an activeMatch pointer at funding, so a live
+ * disconnect is distinguished from a pre-start one by the durable status.
+ */
+async function isPreStartMatch(matchId) {
+  if (!matchId) return true;
+  try {
+    const match = await prisma.match.findUnique({
+      where: { id: matchId },
+      select: { status: true }
+    });
+    return !!match && (match.status === 'FUNDED' || match.status === 'READY');
+  } catch (err) {
+    logger.warn({ err, matchId }, 'isPreStartMatch: status lookup failed');
+    return false;
+  }
+}
+
+async function notifyPreStartDisconnect(userId, socket) {
+  try {
+    const match = await prisma.match.findFirst({
+      where: {
+        status: { in: ['FUNDED', 'READY'] },
+        OR: [{ playerLightId: userId }, { playerDarkId: userId }]
+      },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        status: true,
+        playerLightId: true,
+        playerDarkId: true
+      }
+    });
+    if (!match) return;
+
+    const opponentId =
+      match.playerLightId === userId ? match.playerDarkId : match.playerLightId;
+    await writePresence(match.id, match.playerLightId === userId ? 'LIGHT' : 'DARK', userId, 'disconnected');
+
+    socket.to(`user:${opponentId}`).emit('opponent_disconnected', {
+      userId,
+      preStart: true
+    });
+    socket.to(`user:${opponentId}`).emit('opponent.connection', {
+      userId,
+      status: 'disconnected',
+      preStart: true
+    });
+    logger.info({ userId, matchId: match.id }, 'Pre-start opponent disconnect notified');
+  } catch (err) {
+    logger.warn({ err, userId }, 'Pre-start disconnect notify failed');
   }
 }
 
@@ -164,6 +240,14 @@ export async function handleJoinMatch(socket, payload) {
         status: 'connected'
       });
       await recordConnectionEvent({ matchId, userId, state: 'RECONNECTED', socket });
+    } else if (match.status === 'FUNDED' || match.status === 'READY') {
+      // A participant can be present (socket attached to the match) before the
+      // opening is live; record it so the lifecycle snapshot can say the
+      // opponent is online even though the game_state projection may not exist.
+      const side = match.playerLightId === userId ? 'LIGHT' : 'DARK';
+      await writePresence(match.id, side, userId, 'connected');
+      socket.to(`user:${userId === match.playerLightId ? match.playerDarkId : match.playerLightId}`)
+        .emit('opponent.connection', { userId, status: 'connected', preStart: true });
     }
     logger.info({ userId, matchId }, 'Player reconnected and joined match room');
   } catch (err) {

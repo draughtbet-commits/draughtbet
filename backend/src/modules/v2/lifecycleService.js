@@ -65,7 +65,10 @@ export class InsufficientFundsError extends Error {
   }
 }
 
-export const OPEN_MATCH_TTL_MS = 15 * 60 * 1000;
+export const OPEN_MATCH_TTL_MS = (() => {
+  const raw = Number(process.env.OPEN_MATCH_TTL_MS);
+  return Number.isFinite(raw) && raw > 0 ? raw : 15 * 60 * 1000;
+})();
 export const RULESETS = new Set(['CLASSIC', 'INTERNATIONAL_10X10']);
 export const VISIBILITIES = new Set(['PUBLIC', 'PRIVATE', 'ANYONE']);
 
@@ -149,6 +152,19 @@ export const buildLifecycleSnapshot = async (client, matchId, userId) => {
   const opponentReady = Boolean(
     state && state[isLight ? 'readyDark' : 'readyLight'],
   );
+  const presenceConnected = (field) => {
+    if (!state || !state[field]) return true;
+    try {
+      const parsed = typeof state[field] === 'string'
+        ? JSON.parse(state[field])
+        : state[field];
+      return parsed?.status !== 'disconnected';
+    } catch (_) {
+      return true;
+    }
+  };
+  const youConnected = presenceConnected(isLight ? 'connLIGHT' : 'connDARK');
+  const opponentConnected = presenceConnected(isLight ? 'connDARK' : 'connLIGHT');
 
   const reservationRows =
     reservations && reservations.length
@@ -199,6 +215,8 @@ export const buildLifecycleSnapshot = async (client, matchId, userId) => {
       : { status: 'NONE', amountMinorUnits: 0 },
     youReady,
     opponentReady,
+    youConnected,
+    opponentConnected,
     stakeReleaseStatus,
     reason:
       match.endReason ??
