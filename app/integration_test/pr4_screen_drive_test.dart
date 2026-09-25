@@ -11,6 +11,15 @@ import 'package:draughts_arena/providers/profile_provider.dart';
 import 'package:draughts_arena/router/app_router.dart';
 
 const targetRoute = String.fromEnvironment('TARGET_ROUTE', defaultValue: '');
+const targetEmail = String.fromEnvironment(
+  'TARGET_EMAIL',
+  defaultValue: 'seed.dev@draughtsarena.net',
+);
+const targetPassword = String.fromEnvironment(
+  'TARGET_PASSWORD',
+  defaultValue: 'Draughts@Dev2026',
+);
+const targetStakeMinor = int.fromEnvironment('TARGET_STAKEMINOR', defaultValue: 3000000);
 
 const _base = 'http://10.0.2.2:3000/api/v1';
 
@@ -51,18 +60,18 @@ Future<String> loginToken() async {
     );
     request.headers.contentType = ContentType.json;
     request.write(jsonEncode({
-      'email': 'seed.dev@draughtsarena.net',
-      'password': 'Draughts@Dev2026',
+      'email': targetEmail,
+      'password': targetPassword,
     }));
     final json = jsonDecode(await _readJson(request)) as Map<String, dynamic>;
-    return (json['data']?['accessToken'] as String?) ?? '';
+    return ((json['data']?['accessToken'] ?? json['accessToken']) as String?) ?? '';
   } finally {
     client.close();
   }
 }
 
-/// Creates a real 3M open match as seed so the parked snapshot carries
-/// truthful server terms (stake, time control, match id).
+/// Creates a real `targetStakeMinor` open match as the logged-in user so the
+/// parked snapshot carries truthful server terms (stake, time control, match id).
 Future<String> createRealOpenMatch(String token) async {
   final client = HttpClient();
   try {
@@ -74,10 +83,10 @@ Future<String> createRealOpenMatch(String token) async {
     );
     request.headers.set(
       'Idempotency-Key',
-      'drive-3m-${DateTime.now().millisecondsSinceEpoch}',
+      'drive-3m-${DateTime.now().millisecondsSinceEpoch}-$token.hashCode',
     );
     request.write(jsonEncode({
-      'stakeMinor': 3000000,
+      'stakeMinor': targetStakeMinor,
       'timeControlSeconds': 600,
       'ruleset': 'INTERNATIONAL_10X10',
       'visibility': 'PUBLIC',
@@ -90,11 +99,13 @@ Future<String> createRealOpenMatch(String token) async {
 }
 
 MatchLifecycleSnapshot snapshotFor(String route, String matchId, int balance) {
+  final stake = targetStakeMinor;
+  final fee = stake ~/ 10;
   final terms = MatchTerms(
-    stakeMinorUnits: 3000000,
-    opponentStakeMinorUnits: 3000000,
-    platformFeeMinorUnits: 300000,
-    totalPrizeMinorUnits: 5700000,
+    stakeMinorUnits: stake,
+    opponentStakeMinorUnits: stake,
+    platformFeeMinorUnits: fee,
+    totalPrizeMinorUnits: stake * 2 - fee,
     timeControl: '10 minutes',
     gameType: 'Classic',
     board: '10×10 (International)',
@@ -142,8 +153,6 @@ void main() {
       app.main();
       await tester.pump(const Duration(seconds: 3));
 
-      const email = 'seed.dev@draughtsarena.net';
-      const password = 'Draughts@Dev2026';
       final loginDeadline = DateTime.now().add(const Duration(minutes: 2));
       while (find.text('Arena').evaluate().isEmpty) {
         if (DateTime.now().isAfter(loginDeadline)) {
@@ -153,9 +162,9 @@ void main() {
         await tester.pump(const Duration(milliseconds: 500));
         final fields = find.byType(TextFormField);
         if (fields.evaluate().length >= 2) {
-          await tester.enterText(fields.at(0), email);
+          await tester.enterText(fields.at(0), targetEmail);
           await tester.pump(const Duration(milliseconds: 200));
-          await tester.enterText(fields.at(1), password);
+          await tester.enterText(fields.at(1), targetPassword);
           await tester.pump(const Duration(milliseconds: 200));
           await tester.tap(find.text('Sign In'));
           await tester.pump(const Duration(seconds: 1));
