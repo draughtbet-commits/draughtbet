@@ -1,0 +1,360 @@
+{
+  "advisories": {
+    "1124273": {
+      "findings": [
+        {
+          "version": "9.6.0",
+          "paths": [
+            ".>@prisma/client>prisma>@prisma/dev>find-my-way"
+          ],
+          "dev": false,
+          "optional": true,
+          "bundled": false
+        }
+      ],
+      "id": 1124273,
+      "title": "find-my-way: DDoS with HTTP2",
+      "module_name": "find-my-way",
+      "vulnerable_versions": "<=9.6.0",
+      "patched_versions": ">=9.6.1",
+      "severity": "high",
+      "cwe": "CWE-1321",
+      "github_advisory_id": "GHSA-c96f-x56v-gq3h",
+      "url": "https://github.com/advisories/GHSA-c96f-x56v-gq3h"
+    },
+    "1124298": {
+      "findings": [
+        {
+          "version": "1.2.0",
+          "paths": [
+            ".>@prisma/client>prisma>@prisma/dev>valibot"
+          ],
+          "dev": false,
+          "optional": true,
+          "bundled": false
+        }
+      ],
+      "id": 1124298,
+      "title": "Valibot: record() issue paths can make flatten() throw for inherited Object property names",
+      "module_name": "valibot",
+      "vulnerable_versions": "<=1.4.1",
+      "patched_versions": ">=1.4.2",
+      "severity": "moderate",
+      "cwe": "CWE-755",
+      "github_advisory_id": "GHSA-5qjj-4xww-7phc",
+      "url": "https://github.com/advisories/GHSA-5qjj-4xww-7phc"
+    },
+    "1130720": {
+      "findings": [
+        {
+          "version": "3.1.4",
+          "paths": [
+            ".>@prisma/client>prisma>@prisma/dev>@prisma/streams-local>ajv>fast-uri"
+          ],
+          "dev": false,
+          "optional": true,
+          "bundled": false
+        }
+      ],
+      "id": 1130720,
+      "title": "fast-uri vulnerable to host confusion via backslash authority introducer",
+      "module_name": "fast-uri",
+      "vulnerable_versions": ">=3.0.0 <3.1.5",
+      "patched_versions": ">=3.1.5",
+      "severity": "high",
+      "cwe": "CWE-436",
+      "github_advisory_id": "GHSA-7p8r-x3mc-p8w7",
+      "url": "https://github.com/advisories/GHSA-7p8r-x3mc-p8w7"
+    },
+    "1130722": {
+      "findings": [
+        {
+          "version": "10.2.0",
+          "paths": [
+            ".>express-rate-limit>ip-address",
+            ".>rate-limit-redis>express-rate-limit>ip-address"
+          ],
+          "dev": false,
+          "optional": false,
+          "bundled": false
+        }
+      ],
+      "id": 1130722,
+      "title": "ip-address: Address4 decodes leading-zero octets as decimal while resolvers decode them as octal, allowing SSRF and trust-boundary bypass",
+      "module_name": "ip-address",
+      "vulnerable_versions": "<=10.3.0",
+      "patched_versions": ">=10.3.1",
+      "severity": "high",
+      "cwe": "CWE-20, CWE-918",
+      "github_advisory_id": "GHSA-mwp4-54f8-5fhr",
+      "url": "https://github.com/advisories/GHSA-mwp4-54f8-5fhr"
+    },
+    "1130723": {
+      "findings": [
+        {
+          "version": "10.2.0",
+          "paths": [
+            ".>express-rate-limit>ip-address",
+            ".>rate-limit-redis>express-rate-limit>ip-address"
+          ],
+          "dev": false,
+          "optional": false,
+          "bundled": false
+        }
+      ],
+      "id": 1130723,
+      "title": "ip-address: a CIDR suffix on the parsed address suppresses special-use classification and can bypass SSRF and trust-boundary checks",
+      "module_name": "ip-address",
+      "vulnerable_versions": ">=10.1.1 <=10.2.1",
+      "patched_versions": ">=10.2.2",
+      "severity": "moderate",
+      "cwe": "CWE-20, CWE-918",
+      "github_advisory_id": "GHSA-4xrf-jv44-h6hh",
+      "url": "https://github.com/advisories/GHSA-4xrf-jv44-h6hh"
+    },
+    "1130724": {
+      "findings": [
+        {
+          "version": "10.2.0",
+          "paths": [
+            ".>express-rate-limit>ip-address",
+            ".>rate-limit-redis>express-rate-limit>ip-address"
+          ],
+          "dev": false,
+          "optional": false,
+          "bundled": false
+        }
+      ],
+      "id": 1130724,
+      "title": "ip-address: misclassification of IPv4-mapped/NAT64 IPv6 addresses can bypass SSRF and trust-boundary checks",
+      "module_name": "ip-address",
+      "vulnerable_versions": ">=10.1.1 <=10.2.0",
+      "patched_versions": ">=10.2.1",
+      "severity": "moderate",
+      "cwe": "CWE-20, CWE-918",
+      "github_advisory_id": "GHSA-22jq-vg5j-6vgg",
+      "url": "https://github.com/advisories/GHSA-22jq-vg5j-6vgg"
+    },
+    "1145093": {
+      "findings": [
+        {
+          "version": "7.1.5",
+          "paths": [
+            ".>@prisma/client>prisma>@prisma/config>deepmerge-ts"
+          ],
+          "dev": false,
+          "optional": true,
+          "bundled": false
+        }
+      ],
+      "id": 1145093,
+      "title": "DeepmergeTS has stack exhaustion when merging recursive object graphs",
+      "module_name": "deepmerge-ts",
+      "vulnerable_versions": "<8.0.0",
+      "patched_versions": ">=8.0.0",
+      "severity": "high",
+      "cwe": "CWE-674",
+      "github_advisory_id": "GHSA-ggr8-5vv4-36mx",
+      "url": "https://github.com/advisories/GHSA-ggr8-5vv4-36mx"
+    },
+    "1153173": {
+      "findings": [
+        {
+          "version": "3.15.3",
+          "paths": [
+            ".>@prisma/client>prisma>mysql2"
+          ],
+          "dev": false,
+          "optional": true,
+          "bundled": false
+        }
+      ],
+      "id": 1153173,
+      "title": "MySQL2: Auth Plugin Downgrade to mysql_clear_password Leaks Plaintext Credentials",
+      "module_name": "mysql2",
+      "vulnerable_versions": "<3.22.0",
+      "patched_versions": ">=3.22.0",
+      "severity": "high",
+      "cwe": "CWE-522",
+      "github_advisory_id": "GHSA-3f6p-5ww8-9rcr",
+      "url": "https://github.com/advisories/GHSA-3f6p-5ww8-9rcr"
+    },
+    "1158506": {
+      "findings": [
+        {
+          "version": "6.15.3",
+          "paths": [
+            ".>express>body-parser>qs",
+            ".>express>qs",
+            ".>express-rate-limit>express>body-parser>qs",
+            ".>express-rate-limit>express>qs",
+            ".>rate-limit-redis>express-rate-limit>express>body-parser>qs",
+            ".>rate-limit-redis>express-rate-limit>express>qs"
+          ],
+          "dev": false,
+          "optional": false,
+          "bundled": false
+        }
+      ],
+      "id": 1158506,
+      "title": "qs array-limit bypass via bracket-key comma parsing",
+      "module_name": "qs",
+      "vulnerable_versions": ">=6.14.2 <=6.15.3",
+      "patched_versions": ">=6.15.4",
+      "severity": "moderate",
+      "cwe": "CWE-770",
+      "github_advisory_id": "GHSA-x5fp-wj9c-mxmx",
+      "url": "https://github.com/advisories/GHSA-x5fp-wj9c-mxmx"
+    },
+    "1158507": {
+      "findings": [
+        {
+          "version": "6.15.3",
+          "paths": [
+            ".>express>body-parser>qs",
+            ".>express>qs",
+            ".>express-rate-limit>express>body-parser>qs",
+            ".>express-rate-limit>express>qs",
+            ".>rate-limit-redis>express-rate-limit>express>body-parser>qs",
+            ".>rate-limit-redis>express-rate-limit>express>qs"
+          ],
+          "dev": false,
+          "optional": false,
+          "bundled": false
+        }
+      ],
+      "id": 1158507,
+      "title": "qs: Denial of Service via Attacker Controlled isBuffer",
+      "module_name": "qs",
+      "vulnerable_versions": ">=2.2.5 <6.16.0",
+      "patched_versions": ">=6.16.0",
+      "severity": "moderate",
+      "cwe": "CWE-248, CWE-703",
+      "github_advisory_id": "GHSA-4mjr-xmp4-gh2g",
+      "url": "https://github.com/advisories/GHSA-4mjr-xmp4-gh2g"
+    },
+    "1158521": {
+      "findings": [
+        {
+          "version": "3.1.4",
+          "paths": [
+            ".>@prisma/client>prisma>@prisma/dev>@prisma/streams-local>ajv>fast-uri"
+          ],
+          "dev": false,
+          "optional": true,
+          "bundled": false
+        }
+      ],
+      "id": 1158521,
+      "title": "fast-uri vulnerable to host confusion via skipped IDN canonicalization on scheme-relative references",
+      "module_name": "fast-uri",
+      "vulnerable_versions": ">=3.1.3 <3.1.6",
+      "patched_versions": ">=3.1.6",
+      "severity": "high",
+      "cwe": "CWE-436",
+      "github_advisory_id": "GHSA-5jgf-p345-68v8",
+      "url": "https://github.com/advisories/GHSA-5jgf-p345-68v8"
+    },
+    "1158524": {
+      "findings": [
+        {
+          "version": "3.1.4",
+          "paths": [
+            ".>@prisma/client>prisma>@prisma/dev>@prisma/streams-local>ajv>fast-uri"
+          ],
+          "dev": false,
+          "optional": true,
+          "bundled": false
+        }
+      ],
+      "id": 1158524,
+      "title": "fast-uri vulnerable to server-side request forgery via malformed IPv6 normalization",
+      "module_name": "fast-uri",
+      "vulnerable_versions": ">=3.0.0 <3.1.6",
+      "patched_versions": ">=3.1.6",
+      "severity": "high",
+      "cwe": "CWE-20, CWE-918",
+      "github_advisory_id": "GHSA-f65p-4m7j-42xc",
+      "url": "https://github.com/advisories/GHSA-f65p-4m7j-42xc"
+    },
+    "1158527": {
+      "findings": [
+        {
+          "version": "3.1.4",
+          "paths": [
+            ".>@prisma/client>prisma>@prisma/dev>@prisma/streams-local>ajv>fast-uri"
+          ],
+          "dev": false,
+          "optional": true,
+          "bundled": false
+        }
+      ],
+      "id": 1158527,
+      "title": "fast-uri vulnerable to server-side request forgery via repeated hostname percent-decoding",
+      "module_name": "fast-uri",
+      "vulnerable_versions": ">=3.1.2 <3.1.6",
+      "patched_versions": ">=3.1.6",
+      "severity": "high",
+      "cwe": "CWE-174, CWE-918",
+      "github_advisory_id": "GHSA-fph4-wmhf-6fwf",
+      "url": "https://github.com/advisories/GHSA-fph4-wmhf-6fwf"
+    },
+    "1158530": {
+      "findings": [
+        {
+          "version": "3.1.4",
+          "paths": [
+            ".>@prisma/client>prisma>@prisma/dev>@prisma/streams-local>ajv>fast-uri"
+          ],
+          "dev": false,
+          "optional": true,
+          "bundled": false
+        }
+      ],
+      "id": 1158530,
+      "title": "fast-uri vulnerable to host confusion via percent-encoded scheme normalization",
+      "module_name": "fast-uri",
+      "vulnerable_versions": ">=3.0.0 <3.1.6",
+      "patched_versions": ">=3.1.6",
+      "severity": "high",
+      "cwe": "CWE-177",
+      "github_advisory_id": "GHSA-jqff-g426-hqxp",
+      "url": "https://github.com/advisories/GHSA-jqff-g426-hqxp"
+    },
+    "1158532": {
+      "findings": [
+        {
+          "version": "3.15.3",
+          "paths": [
+            ".>@prisma/client>prisma>mysql2"
+          ],
+          "dev": false,
+          "optional": true,
+          "bundled": false
+        }
+      ],
+      "id": 1158532,
+      "title": "MySQL2: Unbounded zlib inflate in compressed MySQL protocol handler allows decompression-bomb DoS",
+      "module_name": "mysql2",
+      "vulnerable_versions": "<=3.23.0",
+      "patched_versions": ">=3.23.1",
+      "severity": "moderate",
+      "cwe": "CWE-409",
+      "github_advisory_id": "GHSA-rgwj-5xj2-c3m3",
+      "url": "https://github.com/advisories/GHSA-rgwj-5xj2-c3m3"
+    }
+  },
+  "metadata": {
+    "vulnerabilities": {
+      "info": 0,
+      "low": 0,
+      "moderate": 6,
+      "high": 9,
+      "critical": 0
+    },
+    "dependencies": 186,
+    "devDependencies": 0,
+    "optionalDependencies": 149,
+    "totalDependencies": 335
+  }
+}

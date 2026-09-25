@@ -1,0 +1,16 @@
+exit_code=1
+{"level":30,"time":1788989938938,"pid":5,"hostname":"localhost","userId":"audit-synthetic-user","socketId":"nhZ458YZyvGPPu5FAAAB","msg":"User connected to Socket.IO"}
+LOCAL_AUTHENTICATED_SOCKET_CONNECTED
+file:///workspace/scratch/60ee09a64eff/security-audit-20260909/backend/src/sockets/gameManager.js:241
+export const handleMoveAttempt = async (socket, { matchId, from, to }) => {
+                                                  ^
+
+TypeError: Cannot destructure property 'matchId' of 'object null' as it is null.
+    at handleMoveAttempt (file:///workspace/scratch/60ee09a64eff/security-audit-20260909/backend/src/sockets/gameManager.js:241:51)
+    at Socket.<anonymous> (file:///workspace/scratch/60ee09a64eff/security-audit-20260909/backend/src/sockets/index.js:42:13)
+    at Socket.emit (node:events:509:28)
+    at Socket.emitUntyped (/workspace/scratch/60ee09a64eff/draughtbet/backend/node_modules/.pnpm/socket.io@4.8.3_supports-color@8.1.1/node_modules/socket.io/dist/typed-events.js:69:22)
+    at /workspace/scratch/60ee09a64eff/draughtbet/backend/node_modules/.pnpm/socket.io@4.8.3_supports-color@8.1.1/node_modules/socket.io/dist/socket.js:697:39
+    at process.processTicksAndRejections (node:internal/process/task_queues:85:11)
+
+Node.js v24.19.0
