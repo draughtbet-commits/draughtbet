@@ -212,6 +212,7 @@ model Match {
   configVersion     PlatformConfigVersion? @relation(fields: [configVersionId], references: [id], onDelete: Restrict)
   ratingEvents      RatingEvent[]
   supportCases      SupportCase[]
+  challenges        MatchChallenge[]
 }
 enum MatchStatus {
   PENDING
@@ -227,6 +228,35 @@ enum MatchStatus {
   READY
   IN_PLAY
   SETTLED
+  CANCELLED
+  EXPIRED
+}
+
+// A directed challenge from one player to a specific opponent (by username).
+// The match row is created in OPEN state at challenge time (creator = LIGHT,
+// placeholder dark side); the challenge row is the invitee-only join authority.
+// `join` is restricted to the invitee until they accept (status -> ACCEPTED),
+// after which the normal funded-match lifecycle takes over.
+model MatchChallenge {
+  id              String                @id @default(uuid())
+  matchId         String
+  match           Match                 @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  inviterId       String
+  inviteeId       String
+  stakeMinorUnits BigInt                @default(0)
+  status          MatchChallengeStatus  @default(PENDING)
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
+
+  @@index([matchId])
+  @@index([inviteeId, status])
+  @@index([inviterId, inviteeId, status])
+}
+
+enum MatchChallengeStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
   CANCELLED
   EXPIRED
 }

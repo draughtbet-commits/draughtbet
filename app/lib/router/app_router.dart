@@ -1,4 +1,6 @@
-import 'package:flutter/foundation.dart';
+import 'dart:async';
+
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../providers/auth_provider.dart';
@@ -243,8 +245,40 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         path: '/play/challenge',
         redirect: (context, state) =>
             state.extra is MatchLifecycleSnapshot ? null : '/play/unavailable',
-        builder: (context, state) => ChallengeStatusScreen(
-          snapshot: state.extra! as MatchLifecycleSnapshot,
+        builder: (context, state) => Consumer(
+          builder: (context, ref, _) {
+            final snapshot = state.extra! as MatchLifecycleSnapshot;
+            final notifier = ref.read(matchFlowProvider.notifier);
+            final sent =
+                snapshot.phase == MatchLifecyclePhase.challengeSent;
+            final screen = ChallengeStatusScreen(
+              snapshot: snapshot,
+              onAccept:
+                  snapshot.phase == MatchLifecyclePhase.incomingChallenge
+                  ? () async {
+                      final updated = await notifier.acceptChallenge();
+                      if (!context.mounted || updated == null) return;
+                      context.go('/play/ready', extra: updated);
+                    }
+                  : null,
+              onDecline: () async {
+                final incoming =
+                    snapshot.phase == MatchLifecyclePhase.incomingChallenge;
+                if (incoming) {
+                  await notifier.declineChallenge();
+                } else {
+                  await notifier.cancelSentChallenge();
+                }
+                if (!context.mounted) return;
+                context.go('/arena');
+              },
+            );
+            // The inviter waits idle on the sent screen; advance once the
+            // invitee joins through the normal fund path.
+            return sent
+                ? _SentChallengeWatcher(child: screen)
+                : screen;
+          },
         ),
       ),
       GoRoute(
@@ -403,3 +437,58 @@ final appRouterProvider = Provider<GoRouter>((ref) {
     ],
   );
 });
+
+/// Polls a pending sent challenge and advances the inviter once the invitee
+/// funds the match (the server emits no dedicated socket event for the inviter
+/// of a directed challenge, so a light snapshot poll bridges the gap).
+class _SentChallengeWatcher extends ConsumerStatefulWidget {
+  const _SentChallengeWatcher({required this.child});
+
+  final Widget child;
+
+  @override
+  ConsumerState<_SentChallengeWatcher> createState() =>
+      _SentChallengeWatcherState();
+}
+
+class _SentChallengeWatcherState extends ConsumerState<_SentChallengeWatcher> {
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _timer = Timer.periodic(const Duration(seconds: 2), (_) => _tick());
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _tick() async {
+    MatchLifecycleSnapshot? next;
+    try {
+      next = await ref.read(matchFlowProvider.notifier).refreshLifecycle();
+    } catch (_) {
+      return; // transient network hiccup; keep waiting
+    }
+    if (!mounted || next == null) return;
+    final phase = next.phase;
+    if (phase == MatchLifecyclePhase.challengeSent ||
+        phase == MatchLifecyclePhase.waitingOpponentStake ||
+        phase == MatchLifecyclePhase.incomingChallenge) {
+      return; // the invitee has not responded yet
+    }
+    _timer?.cancel();
+    if (!context.mounted) return;
+    if (phase == MatchLifecyclePhase.unavailable) {
+      context.go('/arena');
+    } else {
+      context.go('/play/ready', extra: next);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
+}

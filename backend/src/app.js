@@ -16,6 +16,7 @@ import {
   calloutRateLimiter,
   matchmakingRateLimiter,
   notificationRateLimiter,
+  playersRateLimiter,
   supportRateLimiter
 } from './middleware/rateLimit.js';
 import { requestIdMiddleware, finalErrorHandler } from './middleware/requestId.js';
@@ -34,6 +35,8 @@ import { notificationRouter } from './modules/notification/controller.js';
 import { verificationRouter } from './modules/verification/controller.js';
 import { saferPlayRouter } from './modules/saferPlay/controller.js';
 import { supportRouter } from './modules/support/controller.js';
+import { playersRouter } from './modules/players/controller.js';
+import { playerChallengeRouter } from './modules/players/challengeController.js';
 
 const app = express();
 // Prisma initialized in utils/db.js
@@ -99,6 +102,7 @@ app.use('/api/v1/verification', verificationRateLimiter, verificationRouter);
 app.use('/api/v1/safer-play', saferPlayRateLimiter, saferPlayRouter);
 app.use('/api/v1/support', supportRateLimiter, supportRouter);
 app.use('/api/v1/notifications', notificationRateLimiter, notificationRouter);
+app.use('/api/v1/players', playersRateLimiter, playerChallengeRouter, playersRouter);
 
 // Liveness probe: the process is up. No dependencies are checked here — that
 // is /ready's job (readiness). Kept cheap and always 200 so load balancers and

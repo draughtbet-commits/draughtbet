@@ -206,7 +206,7 @@ class OpenMatch {
   bool get isStale => expiresAt != null && expiresAt!.isBefore(DateTime.now());
 }
 
-enum MatchEntryKind { quick, openMatch, created }
+enum MatchEntryKind { quick, openMatch, created, challenge }
 
 class MatchFlowIntent {
   const MatchFlowIntent({

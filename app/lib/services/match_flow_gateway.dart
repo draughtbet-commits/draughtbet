@@ -3,6 +3,24 @@ import 'package:dio/dio.dart';
 import '../config/backend_contract.dart';
 import '../models/match_flow.dart';
 
+/// A pending player challenge as listed on the players surface. The invitee is
+/// not a match participant yet, so this is how their app learns the terms.
+class ChallengeInvite {
+  const ChallengeInvite({
+    required this.matchId,
+    required this.challengeId,
+    required this.opponent,
+    required this.terms,
+    required this.direction,
+  });
+
+  final String matchId;
+  final String challengeId;
+  final MatchPlayer opponent;
+  final MatchTerms terms;
+  final String direction;
+}
+
 class MatchFlowGateway {
   MatchFlowGateway(this._dio, {BackendContractConfig? contract})
     : contract = contract ?? BackendContractConfig.fromEnvironment();
@@ -88,6 +106,68 @@ class MatchFlowGateway {
     final body = response.data;
     if (body is Map && body['match'] is Map) {
       return (body['match'] as Map)['id']?.toString();
+    }
+    return null;
+  }
+
+  Future<String?> createChallenge(String targetId, MatchTerms terms) async {
+    final operation =
+        'challenge-create:$targetId:${terms.stakeMinorUnits}:${_timeControlSeconds(terms.timeControl)}';
+    final response = await _dio.post<dynamic>(
+      '/players/$targetId/challenge',
+      data: {
+        'stakeMinor': terms.stakeMinorUnits,
+        'timeControlSeconds': _timeControlSeconds(terms.timeControl),
+        'ruleset': _ruleset(terms.gameType),
+      },
+      options: _idempotent(operation),
+    );
+    _complete(operation);
+    return unwrapData(response.data)?['id']?.toString();
+  }
+
+  Future<MatchLifecycleSnapshot?> declineChallenge(
+    String matchId,
+    MatchTerms fallbackTerms,
+  ) async {
+    final operation = 'challenge-decline:$matchId';
+    final response = await _dio.post<dynamic>(
+      '/matches/$matchId/decline',
+      options: _idempotent(operation),
+    );
+    _complete(operation);
+    return _lifecycleFromV2(unwrapData(response.data), fallbackTerms);
+  }
+
+  Future<ChallengeInvite?> fetchChallenge(String matchId) async {
+    final response = await _dio.get<dynamic>('/players/challenges');
+    final list = unwrapData(response.data)?['challenges'];
+    if (list is! List) return null;
+    for (final item in list.whereType<Map>()) {
+      final raw = Map<String, dynamic>.from(item);
+      if (raw['matchId']?.toString() != matchId) continue;
+      final opponent = _playerFromBrief(raw['opponent']);
+      final stake = _integer(raw['stakeMinorUnits']);
+      final seconds = _integer(raw['timeControlSeconds']);
+      if (opponent == null || stake == null || stake <= 0) return null;
+      return ChallengeInvite(
+        matchId: matchId,
+        challengeId: raw['id']?.toString() ?? '',
+        opponent: opponent,
+        direction: raw['direction']?.toString() ?? 'received',
+        terms: MatchTerms(
+          stakeMinorUnits: stake,
+          timeControl: seconds == null
+              ? 'Server configured'
+              : _displayTimeControl(seconds),
+          gameType: (raw['ruleset']?.toString() ?? '')
+                  .contains('INTERNATIONAL')
+              ? 'Classic'
+              : 'Classic',
+          visibility: 'Anyone',
+          serverQuoted: true,
+        ),
+      );
     }
     return null;
   }
@@ -212,6 +292,23 @@ class MatchFlowGateway {
   }
 }
 
+MatchPlayer? _playerFromBrief(dynamic value) {
+  if (value is! Map) return null;
+  final raw = Map<String, dynamic>.from(value);
+  final id = raw['id']?.toString().trim() ?? '';
+  final name =
+      (raw['username'] ?? raw['displayName'] ?? raw['name'])?.toString().trim() ??
+      '';
+  if (id.isEmpty || name.isEmpty) return null;
+  return MatchPlayer(
+    id: id,
+    name: name,
+    avatarId: raw['avatarId']?.toString() ?? 'avatar_01',
+    rank: (raw['tier'] ?? raw['rank'])?.toString(),
+    rating: _integer(raw['rating']),
+  );
+}
+
 OpenMatch? _openMatchFromV2(dynamic value) {
   if (value is! Map) return null;
   final raw = Map<String, dynamic>.from(value);
@@ -302,6 +399,7 @@ MatchLifecycleSnapshot? _lifecycleFromV2(
       serverQuoted: true,
     ),
     matchId: id,
+    opponent: _playerFromBrief(raw['opponent']),
     playerStake: yourStakeConfirmed
         ? AuthoritativeProgress.confirmed
         : AuthoritativeProgress.pending,

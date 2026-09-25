@@ -259,6 +259,13 @@ export const notificationRateLimiter = limiterFor({
   message: 'Too many notification requests, please try again after a minute',
 });
 
+export const playersRateLimiter = limiterFor({
+  prefix: 'http:players:',
+  windowMs: 60 * 1000,
+  max: process.env.NODE_ENV === 'test' ? 1000 : 30,
+  message: 'Too many player directory requests, please try again after a minute',
+});
+
 /**
  * Bounded wait for Redis readiness so the shared limiter is in service for the
  * first request in production. Resolves false after `timeoutMs` with nothing

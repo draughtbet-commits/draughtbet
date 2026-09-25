@@ -99,10 +99,21 @@ class _ArenaScreenState extends ConsumerState<ArenaScreen> {
                 subtitle: _maxStake == null
                     ? 'Challenge any eligible player'
                     : 'Stake filter applied',
-                trailing: IconButton.outlined(
-                  tooltip: 'Filter open matches',
-                  onPressed: _showFilters,
-                  icon: const Icon(LucideIcons.listFilter, size: 19),
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    IconButton.outlined(
+                      tooltip: 'Find opponent by username',
+                      onPressed: () => context.push('/arena/players'),
+                      icon: const Icon(LucideIcons.userSearch, size: 19),
+                    ),
+                    const SizedBox(width: 8),
+                    IconButton.outlined(
+                      tooltip: 'Filter open matches',
+                      onPressed: _showFilters,
+                      icon: const Icon(LucideIcons.listFilter, size: 19),
+                    ),
+                  ],
                 ),
               ),
               const SizedBox(height: 16),

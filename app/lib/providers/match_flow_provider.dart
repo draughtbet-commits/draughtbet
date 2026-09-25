@@ -213,6 +213,165 @@ class MatchFlowNotifier extends StateNotifier<MatchFlowState> {
     }
   }
 
+  /// Sends a directed challenge and lands in the sent state.
+  Future<MatchLifecycleSnapshot?> createChallenge(
+    MatchPlayer target,
+    MatchTerms terms,
+  ) async {
+    if (state.actionPhase == MatchActionPhase.submitting) return null;
+    state = state.copyWith(
+      currentIntent: MatchFlowIntent(
+        kind: MatchEntryKind.challenge,
+        terms: terms,
+        opponent: target,
+      ),
+      actionPhase: MatchActionPhase.submitting,
+      currentMatchId: null,
+      lifecycle: null,
+      clearMessage: true,
+    );
+    try {
+      final matchId = await _gateway.createChallenge(target.id, terms);
+      if (matchId == null || matchId.isEmpty) {
+        throw StateError('No match id returned by the challenge endpoint');
+      }
+      final snapshot = MatchLifecycleSnapshot(
+        phase: MatchLifecyclePhase.challengeSent,
+        terms: terms,
+        matchId: matchId,
+        opponent: target,
+      );
+      state = state.copyWith(
+        actionPhase: MatchActionPhase.succeeded,
+        currentMatchId: matchId,
+        lifecycle: snapshot,
+      );
+      return snapshot;
+    } on DioException catch (e) {
+      if (e.type == DioExceptionType.connectionTimeout ||
+          e.type == DioExceptionType.receiveTimeout ||
+          e.type == DioExceptionType.sendTimeout) {
+        state = state.copyWith(
+          actionPhase: MatchActionPhase.unknown,
+          message:
+              'The server outcome is unknown. Check your challenges before retrying.',
+        );
+        return null;
+      }
+      state = state.copyWith(
+        actionPhase: MatchActionPhase.failed,
+        message:
+            apiErrorMessage(e.response?.data) ??
+            'The challenge could not be sent. Try again.',
+      );
+      return null;
+    } catch (_) {
+      state = state.copyWith(
+        actionPhase: MatchActionPhase.failed,
+        message: 'The challenge could not be sent. Try again.',
+      );
+      return null;
+    }
+  }
+
+  /// Accepts an incoming challenge (join) and surfaces the funded snapshot.
+  Future<MatchLifecycleSnapshot?> acceptChallenge() async {
+    final matchId = state.currentMatchId;
+    final terms = state.currentIntent?.terms;
+    if (matchId == null || terms == null) return null;
+    try {
+      await _gateway.acceptOpenMatch(matchId);
+      final snapshot = await _gateway.fetchMatch(matchId, terms);
+      if (snapshot != null) applyLifecycle(snapshot);
+      return snapshot;
+    } on DioException catch (e) {
+      state = state.copyWith(
+        actionPhase: MatchActionPhase.failed,
+        message:
+            apiErrorMessage(e.response?.data) ??
+            'The challenge could not be accepted. Try again.',
+      );
+      return null;
+    } catch (_) {
+      state = state.copyWith(
+        actionPhase: MatchActionPhase.failed,
+        message: 'The challenge could not be accepted. Try again.',
+      );
+      return null;
+    }
+  }
+
+  /// Declines an incoming challenge; the match is cancelled server-side.
+  Future<MatchLifecycleSnapshot?> declineChallenge() async {
+    final matchId = state.currentMatchId;
+    final terms = state.currentIntent?.terms;
+    if (matchId == null || terms == null) return null;
+    try {
+      final snapshot = await _gateway.declineChallenge(matchId, terms);
+      if (snapshot != null) applyLifecycle(snapshot);
+      return snapshot;
+    } on DioException catch (e) {
+      state = state.copyWith(
+        actionPhase: MatchActionPhase.failed,
+        message:
+            apiErrorMessage(e.response?.data) ??
+            'The challenge could not be declined. Try again.',
+      );
+      return null;
+    } catch (_) {
+      state = state.copyWith(
+        actionPhase: MatchActionPhase.failed,
+        message: 'The challenge could not be declined. Try again.',
+      );
+      return null;
+    }
+  }
+
+  /// Cancels a challenge the current user sent, while it is still pending.
+  Future<MatchLifecycleSnapshot?> cancelSentChallenge() async {
+    final matchId = state.currentMatchId;
+    final terms = state.currentIntent?.terms;
+    if (matchId == null || terms == null) return null;
+    try {
+      final snapshot = await _gateway.cancelMatch(matchId, terms);
+      if (snapshot != null) applyLifecycle(snapshot);
+      return snapshot;
+    } catch (_) {
+      state = state.copyWith(
+        actionPhase: MatchActionPhase.failed,
+        message: 'The challenge could not be cancelled. Try again.',
+      );
+      return null;
+    }
+  }
+
+  /// Builds the incoming-challenge screen state from the players listing.
+  Future<MatchLifecycleSnapshot?> handleIncomingChallenge(String matchId) async {
+    try {
+      final invite = await _gateway.fetchChallenge(matchId);
+      if (invite == null) return null;
+      state = state.copyWith(
+        currentIntent: MatchFlowIntent(
+          kind: MatchEntryKind.challenge,
+          terms: invite.terms,
+          opponent: invite.opponent,
+        ),
+        currentMatchId: matchId,
+        lifecycle: MatchLifecycleSnapshot(
+          phase: MatchLifecyclePhase.incomingChallenge,
+          terms: invite.terms,
+          matchId: matchId,
+          opponent: invite.opponent,
+        ),
+        actionPhase: MatchActionPhase.idle,
+        clearMessage: true,
+      );
+      return state.lifecycle;
+    } catch (_) {
+      return null;
+    }
+  }
+
   void resetAction() {
     state = state.copyWith(
       actionPhase: MatchActionPhase.idle,
