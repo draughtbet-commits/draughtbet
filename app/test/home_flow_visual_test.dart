@@ -9,6 +9,7 @@ import 'package:draughts_arena/screens/arena_screen.dart';
 import 'package:draughts_arena/screens/create_match_screen.dart';
 import 'package:draughts_arena/screens/home_lobby_screen.dart';
 import 'package:draughts_arena/screens/match_confirmation_screen.dart';
+import 'package:draughts_arena/screens/match_lifecycle_screens.dart';
 import 'package:draughts_arena/screens/match_result_screen.dart';
 import 'package:draughts_arena/screens/match_room_screen.dart';
 import 'package:draughts_arena/screens/match_screen.dart';
@@ -27,6 +28,15 @@ import 'package:go_router/go_router.dart';
 import 'home_flow_screens_test.dart' as fixtures;
 
 const _captureKey = ValueKey('home-flow-capture');
+
+const _waitingLifecycle = MatchLifecycleSnapshot(
+  phase: MatchLifecyclePhase.waitingOpponentStake,
+  terms: fixtures.referenceTerms,
+  matchId: '2415678',
+  opponent: fixtures.opponent,
+  playerStake: AuthoritativeProgress.confirmed,
+  opponentStake: AuthoritativeProgress.pending,
+);
 
 void _setViewport(WidgetTester tester) {
   tester.view.physicalSize = const Size(390, 844);
@@ -194,6 +204,38 @@ void main() {
       ),
     );
     await _settleCapture(tester, '06_home_lobby');
+  });
+
+  testWidgets('capture Home Lobby with pending active match', (tester) async {
+    _setViewport(tester);
+    const snapshot = _waitingLifecycle;
+    await tester.pumpWidget(
+      _captureShellApp(
+        initialLocation: '/home',
+        flow: MatchFlowState(
+          arenaPhase: LoadPhase.ready,
+          actionPhase: MatchActionPhase.succeeded,
+          searchPhase: SearchPhase.searching,
+          currentIntent: const MatchFlowIntent(
+            kind: MatchEntryKind.created,
+            terms: fixtures.referenceTerms,
+          ),
+          currentMatchId: snapshot.matchId,
+          lifecycle: snapshot,
+        ),
+      ),
+    );
+    await _settleCapture(tester, '06_home_pending_match');
+  });
+
+  testWidgets('capture 39 Waiting for Opponent with Home action', (
+    tester,
+  ) async {
+    _setViewport(tester);
+    await tester.pumpWidget(
+      _captureApp(WaitingOpponentStakeScreen(snapshot: _waitingLifecycle)),
+    );
+    await _settleCapture(tester, '39_waiting_opponent_back_home');
   });
 
   testWidgets('capture 07 Open Arena', (tester) async {

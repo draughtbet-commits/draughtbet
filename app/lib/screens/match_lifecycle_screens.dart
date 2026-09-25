@@ -209,12 +209,36 @@ class WaitingOpponentStakeScreen extends StatelessWidget {
   final MatchLifecycleSnapshot snapshot;
 
   @override
-  Widget build(BuildContext context) => _PlayersStatusScreen(
-    snapshot: snapshot,
-    title: 'WAITING FOR OPPONENT',
-    message: 'Waiting for your opponent to lock their stake.',
-    playerStatus: 'Locked',
-    opponentStatus: 'Waiting…',
+  Widget build(BuildContext context) => PopScope(
+    canPop: false,
+    onPopInvokedWithResult: (didPop, result) {
+      if (!didPop) context.go('/home');
+    },
+    child: _PlayersStatusScreen(
+      snapshot: snapshot,
+      title: 'WAITING FOR OPPONENT',
+      message: 'Waiting for your opponent to lock their stake.',
+      playerStatus: 'Locked',
+      opponentStatus: 'Waiting…',
+      details: _WaitingStakeStatusCard(snapshot: snapshot),
+      scrollable: true,
+      compactReference: true,
+      action: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            'Your match will remain open while you continue using the app.',
+            textAlign: TextAlign.center,
+            style: AppTypography.bodySmall,
+          ),
+          const SizedBox(height: 10),
+          SecondaryActionButton(
+            label: 'Back to Home',
+            onPressed: () => context.go('/home'),
+          ),
+        ],
+      ),
+    ),
   );
 }
 
@@ -635,7 +659,10 @@ class _PlayersStatusScreen extends StatelessWidget {
     required this.message,
     required this.playerStatus,
     required this.opponentStatus,
+    this.details,
     this.action,
+    this.scrollable = false,
+    this.compactReference = false,
   });
 
   final MatchLifecycleSnapshot snapshot;
@@ -643,49 +670,158 @@ class _PlayersStatusScreen extends StatelessWidget {
   final String message;
   final String playerStatus;
   final String opponentStatus;
+  final Widget? details;
   final Widget? action;
+  final bool scrollable;
+  final bool compactReference;
+
+  String get _screenTitle {
+    final matchId = snapshot.matchId?.trim();
+    if (matchId == null || matchId.isEmpty) return title;
+    if (!compactReference) return 'MATCH #$matchId';
+    final suffix = matchId.length <= 4
+        ? matchId
+        : matchId.substring(matchId.length - 4);
+    return 'MATCH #${suffix.toUpperCase()}';
+  }
+
+  Widget _content() => Column(
+    children: [
+      const Spacer(),
+      Text(title, textAlign: TextAlign.center, style: AppTypography.heading2),
+      const SizedBox(height: 8),
+      Text(
+        message,
+        textAlign: TextAlign.center,
+        style: AppTypography.bodyLarge,
+      ),
+      const SizedBox(height: 26),
+      Row(
+        mainAxisAlignment: MainAxisAlignment.spaceAround,
+        children: [
+          _PlayerState(
+            name: 'You',
+            avatarId: 'avatar_01',
+            status: playerStatus,
+          ),
+          Text(
+            'VS',
+            style: AppTypography.heading2.copyWith(
+              color: AppColors.valueAccent,
+            ),
+          ),
+          _PlayerState(
+            name: snapshot.opponent?.name ?? 'Opponent',
+            avatarId: snapshot.opponent?.avatarId ?? 'avatar_04',
+            status: opponentStatus,
+          ),
+        ],
+      ),
+      const SizedBox(height: 24),
+      details ?? MatchTermsCard(terms: snapshot.terms),
+      const Spacer(),
+      ?action,
+    ],
+  );
 
   @override
   Widget build(BuildContext context) => _LifecycleScaffold(
-    title: snapshot.matchId == null ? title : 'MATCH #${snapshot.matchId}',
+    title: _screenTitle,
+    child: scrollable
+        ? LayoutBuilder(
+            builder: (context, constraints) => SingleChildScrollView(
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  minWidth: constraints.maxWidth,
+                  minHeight: constraints.maxHeight,
+                ),
+                child: IntrinsicHeight(child: _content()),
+              ),
+            ),
+          )
+        : _content(),
+  );
+}
+
+class _WaitingStakeStatusCard extends StatelessWidget {
+  const _WaitingStakeStatusCard({required this.snapshot});
+
+  final MatchLifecycleSnapshot snapshot;
+
+  @override
+  Widget build(BuildContext context) => FlowCard(
     child: Column(
       children: [
-        const Spacer(),
-        Text(title, textAlign: TextAlign.center, style: AppTypography.heading2),
-        const SizedBox(height: 8),
-        Text(
-          message,
-          textAlign: TextAlign.center,
-          style: AppTypography.bodyLarge,
+        _stakeRow(
+          label: 'Your stake',
+          amount: Money(snapshot.terms.stakeMinorUnits).format(),
+          status: snapshot.playerStake == AuthoritativeProgress.confirmed
+              ? 'Locked'
+              : 'Confirming…',
+          confirmed: snapshot.playerStake == AuthoritativeProgress.confirmed,
         ),
-        const SizedBox(height: 26),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceAround,
-          children: [
-            _PlayerState(
-              name: 'You',
-              avatarId: 'avatar_01',
-              status: playerStatus,
-            ),
+        const Padding(
+          padding: EdgeInsets.symmetric(vertical: 12),
+          child: Divider(height: 1, color: AppColors.border),
+        ),
+        _stakeRow(
+          label: 'Opponent stake',
+          amount: snapshot.terms.opponentStakeMinorUnits == null
+              ? null
+              : Money(snapshot.terms.opponentStakeMinorUnits!).format(),
+          status: snapshot.opponentStake == AuthoritativeProgress.confirmed
+              ? 'Locked'
+              : 'Waiting…',
+          confirmed: snapshot.opponentStake == AuthoritativeProgress.confirmed,
+        ),
+      ],
+    ),
+  );
+
+  Widget _stakeRow({
+    required String label,
+    required String status,
+    required bool confirmed,
+    String? amount,
+  }) => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      Row(
+        children: [
+          Expanded(child: Text(label, style: AppTypography.bodySmall)),
+          if (amount != null)
             Text(
-              'VS',
-              style: AppTypography.heading2.copyWith(
+              amount,
+              style: AppTypography.labelBold.copyWith(
                 color: AppColors.valueAccent,
               ),
             ),
-            _PlayerState(
-              name: snapshot.opponent?.name ?? 'Opponent',
-              avatarId: snapshot.opponent?.avatarId ?? 'avatar_04',
-              status: opponentStatus,
+        ],
+      ),
+      const SizedBox(height: 7),
+      Row(
+        children: [
+          Icon(
+            confirmed ? LucideIcons.circleCheck : LucideIcons.loaderCircle,
+            size: 17,
+            color: confirmed
+                ? AppColors.primaryBright
+                : AppColors.textSecondary,
+          ),
+          const SizedBox(width: 7),
+          Expanded(
+            child: Text(
+              status,
+              style: AppTypography.bodySmall.copyWith(
+                color: confirmed
+                    ? AppColors.primaryBright
+                    : AppColors.textSecondary,
+              ),
             ),
-          ],
-        ),
-        const SizedBox(height: 24),
-        MatchTermsCard(terms: snapshot.terms),
-        const Spacer(),
-        ?action,
-      ],
-    ),
+          ),
+        ],
+      ),
+    ],
   );
 }
 
