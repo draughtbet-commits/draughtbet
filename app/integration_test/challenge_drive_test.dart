@@ -152,11 +152,23 @@ void main() {
       await tester.tap(find.text('₦15,000'));
       await tester.pump(const Duration(seconds: 3));
 
-      expect(
-        find.text('CHALLENGE SENT').evaluate(),
-        isNotEmpty,
-        reason: 'the sent screen should render after picking a stake',
-      );
+      final sentDeadline = DateTime.now().add(const Duration(seconds: 15));
+      while (find.text('CHALLENGE SENT').evaluate().isEmpty) {
+        if (DateTime.now().isAfter(sentDeadline)) {
+          final texts = find
+              .byType(Text)
+              .evaluate()
+              .map((e) => (e.widget as Text).data)
+              .whereType<String>()
+              .toSet()
+              .toList()
+            ..sort();
+          // ignore: avoid_print
+          print('VISIBLE-TEXTS@create: $texts');
+          fail('CHALLENGE SENT never appeared');
+        }
+        await tester.pump(const Duration(milliseconds: 500));
+      }
 
       // The invitee funds the match through the real API; the inviter's
       // sent screen polls and should advance to the ready check.

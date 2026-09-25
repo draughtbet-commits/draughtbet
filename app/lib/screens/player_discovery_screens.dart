@@ -240,51 +240,70 @@ class _PublicPlayerProfileScreenState
         top: false,
         child: FlowPage(
           scrollable: false,
-          child: Column(
-            children: [
-              const Spacer(),
-              GameAvatar(
-                avatarId: player.avatarId,
-                size: 104,
-                label: player.name,
-              ),
-              const SizedBox(height: 14),
-              Text(player.name, style: AppTypography.heading2),
-              Text(
-                player.rank ?? 'Verified player',
-                style: AppTypography.bodyLarge.copyWith(
-                  color: AppColors.primaryBright,
+          child: LayoutBuilder(
+            builder: (context, constraints) => SingleChildScrollView(
+              child: ConstrainedBox(
+                constraints:
+                    BoxConstraints(minHeight: constraints.maxHeight),
+                child: IntrinsicHeight(
+                  child: Column(
+                    children: [
+                      const Spacer(),
+                      GameAvatar(
+                        avatarId: player.avatarId,
+                        size: 104,
+                        label: player.name,
+                      ),
+                      const SizedBox(height: 14),
+                      Text(player.name, style: AppTypography.heading2),
+                      Text(
+                        player.rank ?? 'Verified player',
+                        style: AppTypography.bodyLarge.copyWith(
+                          color: AppColors.primaryBright,
+                        ),
+                      ),
+                      if (player.rating != null)
+                        Text(
+                          '★ ${player.rating}',
+                          style: AppTypography.bodyLarge,
+                        ),
+                      const SizedBox(height: 20),
+                      FlowCard(
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceAround,
+                          children: [
+                            _Metric(
+                              value: '${player.level ?? '—'}',
+                              label: 'Level',
+                            ),
+                            _Metric(
+                              value: '${player.winRate ?? '—'}%',
+                              label: 'Win rate',
+                            ),
+                            _Metric(
+                              value: '${player.rating ?? '—'}',
+                              label: 'Rating',
+                            ),
+                          ],
+                        ),
+                      ),
+                      const Spacer(),
+                      PrimaryActionButton(
+                        label: 'Challenge Player',
+                        loading: _challenging,
+                        onPressed:
+                            _challenging ? null : () => _sendChallenge(player),
+                      ),
+                      const SizedBox(height: 8),
+                      SecondaryActionButton(
+                        label: 'Browse Arena',
+                        onPressed: () => context.go('/arena'),
+                      ),
+                    ],
+                  ),
                 ),
               ),
-              if (player.rating != null)
-                Text('★ ${player.rating}', style: AppTypography.bodyLarge),
-              const SizedBox(height: 20),
-              FlowCard(
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceAround,
-                  children: [
-                    _Metric(value: '${player.level ?? '—'}', label: 'Level'),
-                    _Metric(
-                      value: '${player.winRate ?? '—'}%',
-                      label: 'Win rate',
-                    ),
-                    _Metric(value: '${player.rating ?? '—'}', label: 'Rating'),
-                  ],
-                ),
-              ),
-              const Spacer(),
-              PrimaryActionButton(
-                label: 'Challenge Player',
-                loading: _challenging,
-                onPressed:
-                    _challenging ? null : () => _sendChallenge(player),
-              ),
-              const SizedBox(height: 8),
-              SecondaryActionButton(
-                label: 'Browse Arena',
-                onPressed: () => context.go('/arena'),
-              ),
-            ],
+            ),
           ),
         ),
       ),

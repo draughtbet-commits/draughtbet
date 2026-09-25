@@ -481,7 +481,17 @@ class _LifecycleScaffold extends StatelessWidget {
     appBar: AppBar(title: Text(title), centerTitle: true),
     body: SafeArea(
       top: false,
-      child: FlowPage(scrollable: false, child: child),
+      child: FlowPage(
+        scrollable: false,
+        child: LayoutBuilder(
+          builder: (context, constraints) => SingleChildScrollView(
+            child: ConstrainedBox(
+              constraints: BoxConstraints(minHeight: constraints.maxHeight),
+              child: IntrinsicHeight(child: child),
+            ),
+          ),
+        ),
+      ),
     ),
   );
 }
