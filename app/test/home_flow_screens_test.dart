@@ -10,6 +10,7 @@ import 'package:draughts_arena/providers/match_flow_provider.dart';
 import 'package:draughts_arena/providers/match_provider.dart';
 import 'package:draughts_arena/providers/notification_provider.dart';
 import 'package:draughts_arena/providers/profile_provider.dart';
+import 'package:draughts_arena/providers/wallet_provider.dart';
 import 'package:draughts_arena/screens/arena_screen.dart';
 import 'package:draughts_arena/screens/create_match_screen.dart';
 import 'package:draughts_arena/screens/home_lobby_screen.dart';
@@ -159,6 +160,25 @@ class StaticNotificationNotifier extends NotificationNotifier {
   }
 }
 
+class StaticWalletNotifier extends WalletNotifier {
+  StaticWalletNotifier(WalletState initial) : super(SocketService(), Dio()) {
+    state = initial;
+  }
+
+  @override
+  Future<void> fetchBalance({bool silent = false}) async {}
+
+  @override
+  Future<void> fetchTransactions({
+    int page = 1,
+    int limit = 20,
+    bool silent = false,
+  }) async {}
+
+  @override
+  Future<void> loadMoreTransactions({int limit = 20}) async {}
+}
+
 GameState gameFixture({
   String turn = 'WHITE',
   List<LegalMove> legalMoves = const [LegalMove(from: 31, to: 26)],
@@ -198,6 +218,7 @@ Widget appFor(
         (ref) => StaticMatchNotifier(match ?? const MatchState()),
       ),
       notificationProvider.overrideWith((ref) => StaticNotificationNotifier()),
+      walletProvider.overrideWith((ref) => StaticWalletNotifier(const WalletState())),
     ],
     child: MaterialApp(theme: AppTheme.dark, home: child),
   );
@@ -281,6 +302,7 @@ Widget navigationApp({
         (ref) => StaticMatchNotifier(match ?? const MatchState()),
       ),
       notificationProvider.overrideWith((ref) => StaticNotificationNotifier()),
+      walletProvider.overrideWith((ref) => StaticWalletNotifier(const WalletState())),
     ],
     child: MaterialApp.router(theme: AppTheme.dark, routerConfig: router),
   );

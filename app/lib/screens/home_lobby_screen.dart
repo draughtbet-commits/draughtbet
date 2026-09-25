@@ -7,6 +7,7 @@ import '../models/match_flow.dart';
 import '../providers/match_flow_provider.dart';
 import '../providers/match_provider.dart';
 import '../providers/profile_provider.dart';
+import '../providers/wallet_provider.dart';
 import '../theme/colors.dart';
 import '../widgets/balance_card.dart';
 import '../widgets/flow_widgets.dart';
@@ -32,6 +33,7 @@ class _HomeLobbyScreenState extends ConsumerState<HomeLobbyScreen> {
       ref.read(matchFlowProvider.notifier).loadArena();
       ref.read(matchFlowProvider.notifier).loadActiveMatches();
       ref.read(matchProvider.notifier).restoreActiveMatch();
+      ref.read(walletProvider.notifier).fetchBalance(silent: true);
     });
   }
 

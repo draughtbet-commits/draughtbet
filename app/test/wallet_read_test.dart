@@ -137,6 +137,20 @@ void main() {
     expect(projection.lockedFunds, isEmpty);
   });
 
+  test('wallet projection reads locked and pending from the nested balance', () {
+    final projection = WalletProjection.fromJson({
+      'balance': {
+        'currency': 'NGN',
+        'balanceMinorUnits': '9750000',
+        'lockedMinorUnits': '1500000',
+        'pendingMinorUnits': '0',
+      },
+    });
+    expect(projection.availableMinorUnits, 9750000);
+    expect(projection.lockedMinorUnits, 1500000);
+    expect(projection.pendingMinorUnits, 0);
+  });
+
   test('wallet projection rejects every invalid authoritative shape', () {
     final invalid = <Map<String, dynamic>>[
       const {},

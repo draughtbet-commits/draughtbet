@@ -5,6 +5,7 @@ import 'package:draughts_arena/providers/match_flow_provider.dart';
 import 'package:draughts_arena/providers/match_provider.dart';
 import 'package:draughts_arena/providers/notification_provider.dart';
 import 'package:draughts_arena/providers/profile_provider.dart';
+import 'package:draughts_arena/providers/wallet_provider.dart';
 import 'package:draughts_arena/screens/arena_screen.dart';
 import 'package:draughts_arena/screens/create_match_screen.dart';
 import 'package:draughts_arena/screens/home_lobby_screen.dart';
@@ -51,6 +52,9 @@ Widget _captureApp(
       ),
       notificationProvider.overrideWith(
         (ref) => fixtures.StaticNotificationNotifier(),
+      ),
+      walletProvider.overrideWith(
+        (ref) => fixtures.StaticWalletNotifier(const WalletState()),
       ),
     ],
     child: MaterialApp(
@@ -112,6 +116,9 @@ Widget _captureShellApp({
       ),
       notificationProvider.overrideWith(
         (ref) => fixtures.StaticNotificationNotifier(),
+      ),
+      walletProvider.overrideWith(
+        (ref) => fixtures.StaticWalletNotifier(const WalletState()),
       ),
     ],
     child: MaterialApp.router(

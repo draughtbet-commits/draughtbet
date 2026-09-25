@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../models/match_flow.dart';
 import '../providers/profile_provider.dart';
+import '../providers/wallet_provider.dart';
 import '../theme/colors.dart';
 
 class BalanceCard extends ConsumerStatefulWidget {
@@ -23,6 +24,7 @@ class _BalanceCardState extends ConsumerState<BalanceCard> {
   @override
   Widget build(BuildContext context) {
     final profileState = ref.watch(profileProvider);
+    final walletState = ref.watch(walletProvider);
     final loading = profileState.isLoading && profileState.profile == null;
     final unavailable =
         profileState.error != null && profileState.profile == null;
@@ -31,6 +33,7 @@ class _BalanceCardState extends ConsumerState<BalanceCard> {
         : unavailable
         ? 'Unavailable'
         : _formatNaira(profileState.profile?.walletBalanceMinorUnits ?? 0);
+    final locked = walletState.projection?.lockedMinorUnits;
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -118,7 +121,9 @@ class _BalanceCardState extends ConsumerState<BalanceCard> {
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      '—',
+                      _hideBalance
+                          ? '₦••••••'
+                          : _formatNaira(locked ?? 0),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(

@@ -35,12 +35,11 @@ class WalletProjection {
     if (currency.isEmpty) {
       throw const FormatException('Missing authoritative balance currency');
     }
-    int? optionalMinor(String key) => _parseMinorUnits(json[key]);
     return WalletProjection(
       availableMinorUnits: available,
       currency: currency,
-      lockedMinorUnits: optionalMinor('lockedBalanceMinorUnits'),
-      pendingMinorUnits: optionalMinor('pendingBalanceMinorUnits'),
+      lockedMinorUnits: _parseMinorUnits(nested['lockedMinorUnits']),
+      pendingMinorUnits: _parseMinorUnits(nested['pendingMinorUnits']),
       verifiedAt: DateTime.tryParse(json['verifiedAt']?.toString() ?? ''),
       isStale: json['stale'] == true,
       lockedFunds: (json['lockedFunds'] is List)
