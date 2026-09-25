@@ -123,6 +123,86 @@ void main() {
     expect(loser?.payoutMinorUnits, isNull);
   });
 
+  test('v2 receipt parser selects the viewer receipt row from receipts[]', () {
+    // Mirrors the live GET /matches/:id/receipt contract: one row per
+    // participant, each with its own reference and money line.
+    final body = {
+      'matchId': '07ecc405-775e-4fa4-b4ac-c12bd22bccab',
+      'status': 'SETTLED',
+      'winnerId': '8b435231-2bbf-41ed-a494-6fa518e05c50',
+      'endReason': 'timeout_forfeit',
+      'settledAt': '2026-09-24T16:52:50.029Z',
+      'receipts': [
+        {
+          'reference': 'rcpt-bb710c3e-ede0-4486-8a03-89293c5e1a56',
+          'userId': '8b435231-2bbf-41ed-a494-6fa518e05c50',
+          'result': 'WIN',
+          'stakeMinorUnits': '1000000',
+          'payoutMinorUnits': '1800000',
+          'feeMinorUnits': '200000',
+          'createdAt': '2026-09-24T16:52:50.033Z',
+        },
+        {
+          'reference': 'rcpt-4f2b48c8-3172-48d7-b595-d2e79e36a989',
+          'userId': 'a337afdc-0b1d-4d13-893d-41bd796441c6',
+          'result': 'LOSS',
+          'stakeMinorUnits': '1000000',
+          'payoutMinorUnits': '0',
+          'feeMinorUnits': '0',
+          'createdAt': '2026-09-24T16:52:50.033Z',
+        },
+      ],
+    };
+
+    final winner = MatchReceiptData.tryFromServer(
+      body,
+      currentUserId: '8b435231-2bbf-41ed-a494-6fa518e05c50',
+    );
+    expect(winner, isNotNull);
+    expect(winner!.result, ResultKind.victory);
+    expect(winner.matchId, '07ecc405-775e-4fa4-b4ac-c12bd22bccab');
+    expect(winner.reference, 'rcpt-bb710c3e-ede0-4486-8a03-89293c5e1a56');
+    expect(winner.payoutMinorUnits, 1800000);
+    expect(winner.terms!.stakeMinorUnits, 1000000);
+    expect(winner.terms!.platformFeeMinorUnits, 200000);
+    expect(winner.terms!.totalPrizeMinorUnits, 2000000);
+    expect(winner.settledAt.isAfter(DateTime.utc(2026, 9, 24)), isTrue);
+
+    final loser = MatchReceiptData.tryFromServer(
+      body,
+      currentUserId: 'a337afdc-0b1d-4d13-893d-41bd796441c6',
+    );
+    expect(loser, isNotNull);
+    expect(loser!.result, ResultKind.defeat);
+    expect(loser.reference, 'rcpt-4f2b48c8-3172-48d7-b595-d2e79e36a989');
+    expect(loser.payoutMinorUnits, 0);
+    expect(loser.refundMinorUnits, isNull);
+  });
+
+  test('v2 receipt parser maps a REFUND row to a draw with refund', () {
+    final parsed = MatchReceiptData.tryFromServer({
+      'matchId': 'm-draw',
+      'status': 'SETTLED',
+      'winnerId': null,
+      'settledAt': '2026-09-24T16:52:50.029Z',
+      'receipts': [
+        {
+          'reference': 'rcpt-draw-1',
+          'userId': 'player-1',
+          'result': 'REFUND',
+          'stakeMinorUnits': '500000',
+          'payoutMinorUnits': '500000',
+          'feeMinorUnits': '0',
+          'createdAt': '2026-09-24T16:52:50.033Z',
+        },
+      ],
+    });
+    expect(parsed, isNotNull);
+    expect(parsed!.result, ResultKind.draw);
+    expect(parsed.refundMinorUnits, 500000);
+    expect(parsed.payoutMinorUnits, 500000);
+  });
+
   for (final entry in <ResultKind, String>{
     ResultKind.victory: 'VICTORY',
     ResultKind.defeat: 'DEFEAT',

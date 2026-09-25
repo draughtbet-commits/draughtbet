@@ -478,24 +478,97 @@ class MatchReceiptData {
   final int? refundMinorUnits;
   final String? settlementReference;
 
-  static MatchReceiptData? tryFromServer(Map<dynamic, dynamic> raw) {
+  static MatchReceiptData? tryFromServer(
+    Map<dynamic, dynamic> raw, {
+    String? currentUserId,
+  }) {
     final outer = Map<String, dynamic>.from(raw);
     final envelope = outer['data'] is Map
         ? Map<String, dynamic>.from(outer['data'] as Map)
         : outer;
+    final matchId = envelope['matchId']?.toString().trim() ?? '';
+    final settledAt = DateTime.tryParse(envelope['settledAt']?.toString() ?? '');
+
+    // The active V2 contract serves one receipt row per participant
+    // (`receipts[]`), each with its own reference and money line. Pick the
+    // caller's own row so the receipt reflects this player's result.
+    final receipts = envelope['receipts'];
+    if (receipts is List && receipts.isNotEmpty && matchId.isNotEmpty && settledAt != null) {
+      Map<String, dynamic>? pick;
+      if (currentUserId != null && currentUserId.trim().isNotEmpty) {
+        for (final item in receipts) {
+          if (item is Map && item['userId']?.toString().trim() == currentUserId) {
+            pick = Map<String, dynamic>.from(item);
+            break;
+          }
+        }
+      }
+      if (pick == null) {
+        final rows = receipts.whereType<Map>().map((m) {
+          return Map<String, dynamic>.from(m as Map<dynamic, dynamic>);
+        }).toList();
+        for (final row in rows) {
+          final result = row['result']?.toString().toUpperCase();
+          if (result == 'WIN' || result == 'REFUND') {
+            pick = row;
+            break;
+          }
+        }
+        pick ??= rows.isNotEmpty ? rows.first : const <String, dynamic>{};
+      }
+
+      final resultLabel = pick['result']?.toString().toUpperCase();
+      final result = switch (resultLabel) {
+        'WIN' => ResultKind.victory,
+        'REFUND' => ResultKind.draw,
+        _ => ResultKind.defeat,
+      };
+      final stake = _minorUnits(pick['stakeMinorUnits']);
+      final payout = _minorUnits(pick['payoutMinorUnits']);
+      final fee = _minorUnits(pick['feeMinorUnits']);
+      final terms = stake == null
+          ? null
+          : MatchTerms(
+              stakeMinorUnits: stake,
+              opponentStakeMinorUnits: stake,
+              platformFeeMinorUnits: fee,
+              // Total pot is the winner's payout plus commission when the
+              // server exposes a winner; otherwise left for the server to quote.
+              totalPrizeMinorUnits:
+                  result == ResultKind.victory && payout != null && fee != null
+                  ? payout + fee
+                  : null,
+              timeControl: 'Server unavailable',
+              gameType: 'Server unavailable',
+              board: 'Server unavailable',
+              serverQuoted: true,
+            );
+      return MatchReceiptData(
+        matchId: matchId,
+        reference: pick['reference']?.toString().trim(),
+        result: result,
+        opponent: null, // the receipt endpoint does not echo opponent profiles
+        settledAt: settledAt,
+        terms: terms,
+        payoutMinorUnits: payout,
+        refundMinorUnits: resultLabel == 'REFUND' ? payout : null,
+        settlementReference: envelope['settlementReference']?.toString(),
+      );
+    }
+
     final body = envelope['receipt'] is Map
         ? Map<String, dynamic>.from(envelope['receipt'] as Map)
         : envelope;
-    final matchId = body['matchId']?.toString().trim() ?? '';
+    final legacyMatchId = body['matchId']?.toString().trim() ?? '';
     final reference = body['reference']?.toString().trim();
-    final settledAt = DateTime.tryParse(body['settledAt']?.toString() ?? '');
+    final legacySettledAt = DateTime.tryParse(body['settledAt']?.toString() ?? '');
     final resultBody = body['result'] is Map
         ? Map<String, dynamic>.from(body['result'] as Map)
         : const <String, dynamic>{};
-    final result = _parseResultKind(
+    final legacyResult = _parseResultKind(
       body['resultKind'] ?? body['outcome'] ?? resultBody['kind'],
     );
-    if (matchId.isEmpty || settledAt == null) return null;
+    if (legacyMatchId.isEmpty || legacySettledAt == null) return null;
     MatchPlayer? opponent;
     final opponentBody = body['opponent'];
     if (opponentBody is Map) {
@@ -548,11 +621,11 @@ class MatchReceiptData {
             serverQuoted: true,
           );
     return MatchReceiptData(
-      matchId: matchId,
+      matchId: legacyMatchId,
       reference: reference,
-      result: result,
+      result: legacyResult,
       opponent: opponent,
-      settledAt: settledAt,
+      settledAt: legacySettledAt,
       terms: terms,
       payoutMinorUnits: _minorUnits(
         body['payoutMinorUnits'] ?? moneyJson['winnerPayoutMinor'],
