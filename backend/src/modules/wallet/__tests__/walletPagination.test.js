@@ -13,6 +13,16 @@ const mockService = {
   createDepositIntent: jest.fn(),
   findDepositIntentByClientKey: jest.fn(),
   getDepositIntent: jest.fn(),
+  createDepositQuote: jest.fn(),
+  findDepositQuoteByClientKey: jest.fn(),
+  depositQuotePayload: jest.fn(),
+  DepositQuoteError: class DepositQuoteError extends Error {
+    constructor(message, code) {
+      super(message);
+      this.name = 'DepositQuoteError';
+      this.code = code;
+    }
+  },
   parseMinorUnits: jest.fn(),
   parseIdempotencyKey: jest.fn(),
 };

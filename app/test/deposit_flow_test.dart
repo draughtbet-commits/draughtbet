@@ -180,11 +180,100 @@ void setPhoneViewport(WidgetTester tester, {Size size = const Size(412, 915)}) {
 }
 
 void main() {
-  test('active backend gaps do not call nonexistent deposit reads', () async {
-    final gateway = DepositGateway(Dio());
+  group('deposit gateway talks to the real backend routes', () {
+    late Dio dio;
+    late DepositGateway gateway;
+    late List<RequestOptions> requests;
 
-    expect(await gateway.createQuote(200000), isNull);
-    expect(await gateway.fetchStatus('deposit-reference'), isNull);
+    setUp(() {
+      requests = <RequestOptions>[];
+      dio = Dio();
+      dio.interceptors.add(
+        InterceptorsWrapper(
+          onRequest: (options, handler) {
+            requests.add(options);
+            handler.resolve(
+              Response<dynamic>(
+                requestOptions: options,
+                statusCode: 200,
+                data: const {
+                  'quote': {
+                    'id': 'quote-1',
+                    'amountMinorUnits': '200000',
+                    'feeMinorUnits': '0',
+                    'totalMinorUnits': '200000',
+                    'currency': 'NGN',
+                    'paymentMethods': [
+                      {
+                        'id': 'paystack',
+                        'label': 'Paystack',
+                        'feeMinorUnits': '0',
+                      },
+                    ],
+                    'expiresAt': '2026-10-07T12:15:00.000Z',
+                  },
+                },
+              ),
+            );
+          },
+        ),
+      );
+      gateway = DepositGateway(dio);
+    });
+
+    test('createQuote asks the server for the fee and gateway list', () async {
+      final quote = await gateway.createQuote(200000);
+
+      expect(requests.single.method, 'POST');
+      expect(requests.single.path, '/wallet/deposit-quote');
+      // Money crosses the wire as integer minor units, never a float.
+      expect(requests.single.data, {'amountMinorUnits': '200000'});
+      expect(
+        requests.single.headers['Idempotency-Key'],
+        startsWith('deposit-quote-'),
+      );
+      expect(quote?.id, 'quote-1');
+      expect(quote?.totalMinorUnits, 200000);
+      expect(quote?.paymentMethods.single.id, 'paystack');
+    });
+
+    test('createIntent posts the lowercase gateway and the quote id', () async {
+      final quote = DepositQuote.tryFromServer(const {
+        'quote': {
+          'id': 'quote-1',
+          'amountMinorUnits': '200000',
+          'currency': 'NGN',
+          'paymentMethods': [
+            {'id': 'paystack', 'label': 'Paystack'},
+          ],
+        },
+      })!;
+
+      await gateway.createIntent(
+        quote: quote,
+        method: quote.paymentMethods.single,
+      );
+
+      final request = requests.single;
+      expect(request.method, 'POST');
+      expect(request.path, '/wallet/deposit-intent');
+      expect(request.data, {
+        'amountMinorUnits': '200000',
+        // Lowercase is the only form the server accepts.
+        'gateway': 'paystack',
+        // So the server re-validates the exact quote the player was shown.
+        'quoteId': 'quote-1',
+      });
+      expect(request.headers['Idempotency-Key'], startsWith('deposit-'));
+    });
+
+    test('fetchStatus reads the deposit back by provider reference', () async {
+      await gateway.fetchStatus('paystack-8f2c-reference');
+
+      final request = requests.single;
+      expect(request.method, 'GET');
+      expect(request.path, '/deposits/paystack-8f2c-reference');
+    });
   });
 
   test(

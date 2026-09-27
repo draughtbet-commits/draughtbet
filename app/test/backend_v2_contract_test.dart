@@ -213,47 +213,75 @@ void main() {
   });
 
   group('PR6 deposit V2 contract', () {
-    test('creates checkout and polls only by server depositId', () async {
+    test('quotes, opens checkout and polls only by server reference', () async {
       final (dio, adapter) = client();
       adapter
+        // The server owns the fee, total and gateway list.
         ..enqueue({
-          'data': {
-            'depositId': 'dep_1',
-            'status': 'PENDING',
-            'checkout': {
-              'authorizationUrl': 'https://pay.example/authorize/private',
-              'reference': 'provider-secret-reference',
-            },
+          'quote': {
+            'id': 'quote_1',
+            'amountMinorUnits': '500000',
+            'feeMinorUnits': '0',
+            'totalMinorUnits': '500000',
+            'currency': 'NGN',
+            'paymentMethods': [
+              {'id': 'paystack', 'label': 'Paystack', 'feeMinorUnits': '0'},
+            ],
+            'idempotencyKey': 'deposit-quote-1700000000000-abc123',
           },
         })
         ..enqueue({
-          'data': {
-            'depositId': 'dep_1',
-            'status': 'CONFIRMED',
-            'amountMinor': 500000,
+          'authorizationUrl': 'https://pay.example/authorize/private',
+          'reference': 'paystack-server-reference',
+        })
+        ..enqueue({
+          'deposit': {
+            'id': 'dep_1',
+            'status': 'COMPLETED',
+            'reference': 'paystack-server-reference',
+            'amountMinorUnits': '500000',
+            'currency': 'NGN',
           },
         });
       final gateway = DepositGateway(dio, contract: v2);
-      const quote = DepositQuote(
-        id: 'quote_1',
-        amountMinorUnits: 500000,
-        currency: 'NGN',
-        paymentMethods: [],
-        idempotencyKey: 'deposit-key-1',
-      );
-      const method = DepositPaymentMethod(id: 'PAYSTACK', label: 'Card');
 
-      final intent = await gateway.createIntent(quote: quote, method: method);
+      final quote = await gateway.createQuote(500000);
+      final intent = await gateway.createIntent(
+        quote: quote!,
+        method: quote.paymentMethods.single,
+      );
       final confirmed = await gateway.fetchStatus(
         intent!.reference,
         previous: intent,
       );
 
-      expect(intent.reference, 'dep_1');
+      expect(quote.totalMinorUnits, 500000);
+      // A replayed checkout must reuse the quote's operation key so it resolves
+      // to the same intent instead of opening a second checkout.
+      expect(adapter.requests[0].headers['Idempotency-Key'], startsWith('deposit-quote-'));
+      // Checkout is opened on the route the server actually serves, carrying
+      // the quote so the server re-validates the exact quoted amount.
+      expect(
+        wireUrl(adapter.requests[1]),
+        'https://api.example.test/api/v1/wallet/deposit-intent',
+      );
+      expect(adapter.requests[1].data, {
+        'amountMinorUnits': '500000',
+        'gateway': 'paystack',
+        'quoteId': 'quote_1',
+      });
+      expect(
+        adapter.requests[1].headers['Idempotency-Key'],
+        'deposit-quote-1700000000000-abc123',
+      );
+      expect(intent.reference, 'paystack-server-reference');
       expect(intent.reference, isNot(contains('provider-secret')));
-      expect(wireUrl(adapter.requests[0]), 'https://api.example.test/api/v1/deposits');
-      expect(adapter.requests[0].headers['Idempotency-Key'], 'deposit-key-1');
-      expect(wireUrl(adapter.requests[1]), 'https://api.example.test/api/v1/deposits/dep_1');
+      // Status is read back from the server; a checkout return is never proof
+      // of payment on its own.
+      expect(
+        wireUrl(adapter.requests[2]),
+        'https://api.example.test/api/v1/deposits/paystack-server-reference',
+      );
       expect(confirmed!.status, DepositStatus.successful);
     });
   });

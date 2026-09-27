@@ -37,6 +37,7 @@ model User {
   calloutsAccepted  Callout[] @relation("CalloutAcceptedBy")
   eligibility       Eligibility?
   depositIntents    DepositIntent[]
+  depositQuotes     DepositQuote[]
   // V2 relations
   sessions                UserSession[]
   securityEvents          SecurityEvent[]
@@ -141,6 +142,50 @@ enum DepositIntentStatus {
   PENDING
   FAILED // provider initiation reported an error; no checkout was exposed
   COMPLETED // matched webhook applied; the credit is durable in the ledger
+}
+
+// Server-owned deposit quote. Created BEFORE an intent so the client never
+// invents fees, currency or available payment methods: the amount, fee, total
+// and gateway list are all decided here and re-validated when the intent is
+// created, so a quote can never drift from what is actually charged.
+model DepositQuote {
+  id           String   @id @default(uuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id])
+  amountMinorUnits BigInt // canonical integer minor units the client asked for
+  currency     Currency @default(NGN)
+  // Per-gateway fee schedule is applied when the quote is issued; the figures
+  // below are the quote's own settled values, never recomputed by the client.
+  feeMinorUnits   BigInt @default(0)
+  totalMinorUnits BigInt
+  // Server-owned gateway descriptors, e.g.
+  // [{ "id": "paystack", "label": "Paystack", "feeMinorUnits": "0" }]
+  // Stored as JSON because the enabled set is a platform setting, not a fixed
+  // enum slice. The client must render these verbatim.
+  paymentMethods Json
+  status         DepositQuoteStatus @default(ACTIVE)
+  // Client-supplied operation key on quote create: a replayed quote request with
+  // the same Idempotency-Key returns the original quote — never a second one.
+  idempotencyKey String?
+  // A quote is only valid until this instant. The intent create re-checks it;
+  // `expireDepositQuotes` sweeps the stragglers so the table cannot grow.
+  expiresAt   DateTime
+  // Set when an intent consumes this quote. The unique constraint makes quote
+  // consumption exactly-once even under concurrent intent creates.
+  consumedByIntentId String?           @unique
+  consumedAt         DateTime?
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+
+  @@index([userId, status])
+  @@index([status, expiresAt])
+  @@unique([userId, idempotencyKey])
+}
+
+enum DepositQuoteStatus {
+  ACTIVE // usable by exactly one intent
+  CONSUMED // an intent was created from it
+  EXPIRED // past expiresAt and never consumed
 }
 
 model WithdrawalRequest {
@@ -363,6 +408,22 @@ model PlatformSettings {
   amateurCalloutMaxP BigInt @default(0)         // ₦0 — Amateur is not call-out eligible at all, per wireframe
   masterCalloutMaxP  BigInt @default(15000000)  // ₦150,000 (placeholder, proportional to original £250 ceiling)
   proCalloutMaxP     BigInt @default(30000000)  // ₦300,000 (placeholder, proportional to original £500 ceiling)
+
+  // ---- Deposit quote policy (server-owned) --------------------------------
+  // The client must never invent fees, currency or which gateways exist. It
+  // asks for a quote, the server decides all of it from these fields, and the
+  // resulting figures are what the intent is created against. Defaults are
+  // zero-fee placeholders — confirm real Nigeria-market gateway pricing with
+  // the client before launch, exactly like the stake bounds above.
+  paystackEnabled     Boolean @default(true)
+  flutterwaveEnabled  Boolean @default(true)
+  // Gateway fee in basis points of the deposit amount (100 bps = 1%).
+  paystackFeeBps      Int     @default(0)
+  flutterwaveFeeBps   Int     @default(0)
+  depositMinP         BigInt  @default(10000)    // ₦100
+  depositMaxP         BigInt  @default(50000000) // ₦500,000
+  // How long a issued quote stays usable before the client must re-quote.
+  depositQuoteTtlSeconds Int  @default(900)      // 15 minutes
 }
 
 model Notification {

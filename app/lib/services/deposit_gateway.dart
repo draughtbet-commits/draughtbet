@@ -12,40 +12,45 @@ class DepositGateway {
   final Dio _dio;
   final BackendContractConfig contract;
 
+  // The deposit routes below are served unconditionally by the backend, so they
+  // are called in both contract modes. `contract` still selects the V2-only
+  // behaviour elsewhere; gating these reads on it would leave deposits
+  // unusable in the default mode while the server is plainly ready.
+
+  /// Asks the server what a deposit costs. The fee, total, currency and the set
+  /// of available gateways are all decided server-side and must never be
+  /// inferred on the client.
   Future<DepositQuote?> createQuote(int amountMinorUnits) async {
-    // The active backend does not expose a deposit quote/payment-method read.
-    // Do not call the roadmap-only `/deposits/quote` endpoint or invent a
-    // gateway list in Flutter. The notifier renders its unavailable state.
-    return null;
+    final response = await _dio.post<dynamic>(
+      '/wallet/deposit-quote',
+      data: {'amountMinorUnits': amountMinorUnits.toString()},
+      options: Options(
+        headers: {'Idempotency-Key': ClientRequestId.create('deposit-quote')},
+      ),
+    );
+    return DepositQuote.tryFromServer(response.data);
   }
 
+  /// Opens hosted checkout against a quote. The gateway id is sent lowercase
+  /// because that is the only form the server accepts, and the quote id travels
+  /// with it so the server re-validates and consumes that exact quote — the
+  /// amount can never drift from the fee the player was shown.
   Future<DepositIntentData?> createIntent({
     required DepositQuote quote,
     required DepositPaymentMethod method,
   }) async {
     final response = await _dio.post<dynamic>(
-      contract.isV2 ? '/deposits' : '/wallet/deposit-intent',
-      data: contract.isV2
-          ? {
-              'amountMinor': quote.amountMinorUnits,
-              'currency': quote.currency,
-              'provider': method.id,
-            }
-          : {
-              'amountMinorUnits': quote.amountMinorUnits,
-              'gateway': method.id.toLowerCase(),
-              'quoteId': quote.id,
-              if (quote.idempotencyKey != null)
-                'idempotencyKey': quote.idempotencyKey,
-            },
-      options: contract.isV2
-          ? Options(
-              headers: {
-                'Idempotency-Key':
-                    quote.idempotencyKey ?? 'deposit-${quote.id}',
-              },
-            )
-          : null,
+      '/wallet/deposit-intent',
+      data: {
+        'amountMinorUnits': quote.amountMinorUnits.toString(),
+        'gateway': method.id.toLowerCase(),
+        'quoteId': quote.id,
+      },
+      options: Options(
+        headers: {
+          'Idempotency-Key': quote.idempotencyKey ?? 'deposit-${quote.id}',
+        },
+      ),
     );
     return DepositIntentData.tryFromServer(
       response.data,
@@ -55,12 +60,17 @@ class DepositGateway {
     );
   }
 
+  /// Reads deposit status back from the server. A hosted-checkout return is
+  /// never proof of payment on its own, so completion is only ever believed
+  /// when the server says so. The server resolves the provider reference as
+  /// well as the internal id, which is the only identifier the client holds.
   Future<DepositIntentData?> fetchStatus(
     String reference, {
     DepositIntentData? previous,
   }) async {
-    if (!contract.isV2) return null;
-    final response = await _dio.get<dynamic>('/deposits/$reference');
+    final response = await _dio.get<dynamic>(
+      '/deposits/${Uri.encodeComponent(reference)}',
+    );
     return DepositIntentData.tryFromServer(response.data, previous: previous);
   }
 }

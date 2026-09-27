@@ -6,6 +6,10 @@ import {
   createDepositIntent,
   findDepositIntentByClientKey,
   getDepositIntent,
+  createDepositQuote,
+  findDepositQuoteByClientKey,
+  depositQuotePayload,
+  DepositQuoteError,
   parseMinorUnits,
   parseIdempotencyKey
 } from './service.js';
@@ -98,11 +102,95 @@ walletRouter.get('/tier-limits', requireAuth, async (req, res, next) => {
   }
 });
 
+// Client errors on a quote are policy or input faults, not server faults, so
+// they get real status codes instead of collapsing into a 500.
+const depositQuoteStatus = (code) => {
+  switch (code) {
+    case 'INVALID_AMOUNT':
+    case 'AMOUNT_OUT_OF_RANGE':
+      return 400;
+    case 'QUOTE_NOT_FOUND':
+      return 404;
+    case 'QUOTE_ALREADY_USED':
+    case 'QUOTE_EXPIRED':
+    case 'QUOTE_AMOUNT_MISMATCH':
+    case 'QUOTE_METHOD_UNAVAILABLE':
+      return 409;
+    case 'UNSUPPORTED_CURRENCY':
+      return 422;
+    case 'NO_GATEWAY_AVAILABLE':
+    case 'FEE_SCHEDULE_NOT_ACTIVE':
+    case 'POLICY_UNAVAILABLE':
+      return 503;
+    default:
+      return 500;
+  }
+};
+
+/**
+ * POST /api/v1/wallet/deposit-quote
+ *
+ * The single source of truth for a deposit's amount, fee, total, currency and
+ * the set of available payment gateways. The client must never invent any of
+ * them — before this route existed the deposit flow had no way to render a fee
+ * or a gateway list that the server would honour.
+ *
+ * Honours an Idempotency-Key exactly like the intent create: a replayed quote
+ * request returns the original quote, never a second one.
+ */
+walletRouter.post('/deposit-quote', requireAuth, async (req, res, next) => {
+  try {
+    const { id: userId } = req.user;
+    const { amountMinorUnits } = req.body ?? {};
+
+    let clientKey;
+    try {
+      clientKey = parseIdempotencyKey(req.get('idempotency-key'));
+    } catch (keyErr) {
+      return res.status(400).json({ error: { code: 'INVALID_IDEMPOTENCY_KEY', message: keyErr.message } });
+    }
+
+    // Replay lookup BEFORE the amount/policy gates so a retry that would now
+    // fail a gate still resolves to the quote the client already holds.
+    if (clientKey) {
+      const replay = await findDepositQuoteByClientKey(userId, clientKey);
+      if (replay) {
+        return res.json({ quote: depositQuotePayload(replay), replayed: true });
+      }
+    }
+
+    let result;
+    try {
+      result = await createDepositQuote(userId, amountMinorUnits, clientKey);
+    } catch (createErr) {
+      // A concurrent request with the same client key won the create.
+      if (createErr?.code === 'P2002' && clientKey) {
+        const existing = await findDepositQuoteByClientKey(userId, clientKey);
+        if (existing) {
+          return res.json({ quote: depositQuotePayload(existing), replayed: true });
+        }
+      }
+      throw createErr;
+    }
+
+    res.json({ quote: depositQuotePayload(result.quote), replayed: result.replayed });
+  } catch (error) {
+    if (error instanceof DepositQuoteError) {
+      const status = depositQuoteStatus(error.code);
+      if (status !== 500) {
+        return res.status(status).json({ error: { code: error.code, message: error.message } });
+      }
+      logger.error({ err: error }, 'Deposit quote failed unexpectedly');
+    }
+    next(error);
+  }
+});
+
 walletRouter.post('/deposit-intent', requireAuth, async (req, res, next) => {
   let intent;
   try {
     const { id: userId, email } = req.user; // requireAuth populates id and email from DB
-    const { amountMinorUnits, gateway } = req.body;
+    const { amountMinorUnits, gateway, quoteId } = req.body;
     
     const amount = parseMinorUnits(amountMinorUnits);
     if (amount === null) {
@@ -117,6 +205,11 @@ walletRouter.post('/deposit-intent', requireAuth, async (req, res, next) => {
     } else {
       return res.status(400).json({ error: 'Invalid gateway specified' });
     }
+
+    // A quoteId is optional for backwards compatibility, but when the client
+    // quoted first the server re-validates and consumes that quote instead of
+    // taking the amount on trust — see createDepositIntent/claimDepositQuote.
+    const quoteRef = typeof quoteId === 'string' && quoteId.trim() ? quoteId.trim() : null;
 
     // Client idempotency (decision §39): a replayed checkout returns the
     // original intent — no second provider checkout is ever opened. The
@@ -148,7 +241,7 @@ walletRouter.post('/deposit-intent', requireAuth, async (req, res, next) => {
     //    webhook can then only be authorized against this record, and the
     //    amount/currency/wallet are never taken from the raw webhook body.
     try {
-      intent = await createDepositIntent(userId, amount, gatewayKey, email || 'user@example.com', clientKey);
+      intent = await createDepositIntent(userId, amount, gatewayKey, email || 'user@example.com', clientKey, quoteRef);
     } catch (createErr) {
       // A concurrent request with the same client key won the create — resolve
       // the original intent instead of failing the retry.
@@ -183,6 +276,14 @@ walletRouter.post('/deposit-intent', requireAuth, async (req, res, next) => {
 
     res.json({ authorizationUrl, reference });
   } catch (error) {
+    // A quote that cannot be honoured is a client-visible conflict (expired,
+    // already used, amount drifted) — the client must re-quote, not see a 500.
+    if (error instanceof DepositQuoteError) {
+      const status = depositQuoteStatus(error.code);
+      if (status !== 500) {
+        return res.status(status).json({ error: { code: error.code, message: error.message } });
+      }
+    }
     if (error.name === 'PaymentGatewayError') {
       // Provider init failed — the intent was persisted but no checkout was
       // exposed. Mark only that intent FAILED so it can never be credited by

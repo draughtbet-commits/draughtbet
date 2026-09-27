@@ -89,12 +89,24 @@ jest.unstable_mockModule('../../../middleware/auth.js', () => ({
     next();
   }
 }));
+class DepositQuoteError extends Error {
+  constructor(message, code) {
+    super(message);
+    this.name = 'DepositQuoteError';
+    this.code = code;
+  }
+}
+
 jest.unstable_mockModule('../service.js', () => ({
   getWalletBalance: jest.fn(),
   getWalletTransactions: jest.fn(),
   createDepositIntent: jest.fn(),
   findDepositIntentByClientKey: jest.fn(),
   getDepositIntent: jest.fn(),
+  createDepositQuote: jest.fn(),
+  findDepositQuoteByClientKey: jest.fn(),
+  depositQuotePayload: jest.fn(),
+  DepositQuoteError,
   parseMinorUnits,
   parseIdempotencyKey
 }));
@@ -200,12 +212,15 @@ describe('deposit checkout — client Idempotency-Key replay (contract §6 / dec
       reference: 'paystack-fresh'
     });
     expect(res.body).not.toHaveProperty('replayed');
+    // The trailing `null` is quoteId: a checkout with no prior quote is still
+    // valid, and the server must not invent one.
     expect(createDepositIntent).toHaveBeenCalledWith(
       'user-1',
       5000n,
       'PAYSTACK',
       'u@example.com',
-      'checkout_key_abcdef12'
+      'checkout_key_abcdef12',
+      null
     );
     expect(paystackGateway.initiatePayment).toHaveBeenCalledTimes(1);
   });
