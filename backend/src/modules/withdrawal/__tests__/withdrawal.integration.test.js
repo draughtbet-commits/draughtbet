@@ -9,11 +9,19 @@ import { WithdrawalService } from '../service.js';
 const describeIntegration =
   process.env.RUN_DB_INTEGRATION === '1' ? describe : describe.skip;
 
+// Withdrawals.providerRef is UNIQUE, so each payout in this suite needs its own
+// reference. A constant would collide with the row an earlier test left behind.
+let payoutSeq = 0;
+
 const service = () =>
   new WithdrawalService({
     providers: {
       PAYSTACK: {
-        initiatePayout: jest.fn().mockResolvedValue({ providerRef: 'TXN_fake_paystack' })
+        initiatePayout: jest
+          .fn()
+          .mockImplementation(async () => ({
+            providerRef: `TXN_fake_paystack_${++payoutSeq}`
+          }))
       }
     }
   });
@@ -91,6 +99,9 @@ describeIntegration('Withdrawal V2 (real PostgreSQL concurrency + lifecycle)', (
     await prisma.ledgerTransaction.deleteMany({
       where: { OR: [{ idempotencyKey: { startsWith: 'withdrawal:' } }] }
     });
+    // SaferPlayDailyUsage.user is onDelete Restrict, so the daily counters the
+    // stake/withdrawal paths wrote must go before the user row can be removed.
+    await prisma.saferPlayDailyUsage.deleteMany({ where: { userId } });
     await prisma.wallet.delete({ where: { id: walletId } });
     await prisma.user.delete({ where: { id: userId } });
   };
@@ -253,6 +264,8 @@ describeIntegration('Withdrawal V2 (real PostgreSQL concurrency + lifecycle)', (
       where: { idempotencyKey: `withdrawal:test:seed:${friend.id}` }
     });
     await prisma.ledgerAccount.deleteMany({ where: { userId: friend.id } });
+    // Same Restrict constraint as the primary user, for the friend's counters.
+    await prisma.saferPlayDailyUsage.deleteMany({ where: { userId: friend.id } });
     await prisma.wallet.delete({ where: { userId: friend.id } });
     await prisma.user.delete({ where: { id: friend.id } });
     await cleanup();
@@ -266,7 +279,7 @@ describeIntegration('Withdrawal V2 (real PostgreSQL concurrency + lifecycle)', (
     await svc.approveWithdrawal(reserved.id, 'admin-1');
     const processing = await svc.beginPayout(reserved.id);
     expect(processing.status).toBe('PROCESSING');
-    expect(processing.providerRef).toBe('TXN_fake_paystack');
+    expect(processing.providerRef).toMatch(/^TXN_fake_paystack_/);
 
     const callback = (eventType) =>
       svc.handlePayoutCallback({ gateway: 'PAYSTACK', eventType, data: { reference: reserved.reference } });
@@ -335,6 +348,70 @@ describeIntegration('Withdrawal V2 (real PostgreSQL concurrency + lifecycle)', (
     });
     expect(refundNotices).toBe(1);
 
+    await cleanup();
+  });
+
+  it('a providerRef write failure leaves the payout PROCESSING and a retry never re-initiates at the provider', async () => {
+    await createFixture(100000n);
+
+    // Occupy the providerRef the provider is about to return, so recording it
+    // fails on a real unique constraint rather than a simulated error. This is
+    // the exact failure that used to be swallowed into status: FAILED — after
+    // the provider had already accepted the payout. The ref is unique per run
+    // so a failed run cannot poison the next one.
+    const collisionRef = `TXN_collision_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const squatter = await prisma.withdrawal.create({
+      data: {
+        userId,
+        reference: `wit-squatter-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        amountMinorUnits: 1n,
+        gateway: 'PAYSTACK',
+        status: 'FAILED',
+        providerRef: collisionRef
+      }
+    });
+
+    const initiate = jest.fn().mockResolvedValue({ providerRef: collisionRef });
+    const svc = new WithdrawalService({
+      providers: { PAYSTACK: { initiatePayout: initiate } }
+    });
+
+    const reserved = await svc.requestWithdrawal(userId, 100000n, 'op_write_fail');
+    await svc.approveWithdrawal(reserved.id, 'admin-1');
+
+    // The provider call succeeds; only the write that records its ref fails.
+    // That persistence failure is surfaced to the caller instead of being
+    // reported as a failed payout.
+    await expect(svc.beginPayout(reserved.id)).rejects.toThrow(/Unique constraint/i);
+    expect(initiate).toHaveBeenCalledTimes(1);
+
+    // The row keeps the truthful state: "asked the provider, outcome unknown".
+    const row = await prisma.withdrawal.findUnique({ where: { id: reserved.id } });
+    expect(row.status).toBe('PROCESSING');
+    // The internal DB error must never be written into the operator-facing
+    // failureReason, which is returned in the API payload.
+    expect(row.failureReason).toBeNull();
+    expect(row.providerRef).toBeNull();
+
+    // Funds stay reserved: a payout in flight must not be treated as money that
+    // never left.
+    expect(await sumAccount(userId, 'PLAYER_WITHDRAWAL_PENDING')).toBe(100000n);
+
+    // An admin retry must be refused by the state guard rather than paying out
+    // a second time. This is the double payout the old catch-all enabled.
+    const retry = jest.fn().mockResolvedValue({ providerRef: 'TXN_never' });
+    const retrySvc = new WithdrawalService({
+      providers: { PAYSTACK: { initiatePayout: retry } }
+    });
+    await expect(retrySvc.beginPayout(reserved.id)).rejects.toThrow();
+    expect(retry).not.toHaveBeenCalled();
+
+    // The row is still recoverable by the PROCESSING follow-up sweep.
+    const finalRow = await prisma.withdrawal.findUnique({ where: { id: reserved.id } });
+    expect(finalRow.status).toBe('PROCESSING');
+    expect(finalRow.failureReason).toBeNull();
+
+    await prisma.withdrawal.delete({ where: { id: squatter.id } });
     await cleanup();
   });
 });

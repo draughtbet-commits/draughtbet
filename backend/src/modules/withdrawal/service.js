@@ -440,19 +440,18 @@ export class WithdrawalService {
       throw new WithdrawalStateError('Withdrawal payout is already in flight or terminal');
     }
 
+    let result;
     try {
-      const result = await provider.initiatePayout({
+      result = await provider.initiatePayout({
         amountMinorUnits: current.amountMinorUnits,
         currency: current.currency,
         recipientRef: bankAccount.recipientRef,
         reference: current.reference
       });
-      const updated = await prisma.withdrawal.update({
-        where: { id: current.id },
-        data: { providerRef: result.providerRef }
-      });
-      return toPayload(updated);
     } catch (error) {
+      // The provider refused or was unreachable, so the payout definitively did
+      // not happen: FAILED is the truthful state and the funds stay reserved
+      // for an admin release or a retry that cannot double-pay.
       const reason = error?.message || 'Provider payout initiation failed';
       logger.error({ withdrawalId, error }, 'Payout initiation failed');
       const failed = await prisma.withdrawal.update({
@@ -461,6 +460,17 @@ export class WithdrawalService {
       });
       return toPayload(failed);
     }
+
+    // Past this point the provider has accepted the payout, so a persistence
+    // failure must NOT be recorded as FAILED. The row stays PROCESSING — the
+    // truthful "asked the provider, outcome not yet known" state — and the
+    // follow-up sweep reconciles it. Marking it FAILED would invite an admin
+    // retry that calls the provider a second time and risks a double payout.
+    const updated = await prisma.withdrawal.update({
+      where: { id: current.id },
+      data: { providerRef: result.providerRef }
+    });
+    return toPayload(updated);
   }
 
   /**

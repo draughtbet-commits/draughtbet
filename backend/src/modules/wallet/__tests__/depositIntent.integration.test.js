@@ -85,6 +85,9 @@ describeIntegration('Deposit intents (real PostgreSQL)', () => {
     await prisma.outboxEvent.deleteMany({ where: { aggregateId: walletId } });
     await prisma.notification.deleteMany({ where: { userId } });
     await prisma.depositIntent.deleteMany({ where: { userId } });
+    // SaferPlayDailyUsage.user is onDelete Restrict, so the daily counters the
+    // safer-play service wrote must go before the user row can be removed.
+    await prisma.saferPlayDailyUsage.deleteMany({ where: { userId } });
     await prisma.wallet.delete({ where: { id: walletId } });
     await prisma.user.delete({ where: { id: userId } });
   };

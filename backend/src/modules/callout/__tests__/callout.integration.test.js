@@ -126,6 +126,9 @@ describeIntegration('Call-out acceptance policy (real PostgreSQL)', () => {
         ]
       }
     });
+    // SaferPlayDailyUsage.user is onDelete Restrict, so the daily counters must
+    // go before the user rows can be removed.
+    await prisma.saferPlayDailyUsage.deleteMany({ where: { userId: { in: allUsers } } });
     await prisma.user.deleteMany({ where: { id: { in: allUsers } } });
     await prisma.$disconnect();
   });

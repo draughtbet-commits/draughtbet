@@ -99,6 +99,9 @@ const fakeProvider = (verifyStatus) => ({
     await prisma.notification.deleteMany({ where: { userId } });
     await prisma.depositIntent.deleteMany({ where: { userId } });
     await prisma.bankAccount.deleteMany({ where: { id: bankAccountId } });
+    // SaferPlayDailyUsage.user is onDelete Restrict, so the daily counters must
+    // go before the user row can be removed.
+    await prisma.saferPlayDailyUsage.deleteMany({ where: { userId } });
     await prisma.wallet.deleteMany({ where: { id: walletId } });
     await prisma.user.deleteMany({ where: { id: userId } });
     withdrawalIds.length = 0;
