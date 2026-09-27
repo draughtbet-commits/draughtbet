@@ -408,7 +408,7 @@ MatchLifecycleSnapshot? _lifecycleFromV2(
         : opponentReady
             ? MatchLifecyclePhase.readyCheck
             : MatchLifecyclePhase.waitingOpponentReady,
-    'IN_PLAY' => MatchLifecyclePhase.readyCheck,
+    'IN_PLAY' => MatchLifecyclePhase.inPlay,
     'RELEASED' =>
       raw['reason']?.toString() == 'ready_gate_timeout'
           ? MatchLifecyclePhase.readyTimeout

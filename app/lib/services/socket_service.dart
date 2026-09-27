@@ -45,6 +45,13 @@ class SocketService {
       StreamController<Map<String, dynamic>>.broadcast();
   final _settlementCompletedController =
       StreamController<Map<String, dynamic>>.broadcast();
+  final _gameStartedController =
+      StreamController<Map<String, dynamic>>.broadcast();
+
+  /// The server's authoritative start signal. A player parked on a pre-play
+  /// screen has no other way to learn the match went live.
+  Stream<Map<String, dynamic>> get onGameStarted =>
+      _gameStartedController.stream;
 
   Stream<Map<String, dynamic>> get onMatchFound => _matchFoundController.stream;
   Stream<Map<String, dynamic>> get onGameState => _gameStateController.stream;
@@ -130,6 +137,7 @@ class SocketService {
         final matchId = payload['matchId']?.toString();
         if (matchId != null && matchId.isNotEmpty) {
           _socket?.emit('match.join', {'matchId': matchId});
+          _gameStartedController.add(payload);
         }
       }
     });
@@ -367,6 +375,7 @@ class SocketService {
     _drawResponseController.close();
     _clockSyncController.close();
     _settlementCompletedController.close();
+    _gameStartedController.close();
     disconnect();
   }
 }

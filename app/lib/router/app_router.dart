@@ -27,6 +27,7 @@ import '../screens/deposit_flow_screens.dart';
 import '../providers/deposit_provider.dart';
 import '../providers/withdrawal_provider.dart';
 import '../providers/match_flow_provider.dart';
+import '../providers/match_provider.dart';
 import '../screens/withdrawal_flow_screens.dart';
 import '../screens/settings_screen.dart';
 import '../screens/results_screen.dart';
@@ -520,6 +521,7 @@ class _PrePlayLifecycleWatcherState
     extends ConsumerState<_PrePlayLifecycleWatcher> {
   Timer? _timer;
   StreamSubscription<Map<String, dynamic>>? _disconnectSub;
+  StreamSubscription<Map<String, dynamic>>? _startedSub;
 
   @override
   void initState() {
@@ -529,12 +531,16 @@ class _PrePlayLifecycleWatcherState
     // pre-start socket drops; refresh immediately instead of waiting on the
     // next poll, then the phase change navigates.
     _disconnectSub = socketService.onOpponentDisconnected.listen((_) => _tick());
+    // `game.started` is the server's authoritative start signal. A player
+    // parked on a readiness screen has no other way to learn the match is live.
+    _startedSub = socketService.onGameStarted.listen((_) => _tick());
   }
 
   @override
   void dispose() {
     _timer?.cancel();
     _disconnectSub?.cancel();
+    _startedSub?.cancel();
     super.dispose();
   }
 
@@ -556,6 +562,12 @@ class _PrePlayLifecycleWatcherState
     _timer?.cancel();
     if (!context.mounted) return;
     switch (phase) {
+      case MatchLifecyclePhase.inPlay:
+        // Seat the player on the board the way the room screen's Enter Match does.
+        final startedMatchId = next.matchId;
+        if (startedMatchId == null || startedMatchId.isEmpty) return;
+        ref.read(matchProvider.notifier).joinMatch(startedMatchId);
+        context.go('/match/$startedMatchId');
       case MatchLifecyclePhase.readyTimeout:
         context.go('/play/ready-timeout', extra: next);
       case MatchLifecyclePhase.opponentDisconnected:

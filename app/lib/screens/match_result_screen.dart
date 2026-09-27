@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../models/match_flow.dart';
+import '../providers/match_flow_provider.dart';
 import '../providers/settlement_provider.dart';
 import '../theme/colors.dart';
 import '../theme/typography.dart';
@@ -24,10 +25,12 @@ class MatchResultScreen extends ConsumerStatefulWidget {
   ConsumerState<MatchResultScreen> createState() => _MatchResultScreenState();
 }
 
-class _MatchResultScreenState extends ConsumerState<MatchResultScreen> {
+class _MatchResultScreenState extends ConsumerState<MatchResultScreen>
+    with LiveSettlementPhaseListener<MatchResultScreen> {
   @override
   void initState() {
     super.initState();
+    watchLiveSettlement(widget.result.matchId);
     if (widget.autoRefresh && widget.result.matchId != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
@@ -38,19 +41,35 @@ class _MatchResultScreenState extends ConsumerState<MatchResultScreen> {
     }
   }
 
+  /// Overlays the live settlement state the socket pushed onto the result the
+  /// router handed us, and fills in the match terms the socket event never
+  /// carried so the financial card is not empty.
+  MatchResultViewData _withLiveSettlement(MatchResultViewData result) {
+    final intent = ref.watch(matchFlowProvider).currentIntent;
+    final merged = result.terms == null && intent != null
+        ? result.copyWith(terms: intent.terms)
+        : result;
+    if (livePhase == null) return merged;
+    return merged.copyWith(
+      settlement: livePhase,
+      payoutMinorUnits: livePhase == SettlementPhase.confirmed
+          ? merged.payoutMinorUnits
+          : null,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final matchId = widget.result.matchId;
     final state = matchId == null
         ? const SettlementUiState()
         : ref.watch(settlementProvider(matchId));
-    final result = state.result ?? widget.result;
+    final result = _withLiveSettlement(state.result ?? widget.result);
     final visual = ResultVisualSpec.forKind(result.kind);
 
     if (result.kind != ResultKind.victory && result.kind != ResultKind.defeat) {
       return _CompactOutcomeScreen(result: result, visual: visual);
     }
-
     return PopScope(
       canPop: false,
       child: Scaffold(
@@ -69,8 +88,9 @@ class _MatchResultScreenState extends ConsumerState<MatchResultScreen> {
                     const _AuthorityWarning()
                   else
                     _FinancialSummary(result: result, visual: visual),
-                  if (state.phase == SettlementLoadPhase.error ||
-                      state.phase == SettlementLoadPhase.unavailable) ...[
+                  // The match event stream is authoritative here, so an empty
+                  // status read is not a failure to report.
+                  if (state.phase == SettlementLoadPhase.error) ...[
                     const SizedBox(height: 12),
                     _StatusNotice(
                       message:
@@ -321,6 +341,13 @@ class _SettlementLine extends StatelessWidget {
 
   final MatchResultViewData result;
 
+  /// The dedicated settlement screens, keyed by the phase the line reports.
+  static const _routes = {
+    SettlementPhase.pending: 'settlement-processing',
+    SettlementPhase.confirmed: 'settlement-complete',
+    SettlementPhase.delayed: 'settlement-delayed',
+  };
+
   @override
   Widget build(BuildContext context) {
     final (icon, text, color) = switch (result.settlement) {
@@ -345,9 +372,11 @@ class _SettlementLine extends StatelessWidget {
         AppColors.danger,
       ),
     };
-    return Semantics(
+    final route = result.matchId == null ? null : _routes[result.settlement];
+    final label = Semantics(
       liveRegion: true,
-      label: text,
+      button: route != null,
+      label: route == null ? text : '$text. Opens settlement details.',
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
@@ -360,7 +389,23 @@ class _SettlementLine extends StatelessWidget {
               style: AppTypography.bodySmall.copyWith(color: color),
             ),
           ),
+          if (route != null) ...[
+            const SizedBox(width: 6),
+            Icon(LucideIcons.chevronRight, color: color, size: 15),
+          ],
         ],
+      ),
+    );
+    if (route == null) return label;
+    return InkWell(
+      onTap: () => context.push(
+        '/matches/${result.matchId}/$route',
+        extra: result,
+      ),
+      borderRadius: BorderRadius.circular(8),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        child: label,
       ),
     );
   }

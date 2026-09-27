@@ -40,6 +40,7 @@ enum MatchLifecyclePhase {
   waitingOpponentReady,
   readyTimeout,
   opponentDisconnected,
+  inPlay,
 }
 
 enum AuthoritativeProgress { pending, confirmed, failed, unknown }
@@ -256,6 +257,7 @@ class MatchResultViewData {
 
   MatchResultViewData copyWith({
     SettlementPhase? settlement,
+    MatchTerms? terms,
     int? payoutMinorUnits,
     int? refundMinorUnits,
     String? settlementReference,
@@ -266,7 +268,7 @@ class MatchResultViewData {
     return MatchResultViewData(
       kind: kind,
       opponent: opponent,
-      terms: terms,
+      terms: terms ?? this.terms,
       matchId: matchId,
       reason: reason,
       settlement: settlement ?? this.settlement,

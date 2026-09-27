@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -7,10 +9,38 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../models/match_flow.dart';
 import '../providers/settlement_provider.dart';
+import '../services/socket_service.dart';
 import '../theme/colors.dart';
 import '../theme/typography.dart';
 import '../widgets/draught_board.dart';
 import '../widgets/flow_widgets.dart';
+
+/// Tracks the settlement phase pushed over the socket for one match. The status
+/// endpoint is a full read; a confirmation that lands while a result screen is
+/// open has to reach the player without one.
+mixin LiveSettlementPhaseListener<T extends ConsumerStatefulWidget>
+    on ConsumerState<T> {
+  SettlementPhase? livePhase;
+  StreamSubscription<Map<String, dynamic>>? _liveSettlementSub;
+
+  void watchLiveSettlement(String? matchId) {
+    _liveSettlementSub?.cancel();
+    _liveSettlementSub = null;
+    livePhase = null;
+    if (matchId == null) return;
+    _liveSettlementSub = socketService.onSettlementCompleted.listen((data) {
+      if (data['matchId']?.toString() != matchId) return;
+      if (!mounted) return;
+      setState(() => livePhase = SettlementPhase.confirmed);
+    });
+  }
+
+  @override
+  void dispose() {
+    _liveSettlementSub?.cancel();
+    super.dispose();
+  }
+}
 
 class SettlementStatusScreen extends ConsumerStatefulWidget {
   const SettlementStatusScreen({
@@ -30,10 +60,12 @@ class SettlementStatusScreen extends ConsumerStatefulWidget {
 }
 
 class _SettlementStatusScreenState
-    extends ConsumerState<SettlementStatusScreen> {
+    extends ConsumerState<SettlementStatusScreen>
+    with LiveSettlementPhaseListener<SettlementStatusScreen> {
   @override
   void initState() {
     super.initState();
+    watchLiveSettlement(widget.result.matchId);
     if (widget.autoRefresh && widget.result.matchId != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
@@ -50,8 +82,11 @@ class _SettlementStatusScreenState
     final state = matchId == null
         ? const SettlementUiState()
         : ref.watch(settlementProvider(matchId));
+    // The route carries the phase the player tapped through with, but the
+    // settlement can confirm while this screen is open, so prefer the live
+    // phase over both the route and any earlier read.
     final result = state.result ?? widget.result;
-    final phase = state.result?.settlement ?? widget.phase;
+    final phase = livePhase ?? state.result?.settlement ?? widget.phase;
     final spec = _SettlementSpec.forPhase(phase);
     final refreshing = state.phase == SettlementLoadPhase.refreshing;
 
@@ -109,15 +144,17 @@ class _SettlementStatusScreenState
                           ],
                         ),
                       ),
-                      if (state.message != null) ...[
+                      // A silent status endpoint is expected, not a server
+                      // fault, and the socket already gave us the phase, so
+                      // only a real failure is worth a line here.
+                      if (state.message != null &&
+                          state.phase == SettlementLoadPhase.error) ...[
                         const SizedBox(height: 12),
                         Text(
                           state.message!,
                           textAlign: TextAlign.center,
                           style: AppTypography.bodySmall.copyWith(
-                            color: state.phase == SettlementLoadPhase.error
-                                ? AppColors.danger
-                                : AppColors.warning,
+                            color: AppColors.danger,
                           ),
                         ),
                       ],
