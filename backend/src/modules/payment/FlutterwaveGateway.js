@@ -9,6 +9,9 @@ export class FlutterwaveGateway extends PaymentGateway {
     if (!this.secretKey || !this.secretHash) {
       logger.warn('FLUTTERWAVE_SECRET_KEY or FLUTTERWAVE_SECRET_HASH missing from environment variables.');
     }
+    // Overridable so a staging box or a local drive can point the gateway at a
+    // stand-in provider without a code change. Defaults to the live API.
+    this.apiBase = (process.env.FLUTTERWAVE_API_BASE || 'https://api.flutterwave.com').replace(/\/+$/, '');
   }
 
   async fetchWithRetry(url, options, retries = 1, backoff = 1000) {
@@ -65,7 +68,7 @@ export class FlutterwaveGateway extends PaymentGateway {
         }
       };
 
-      const data = await this.fetchWithRetry('https://api.flutterwave.com/v3/payments', {
+      const data = await this.fetchWithRetry(`${this.apiBase}/v3/payments`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${this.secretKey}`,
@@ -103,7 +106,7 @@ export class FlutterwaveGateway extends PaymentGateway {
    */
   async resolveBankAccount({ bankCode, accountNumber }) {
     try {
-      const data = await this.fetchWithRetry('https://api.flutterwave.com/v3/accounts/resolve', {
+      const data = await this.fetchWithRetry(`${this.apiBase}/v3/accounts/resolve`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${this.secretKey}`,
@@ -126,7 +129,7 @@ export class FlutterwaveGateway extends PaymentGateway {
    */
   async createRecipient({ bankCode, accountNumber, accountName }) {
     try {
-      const data = await this.fetchWithRetry('https://api.flutterwave.com/v3/beneficiaries', {
+      const data = await this.fetchWithRetry(`${this.apiBase}/v3/beneficiaries`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${this.secretKey}`,
@@ -154,7 +157,7 @@ export class FlutterwaveGateway extends PaymentGateway {
    */
   async initiatePayout({ amountMinorUnits, currency, recipientRef, reference }) {
     try {
-      const data = await this.fetchWithRetry('https://api.flutterwave.com/v3/transfers', {
+      const data = await this.fetchWithRetry(`${this.apiBase}/v3/transfers`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${this.secretKey}`,
@@ -192,7 +195,7 @@ export class FlutterwaveGateway extends PaymentGateway {
     }
     try {
       const data = await this.fetchWithRetry(
-        `https://api.flutterwave.com/v3/transfers/${encodeURIComponent(providerRef)}`,
+        `${this.apiBase}/v3/transfers/${encodeURIComponent(providerRef)}`,
         {
           method: 'GET',
           headers: { 'Authorization': `Bearer ${this.secretKey}` }

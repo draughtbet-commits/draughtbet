@@ -55,4 +55,5 @@ flutter:
     - assets/images/
     - assets/avatars/
     - assets/icons/
+    - assets/fonts/google/
     - .env

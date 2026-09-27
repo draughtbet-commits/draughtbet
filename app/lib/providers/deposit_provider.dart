@@ -177,11 +177,16 @@ class DepositNotifier extends StateNotifier<DepositFlowState> {
   }
 
   Future<bool> refreshStatus() async {
-    _pollTimer?.cancel();
     final intent = state.intent;
     final reference = intent?.reference ?? await _recoveryStore.readReference();
     if (reference == null || reference.isEmpty) return false;
-    return _readStatus(reference, scheduleNext: false);
+    // A refresh must never end the confirmation polling that
+    // handleProviderReturn started: the status screen refreshes on mount, and
+    // cancelling here left the deposit stuck on "awaiting confirmation" even
+    // after the provider webhook had already credited it. Give the backoff a
+    // fresh window and keep polling while the deposit is not terminal.
+    state = state.copyWith(pollAttempt: 0);
+    return _readStatus(reference, scheduleNext: true);
   }
 
   Future<bool> _readStatus(

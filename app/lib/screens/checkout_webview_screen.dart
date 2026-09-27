@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import '../theme/colors.dart';
 import '../theme/typography.dart';
+import '../widgets/flow_widgets.dart';
 
 enum CheckoutExit { returned }
 
@@ -16,6 +17,8 @@ class CheckoutWebviewScreen extends StatefulWidget {
 
 class _CheckoutWebviewScreenState extends State<CheckoutWebviewScreen> {
   late final WebViewController _controller;
+  bool _loading = true;
+  bool _loadFailed = false;
 
   @override
   void initState() {
@@ -31,9 +34,39 @@ class _CheckoutWebviewScreenState extends State<CheckoutWebviewScreen> {
             // the app, which then reads authoritative status from the API.
             return NavigationDecision.navigate;
           },
+          onPageStarted: (_) {
+            if (!mounted) return;
+            setState(() {
+              _loading = true;
+              _loadFailed = false;
+            });
+          },
+          onPageFinished: (_) {
+            if (!mounted) return;
+            setState(() => _loading = false);
+          },
+          onWebResourceError: (WebResourceError error) {
+            // A failed sub-resource is noise; only a main-document failure
+            // means there is no payment page for the player to use. Without
+            // this the player was left staring at a blank page.
+            if (!(error.isForMainFrame ?? true)) return;
+            if (!mounted) return;
+            setState(() {
+              _loading = false;
+              _loadFailed = true;
+            });
+          },
         ),
       )
       ..loadRequest(widget.authorizationUrl);
+  }
+
+  void _retry() {
+    setState(() {
+      _loading = true;
+      _loadFailed = false;
+    });
+    _controller.loadRequest(widget.authorizationUrl);
   }
 
   @override
@@ -48,7 +81,26 @@ class _CheckoutWebviewScreenState extends State<CheckoutWebviewScreen> {
           onPressed: () => Navigator.of(context).pop(CheckoutExit.returned),
         ),
       ),
-      body: WebViewWidget(controller: _controller),
+      body: _loadFailed
+          ? RecoverableState(
+              title: 'Payment page unavailable',
+              message:
+                  'We could not reach the payment provider. Check your '
+                  'connection and try again.',
+              actionLabel: 'Try again',
+              onAction: _retry,
+            )
+          : Stack(
+              children: [
+                WebViewWidget(controller: _controller),
+                if (_loading)
+                  const Center(
+                    child: CircularProgressIndicator(
+                      color: AppColors.primaryBright,
+                    ),
+                  ),
+              ],
+            ),
     );
   }
 }

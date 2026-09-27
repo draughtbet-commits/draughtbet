@@ -9,6 +9,9 @@ export class PaystackGateway extends PaymentGateway {
     if (!this.secretKey) {
       logger.warn('PAYSTACK_SECRET_KEY is missing from environment variables.');
     }
+    // Overridable so a staging box or a local drive can point the gateway at a
+    // stand-in provider without a code change. Defaults to the live API.
+    this.apiBase = (process.env.PAYSTACK_API_BASE || 'https://api.paystack.co').replace(/\/+$/, '');
   }
 
   /**
@@ -62,7 +65,7 @@ export class PaystackGateway extends PaymentGateway {
         payload.reference = reference;
       }
 
-      const data = await this.fetchWithRetry('https://api.paystack.co/transaction/initialize', {
+      const data = await this.fetchWithRetry(`${this.apiBase}/transaction/initialize`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${this.secretKey}`,
@@ -103,7 +106,7 @@ export class PaystackGateway extends PaymentGateway {
   async resolveBankAccount({ bankCode, accountNumber }) {
     try {
       const data = await this.fetchWithRetry(
-        `https://api.paystack.co/bank/resolve?account_number=${encodeURIComponent(accountNumber)}&bank_code=${encodeURIComponent(bankCode)}`,
+        `${this.apiBase}/bank/resolve?account_number=${encodeURIComponent(accountNumber)}&bank_code=${encodeURIComponent(bankCode)}`,
         {
           method: 'GET',
           headers: { 'Authorization': `Bearer ${this.secretKey}` }
@@ -124,7 +127,7 @@ export class PaystackGateway extends PaymentGateway {
    */
   async createRecipient({ bankCode, accountNumber, accountName }) {
     try {
-      const data = await this.fetchWithRetry('https://api.paystack.co/transferrecipient', {
+      const data = await this.fetchWithRetry(`${this.apiBase}/transferrecipient`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${this.secretKey}`,
@@ -154,7 +157,7 @@ export class PaystackGateway extends PaymentGateway {
    */
   async initiatePayout({ amountMinorUnits, currency, recipientRef, reference }) {
     try {
-      const data = await this.fetchWithRetry('https://api.paystack.co/transfer', {
+      const data = await this.fetchWithRetry(`${this.apiBase}/transfer`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${this.secretKey}`,
@@ -191,7 +194,7 @@ export class PaystackGateway extends PaymentGateway {
     try {
       const key = encodeURIComponent(reference || providerRef || '');
       const data = await this.fetchWithRetry(
-        `https://api.paystack.co/transfer/verify/${key}`,
+        `${this.apiBase}/transfer/verify/${key}`,
         {
           method: 'GET',
           headers: { 'Authorization': `Bearer ${this.secretKey}` }

@@ -99,7 +99,7 @@ class _AddMoneyScreenState extends ConsumerState<AddMoneyScreen> {
                   fontWeight: FontWeight.w600,
                 ),
                 hintText: '0.00',
-                helperText: 'Fees and total are confirmed by the server.',
+                helperText: 'The total is confirmed by the server.',
               ),
               validator: (value) => _minorUnits(value ?? '') == null
                   ? 'Enter a valid amount greater than zero.'
@@ -145,17 +145,23 @@ class _VerifiedValueCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final quote = state.quote;
+    // Nothing is server-verified until the quote lands, so never show fee or
+    // total placeholders: the backend quotes 0 bps and fails closed on any
+    // non-zero schedule, so these rows would only ever read as noise.
+    if (quote == null) {
+      return const FlowCard(
+        child: Text(
+          'Verified deposit terms appear here once you continue.',
+          style: AppTypography.bodySmall,
+        ),
+      );
+    }
     return FlowCard(
       child: Column(
         children: [
           _DetailRow(
             label: 'Deposit amount',
-            value: formatDepositMoney(quote?.amountMinorUnits, quote?.currency),
-          ),
-          const SizedBox(height: 11),
-          _DetailRow(
-            label: 'Fee',
-            value: formatDepositMoney(quote?.feeMinorUnits, quote?.currency),
+            value: formatDepositMoney(quote.amountMinorUnits, quote.currency),
           ),
           const Padding(
             padding: EdgeInsets.symmetric(vertical: 11),
@@ -163,7 +169,7 @@ class _VerifiedValueCard extends StatelessWidget {
           ),
           _DetailRow(
             label: 'Total',
-            value: formatDepositMoney(quote?.totalMinorUnits, quote?.currency),
+            value: formatDepositMoney(quote.totalMinorUnits, quote.currency),
             emphasized: true,
           ),
         ],
