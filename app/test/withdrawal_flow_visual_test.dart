@@ -188,7 +188,7 @@ void main() {
     ),
     '134_saved_bank_accounts': (
       const SavedBankAccountsScreen(autoLoad: false),
-      const WithdrawalFlowState(
+      WithdrawalFlowState(
         phase: WithdrawalFlowPhase.selectingBank,
         bankAccounts: withdrawalBanksFixture,
       ),

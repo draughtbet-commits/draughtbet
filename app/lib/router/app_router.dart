@@ -383,9 +383,27 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         ),
       ),
       GoRoute(
+        path: '/wallet/withdraw/withdrawal-approved',
+        builder: (context, state) => const WithdrawalStatusScreen(
+          requestedPhase: WithdrawalFlowPhase.approved,
+        ),
+      ),
+      GoRoute(
         path: '/wallet/withdraw/withdrawal-processing',
         builder: (context, state) => const WithdrawalStatusScreen(
           requestedPhase: WithdrawalFlowPhase.processing,
+        ),
+      ),
+      GoRoute(
+        path: '/wallet/withdraw/withdrawal-needs-attention',
+        builder: (context, state) => const WithdrawalStatusScreen(
+          requestedPhase: WithdrawalFlowPhase.failed,
+        ),
+      ),
+      GoRoute(
+        path: '/wallet/withdraw/withdrawal-status-pending',
+        builder: (context, state) => const WithdrawalStatusScreen(
+          requestedPhase: WithdrawalFlowPhase.reconciling,
         ),
       ),
       GoRoute(

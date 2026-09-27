@@ -1,20 +1,24 @@
 import 'package:draughts_arena/models/withdrawal_flow.dart';
 
-const withdrawalBanksFixture = [
+final withdrawalBanksFixture = [
   WithdrawalBankAccount(
     id: 'bank-1',
+    gateway: 'PAYSTACK',
     bankCode: '011',
     bankName: 'First Bank',
     accountName: 'WISDOM RAPTOR',
     maskedAccountNumber: '••••1234',
+    verifiedAt: DateTime.utc(2026, 9, 18),
     isDefault: true,
   ),
   WithdrawalBankAccount(
     id: 'bank-2',
+    gateway: 'PAYSTACK',
     bankCode: '058',
     bankName: 'GTBank',
     accountName: 'WISDOM RAPTOR',
     maskedAccountNumber: '••••5678',
+    verifiedAt: DateTime.utc(2026, 9, 18),
   ),
 ];
 
@@ -33,11 +37,24 @@ final withdrawalQuoteFixture = WithdrawalQuote(
 WithdrawalData withdrawalDataFixture({
   WithdrawalStatus status = WithdrawalStatus.pendingReview,
   String? failureReason,
+  DateTime? updatedAt,
 }) => WithdrawalData(
+  id: 'withdrawal-1',
   reference: 'WDR21456789',
   amountMinorUnits: 500000,
   currency: 'NGN',
   status: status,
+  serverStatus: switch (status) {
+    WithdrawalStatus.pendingReview => 'PENDING_REVIEW',
+    WithdrawalStatus.approved => 'APPROVED',
+    WithdrawalStatus.processing => 'PROCESSING',
+    WithdrawalStatus.successful => 'COMPLETED',
+    WithdrawalStatus.failed => 'FAILED',
+    WithdrawalStatus.reversed => 'RELEASED',
+    WithdrawalStatus.unknown => 'FUTURE_STATUS',
+  },
+  gateway: 'PAYSTACK',
+  bankAccountId: 'bank-1',
   feeMinorUnits: 0,
   netAmountMinorUnits: 500000,
   availableBalanceMinorUnits:
@@ -49,5 +66,5 @@ WithdrawalData withdrawalDataFixture({
   failureReason: failureReason,
   transactionId: status == WithdrawalStatus.successful ? 'tx-wdr-1' : null,
   createdAt: DateTime.utc(2026, 9, 19, 9, 41),
-  updatedAt: DateTime.utc(2026, 9, 19, 9, 43),
+  updatedAt: updatedAt ?? DateTime.utc(2026, 9, 19, 9, 43),
 );

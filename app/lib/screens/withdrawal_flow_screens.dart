@@ -38,22 +38,9 @@ class _WithdrawMoneyScreenState extends ConsumerState<WithdrawMoneyScreen> {
     super.dispose();
   }
 
-  int? _minorUnits(String input) {
-    final value = input.replaceAll(',', '').trim();
-    if (!RegExp(r'^\d+(\.\d{1,2})?$').hasMatch(value)) return null;
-    final parts = value.split('.');
-    final whole = int.tryParse(parts.first);
-    if (whole == null) return null;
-    final fraction = parts.length == 1
-        ? 0
-        : int.parse(parts.last.padRight(2, '0'));
-    final amount = whole * 100 + fraction;
-    return amount > 0 ? amount : null;
-  }
-
   Future<void> _continue() async {
     if (!(_formKey.currentState?.validate() ?? false)) return;
-    final amount = _minorUnits(_amountController.text);
+    final amount = parseWithdrawalMinorUnits(_amountController.text);
     if (amount == null) return;
     final phase = await ref
         .read(withdrawalProvider.notifier)
@@ -113,7 +100,8 @@ class _WithdrawMoneyScreenState extends ConsumerState<WithdrawMoneyScreen> {
                 helperText:
                     'Balance, limits and charges are confirmed by the server.',
               ),
-              validator: (value) => _minorUnits(value ?? '') == null
+              validator: (value) =>
+                  parseWithdrawalMinorUnits(value ?? '') == null
                   ? 'Enter a valid amount greater than zero.'
                   : null,
               onFieldSubmitted: (_) => loading ? null : _continue(),
@@ -143,10 +131,19 @@ class _WithdrawMoneyScreenState extends ConsumerState<WithdrawMoneyScreen> {
             ],
             const SizedBox(height: 24),
             PrimaryActionButton(
-              label: 'Continue',
+              label: state.phase == WithdrawalFlowPhase.unavailable
+                  ? 'Retry confirmation'
+                  : 'Continue',
               loading: loading,
               onPressed: loading ? null : _continue,
             ),
+            if (state.phase == WithdrawalFlowPhase.unavailable) ...[
+              const SizedBox(height: 10),
+              SecondaryActionButton(
+                label: 'Return to wallet',
+                onPressed: () => context.go('/wallet'),
+              ),
+            ],
             if (state.withdrawal != null && !state.withdrawal!.isTerminal) ...[
               const SizedBox(height: 10),
               SecondaryActionButton(
@@ -198,7 +195,8 @@ class _SelectBankAccountScreenState
         children: [
           const ScreenHeading(
             title: 'Where should we send it?',
-            subtitle: 'Choose a verified payout destination.',
+            subtitle:
+                'The selected destination is confirmed as your default by the server.',
           ),
           const SizedBox(height: 18),
           if (loading)
@@ -217,9 +215,13 @@ class _SelectBankAccountScreenState
                 child: _BankAccountTile(
                   account: account,
                   selected: state.selectedBankAccount?.id == account.id,
-                  onTap: () => ref
-                      .read(withdrawalProvider.notifier)
-                      .selectBankAccount(account),
+                  onTap: loading
+                      ? null
+                      : () => unawaited(
+                          ref
+                              .read(withdrawalProvider.notifier)
+                              .selectBankAccount(account),
+                        ),
                 ),
               ),
             ),
@@ -232,7 +234,10 @@ class _SelectBankAccountScreenState
           const SizedBox(height: 14),
           PrimaryActionButton(
             label: 'Continue',
-            onPressed: state.selectedBankAccount == null
+            onPressed:
+                state.selectedBankAccount == null ||
+                    !state.selectedBankAccount!.isDefault ||
+                    state.quote?.isCompleteForSubmission != true
                 ? null
                 : () => context.push('/wallet/withdraw/withdrawal-review'),
           ),
@@ -268,20 +273,6 @@ class _AddBankAccountScreenState extends ConsumerState<AddBankAccountScreen> {
     super.dispose();
   }
 
-  void _verify() {
-    if (!(_formKey.currentState?.validate() ?? false)) return;
-    unawaited(
-      ref
-          .read(withdrawalProvider.notifier)
-          .verifyBankAccount(
-            bankCode: _bankCode.text.trim(),
-            bankName: _bankName.text.trim(),
-            accountNumber: _accountNumber.text.trim(),
-          ),
-    );
-    context.push('/wallet/withdraw/verifying-bank-account');
-  }
-
   @override
   Widget build(BuildContext context) => _WithdrawalScaffold(
     title: 'ADD BANK ACCOUNT',
@@ -292,11 +283,20 @@ class _AddBankAccountScreenState extends ConsumerState<AddBankAccountScreen> {
         children: [
           const ScreenHeading(
             title: 'Add a payout account',
-            subtitle: 'Enter bank details for secure server-side verification.',
+            subtitle:
+                'Bank details are verified securely by the payout provider.',
+          ),
+          const SizedBox(height: 14),
+          const _Notice(
+            message:
+                'Adding an account is temporarily unavailable because the server does not provide an authoritative payout-provider selection.',
+            color: AppColors.warning,
+            icon: LucideIcons.cloudOff,
           ),
           const SizedBox(height: 18),
           TextFormField(
             controller: _bankName,
+            enabled: false,
             textCapitalization: TextCapitalization.words,
             decoration: const InputDecoration(labelText: 'Bank name'),
             validator: (value) =>
@@ -305,6 +305,7 @@ class _AddBankAccountScreenState extends ConsumerState<AddBankAccountScreen> {
           const SizedBox(height: 12),
           TextFormField(
             controller: _bankCode,
+            enabled: false,
             keyboardType: TextInputType.number,
             inputFormatters: [FilteringTextInputFormatter.digitsOnly],
             decoration: const InputDecoration(labelText: 'Bank code'),
@@ -315,6 +316,7 @@ class _AddBankAccountScreenState extends ConsumerState<AddBankAccountScreen> {
           TextFormField(
             key: const ValueKey('bank-account-number-field'),
             controller: _accountNumber,
+            enabled: false,
             keyboardType: TextInputType.number,
             obscureText: true,
             inputFormatters: [
@@ -333,15 +335,15 @@ class _AddBankAccountScreenState extends ConsumerState<AddBankAccountScreen> {
           const SizedBox(height: 16),
           const _Notice(
             message:
-                'Draught Bet never displays or stores an unmasked account number after verification.',
+                'Your account number is masked in the app after server verification.',
             color: AppColors.textSecondary,
             icon: LucideIcons.shieldCheck,
           ),
           const SizedBox(height: 22),
           PrimaryActionButton(
-            label: 'Verify account',
+            label: 'Provider unavailable',
             icon: LucideIcons.badgeCheck,
-            onPressed: _verify,
+            onPressed: null,
           ),
           const SizedBox(height: 10),
           SecondaryActionButton(label: 'Cancel', onPressed: context.pop),
@@ -434,8 +436,13 @@ class WithdrawalReviewScreen extends ConsumerWidget {
     if (!created || !context.mounted) return;
     final phase = ref.read(withdrawalProvider).phase;
     final route = switch (phase) {
+      WithdrawalFlowPhase.approved => '/wallet/withdraw/withdrawal-approved',
       WithdrawalFlowPhase.processing =>
         '/wallet/withdraw/withdrawal-processing',
+      WithdrawalFlowPhase.failed =>
+        '/wallet/withdraw/withdrawal-needs-attention',
+      WithdrawalFlowPhase.reconciling =>
+        '/wallet/withdraw/withdrawal-status-pending',
       WithdrawalFlowPhase.successful =>
         '/wallet/withdraw/withdrawal-successful',
       WithdrawalFlowPhase.reversed => '/wallet/withdraw/withdrawal-reversed',
@@ -449,7 +456,8 @@ class WithdrawalReviewScreen extends ConsumerWidget {
     final state = ref.watch(withdrawalProvider);
     final quote = state.quote;
     final bank = state.selectedBankAccount;
-    final ready = quote != null && bank != null;
+    final ready =
+        quote?.isCompleteForSubmission == true && bank?.isDefault == true;
     return _WithdrawalScaffold(
       title: 'WITHDRAWAL REVIEW',
       child: Column(
@@ -468,7 +476,7 @@ class WithdrawalReviewScreen extends ConsumerWidget {
                   'Return to Withdraw Money to request verified withdrawal terms.',
             )
           else ...[
-            _ReviewCard(quote: quote, bankAccount: bank),
+            _ReviewCard(quote: quote!, bankAccount: bank!),
             const SizedBox(height: 12),
             const _Notice(
               icon: LucideIcons.info,
@@ -647,14 +655,8 @@ class _WithdrawalStatusScreenState
             ),
           ] else if (phase == WithdrawalFlowPhase.reversed) ...[
             PrimaryActionButton(
-              label: 'Try another bank',
-              icon: LucideIcons.landmark,
-              onPressed: () =>
-                  context.go('/wallet/withdraw/select-bank-account'),
-            ),
-            const SizedBox(height: 10),
-            SecondaryActionButton(
               label: 'Back to wallet',
+              icon: LucideIcons.wallet,
               onPressed: () => context.go('/wallet'),
             ),
           ] else ...[
@@ -767,7 +769,10 @@ WithdrawalFlowPhase _visiblePhase(
   if (withdrawal == null) return requested;
   return switch (withdrawal.status) {
     WithdrawalStatus.pendingReview => WithdrawalFlowPhase.pendingReview,
+    WithdrawalStatus.approved => WithdrawalFlowPhase.approved,
     WithdrawalStatus.processing => WithdrawalFlowPhase.processing,
+    WithdrawalStatus.failed => WithdrawalFlowPhase.failed,
+    WithdrawalStatus.unknown => WithdrawalFlowPhase.reconciling,
     WithdrawalStatus.successful => WithdrawalFlowPhase.successful,
     WithdrawalStatus.reversed => WithdrawalFlowPhase.reversed,
   };
@@ -780,13 +785,18 @@ String _statusMessage(WithdrawalFlowPhase phase, WithdrawalData? withdrawal) {
   return switch (phase) {
     WithdrawalFlowPhase.pendingReview =>
       'Your request is under review. The amount is reserved, not paid out.',
+    WithdrawalFlowPhase.approved =>
+      'Your withdrawal has been approved and is waiting for payout processing to begin.',
     WithdrawalFlowPhase.processing =>
-      'Your approved withdrawal is being sent to the payout provider.',
+      'The payout provider is processing your withdrawal.',
+    WithdrawalFlowPhase.failed =>
+      'The payout did not complete. Your funds remain reserved while the withdrawal is reviewed or released.',
+    WithdrawalFlowPhase.reconciling =>
+      'The latest server status could not be recognised. Your reference remains active while confirmation is pending.',
     WithdrawalFlowPhase.successful =>
       'The payout provider confirmed your withdrawal.',
     WithdrawalFlowPhase.reversed =>
-      withdrawal.failureReason ??
-          'The payout was not completed and the reservation was released.',
+      'The server confirmed that the reserved funds were returned to your wallet.',
     _ => 'Withdrawal status is unavailable.',
   };
 }
@@ -815,12 +825,31 @@ class _StatusConfig {
       icon: LucideIcons.clock3,
       color: AppColors.gold500,
     ),
+    WithdrawalFlowPhase.approved => const _StatusConfig(
+      appBarTitle: 'WITHDRAWAL STATUS',
+      title: 'WITHDRAWAL APPROVED',
+      icon: LucideIcons.badgeCheck,
+      color: AppColors.gold500,
+    ),
     WithdrawalFlowPhase.processing => const _StatusConfig(
       appBarTitle: 'WITHDRAWAL STATUS',
       title: 'PAYOUT PROCESSING',
       icon: LucideIcons.settings,
       color: AppColors.gold500,
       loading: true,
+    ),
+    WithdrawalFlowPhase.failed => const _StatusConfig(
+      appBarTitle: 'WITHDRAWAL STATUS',
+      title: 'WITHDRAWAL NEEDS ATTENTION',
+      icon: LucideIcons.triangleAlert,
+      color: AppColors.warning,
+      titleColor: AppColors.warning,
+    ),
+    WithdrawalFlowPhase.reconciling => const _StatusConfig(
+      appBarTitle: 'WITHDRAWAL STATUS',
+      title: 'STATUS PENDING CONFIRMATION',
+      icon: LucideIcons.refreshCw,
+      color: AppColors.gold500,
     ),
     WithdrawalFlowPhase.successful => const _StatusConfig(
       appBarTitle: 'WITHDRAWAL STATUS',
@@ -943,24 +972,6 @@ class _WithdrawalDetailsCard extends StatelessWidget {
           ),
           emphasized: true,
         ),
-        const SizedBox(height: 11),
-        _DetailRow(
-          label: 'Provider fee',
-          value: formatWithdrawalMoney(
-            withdrawal?.feeMinorUnits,
-            withdrawal?.currency,
-          ),
-        ),
-        const SizedBox(height: 11),
-        _DetailRow(
-          label: withdrawal?.status == WithdrawalStatus.reversed
-              ? 'Requested amount'
-              : 'You receive',
-          value: formatWithdrawalMoney(
-            withdrawal?.netAmountMinorUnits,
-            withdrawal?.currency,
-          ),
-        ),
         const Padding(
           padding: EdgeInsets.symmetric(vertical: 11),
           child: Divider(height: 1),
@@ -980,20 +991,6 @@ class _WithdrawalDetailsCard extends StatelessWidget {
           label: 'Status',
           value: _withdrawalStatusLabel(withdrawal?.status),
         ),
-        if (withdrawal?.availableBalanceMinorUnits != null) ...[
-          const Padding(
-            padding: EdgeInsets.symmetric(vertical: 11),
-            child: Divider(height: 1),
-          ),
-          _DetailRow(
-            label: 'Available balance',
-            value: formatWithdrawalMoney(
-              withdrawal!.availableBalanceMinorUnits,
-              withdrawal!.currency,
-            ),
-            emphasized: true,
-          ),
-        ],
       ],
     ),
   );
@@ -1001,9 +998,12 @@ class _WithdrawalDetailsCard extends StatelessWidget {
 
 String _withdrawalStatusLabel(WithdrawalStatus? status) => switch (status) {
   WithdrawalStatus.pendingReview => 'PENDING REVIEW',
+  WithdrawalStatus.approved => 'APPROVED',
   WithdrawalStatus.processing => 'PROCESSING',
+  WithdrawalStatus.failed => 'NEEDS ATTENTION',
+  WithdrawalStatus.unknown => 'PENDING CONFIRMATION',
   WithdrawalStatus.successful => 'SUCCESSFUL',
-  WithdrawalStatus.reversed => 'REVERSED',
+  WithdrawalStatus.reversed => 'RELEASED',
   null => 'UNAVAILABLE',
 };
 

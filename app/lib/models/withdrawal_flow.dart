@@ -3,56 +3,90 @@ import 'match_flow.dart';
 
 enum WithdrawalEligibility { eligible, verificationRequired, limitReached }
 
-enum WithdrawalStatus { pendingReview, processing, successful, reversed }
+/// Flutter presentation states mapped one-to-one from the Backend V2
+/// withdrawal lifecycle. Unknown server values deliberately remain
+/// non-terminal so recovery can continue safely.
+enum WithdrawalStatus {
+  pendingReview,
+  approved,
+  processing,
+  successful,
+  failed,
+  reversed,
+  unknown,
+}
+
+class WithdrawalContractException implements Exception {
+  const WithdrawalContractException(this.code, this.message);
+
+  final String code;
+  final String message;
+
+  @override
+  String toString() => 'WithdrawalContractException($code)';
+}
 
 class WithdrawalBankAccount {
   const WithdrawalBankAccount({
     required this.id,
+    required this.gateway,
     required this.bankCode,
     required this.bankName,
     required this.accountName,
     required this.maskedAccountNumber,
+    required this.verifiedAt,
     this.isDefault = false,
   });
 
   final String id;
+  final String gateway;
   final String bankCode;
   final String bankName;
   final String accountName;
   final String maskedAccountNumber;
+  final DateTime verifiedAt;
   final bool isDefault;
 
   String get displayLabel => '$bankName  $maskedAccountNumber';
 
+  WithdrawalBankAccount copyWith({bool? isDefault}) => WithdrawalBankAccount(
+    id: id,
+    gateway: gateway,
+    bankCode: bankCode,
+    bankName: bankName,
+    accountName: accountName,
+    maskedAccountNumber: maskedAccountNumber,
+    verifiedAt: verifiedAt,
+    isDefault: isDefault ?? this.isDefault,
+  );
+
   static WithdrawalBankAccount? tryFromServer(dynamic value) {
     if (value is! Map) return null;
-    final outer = Map<String, dynamic>.from(value);
-    final raw = outer['data'] is Map
-        ? Map<String, dynamic>.from(outer['data'] as Map)
-        : outer;
-    final id = _text(raw['id'] ?? raw['bankAccountId']);
-    final bankCode = _text(raw['bankCode']) ?? '';
-    final bankName = _text(raw['bankName'] ?? raw['bank']);
+    final raw = Map<String, dynamic>.from(value);
+    final id = _text(raw['id']);
+    final gateway = _text(raw['gateway']);
+    final bankCode = _text(raw['bankCode']);
+    final bankName = _text(raw['bankName']);
     final accountName = _text(raw['accountName']);
-    final accountNumber = _text(
-      raw['maskedAccount'] ??
-          raw['maskedAccountNumber'] ??
-          raw['accountNumber'],
-      // V2 intentionally returns only a masked account value.
-      // Keep legacy aliases for mixed deployments.
-    );
+    final accountNumber = _text(raw['accountNumber']);
+    final verifiedAt = DateTime.tryParse(raw['verifiedAt']?.toString() ?? '');
     if (id == null ||
+        gateway == null ||
+        bankCode == null ||
         bankName == null ||
         accountName == null ||
-        accountNumber == null) {
+        accountNumber == null ||
+        verifiedAt == null) {
       return null;
     }
     return WithdrawalBankAccount(
       id: id,
+      gateway: gateway.toUpperCase(),
       bankCode: bankCode,
       bankName: bankName,
       accountName: accountName,
       maskedAccountNumber: maskBankAccount(accountNumber),
+      verifiedAt: verifiedAt,
       isDefault: raw['isDefault'] == true,
     );
   }
@@ -84,6 +118,13 @@ class WithdrawalQuote {
   final String? idempotencyKey;
   final String? message;
   final DateTime? expiresAt;
+
+  bool get isCompleteForSubmission =>
+      eligibility == WithdrawalEligibility.eligible &&
+      availableBalanceMinorUnits != null &&
+      feeMinorUnits != null &&
+      netAmountMinorUnits != null &&
+      idempotencyKey != null;
 
   static WithdrawalQuote? tryFromServer(dynamic value) {
     if (value is! Map) return null;
@@ -122,10 +163,14 @@ class WithdrawalQuote {
 
 class WithdrawalData {
   const WithdrawalData({
+    required this.id,
     required this.reference,
     required this.amountMinorUnits,
     required this.currency,
     required this.status,
+    required this.serverStatus,
+    this.gateway,
+    this.bankAccountId,
     this.feeMinorUnits,
     this.netAmountMinorUnits,
     this.availableBalanceMinorUnits,
@@ -136,10 +181,14 @@ class WithdrawalData {
     this.updatedAt,
   });
 
+  final String id;
   final String reference;
   final int amountMinorUnits;
   final String currency;
   final WithdrawalStatus status;
+  final String serverStatus;
+  final String? gateway;
+  final String? bankAccountId;
   final int? feeMinorUnits;
   final int? netAmountMinorUnits;
   final int? availableBalanceMinorUnits;
@@ -156,10 +205,14 @@ class WithdrawalData {
   String get maskedReference => maskReference(reference);
 
   WithdrawalData copyWith({WithdrawalStatus? status}) => WithdrawalData(
+    id: id,
     reference: reference,
     amountMinorUnits: amountMinorUnits,
     currency: currency,
     status: status ?? this.status,
+    serverStatus: serverStatus,
+    gateway: gateway,
+    bankAccountId: bankAccountId,
     feeMinorUnits: feeMinorUnits,
     netAmountMinorUnits: netAmountMinorUnits,
     availableBalanceMinorUnits: availableBalanceMinorUnits,
@@ -177,34 +230,34 @@ class WithdrawalData {
     WithdrawalData? previous,
   }) {
     if (value is! Map) return null;
-    final outer = Map<String, dynamic>.from(value);
-    final envelope = outer['data'] is Map
-        ? Map<String, dynamic>.from(outer['data'] as Map)
-        : outer;
-    final raw = envelope['withdrawal'] is Map
-        ? Map<String, dynamic>.from(envelope['withdrawal'] as Map)
-        : envelope;
-    final reference = _text(
-      raw['withdrawalId'] ?? raw['reference'] ?? raw['withdrawalReference'],
-    );
-    final status = _withdrawalStatus(raw['status']);
+    final raw = Map<String, dynamic>.from(value);
+    final id = _text(raw['id']);
+    final reference = _text(raw['reference']);
+    final serverStatus = _text(raw['status']);
+    final status = _withdrawalStatus(serverStatus);
     final amount =
-        _minorUnits(raw['amountMinorUnits'] ?? raw['amountMinor']) ??
+        _minorUnits(raw['amountMinorUnits']) ??
         quote?.amountMinorUnits ??
         previous?.amountMinorUnits;
     final currency =
         _text(raw['currency']) ?? quote?.currency ?? previous?.currency;
-    if (reference == null ||
-        status == null ||
+    if (id == null ||
+        reference == null ||
+        serverStatus == null ||
         amount == null ||
+        amount <= 0 ||
         currency == null) {
       return null;
     }
     return WithdrawalData(
+      id: id,
       reference: reference,
       amountMinorUnits: amount,
       currency: currency.toUpperCase(),
       status: status,
+      serverStatus: serverStatus.toUpperCase(),
+      gateway: _text(raw['gateway'])?.toUpperCase() ?? previous?.gateway,
+      bankAccountId: _text(raw['bankAccountId']) ?? previous?.bankAccountId,
       feeMinorUnits:
           _minorUnits(raw['feeMinorUnits']) ??
           quote?.feeMinorUnits ??
@@ -266,26 +319,33 @@ WithdrawalEligibility _eligibility(Map<String, dynamic> raw) {
   return WithdrawalEligibility.eligible;
 }
 
-WithdrawalStatus? _withdrawalStatus(dynamic value) {
+WithdrawalStatus _withdrawalStatus(dynamic value) {
   final status = _text(value)?.toLowerCase();
   return switch (status) {
-    'under_review' ||
-    'pending_review' ||
-    'pending' ||
-    'reserved' => WithdrawalStatus.pendingReview,
-    'approved' ||
-    'processing' ||
-    'provider_processing' => WithdrawalStatus.processing,
-    'completed' ||
-    'confirmed' ||
-    'successful' ||
-    'success' => WithdrawalStatus.successful,
-    'failed' ||
-    'released' ||
-    'reversed' ||
-    'rejected' => WithdrawalStatus.reversed,
-    _ => null,
+    'pending_review' || 'pending' => WithdrawalStatus.pendingReview,
+    'approved' => WithdrawalStatus.approved,
+    'processing' => WithdrawalStatus.processing,
+    'completed' => WithdrawalStatus.successful,
+    'failed' => WithdrawalStatus.failed,
+    'released' => WithdrawalStatus.reversed,
+    _ => WithdrawalStatus.unknown,
   };
+}
+
+/// Converts a user-entered major-unit amount to canonical minor units without
+/// floating-point arithmetic.
+int? parseWithdrawalMinorUnits(String input) {
+  final value = input.replaceAll(',', '').trim();
+  if (!RegExp(r'^\d+(\.\d{1,2})?$').hasMatch(value)) return null;
+  final parts = value.split('.');
+  final whole = int.tryParse(parts.first);
+  if (whole == null) return null;
+  final fraction = parts.length == 1
+      ? 0
+      : int.tryParse(parts.last.padRight(2, '0'));
+  if (fraction == null) return null;
+  final amount = whole * 100 + fraction;
+  return amount > 0 ? amount : null;
 }
 
 String? _text(dynamic value) {
