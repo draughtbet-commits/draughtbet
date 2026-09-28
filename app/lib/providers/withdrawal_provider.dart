@@ -1,10 +1,13 @@
 import 'dart:async';
 
+import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../models/eligibility.dart';
 import '../models/withdrawal_flow.dart';
 import '../services/withdrawal_gateway.dart';
 import '../services/withdrawal_recovery_store.dart';
+import 'eligibility_provider.dart';
 
 enum WithdrawalFlowPhase {
   initial,
@@ -33,6 +36,7 @@ class WithdrawalFlowState {
     this.withdrawal,
     this.error,
     this.pollAttempt = 0,
+    this.eligibilityDecision,
   });
 
   final WithdrawalFlowPhase phase;
@@ -42,6 +46,7 @@ class WithdrawalFlowState {
   final WithdrawalData? withdrawal;
   final String? error;
   final int pollAttempt;
+  final EligibilityDecision? eligibilityDecision;
 
   bool get isCreating => phase == WithdrawalFlowPhase.creating;
 
@@ -54,6 +59,8 @@ class WithdrawalFlowState {
     String? error,
     bool clearError = false,
     int? pollAttempt,
+    EligibilityDecision? eligibilityDecision,
+    bool clearEligibilityDecision = false,
   }) => WithdrawalFlowState(
     phase: phase ?? this.phase,
     quote: quote ?? this.quote,
@@ -62,6 +69,9 @@ class WithdrawalFlowState {
     withdrawal: withdrawal ?? this.withdrawal,
     error: clearError ? null : error ?? this.error,
     pollAttempt: pollAttempt ?? this.pollAttempt,
+    eligibilityDecision: clearEligibilityDecision
+        ? null
+        : eligibilityDecision ?? this.eligibilityDecision,
   );
 }
 
@@ -108,6 +118,30 @@ class WithdrawalNotifier extends StateNotifier<WithdrawalFlowState> {
       };
       state = WithdrawalFlowState(phase: next, quote: quote);
       return next;
+    } on DioException catch (error) {
+      if (!_disposed) {
+        final decision = eligibilityDecisionFromDio(error);
+        final phase = switch (decision?.reason) {
+          EligibilityReason.kycRequired =>
+            WithdrawalFlowPhase.verificationRequired,
+          EligibilityReason.depositLimitExceeded ||
+          EligibilityReason.stakeLimitExceeded =>
+            WithdrawalFlowPhase.limitReached,
+          _ => WithdrawalFlowPhase.unavailable,
+        };
+        state = const WithdrawalFlowState(
+          phase: WithdrawalFlowPhase.unavailable,
+          error: 'Withdrawal options are unavailable. Check your connection.',
+        );
+        state = state.copyWith(
+          phase: phase,
+          error:
+              decision?.message ??
+              'Withdrawal options are unavailable. Check your connection.',
+          eligibilityDecision: decision,
+        );
+      }
+      return state.phase;
     } catch (_) {
       if (!_disposed) {
         state = const WithdrawalFlowState(
@@ -240,6 +274,21 @@ class WithdrawalNotifier extends StateNotifier<WithdrawalFlowState> {
       _applyWithdrawal(withdrawal);
       if (!withdrawal.isTerminal) _schedulePoll(withdrawal.reference);
       return true;
+    } on DioException catch (error) {
+      if (!_disposed) {
+        final decision = eligibilityDecisionFromDio(error);
+        final phase = decision?.reason == EligibilityReason.kycRequired
+            ? WithdrawalFlowPhase.verificationRequired
+            : WithdrawalFlowPhase.unavailable;
+        state = state.copyWith(
+          phase: phase,
+          error:
+              decision?.message ??
+              'Withdrawal confirmation is unavailable. Do not submit another request.',
+          eligibilityDecision: decision,
+        );
+      }
+      return false;
     } catch (_) {
       if (!_disposed) {
         state = state.copyWith(

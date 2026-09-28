@@ -62,7 +62,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       final token = await _storage.accessToken;
       if (token == null) return;
       final dio = ref.read(apiClientProvider);
-      final res = await dio.get('/auth/me');
+      final res = await dio.get('/me');
       if (res.statusCode == 200 && res.data is Map && mounted) {
         final data = Map<String, dynamic>.from(res.data);
         setState(() {
@@ -260,6 +260,28 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 color: AppColors.textMuted,
               ),
               onTap: () => context.push('/profile/saved-bank-accounts'),
+            ),
+            const SizedBox(height: 8),
+            _tile(
+              icon: LucideIcons.badgeCheck,
+              title: 'Identity verification',
+              subtitle: 'Review your server-confirmed verification status',
+              trailing: const Icon(
+                LucideIcons.chevronRight,
+                color: AppColors.textMuted,
+              ),
+              onTap: () => context.push('/profile/verification'),
+            ),
+            const SizedBox(height: 8),
+            _tile(
+              icon: LucideIcons.shieldCheck,
+              title: 'Safer play',
+              subtitle: 'Limits, breaks and self-exclusion',
+              trailing: const Icon(
+                LucideIcons.chevronRight,
+                color: AppColors.textMuted,
+              ),
+              onTap: () => context.push('/profile/settings/safer-play'),
             ),
             _sectionLabel('Notifications'),
             if (_loadedPrefs) ...[

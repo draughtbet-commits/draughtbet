@@ -67,6 +67,10 @@ class _WithdrawMoneyScreenState extends ConsumerState<WithdrawMoneyScreen> {
       case WithdrawalFlowPhase.limitReached:
         context.push('/wallet/withdraw/withdrawal-limit-reached');
       default:
+        final decision = ref.read(withdrawalProvider).eligibilityDecision;
+        if (decision != null) {
+          context.push('/eligibility/blocked', extra: decision);
+        }
         break;
     }
   }
@@ -431,7 +435,15 @@ class WithdrawalReviewScreen extends ConsumerWidget {
     final created = await ref
         .read(withdrawalProvider.notifier)
         .createWithdrawal();
-    if (!created || !context.mounted) return;
+    if (!created || !context.mounted) {
+      if (context.mounted) {
+        final decision = ref.read(withdrawalProvider).eligibilityDecision;
+        if (decision != null) {
+          context.push('/eligibility/blocked', extra: decision);
+        }
+      }
+      return;
+    }
     final phase = ref.read(withdrawalProvider).phase;
     final route = switch (phase) {
       WithdrawalFlowPhase.processing =>
@@ -552,7 +564,7 @@ class WithdrawalGateScreen extends ConsumerWidget {
             label: verification ? 'View verification' : 'Enter another amount',
             icon: verification ? LucideIcons.userCheck : LucideIcons.pencil,
             onPressed: () => verification
-                ? context.go('/profile')
+                ? context.go('/profile/verification')
                 : context.go('/wallet/withdraw/withdraw-money'),
           ),
           const SizedBox(height: 10),

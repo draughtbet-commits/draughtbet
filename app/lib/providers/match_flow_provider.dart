@@ -2,7 +2,9 @@ import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../config/backend_contract.dart';
 import '../models/match_flow.dart';
+import '../models/eligibility.dart';
 import '../services/api_client.dart';
+import 'eligibility_provider.dart';
 import '../services/match_flow_gateway.dart';
 
 class MatchFlowState {
@@ -16,6 +18,7 @@ class MatchFlowState {
     this.searchId,
     this.lifecycle,
     this.message,
+    this.eligibilityDecision,
   });
 
   final LoadPhase arenaPhase;
@@ -27,6 +30,7 @@ class MatchFlowState {
   final String? searchId;
   final MatchLifecycleSnapshot? lifecycle;
   final String? message;
+  final EligibilityDecision? eligibilityDecision;
 
   MatchFlowState copyWith({
     LoadPhase? arenaPhase,
@@ -41,6 +45,8 @@ class MatchFlowState {
     bool clearCurrentMatchId = false,
     bool clearSearchId = false,
     bool clearMessage = false,
+    EligibilityDecision? eligibilityDecision,
+    bool clearEligibilityDecision = false,
   }) {
     return MatchFlowState(
       arenaPhase: arenaPhase ?? this.arenaPhase,
@@ -54,6 +60,9 @@ class MatchFlowState {
       searchId: clearSearchId ? null : searchId ?? this.searchId,
       lifecycle: lifecycle ?? this.lifecycle,
       message: clearMessage ? null : message ?? this.message,
+      eligibilityDecision: clearEligibilityDecision
+          ? null
+          : eligibilityDecision ?? this.eligibilityDecision,
     );
   }
 }
@@ -95,6 +104,7 @@ class MatchFlowNotifier extends StateNotifier<MatchFlowState> {
       clearCurrentMatchId: true,
       clearSearchId: true,
       clearMessage: true,
+      clearEligibilityDecision: true,
     );
   }
 
@@ -143,9 +153,11 @@ class MatchFlowNotifier extends StateNotifier<MatchFlowState> {
       final message =
           apiErrorMessage(error.response?.data) ??
           'The reservation could not be confirmed. Try again.';
+      final decision = eligibilityDecisionFromDio(error);
       state = state.copyWith(
         actionPhase: MatchActionPhase.failed,
         message: message,
+        eligibilityDecision: decision,
       );
       return null;
     } catch (_) {
@@ -166,6 +178,7 @@ class MatchFlowNotifier extends StateNotifier<MatchFlowState> {
       lifecycle: snapshot,
       currentMatchId: snapshot.matchId,
       clearMessage: true,
+      clearEligibilityDecision: true,
     );
   }
 

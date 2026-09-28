@@ -33,3 +33,36 @@ No actionable P0, P1, or P2 differences remain for the requested change.
 Focused regions were not required after the final full-view comparison because all newly added controls, status copy, value chips, and references are readable at the captured 390 × 844 size.
 
 final result: passed
+
+---
+
+# PR10 Design QA
+
+## Evidence
+
+- Approved KYC screens 55-66: `/home/uplix/Downloads/ChatGPT Image Sep 8, 2026, 02_17_21 AM (4).png`
+- Approved KYC result screens 67-70: `/home/uplix/Downloads/ChatGPT Image Sep 8, 2026, 02_17_21 AM (5).png`
+- Approved safer-play screens 91-102: `/home/uplix/Downloads/ChatGPT Image Sep 8, 2026, 02_19_03 AM (2).png`
+- Approved account-restricted state: `Draught_Bet_Approved_UI_UX_Handoff_v1/approved-visuals/05-withdrawals-kyc-055-066.png`
+- Flutter captures: `app/test/goldens/pr10/*.png`
+
+The implementation captures use a 412 x 915 logical-pixel Android viewport.
+The approved sources are multi-screen boards with device chrome, so comparison
+used the corresponding visible phone frame rather than treating the entire board
+as a same-size screenshot.
+
+## Comparison result
+
+The captured screens preserve the approved hierarchy and established black,
+emerald, gold, white and muted-blue visual language. Titles, status treatments,
+outlined information cards, primary actions, spacing, safe-area behavior and
+small-screen scrolling match the approved component direction. All ten PR10
+goldens render without overflow.
+
+The source boards contain bespoke 3D illustration renders which are not supplied
+as individual production assets. The implementation therefore uses the existing
+Lucide-based Draught Bet icon treatment in those hero positions. This is the only
+material visual variance; no financial, identity or eligibility data was invented
+to make the captures resemble the boards.
+
+Final result: **passed with documented source-asset limitation**.
