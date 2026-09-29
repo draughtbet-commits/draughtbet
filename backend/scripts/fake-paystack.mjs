@@ -1,9 +1,18 @@
-// Stand-in Paystack for driving the deposit screens against a real backend.
+// Stand-in Paystack for driving the deposit and withdrawal screens against a
+// real backend.
 //
 // The backend's PaystackGateway reaches whatever PAYSTACK_API_BASE points at,
 // so pointing it here keeps every real code path (quote, intent, signature
 // verification, webhook crediting) intact while the hosted checkout resolves to
 // a local page instead of the live provider.
+//
+// The payout half matters just as much: bank-account verification, recipient
+// creation and transfer initiation are all gated on the provider answering, so
+// without /bank/resolve, /transferrecipient and /transfer the withdrawal
+// screens cannot be recorded against the real backend at all. Settling a
+// transfer delivers a real signed transfer.success / transfer.failed webhook,
+// so the backend's own payout handler drives the status screens rather than a
+// test writing to the database.
 //
 //   PAYSTACK_API_BASE=http://127.0.0.1:4010 PAYSTACK_SECRET_KEY=<key> \
 //     node scripts/fake-paystack.mjs
@@ -28,6 +37,19 @@ if (!SECRET) {
 
 // reference -> everything the webhook needs to echo back to the backend.
 const sessions = new Map();
+
+// Payouts need the same treatment on the way out: the backend refuses to show
+// a bank account as verified, or to move money, without a real recipient code
+// and a real transfer code, so the stand-in has to answer the Transfers API too.
+const transfers = new Map();
+const recipients = new Map();
+// A real provider's transfer codes are unique for the life of the account, not
+// just the life of a process. Countering from 1 on every restart reissued
+// TRF_fake_1 and collided with Withdrawal.providerRef's unique constraint, so
+// the prefix carries the start time.
+const RUN_TAG = Date.now().toString(36);
+let transferSeq = 0;
+let recipientSeq = 0;
 
 const log = (...args) => console.log('[fake-paystack]', ...args);
 
@@ -82,6 +104,51 @@ const deliverWebhook = async (session, event) => {
   });
   const text = await response.text().catch(() => '');
   log(`webhook ${event} -> ${WEBHOOK_TARGET} ${response.status} ${text}`);
+  return response.status;
+};
+
+/**
+ * The payout twin of the charge webhook: same real HMAC, same real event
+ * router. `reference` is OURS, which is exactly how the backend matches an
+ * incoming transfer event back to a withdrawal row, so the drive never has to
+ * guess an id.
+ */
+const deliverTransferWebhook = async (transfer, outcome) => {
+  const succeeded = outcome !== 'failure';
+  const body = JSON.stringify({
+    event: succeeded ? 'transfer.success' : 'transfer.failed',
+    data: {
+      id: 910000 + transfers.size,
+      reference: transfer.reference,
+      transfer_code: transfer.transferCode,
+      status: succeeded ? 'success' : 'failed',
+      amount: transfer.amount,
+      currency: transfer.currency || 'NGN',
+      recipient: transfer.recipient,
+      source: 'balance',
+      transferred_at: succeeded ? new Date().toISOString() : null,
+      // The backend reads this for the player-facing failure copy.
+      ...(succeeded ? {} : { complete_message: 'Insufficient balance in payout source account' }),
+    },
+  });
+  const signature = crypto
+    .createHmac('sha512', SECRET)
+    .update(body)
+    .digest('hex');
+
+  const response = await fetch(WEBHOOK_TARGET, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'x-paystack-signature': signature,
+    },
+    body,
+  });
+  const text = await response.text().catch(() => '');
+  log(
+    `transfer webhook ${succeeded ? 'transfer.success' : 'transfer.failed'} ref=${transfer.reference} ` +
+      `-> ${WEBHOOK_TARGET} ${response.status} ${text}`
+  );
   return response.status;
 };
 
@@ -217,6 +284,157 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === 'GET' && url.pathname === '/test/sessions') {
       return json(res, 200, { sessions: [...sessions.values()] });
+    }
+
+    // ---------------------------------------------------------------------
+    // Payouts (Transfers API). The backend's bank-account and payout paths are
+    // otherwise unreachable without live Paystack keys, so the withdrawal
+    // screens could only be recorded against mocks until this existed.
+    // ---------------------------------------------------------------------
+
+    // Nuban resolution. A real one echoes the account holder's name, which is
+    // what the review screen displays as the destination.
+    if (req.method === 'GET' && url.pathname === '/bank/resolve') {
+      const accountNumber = url.searchParams.get('account_number');
+      const bankCode = url.searchParams.get('bank_code');
+      if (!accountNumber) {
+        return json(res, 400, { status: false, message: 'account_number is required' });
+      }
+      log(`resolve account=${accountNumber} bank=${bankCode}`);
+      return json(res, 200, {
+        status: true,
+        message: 'Account resolved',
+        data: {
+          account_number: accountNumber,
+          account_name: process.env.FAKE_PAYSTACK_ACCOUNT_NAME || 'DRAUGHTS ARENA PLAYER',
+          bank_code: bankCode,
+        },
+      });
+    }
+
+    // Reusable transfer recipient, created once when a bank account is saved.
+    if (req.method === 'POST' && url.pathname === '/transferrecipient') {
+      const payload = JSON.parse((await readBody(req)).toString('utf8'));
+      if (!payload.account_number || !payload.name) {
+        return json(res, 400, { status: false, message: 'name and account_number are required' });
+      }
+      // Real Paystack is idempotent on (name, account_number): saving the same
+      // account twice must return the same code, and the backend relies on that
+      // to keep one recipient per stored bank account.
+      const key = `${payload.name}:${payload.account_number}`;
+      let recipientCode = recipients.get(key);
+      const reused = Boolean(recipientCode);
+      if (!recipientCode) {
+        recipientCode = `RCP_fake_${RUN_TAG}_${++recipientSeq}`;
+        recipients.set(key, recipientCode);
+      }
+      log(`recipient ${payload.account_number} -> ${recipientCode}${reused ? ' (reused)' : ''}`);
+      return json(res, 200, {
+        status: true,
+        message: 'Transfer recipient created',
+        data: {
+          recipient_code: recipientCode,
+          type: payload.type,
+          name: payload.name,
+          account_number: payload.account_number,
+          bank_code: payload.bank_code,
+          currency: payload.currency || 'NGN',
+        },
+      });
+    }
+
+    // Transfer initiation. The reference is ours and is what the settle hook
+    // later echoes, so the webhook route can find the withdrawal unaided.
+    if (req.method === 'POST' && url.pathname === '/transfer') {
+      const payload = JSON.parse((await readBody(req)).toString('utf8'));
+      if (!payload.reference || !payload.recipient) {
+        return json(res, 400, { status: false, message: 'reference and recipient are required' });
+      }
+      const transferCode = `TRF_fake_${RUN_TAG}_${++transferSeq}`;
+      transfers.set(payload.reference, {
+        reference: payload.reference,
+        transferCode,
+        amount: Number(payload.amount),
+        currency: payload.currency || 'NGN',
+        recipient: payload.recipient,
+        settled: false,
+        outcome: null,
+      });
+      log(`transfer ref=${payload.reference} amount=${payload.amount} -> ${transferCode}`);
+      return json(res, 200, {
+        status: true,
+        message: 'Transfer queued',
+        data: {
+          transfer_code: transferCode,
+          reference: payload.reference,
+          status: 'queued',
+          amount: Number(payload.amount),
+          currency: payload.currency || 'NGN',
+          recipient: payload.recipient,
+        },
+      });
+    }
+
+    // Transfer status lookup. The recovery sweep in src/jobs/providerFollowUp.js
+    // calls this for any payout that stayed PROCESSING, so without it the sweep
+    // cannot reconcile a stuck withdrawal against this double.
+    if (req.method === 'GET' && url.pathname.startsWith('/transfer/verify/')) {
+      const key = decodeURIComponent(url.pathname.slice('/transfer/verify/'.length));
+      const transfer =
+        [...transfers.values()].find(
+          (t) => t.transferCode === key || t.reference === key
+        );
+      if (!transfer) {
+        return json(res, 404, { status: false, message: 'transfer not found' });
+      }
+      // An unsettled transfer is still in flight; a settled one reports the
+      // outcome it was settled with.
+      const status = !transfer.settled ? 'queued' : transfer.outcome;
+      log(`verify ${key} -> ${status}`);
+      return json(res, 200, {
+        status: true,
+        message: 'Transfer retrieved',
+        data: {
+          transfer_code: transfer.transferCode,
+          reference: transfer.reference,
+          status,
+          amount: transfer.amount,
+          currency: transfer.currency || 'NGN',
+          recipient: transfer.recipient,
+        },
+      });
+    }
+
+    // Lets the drive test settle the newest (or named) transfer by delivering a
+    // genuinely signed transfer.success / transfer.failed webhook, so the
+    // backend's own payout handler is what moves the screen forward.
+    if (req.method === 'POST' && url.pathname === '/test/transfer/settle') {
+      const outcome = url.searchParams.get('outcome') || 'success';
+      if (!['success', 'failure'].includes(outcome)) {
+        return json(res, 400, { ok: false, error: 'outcome must be success or failure' });
+      }
+      const reference =
+        url.searchParams.get('reference') ||
+        // Prefer the newest transfer nobody has settled yet. Picking the newest
+        // outright would re-settle an earlier run's transfer once a drive leaves
+        // one behind, and the player would see a payout they never requested.
+        [...transfers.values()].reverse().find((t) => !t.settled)?.reference;
+      const transfer = transfers.get(reference);
+      if (!transfer) return json(res, 400, { ok: false, error: 'unknown transfer reference' });
+      const status = await deliverTransferWebhook(transfer, outcome);
+      transfer.settled = true;
+      transfer.outcome = outcome;
+      return json(res, 200, {
+        ok: status === 200,
+        reference,
+        transferCode: transfer.transferCode,
+        outcome,
+        status,
+      });
+    }
+
+    if (req.method === 'GET' && url.pathname === '/test/transfers') {
+      return json(res, 200, { transfers: [...transfers.values()] });
     }
 
     return json(res, 404, { message: 'not found' });
