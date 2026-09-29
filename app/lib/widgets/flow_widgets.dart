@@ -375,41 +375,48 @@ class RecoverableState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 44, color: AppColors.textSecondary),
-            const SizedBox(height: 16),
-            Text(
-              title,
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontFamily: 'Sora',
-                fontSize: 19,
-                fontWeight: FontWeight.w700,
+    // The message wraps, so the natural height depends on the text and the
+    // font scale. Sizing this to a fixed box overflowed by 45px on a real
+    // device in the wallet's compact empty state, which is a visible yellow
+    // stripe for a new player with no transactions. Scrolling the block keeps
+    // the layout rhythm of the parent without ever clipping the action.
+    return SingleChildScrollView(
+      child: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 44, color: AppColors.textSecondary),
+              const SizedBox(height: 16),
+              Text(
+                title,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontFamily: 'Sora',
+                  fontSize: 19,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              message,
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontFamily: 'Inter',
-                color: AppColors.textSecondary,
+              const SizedBox(height: 8),
+              Text(
+                message,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontFamily: 'Inter',
+                  color: AppColors.textSecondary,
+                ),
               ),
-            ),
-            const SizedBox(height: 20),
-            SizedBox(
-              width: 220,
-              child: PrimaryActionButton(
-                label: actionLabel,
-                onPressed: onAction,
+              const SizedBox(height: 20),
+              SizedBox(
+                width: 220,
+                child: PrimaryActionButton(
+                  label: actionLabel,
+                  onPressed: onAction,
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
