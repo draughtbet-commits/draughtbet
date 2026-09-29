@@ -970,123 +970,134 @@
   {
     "screen_id": "DB-WITHDRAW-001",
     "title": "Withdraw money",
-    "rest_or_socket": "POST /withdrawals/quote",
-    "event": "withdrawal.quote",
+    "rest_or_socket": "GET /me/eligibility?action=WITHDRAW&amount={minorUnits}",
+    "event": "wallet.updated",
     "authority": "SERVER_AUTHORITATIVE",
-    "idempotency": "REQUIRED",
+    "idempotency": "NOT_APPLICABLE_OR_CONTRACT_DEFINED",
     "offline": "BLOCK_ACTION_AND_SHOW_LAST_VERIFIED_STATE",
-    "retry": "LOOK_UP_EXISTING_OPERATION_BY_IDEMPOTENCY_KEY_BEFORE_RETRY",
-    "minimum_ui_states": "loading | success | safe failure | timeout/unknown where applicable"
+    "retry": "SAFE_READ_RETRY_WITH_BACKOFF",
+    "minimum_ui_states": "loading | success | safe failure | timeout/unknown where applicable",
+    "contract_gap": "POST /withdrawals/quote and withdrawal.quote DO NOT EXIST. A blocked gate is a 403/422 body, not a transport error."
   },
   {
     "screen_id": "DB-WITHDRAW-002",
     "title": "Select bank account",
-    "rest_or_socket": "-",
-    "event": "bank.select",
+    "rest_or_socket": "GET /me/bank-accounts",
+    "event": "",
     "authority": "SERVER_AUTHORITATIVE",
     "idempotency": "NOT_APPLICABLE_OR_CONTRACT_DEFINED",
     "offline": "BLOCK_ACTION_AND_SHOW_LAST_VERIFIED_STATE",
-    "retry": "PRESENTATION_ONLY",
-    "minimum_ui_states": "loading | success | safe failure | timeout/unknown where applicable"
+    "retry": "SAFE_READ_RETRY_WITH_BACKOFF",
+    "minimum_ui_states": "loading | success | safe failure | timeout/unknown where applicable",
+    "contract_gap": "bank.select IS NOT A SOCKET EVENT. Selection is local until a withdrawal is created."
   },
   {
     "screen_id": "DB-WITHDRAW-003",
     "title": "Add bank account",
-    "rest_or_socket": "POST /bank-accounts/verify",
-    "event": "bank.verify",
+    "rest_or_socket": "POST /me/bank-accounts",
+    "event": "",
     "authority": "SERVER_AUTHORITATIVE",
     "idempotency": "REQUIRED",
     "offline": "BLOCK_ACTION_AND_SHOW_LAST_VERIFIED_STATE",
     "retry": "LOOK_UP_EXISTING_OPERATION_BY_IDEMPOTENCY_KEY_BEFORE_RETRY",
-    "minimum_ui_states": "loading | success | safe failure | timeout/unknown where applicable"
+    "minimum_ui_states": "loading | success | safe failure | timeout/unknown where applicable",
+    "contract_gap": "POST /bank-accounts/verify DOES NOT EXIST. Send bankCode+accountNumber only; the bank NAME is server-derived and must not be overwritten client-side. Endpoint is implemented but missing from the OpenAPI."
   },
   {
     "screen_id": "DB-WITHDRAW-004",
     "title": "Verifying bank account",
-    "rest_or_socket": "-",
-    "event": "bank.verifying",
+    "rest_or_socket": "",
+    "event": "",
     "authority": "SERVER_AUTHORITATIVE",
     "idempotency": "NOT_APPLICABLE_OR_CONTRACT_DEFINED",
     "offline": "BLOCK_ACTION_AND_SHOW_LAST_VERIFIED_STATE",
     "retry": "PRESENTATION_ONLY",
-    "minimum_ui_states": "loading | success | safe failure | timeout/unknown where applicable"
+    "minimum_ui_states": "loading | success | safe failure | timeout/unknown where applicable",
+    "contract_gap": "Client state over the DB-WITHDRAW-003 call. bank.verifying IS NOT A SOCKET EVENT."
   },
   {
     "screen_id": "DB-WITHDRAW-005",
     "title": "Withdrawal review",
     "rest_or_socket": "POST /withdrawals",
-    "event": "withdrawal.create",
+    "event": "wallet.updated",
     "authority": "SERVER_AUTHORITATIVE",
     "idempotency": "REQUIRED",
     "offline": "BLOCK_ACTION_AND_SHOW_LAST_VERIFIED_STATE",
-    "retry": "LOOK_UP_EXISTING_OPERATION_BY_IDEMPOTENCY_KEY_BEFORE_RETRY",
-    "minimum_ui_states": "loading | success | safe failure | timeout/unknown where applicable"
+    "retry": "LOOK_UP_EXISTING_OPERATION_BY_IDEMPOTENCY_KEY_BEFORE_RETRY; THEN_POLL_GET_WITHDRAWALS_BY_ROW_ID",
+    "minimum_ui_states": "loading | success | safe failure | timeout/unknown where applicable",
+    "contract_gap": "Body is amountMinorUnits+bankAccountId (optional; omitted means the default verified destination) with an Idempotency-Key HEADER. The response carries NO fee, net or balance: never derive or display them. Envelope is { data: { withdrawal } }, same as GET."
   },
   {
     "screen_id": "DB-WITHDRAW-006",
     "title": "Verification required",
-    "rest_or_socket": "-",
-    "event": "withdrawal.kyc_required",
+    "rest_or_socket": "GET /me/eligibility?action=WITHDRAW&amount={minorUnits}",
+    "event": "",
     "authority": "SERVER_AUTHORITATIVE",
     "idempotency": "NOT_APPLICABLE_OR_CONTRACT_DEFINED",
     "offline": "BLOCK_ACTION_AND_SHOW_LAST_VERIFIED_STATE",
     "retry": "PRESENTATION_ONLY",
-    "minimum_ui_states": "loading | success | safe failure | timeout/unknown where applicable"
+    "minimum_ui_states": "loading | success | safe failure | timeout/unknown where applicable",
+    "contract_gap": "Reached from a 403 body: KycRequiredError | EligibilityRequiredError | AgeNotVerifiedError. Show the server message. Any other 403 (self-exclusion, break, ban) is NOT a verification problem."
   },
   {
     "screen_id": "DB-WITHDRAW-007",
     "title": "Withdrawal pending review",
-    "rest_or_socket": "-",
-    "event": "withdrawal.review",
+    "rest_or_socket": "GET /withdrawals/{withdrawalId}",
+    "event": "wallet.updated",
     "authority": "SERVER_AUTHORITATIVE",
     "idempotency": "NOT_APPLICABLE_OR_CONTRACT_DEFINED",
     "offline": "BLOCK_ACTION_AND_SHOW_LAST_VERIFIED_STATE",
-    "retry": "PRESENTATION_ONLY",
-    "minimum_ui_states": "loading | success | safe failure | timeout/unknown where applicable"
+    "retry": "POLL_GET_WITHDRAWALS_BY_ROW_ID; wallet.updated IS_ONLY_A_HINT",
+    "minimum_ui_states": "loading | success | safe failure | timeout/unknown where applicable",
+    "contract_gap": "withdrawal.review DOES NOT EXIST. Poll by row id; the wit- reference 404s on this route."
   },
   {
     "screen_id": "DB-WITHDRAW-008",
     "title": "Withdrawal processing",
-    "rest_or_socket": "-",
-    "event": "withdrawal.processing",
+    "rest_or_socket": "GET /withdrawals/{withdrawalId}",
+    "event": "wallet.updated",
     "authority": "SERVER_AUTHORITATIVE",
     "idempotency": "NOT_APPLICABLE_OR_CONTRACT_DEFINED",
     "offline": "BLOCK_ACTION_AND_SHOW_LAST_VERIFIED_STATE",
-    "retry": "PRESENTATION_ONLY",
-    "minimum_ui_states": "loading | success | safe failure | timeout/unknown where applicable"
+    "retry": "POLL_GET_WITHDRAWALS_BY_ROW_ID; wallet.updated IS_ONLY_A_HINT",
+    "minimum_ui_states": "loading | success | safe failure | timeout/unknown where applicable",
+    "contract_gap": "withdrawal.processing DOES NOT EXIST. Poll by row id."
   },
   {
     "screen_id": "DB-WITHDRAW-009",
     "title": "Withdrawal successful",
-    "rest_or_socket": "-",
-    "event": "withdrawal.success",
+    "rest_or_socket": "GET /withdrawals/{withdrawalId}",
+    "event": "wallet.updated",
     "authority": "SERVER_AUTHORITATIVE",
     "idempotency": "NOT_APPLICABLE_OR_CONTRACT_DEFINED",
     "offline": "BLOCK_ACTION_AND_SHOW_LAST_VERIFIED_STATE",
-    "retry": "PRESENTATION_ONLY",
-    "minimum_ui_states": "loading | success | safe failure | timeout/unknown where applicable"
+    "retry": "POLL_GET_WITHDRAWALS_BY_ROW_ID; wallet.updated IS_ONLY_A_HINT",
+    "minimum_ui_states": "loading | success | safe failure | timeout/unknown where applicable",
+    "contract_gap": "withdrawal.success DOES NOT EXIST. Terminal on COMPLETED."
   },
   {
     "screen_id": "DB-WITHDRAW-010",
-    "title": "Withdrawal reversed",
-    "rest_or_socket": "-",
-    "event": "withdrawal.reversed",
+    "title": "Withdrawal released (funds returned)",
+    "rest_or_socket": "GET /withdrawals/{withdrawalId}",
+    "event": "wallet.updated",
     "authority": "SERVER_AUTHORITATIVE",
     "idempotency": "NOT_APPLICABLE_OR_CONTRACT_DEFINED",
     "offline": "BLOCK_ACTION_AND_SHOW_LAST_VERIFIED_STATE",
-    "retry": "PRESENTATION_ONLY",
-    "minimum_ui_states": "loading | success | safe failure | timeout/unknown where applicable"
+    "retry": "POLL_GET_WITHDRAWALS_BY_ROW_ID; wallet.updated IS_ONLY_A_HINT",
+    "minimum_ui_states": "loading | success | safe failure | timeout/unknown where applicable",
+    "contract_gap": "This screen previously claimed \"the payout failed and funds returned\" for BOTH FAILED and RELEASED. Only RELEASED means the money came back. See DB-WITHDRAW-012 for FAILED."
   },
   {
     "screen_id": "DB-WITHDRAW-011",
     "title": "Withdrawal limit reached",
-    "rest_or_socket": "-",
-    "event": "withdrawal.limit",
+    "rest_or_socket": "GET /me/eligibility?action=WITHDRAW&amount={minorUnits}",
+    "event": "",
     "authority": "SERVER_AUTHORITATIVE",
     "idempotency": "NOT_APPLICABLE_OR_CONTRACT_DEFINED",
     "offline": "BLOCK_ACTION_AND_SHOW_LAST_VERIFIED_STATE",
     "retry": "PRESENTATION_ONLY",
-    "minimum_ui_states": "loading | success | safe failure | timeout/unknown where applicable"
+    "minimum_ui_states": "loading | success | safe failure | timeout/unknown where applicable",
+    "contract_gap": "There is NO withdrawal limit. /me/limits is now implemented and reports the real deposit/stake/timeout/self-exclusion values, with withdrawal.limitMinorUnits=null and enforced=false. The eligibility service marks the amount as not_evaluated. No limit figure may be shown."
   },
   {
     "screen_id": "DB-KYC-001",
@@ -1410,13 +1421,14 @@
   {
     "screen_id": "DB-ACCOUNT-020",
     "title": "Saved bank accounts",
-    "rest_or_socket": "GET /bank-accounts",
-    "event": "banks.loaded",
+    "rest_or_socket": "GET /me/bank-accounts",
+    "event": "",
     "authority": "SERVER_AUTHORITATIVE",
     "idempotency": "NOT_APPLICABLE_OR_CONTRACT_DEFINED",
     "offline": "BLOCK_ACTION_AND_SHOW_LAST_VERIFIED_STATE",
     "retry": "SAFE_READ_RETRY_WITH_BACKOFF",
-    "minimum_ui_states": "loading | success | safe failure | timeout/unknown where applicable"
+    "minimum_ui_states": "loading | success | safe failure | timeout/unknown where applicable",
+    "contract_gap": "GET /bank-accounts DOES NOT EXIST. banks.loaded IS NOT A SOCKET EVENT. The server currently returns FULL UNMASKED account numbers: mask for display and never log or persist them."
   },
   {
     "screen_id": "DB-SYSTEM-001",
@@ -1703,5 +1715,17 @@
     "offline": "READ_ONLY_OR_CACHED_WHERE_SAFE",
     "retry": "PRESENTATION_ONLY",
     "minimum_ui_states": "loading | success | safe failure | timeout/unknown where applicable"
+  },
+  {
+    "screen_id": "DB-WITHDRAW-012",
+    "title": "Withdrawal payout failed (funds still reserved)",
+    "rest_or_socket": "GET /withdrawals/{withdrawalId}",
+    "event": "wallet.updated",
+    "authority": "SERVER_AUTHORITATIVE",
+    "idempotency": "NOT_APPLICABLE_OR_CONTRACT_DEFINED",
+    "offline": "BLOCK_ACTION_AND_SHOW_LAST_VERIFIED_STATE",
+    "retry": "POLL_GET_WITHDRAWALS_BY_ROW_ID; wallet.updated IS_ONLY_A_HINT",
+    "minimum_ui_states": "loading | success | safe failure | timeout/unknown where applicable",
+    "contract_gap": "ADDED: the FAILED state had no screen of its own and was rendered as REVERSED. FAILED means the provider refused the payout and the reservation is STILL HELD. It is NOT terminal, so keep polling and keep the row id persisted for admin retry."
   }
 ]

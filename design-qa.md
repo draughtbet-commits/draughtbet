@@ -121,9 +121,11 @@ final result: passed
 
 **Contract boundary**
 
-- Production uses `POST /withdrawals/quote`, `GET /bank-accounts`, `POST /bank-accounts/verify`, `POST /withdrawals`, and safe status reads from the existing withdrawal reference.
-- The current backend does not yet expose those V2 routes. The UI therefore shows approved unavailable or pending states and never falls back to local financial truth.
-- A create response never implies success; only a server-returned terminal status can show Confirmed or Reversed. Polling is bounded, cancelable, and cannot submit another withdrawal.
+- Corrected 2026-09-28. The routes this section previously listed (`POST /withdrawals/quote`, `GET /bank-accounts`, `POST /bank-accounts/verify`) **do not exist** in the frozen contract. The real surface is `GET /me/eligibility?action=WITHDRAW&amount=…`, `GET /me/bank-accounts`, `POST /me/bank-accounts`, and `POST /withdrawals`.
+- Status reads use the row **`id`**: `GET /withdrawals/{withdrawalId}`. The `wit-…` reference is display-only and 404s on that route, so polling by reference silently never resolved.
+- There is no withdrawal fee, net amount or balance endpoint, so those rows were removed from the withdrawal screens rather than derived. The earlier "provider fee / net / available balance" cards showed values the server never sent.
+- A create response never implies success; only a server-returned terminal status can show Confirmed or Released. `FAILED` is **not** terminal and **not** a refund: the funds stay reserved, so it has its own screen (`DB-WITHDRAW-012`) and keeps polling. Rendering it as "Reversed" told players their money was back while it was still held. Polling is bounded, cancelable, and cannot submit another withdrawal.
+- No withdrawal limit exists server-side (`/me/limits` is unimplemented and the eligibility service ignores `amount` for `WITHDRAW`), so the limit screen is unreachable and no limit figure may be displayed.
 
 final result: passed
 

@@ -21,7 +21,8 @@
     "retry_policy": "PRESENTATION_ONLY",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Your skill. Your match.",
@@ -46,7 +47,8 @@
     "retry_policy": "PRESENTATION_ONLY",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Every move counts.",
@@ -70,7 +72,8 @@
     "retry_policy": "PRESENTATION_ONLY",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Know where your money goes.",
@@ -94,7 +97,8 @@
     "retry_policy": "PRESENTATION_ONLY",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Welcome",
@@ -118,7 +122,8 @@
     "retry_policy": "PRESENTATION_ONLY",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Sign in",
@@ -142,7 +147,8 @@
     "retry_policy": "NO_BLIND_RETRY; RESYNC_AUTHORITATIVE_STATE",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Create account",
@@ -166,7 +172,8 @@
     "retry_policy": "NO_BLIND_RETRY; RESYNC_AUTHORITATIVE_STATE",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Age & legal eligibility",
@@ -190,7 +197,8 @@
     "retry_policy": "NO_BLIND_RETRY; RESYNC_AUTHORITATIVE_STATE",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Verify your contact",
@@ -214,7 +222,8 @@
     "retry_policy": "PRESENTATION_ONLY",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Verification code",
@@ -239,7 +248,8 @@
     "retry_policy": "NO_BLIND_RETRY; RESYNC_AUTHORITATIVE_STATE",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Forgot password",
@@ -263,7 +273,8 @@
     "retry_policy": "NO_BLIND_RETRY; RESYNC_AUTHORITATIVE_STATE",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Reset password",
@@ -287,7 +298,8 @@
     "retry_policy": "NO_BLIND_RETRY; RESYNC_AUTHORITATIVE_STATE",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Password reset",
@@ -311,7 +323,8 @@
     "retry_policy": "PRESENTATION_ONLY",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Terms acceptance",
@@ -335,7 +348,8 @@
     "retry_policy": "PRESENTATION_ONLY",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Restoring session",
@@ -359,7 +373,8 @@
     "retry_policy": "PRESENTATION_ONLY",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Use biometric sign in",
@@ -383,7 +398,8 @@
     "retry_policy": "PRESENTATION_ONLY",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Account created",
@@ -407,7 +423,8 @@
     "retry_policy": "PRESENTATION_ONLY",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Home / Lobby",
@@ -432,7 +449,8 @@
     "retry_policy": "SAFE_READ_RETRY_WITH_BACKOFF",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Home loading",
@@ -456,7 +474,8 @@
     "retry_policy": "SAFE_READ_RETRY_WITH_BACKOFF",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "No recent matches",
@@ -481,7 +500,8 @@
     "retry_policy": "PRESENTATION_ONLY",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Open Arena",
@@ -505,7 +525,8 @@
     "retry_policy": "SAFE_READ_RETRY_WITH_BACKOFF",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Arena filters",
@@ -529,7 +550,8 @@
     "retry_policy": "PRESENTATION_ONLY",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Open match details",
@@ -556,7 +578,8 @@
     "retry_policy": "SAFE_READ_RETRY_WITH_BACKOFF",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Join match confirmation",
@@ -583,7 +606,8 @@
     "retry_policy": "NO_BLIND_RETRY; RESYNC_AUTHORITATIVE_STATE",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Match unavailable",
@@ -610,7 +634,8 @@
     "retry_policy": "PRESENTATION_ONLY",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Quick match setup",
@@ -636,7 +661,8 @@
     "retry_policy": "NO_BLIND_RETRY; RESYNC_AUTHORITATIVE_STATE",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Searching for opponent",
@@ -660,7 +686,8 @@
     "retry_policy": "NO_BLIND_RETRY; RESYNC_AUTHORITATIVE_STATE",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "No opponent found",
@@ -684,7 +711,8 @@
     "retry_policy": "PRESENTATION_ONLY",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Incoming challenge",
@@ -708,7 +736,8 @@
     "retry_policy": "NO_BLIND_RETRY; RESYNC_AUTHORITATIVE_STATE",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Challenge sent",
@@ -732,7 +761,8 @@
     "retry_policy": "NO_BLIND_RETRY; RESYNC_AUTHORITATIVE_STATE",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Challenge declined",
@@ -756,7 +786,8 @@
     "retry_policy": "PRESENTATION_ONLY",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Player search",
@@ -781,7 +812,8 @@
     "retry_policy": "SAFE_READ_RETRY_WITH_BACKOFF",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Public player profile",
@@ -805,7 +837,8 @@
     "retry_policy": "SAFE_READ_RETRY_WITH_BACKOFF",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Create match",
@@ -830,7 +863,8 @@
     "retry_policy": "NO_BLIND_RETRY; RESYNC_AUTHORITATIVE_STATE",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Create match quote",
@@ -855,7 +889,8 @@
     "retry_policy": "NO_BLIND_RETRY; RESYNC_AUTHORITATIVE_STATE",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Private room code",
@@ -880,7 +915,8 @@
     "retry_policy": "NO_BLIND_RETRY; RESYNC_AUTHORITATIVE_STATE",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Match confirmation",
@@ -905,7 +941,8 @@
     "retry_policy": "NO_BLIND_RETRY; RESYNC_AUTHORITATIVE_STATE",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Insufficient balance",
@@ -929,7 +966,8 @@
     "retry_policy": "PRESENTATION_ONLY",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Eligibility blocked",
@@ -953,7 +991,8 @@
     "retry_policy": "PRESENTATION_ONLY",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Locking stake",
@@ -978,7 +1017,8 @@
     "retry_policy": "LOOK_UP_EXISTING_OPERATION_BY_IDEMPOTENCY_KEY_BEFORE_RETRY",
     "idempotency_required": true,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Waiting for opponent stake",
@@ -1002,7 +1042,8 @@
     "retry_policy": "SAFE_READ_RETRY_WITH_BACKOFF",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Ready check",
@@ -1027,7 +1068,8 @@
     "retry_policy": "NO_BLIND_RETRY; RESYNC_AUTHORITATIVE_STATE",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Waiting for opponent ready",
@@ -1051,7 +1093,8 @@
     "retry_policy": "SAFE_READ_RETRY_WITH_BACKOFF",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Ready timeout",
@@ -1076,7 +1119,8 @@
     "retry_policy": "NO_BLIND_RETRY; RESYNC_AUTHORITATIVE_STATE",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Opponent disconnected",
@@ -1100,7 +1144,8 @@
     "retry_policy": "PRESENTATION_ONLY",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Match found",
@@ -1125,7 +1170,8 @@
     "retry_policy": "NO_BLIND_RETRY; RESYNC_AUTHORITATIVE_STATE",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Match room",
@@ -1150,7 +1196,8 @@
     "retry_policy": "SAFE_READ_RETRY_WITH_BACKOFF",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Live match",
@@ -1175,7 +1222,8 @@
     "retry_policy": "NO_BLIND_RETRY; RESYNC_AUTHORITATIVE_STATE",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Move selection",
@@ -1199,7 +1247,8 @@
     "retry_policy": "PRESENTATION_ONLY",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Mandatory capture",
@@ -1225,7 +1274,8 @@
     "retry_policy": "PRESENTATION_ONLY",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Multi-capture",
@@ -1251,7 +1301,8 @@
     "retry_policy": "PRESENTATION_ONLY",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "King promotion",
@@ -1275,7 +1326,8 @@
     "retry_policy": "PRESENTATION_ONLY",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Opponent thinking",
@@ -1299,7 +1351,8 @@
     "retry_policy": "PRESENTATION_ONLY",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Illegal move",
@@ -1323,7 +1376,8 @@
     "retry_policy": "NO_BLIND_RETRY; RESYNC_AUTHORITATIVE_STATE",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Draw offer received",
@@ -1347,7 +1401,8 @@
     "retry_policy": "NO_BLIND_RETRY; RESYNC_AUTHORITATIVE_STATE",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Offer a draw",
@@ -1373,7 +1428,8 @@
     "retry_policy": "NO_BLIND_RETRY; RESYNC_AUTHORITATIVE_STATE",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Draw rejected",
@@ -1399,7 +1455,8 @@
     "retry_policy": "PRESENTATION_ONLY",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Resign match",
@@ -1425,7 +1482,8 @@
     "retry_policy": "NO_BLIND_RETRY; RESYNC_AUTHORITATIVE_STATE",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Connection lost",
@@ -1449,7 +1507,8 @@
     "retry_policy": "PRESENTATION_ONLY",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Reconnecting",
@@ -1475,7 +1534,8 @@
     "retry_policy": "PRESENTATION_ONLY",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "State resync",
@@ -1499,7 +1559,8 @@
     "retry_policy": "NO_BLIND_RETRY; RESYNC_AUTHORITATIVE_STATE",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "App resumed",
@@ -1525,7 +1586,8 @@
     "retry_policy": "PRESENTATION_ONLY",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Low time warning",
@@ -1551,7 +1613,8 @@
     "retry_policy": "PRESENTATION_ONLY",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Timeout imminent",
@@ -1577,7 +1640,8 @@
     "retry_policy": "PRESENTATION_ONLY",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Match chat",
@@ -1602,7 +1666,8 @@
     "retry_policy": "PRESENTATION_ONLY",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Match menu",
@@ -1627,7 +1692,8 @@
     "retry_policy": "PRESENTATION_ONLY",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Victory",
@@ -1652,7 +1718,8 @@
     "retry_policy": "PRESENTATION_ONLY",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Defeat",
@@ -1676,7 +1743,8 @@
     "retry_policy": "PRESENTATION_ONLY",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Draw result",
@@ -1700,7 +1768,8 @@
     "retry_policy": "PRESENTATION_ONLY",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Timeout result",
@@ -1724,7 +1793,8 @@
     "retry_policy": "PRESENTATION_ONLY",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Resignation result",
@@ -1748,7 +1818,8 @@
     "retry_policy": "LOOK_UP_EXISTING_OPERATION_BY_IDEMPOTENCY_KEY_BEFORE_RETRY",
     "idempotency_required": true,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Disconnect forfeit",
@@ -1773,7 +1844,8 @@
     "retry_policy": "PRESENTATION_ONLY",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "System-cancelled match",
@@ -1798,7 +1870,8 @@
     "retry_policy": "PRESENTATION_ONLY",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Settlement processing",
@@ -1822,7 +1895,8 @@
     "retry_policy": "SAFE_READ_RETRY_WITH_BACKOFF",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Settlement complete",
@@ -1846,7 +1920,8 @@
     "retry_policy": "PRESENTATION_ONLY",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Settlement delayed",
@@ -1870,7 +1945,8 @@
     "retry_policy": "PRESENTATION_ONLY",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Match receipt",
@@ -1895,7 +1971,8 @@
     "retry_policy": "SAFE_READ_RETRY_WITH_BACKOFF",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Share result",
@@ -1920,7 +1997,8 @@
     "retry_policy": "PRESENTATION_ONLY",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Wallet",
@@ -1944,7 +2022,8 @@
     "retry_policy": "SAFE_READ_RETRY_WITH_BACKOFF",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Add money",
@@ -1968,7 +2047,8 @@
     "retry_policy": "LOOK_UP_EXISTING_OPERATION_BY_IDEMPOTENCY_KEY_BEFORE_RETRY",
     "idempotency_required": true,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Payment method",
@@ -1992,7 +2072,8 @@
     "retry_policy": "PRESENTATION_ONLY",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Hosted checkout",
@@ -2017,7 +2098,8 @@
     "retry_policy": "PRESENTATION_ONLY",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Deposit processing",
@@ -2041,7 +2123,8 @@
     "retry_policy": "SAFE_READ_RETRY_WITH_BACKOFF",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Deposit successful",
@@ -2067,7 +2150,8 @@
     "retry_policy": "PRESENTATION_ONLY",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Deposit failed",
@@ -2091,7 +2175,8 @@
     "retry_policy": "PRESENTATION_ONLY",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Deposit pending",
@@ -2115,7 +2200,8 @@
     "retry_policy": "PRESENTATION_ONLY",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Transaction history",
@@ -2140,7 +2226,8 @@
     "retry_policy": "SAFE_READ_RETRY_WITH_BACKOFF",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Transaction filters",
@@ -2164,7 +2251,8 @@
     "retry_policy": "PRESENTATION_ONLY",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Deposit details",
@@ -2190,7 +2278,8 @@
     "retry_policy": "PRESENTATION_ONLY",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Stake details",
@@ -2215,7 +2304,8 @@
     "retry_policy": "PRESENTATION_ONLY",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Payout details",
@@ -2240,7 +2330,8 @@
     "retry_policy": "PRESENTATION_ONLY",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Locked funds",
@@ -2264,7 +2355,8 @@
     "retry_policy": "PRESENTATION_ONLY",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Wallet unavailable",
@@ -2288,17 +2380,18 @@
     "retry_policy": "PRESENTATION_ONLY",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Withdraw money",
     "section": "Withdrawals",
     "kind": "amount",
-    "subtitle": "Enter an amount within available balance and account limits.",
+    "subtitle": "Enter an amount within your available balance. Limits come from the server, not the client.",
     "cta": "Continue",
     "secondary": "Cancel",
-    "event": "withdrawal.quote",
-    "endpoint": "POST /withdrawals/quote",
+    "event": "wallet.updated",
+    "endpoint": "GET /me/eligibility?action=WITHDRAW&amount={minorUnits}",
     "nav": "Wallet",
     "screen_id": "DB-WITHDRAW-001",
     "legacy_state_no": 94,
@@ -2309,10 +2402,11 @@
     ],
     "authority": "SERVER_AUTHORITATIVE",
     "offline_behavior": "BLOCK_ACTION_AND_SHOW_LAST_VERIFIED_STATE",
-    "retry_policy": "LOOK_UP_EXISTING_OPERATION_BY_IDEMPOTENCY_KEY_BEFORE_RETRY",
-    "idempotency_required": true,
+    "retry_policy": "SAFE_READ_RETRY_WITH_BACKOFF",
+    "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": "POST /withdrawals/quote and withdrawal.quote DO NOT EXIST."
   },
   {
     "title": "Select bank account",
@@ -2321,8 +2415,8 @@
     "subtitle": "Choose a verified payout destination.",
     "cta": "Continue",
     "secondary": "Add bank account",
-    "event": "bank.select",
-    "endpoint": "",
+    "event": "",
+    "endpoint": "GET /me/bank-accounts",
     "nav": "Wallet",
     "screen_id": "DB-WITHDRAW-002",
     "legacy_state_no": 95,
@@ -2333,10 +2427,11 @@
     ],
     "authority": "SERVER_AUTHORITATIVE",
     "offline_behavior": "BLOCK_ACTION_AND_SHOW_LAST_VERIFIED_STATE",
-    "retry_policy": "PRESENTATION_ONLY",
+    "retry_policy": "SAFE_READ_RETRY_WITH_BACKOFF",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": "bank.select IS NOT A SOCKET EVENT."
   },
   {
     "title": "Add bank account",
@@ -2345,8 +2440,8 @@
     "subtitle": "Enter bank and account number for server-side verification.",
     "cta": "Verify account",
     "secondary": "Cancel",
-    "event": "bank.verify",
-    "endpoint": "POST /bank-accounts/verify",
+    "event": "",
+    "endpoint": "POST /me/bank-accounts",
     "nav": "Wallet",
     "screen_id": "DB-WITHDRAW-003",
     "legacy_state_no": 96,
@@ -2360,7 +2455,8 @@
     "retry_policy": "LOOK_UP_EXISTING_OPERATION_BY_IDEMPOTENCY_KEY_BEFORE_RETRY",
     "idempotency_required": true,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": "POST /bank-accounts/verify DOES NOT EXIST. Send bankCode+accountNumber; the server derives the bank name."
   },
   {
     "title": "Verifying bank account",
@@ -2369,7 +2465,7 @@
     "subtitle": "Checking the account name with the payout provider.",
     "cta": "",
     "secondary": "",
-    "event": "bank.verifying",
+    "event": "",
     "endpoint": "",
     "nav": "Wallet",
     "screen_id": "DB-WITHDRAW-004",
@@ -2385,16 +2481,17 @@
     "retry_policy": "PRESENTATION_ONLY",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": "Client state over DB-WITHDRAW-003. bank.verifying IS NOT A SOCKET EVENT."
   },
   {
     "title": "Withdrawal review",
     "section": "Withdrawals",
     "kind": "confirm",
-    "subtitle": "Confirm amount, destination, charges and net payout.",
+    "subtitle": "Confirm amount and destination. The server returns no fee or net payout, so neither may be shown.",
     "cta": "Confirm withdrawal",
     "secondary": "Cancel",
-    "event": "withdrawal.create",
+    "event": "wallet.updated",
     "endpoint": "POST /withdrawals",
     "nav": "Wallet",
     "screen_id": "DB-WITHDRAW-005",
@@ -2406,10 +2503,11 @@
     ],
     "authority": "SERVER_AUTHORITATIVE",
     "offline_behavior": "BLOCK_ACTION_AND_SHOW_LAST_VERIFIED_STATE",
-    "retry_policy": "LOOK_UP_EXISTING_OPERATION_BY_IDEMPOTENCY_KEY_BEFORE_RETRY",
+    "retry_policy": "LOOK_UP_EXISTING_OPERATION_BY_IDEMPOTENCY_KEY_BEFORE_RETRY; THEN_POLL_GET_WITHDRAWALS_BY_ROW_ID",
     "idempotency_required": true,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": "\"charges and net payout\" are not in the contract. Response carries NO fee, net or balance."
   },
   {
     "title": "Verification required",
@@ -2418,8 +2516,8 @@
     "subtitle": "Identity verification is required before withdrawal.",
     "cta": "Verify identity",
     "secondary": "Cancel",
-    "event": "withdrawal.kyc_required",
-    "endpoint": "",
+    "event": "",
+    "endpoint": "GET /me/eligibility?action=WITHDRAW&amount={minorUnits}",
     "nav": "Wallet",
     "screen_id": "DB-WITHDRAW-006",
     "legacy_state_no": 99,
@@ -2434,7 +2532,8 @@
     "retry_policy": "PRESENTATION_ONLY",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": "From a 403 body: KycRequiredError | EligibilityRequiredError | AgeNotVerifiedError. Other 403s are not verification problems."
   },
   {
     "title": "Withdrawal pending review",
@@ -2443,8 +2542,8 @@
     "subtitle": "Risk review is in progress. Funds are reserved, not withdrawn.",
     "cta": "View status",
     "secondary": "Contact support",
-    "event": "withdrawal.review",
-    "endpoint": "",
+    "event": "wallet.updated",
+    "endpoint": "GET /withdrawals/{withdrawalId}",
     "nav": "Wallet",
     "screen_id": "DB-WITHDRAW-007",
     "legacy_state_no": 100,
@@ -2456,10 +2555,11 @@
     ],
     "authority": "SERVER_AUTHORITATIVE",
     "offline_behavior": "BLOCK_ACTION_AND_SHOW_LAST_VERIFIED_STATE",
-    "retry_policy": "PRESENTATION_ONLY",
+    "retry_policy": "POLL_GET_WITHDRAWALS_BY_ROW_ID; wallet.updated IS_ONLY_A_HINT",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": "withdrawal.review DOES NOT EXIST. Poll by row id, not the reference."
   },
   {
     "title": "Withdrawal processing",
@@ -2468,8 +2568,8 @@
     "subtitle": "Approved payout is being sent to your bank.",
     "cta": "",
     "secondary": "",
-    "event": "withdrawal.processing",
-    "endpoint": "",
+    "event": "wallet.updated",
+    "endpoint": "GET /withdrawals/{withdrawalId}",
     "nav": "Wallet",
     "screen_id": "DB-WITHDRAW-008",
     "legacy_state_no": 101,
@@ -2480,10 +2580,11 @@
     ],
     "authority": "SERVER_AUTHORITATIVE",
     "offline_behavior": "BLOCK_ACTION_AND_SHOW_LAST_VERIFIED_STATE",
-    "retry_policy": "PRESENTATION_ONLY",
+    "retry_policy": "POLL_GET_WITHDRAWALS_BY_ROW_ID; wallet.updated IS_ONLY_A_HINT",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": "withdrawal.processing DOES NOT EXIST."
   },
   {
     "title": "Withdrawal successful",
@@ -2492,8 +2593,8 @@
     "subtitle": "The provider confirmed the payout.",
     "cta": "Done",
     "secondary": "View transaction",
-    "event": "withdrawal.success",
-    "endpoint": "",
+    "event": "wallet.updated",
+    "endpoint": "GET /withdrawals/{withdrawalId}",
     "nav": "Wallet",
     "screen_id": "DB-WITHDRAW-009",
     "legacy_state_no": 102,
@@ -2505,20 +2606,21 @@
     ],
     "authority": "SERVER_AUTHORITATIVE",
     "offline_behavior": "BLOCK_ACTION_AND_SHOW_LAST_VERIFIED_STATE",
-    "retry_policy": "PRESENTATION_ONLY",
+    "retry_policy": "POLL_GET_WITHDRAWALS_BY_ROW_ID; wallet.updated IS_ONLY_A_HINT",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": "withdrawal.success DOES NOT EXIST."
   },
   {
-    "title": "Withdrawal reversed",
+    "title": "Withdrawal released",
     "section": "Withdrawals",
     "kind": "system",
-    "subtitle": "The payout failed and funds returned to available balance.",
+    "subtitle": "The reservation was released and the amount returned to your available balance.",
     "cta": "Done",
     "secondary": "Try another bank",
-    "event": "withdrawal.reversed",
-    "endpoint": "",
+    "event": "wallet.updated",
+    "endpoint": "GET /withdrawals/{withdrawalId}",
     "nav": "Wallet",
     "screen_id": "DB-WITHDRAW-010",
     "legacy_state_no": 103,
@@ -2530,20 +2632,21 @@
     ],
     "authority": "SERVER_AUTHORITATIVE",
     "offline_behavior": "BLOCK_ACTION_AND_SHOW_LAST_VERIFIED_STATE",
-    "retry_policy": "PRESENTATION_ONLY",
+    "retry_policy": "POLL_GET_WITHDRAWALS_BY_ROW_ID; wallet.updated IS_ONLY_A_HINT",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": "CORRECTED. This screen said \"The payout failed and funds returned\", which is false for FAILED. RELEASED is the only state where the money came back."
   },
   {
     "title": "Withdrawal limit reached",
     "section": "Withdrawals",
     "kind": "system",
-    "subtitle": "This request exceeds your account or safer-play limit.",
+    "subtitle": "The server declined this amount. No limit figure is available to display.",
     "cta": "View limits",
     "secondary": "Enter another amount",
-    "event": "withdrawal.limit",
-    "endpoint": "",
+    "event": "",
+    "endpoint": "GET /me/eligibility?action=WITHDRAW&amount={minorUnits}",
     "nav": "Wallet",
     "screen_id": "DB-WITHDRAW-011",
     "legacy_state_no": 104,
@@ -2557,7 +2660,8 @@
     "retry_policy": "PRESENTATION_ONLY",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": "NOT BACKED BY THE BACKEND. /me/limits is unimplemented and no WITHDRAW limit rule exists, so this screen is unreachable. The old copy implied a server-confirmed limit that is never returned."
   },
   {
     "title": "Verify your identity",
@@ -2581,7 +2685,8 @@
     "retry_policy": "NO_BLIND_RETRY; RESYNC_AUTHORITATIVE_STATE",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Personal details",
@@ -2605,7 +2710,8 @@
     "retry_policy": "PRESENTATION_ONLY",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Select ID type",
@@ -2629,7 +2735,8 @@
     "retry_policy": "PRESENTATION_ONLY",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Capture ID front",
@@ -2654,7 +2761,8 @@
     "retry_policy": "PRESENTATION_ONLY",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Capture ID back",
@@ -2679,7 +2787,8 @@
     "retry_policy": "PRESENTATION_ONLY",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Selfie check",
@@ -2703,7 +2812,8 @@
     "retry_policy": "PRESENTATION_ONLY",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Verification processing",
@@ -2727,7 +2837,8 @@
     "retry_policy": "SAFE_READ_RETRY_WITH_BACKOFF",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Identity verified",
@@ -2752,7 +2863,8 @@
     "retry_policy": "PRESENTATION_ONLY",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Verification rejected",
@@ -2776,7 +2888,8 @@
     "retry_policy": "PRESENTATION_ONLY",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Verification expired",
@@ -2800,7 +2913,8 @@
     "retry_policy": "PRESENTATION_ONLY",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Match history",
@@ -2826,7 +2940,8 @@
     "retry_policy": "SAFE_READ_RETRY_WITH_BACKOFF",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "No match history",
@@ -2851,7 +2966,8 @@
     "retry_policy": "PRESENTATION_ONLY",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Match details",
@@ -2876,7 +2992,8 @@
     "retry_policy": "PRESENTATION_ONLY",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Move history",
@@ -2900,7 +3017,8 @@
     "retry_policy": "SAFE_READ_RETRY_WITH_BACKOFF",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Report match",
@@ -2925,7 +3043,8 @@
     "retry_policy": "PRESENTATION_ONLY",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Dispute reason",
@@ -2949,7 +3068,8 @@
     "retry_policy": "PRESENTATION_ONLY",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Add evidence",
@@ -2974,7 +3094,8 @@
     "retry_policy": "NO_BLIND_RETRY; RESYNC_AUTHORITATIVE_STATE",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Dispute submitted",
@@ -2998,7 +3119,8 @@
     "retry_policy": "PRESENTATION_ONLY",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Dispute status",
@@ -3022,7 +3144,8 @@
     "retry_policy": "SAFE_READ_RETRY_WITH_BACKOFF",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Notifications",
@@ -3048,7 +3171,8 @@
     "retry_policy": "SAFE_READ_RETRY_WITH_BACKOFF",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "No notifications",
@@ -3073,7 +3197,8 @@
     "retry_policy": "PRESENTATION_ONLY",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Notification details",
@@ -3101,7 +3226,8 @@
     "retry_policy": "PRESENTATION_ONLY",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Profile",
@@ -3127,7 +3253,8 @@
     "retry_policy": "SAFE_READ_RETRY_WITH_BACKOFF",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Player statistics",
@@ -3151,7 +3278,8 @@
     "retry_policy": "SAFE_READ_RETRY_WITH_BACKOFF",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Edit profile",
@@ -3175,7 +3303,8 @@
     "retry_policy": "NO_BLIND_RETRY; RESYNC_AUTHORITATIVE_STATE",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Settings",
@@ -3199,7 +3328,8 @@
     "retry_policy": "PRESENTATION_ONLY",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Security & devices",
@@ -3223,7 +3353,8 @@
     "retry_policy": "SAFE_READ_RETRY_WITH_BACKOFF",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Change password",
@@ -3247,7 +3378,8 @@
     "retry_policy": "NO_BLIND_RETRY; RESYNC_AUTHORITATIVE_STATE",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Notification preferences",
@@ -3271,7 +3403,8 @@
     "retry_policy": "PRESENTATION_ONLY",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Saved bank accounts",
@@ -3280,8 +3413,8 @@
     "subtitle": "Verified withdrawal destinations.",
     "cta": "Add bank account",
     "secondary": "",
-    "event": "banks.loaded",
-    "endpoint": "GET /bank-accounts",
+    "event": "",
+    "endpoint": "GET /me/bank-accounts",
     "nav": "Profile",
     "screen_id": "DB-ACCOUNT-020",
     "legacy_state_no": 134,
@@ -3296,7 +3429,8 @@
     "retry_policy": "SAFE_READ_RETRY_WITH_BACKOFF",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": "GET /bank-accounts DOES NOT EXIST. banks.loaded IS NOT A SOCKET EVENT. Server returns FULL UNMASKED account numbers: mask for display, never log or persist."
   },
   {
     "title": "Safer play",
@@ -3321,7 +3455,8 @@
     "retry_policy": "PRESENTATION_ONLY",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Deposit limits",
@@ -3347,7 +3482,8 @@
     "retry_policy": "PRESENTATION_ONLY",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Stake limits",
@@ -3372,7 +3508,8 @@
     "retry_policy": "PRESENTATION_ONLY",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Take a break",
@@ -3396,7 +3533,8 @@
     "retry_policy": "PRESENTATION_ONLY",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Self-exclusion",
@@ -3420,7 +3558,8 @@
     "retry_policy": "PRESENTATION_ONLY",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Limit confirmed",
@@ -3444,7 +3583,8 @@
     "retry_policy": "PRESENTATION_ONLY",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Help centre",
@@ -3470,7 +3610,8 @@
     "retry_policy": "PRESENTATION_ONLY",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Support category",
@@ -3496,7 +3637,8 @@
     "retry_policy": "PRESENTATION_ONLY",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Create support ticket",
@@ -3522,7 +3664,8 @@
     "retry_policy": "NO_BLIND_RETRY; RESYNC_AUTHORITATIVE_STATE",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Ticket submitted",
@@ -3548,7 +3691,8 @@
     "retry_policy": "PRESENTATION_ONLY",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Terms & conditions",
@@ -3572,7 +3716,8 @@
     "retry_policy": "PRESENTATION_ONLY",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Privacy notice",
@@ -3598,7 +3743,8 @@
     "retry_policy": "PRESENTATION_ONLY",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Responsible gaming",
@@ -3624,7 +3770,8 @@
     "retry_policy": "PRESENTATION_ONLY",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "About Draught Bet",
@@ -3650,7 +3797,8 @@
     "retry_policy": "PRESENTATION_ONLY",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Session expired",
@@ -3674,7 +3822,8 @@
     "retry_policy": "PRESENTATION_ONLY",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Account restricted",
@@ -3698,7 +3847,8 @@
     "retry_policy": "PRESENTATION_ONLY",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Scheduled maintenance",
@@ -3722,7 +3872,8 @@
     "retry_policy": "PRESENTATION_ONLY",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "No internet",
@@ -3746,7 +3897,8 @@
     "retry_policy": "PRESENTATION_ONLY",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Update required",
@@ -3770,7 +3922,8 @@
     "retry_policy": "PRESENTATION_ONLY",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Something went wrong",
@@ -3796,7 +3949,8 @@
     "retry_policy": "PRESENTATION_ONLY",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Camera permission",
@@ -3820,7 +3974,8 @@
     "retry_policy": "PRESENTATION_ONLY",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Notification permission",
@@ -3844,7 +3999,8 @@
     "retry_policy": "PRESENTATION_ONLY",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Sign out",
@@ -3870,7 +4026,8 @@
     "retry_policy": "PRESENTATION_ONLY",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Delete account",
@@ -3894,7 +4051,8 @@
     "retry_policy": "PRESENTATION_ONLY",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Verify account deletion",
@@ -3918,7 +4076,8 @@
     "retry_policy": "PRESENTATION_ONLY",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
   },
   {
     "title": "Deletion scheduled",
@@ -3944,6 +4103,33 @@
     "retry_policy": "PRESENTATION_ONLY",
     "idempotency_required": false,
     "implementation_status": "NOT_STARTED",
-    "design_status": "APPROVED_VISUAL_LANGUAGE"
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "contract_gap": ""
+  },
+  {
+    "screen_id": "DB-WITHDRAW-012",
+    "legacy_state_no": 105,
+    "title": "Withdrawal payout failed",
+    "section": "Withdrawals",
+    "kind": "system",
+    "subtitle": "The provider could not send this payout. Your funds are still reserved.",
+    "cta": "Check status",
+    "secondary": "Back to wallet",
+    "route_or_overlay": "/wallet/withdraw/withdrawal-payout-failed",
+    "event": "wallet.updated",
+    "endpoint": "GET /withdrawals/{withdrawalId}",
+    "authority": "SERVER_AUTHORITATIVE",
+    "visual_status": "DIRECT_APPROVED_VISUAL",
+    "approved_visual_refs": [
+      "VIS-05",
+      "VIS-14"
+    ],
+    "offline_behavior": "BLOCK_ACTION_AND_SHOW_LAST_VERIFIED_STATE",
+    "retry_policy": "POLL_GET_WITHDRAWALS_BY_ROW_ID; wallet.updated IS_ONLY_A_HINT",
+    "idempotency_required": false,
+    "implementation_status": "NOT_STARTED",
+    "design_status": "APPROVED_VISUAL_LANGUAGE",
+    "nav": "Wallet",
+    "contract_gap": "ADDED: FAILED had no screen and was rendered as REVERSED. Funds stay reserved, it is NOT terminal, so keep polling and keep the row id persisted for admin retry. Visual is NOT yet approved; route is pending in app_router.dart."
   }
 ]
