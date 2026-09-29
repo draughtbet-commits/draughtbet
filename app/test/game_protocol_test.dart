@@ -214,6 +214,55 @@ void main() {
     );
   });
 
+  test('every code the server can emit reaches a deliberate mapping', () {
+    // These are the values of MOVE_ERROR in
+    // backend/src/sockets/gameProtocol.js. Asserting on the server's own
+    // spellings is the point: the earlier test only used the names this file
+    // invented, which is how STALE_STATE fell through to `unknown` and shipped
+    // a stale board rejection styled as a red "MOVE NOT ACCEPTED".
+    const serverCodes = [
+      'invalid_payload',
+      'game_already_ended',
+      'game_not_in_progress',
+      'not_your_turn',
+      'illegal_move',
+      'stale_state',
+      'duplicate_move',
+      'turn_expired',
+      'persist_failed',
+      'not_authorized',
+      'server_busy',
+    ];
+
+    for (final code in serverCodes) {
+      final rejection = MoveRejection.fromServer({'code': code});
+      expect(
+        rejection.code,
+        isNot(GameRejectionCode.unknown),
+        reason: '$code falls through to the unknown fallback',
+      );
+      expect(rejection.title, isNotEmpty);
+    }
+  });
+
+  test('a stale state reads as a resync, not as a rejected move', () {
+    final stale = MoveRejection.fromServer({
+      'code': 'stale_state',
+      'expectedStateVersion': 3,
+      'currentVersion': 8,
+    });
+
+    expect(stale.code, GameRejectionCode.stateVersionConflict);
+    expect(stale.requiresResync, isTrue);
+    expect(stale.title, 'STATE RESYNC');
+    expect(stale.message, contains('out of date'));
+
+    // A duplicate is the client being behind rather than its move being wrong.
+    final duplicate = MoveRejection.fromServer({'code': 'duplicate_move'});
+    expect(duplicate.code, GameRejectionCode.stateVersionConflict);
+    expect(duplicate.requiresResync, isTrue);
+  });
+
   test('active move events ignore duplicates and resync across gaps', () async {
     final socket = ProtocolSocket();
     final notifier = ProtocolNotifier(socket, Dio());

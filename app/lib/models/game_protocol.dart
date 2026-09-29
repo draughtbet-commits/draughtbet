@@ -82,11 +82,27 @@ class MoveRejection {
       'CAPTURE_REQUIRED' => GameRejectionCode.mandatoryCaptureRequired,
       'MAX_CAPTURE_REQUIRED' => GameRejectionCode.maxCaptureRequired,
       'NOT_YOUR_TURN' => GameRejectionCode.notYourTurn,
+      // The server's canonical spelling is STALE_STATE (MOVE_ERROR in
+      // backend/src/sockets/gameProtocol.js). It used to fall through to
+      // `unknown`, which still resynced but told the player their move was
+      // "not accepted" in the danger style, when the truth is that their board
+      // was behind the server's.
       'STATE_VERSION_CONFLICT' ||
+      'STALE_STATE' ||
       'VERSION_MISMATCH' => GameRejectionCode.stateVersionConflict,
+      // A duplicate means the server already applied this clientMoveId, so the
+      // client is behind. Same remedy as a stale state, and the same reason not
+      // to blame the move.
+      'DUPLICATE_MOVE' => GameRejectionCode.stateVersionConflict,
       'MATCH_NOT_ACTIVE' || 'MATCH_ENDED' => GameRejectionCode.matchNotActive,
       'GAME_NOT_IN_PROGRESS' ||
       'GAME_ALREADY_ENDED' => GameRejectionCode.matchNotActive,
+      // The socket is not a participant, so its move cannot land. Reusing
+      // matchNotActive avoids inventing copy for a path a legitimate client
+      // should never reach, and correctly does not ask for a resync, since the
+      // board is not the problem. Worth revisiting with a dedicated code if it
+      // ever turns out to be player-reachable.
+      'NOT_AUTHORIZED' => GameRejectionCode.matchNotActive,
       'INVALID_PAYLOAD' => GameRejectionCode.invalidPayload,
       'TURN_EXPIRED' => GameRejectionCode.turnExpired,
       'SERVER_BUSY' => GameRejectionCode.serverBusy,
