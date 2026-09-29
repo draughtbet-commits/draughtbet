@@ -13,7 +13,7 @@
 //       outs); a timeout can only ever be extended
 //   P4  self-exclusion from one device blocks PLAY and money-in AND money-out
 //       on the other; extend-only
-//   P5  KYC gates money-OUT (withdrawal-request) but NEVER money-in; a
+//   P5  KYC gates money-OUT (POST /withdrawals) but NEVER money-in; a
 //       simulated provider pass projects VERIFIED across devices
 //   P6  a per-match stake limit set on one device blocks an over-limit stake
 //       on the other (queue join and call-out create)
@@ -63,12 +63,13 @@ const ready = async () => {
 
 const token = (userId) => jwt.sign({ userId, email: `${userId}@harness.local` }, JWT_SECRET, { expiresIn: '10m' });
 
-const api = async (method, path, { userId, body } = {}) => {
+const api = async (method, path, { userId, body, idempotencyKey } = {}) => {
   const res = await fetch(`${base}${path}`, {
     method,
     headers: {
       authorization: `Bearer ${token(userId)}`,
-      'content-type': 'application/json'
+      'content-type': 'application/json',
+      ...(idempotencyKey ? { 'idempotency-key': idempotencyKey } : {})
     },
     body: body === undefined ? undefined : JSON.stringify(body)
   });
@@ -254,7 +255,7 @@ try {
   assert.equal(joinBlocked.status, 403, 'device 2 queue join blocked by self-exclusion');
   assert.match(joinBlocked.data.error, /Self-exclusion/);
 
-  const wdBlocked = await api('POST', '/wallet/withdrawal-request', { userId: b1, body: { amountMinorUnits: '5000', idempotencyKey: `w-${B}-1` } });
+  const wdBlocked = await api('POST', '/withdrawals', { userId: b1, body: { amountMinorUnits: '5000' }, idempotencyKey: `w-${B}-1` });
   assert.equal(wdBlocked.status, 403, 'device 1 money-out blocked by self-exclusion');
 
   // ---------------------------------------------------------------------
@@ -263,7 +264,7 @@ try {
   const C = await createUser(); // kycStatus NONE
   await seedDeposit(C, 50000n, `c-fund-${C}`);
 
-  const wdNoKyc = await api('POST', '/wallet/withdrawal-request', { userId: C, body: { amountMinorUnits: '1000', idempotencyKey: `w-${C}-1` } });
+  const wdNoKyc = await api('POST', '/withdrawals', { userId: C, body: { amountMinorUnits: '1000' }, idempotencyKey: `w-${C}-1` });
   assert.equal(wdNoKyc.status, 403, 'withdrawal without KYC is refused');
   assert.match(wdNoKyc.data.error, /KYC/);
 
@@ -284,7 +285,7 @@ try {
 
   // Money OUT is now past the KYC gate — the next refusal is the missing bank
   // account, not KYC.
-  const wdAfterKyc = await api('POST', '/wallet/withdrawal-request', { userId: C, body: { amountMinorUnits: '1000', idempotencyKey: `w-${C}-2` } });
+  const wdAfterKyc = await api('POST', '/withdrawals', { userId: C, body: { amountMinorUnits: '1000' }, idempotencyKey: `w-${C}-2` });
   assert.notEqual(wdAfterKyc.status, 403, 'withdrawal is no longer KYC-blocked');
   assert.ok(!/KYC/.test(wdAfterKyc.data?.error ?? ''));
 

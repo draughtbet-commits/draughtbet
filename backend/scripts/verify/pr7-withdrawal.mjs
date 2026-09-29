@@ -1,13 +1,13 @@
 // PR 7 — Withdrawal V2 deep verification (real HTTP + Socket.IO + PostgreSQL)
 //
-// Exercises the withdrawal-request money-exit gate end-to-end over the real
+// Exercises the contract §6 withdrawal money-exit gate end-to-end over the real
 // wallet/admin routers and a live Socket.IO server:
 //   P1  request over HTTP reserves atomically (PENDING_REVIEW + wallet debit +
 //       ledger PLAYER_AVAILABLE -> PLAYER_WITHDRAWAL_PENDING + outbox row)
 //   P2  wallet_updated socket push fires once with balanceChange "-N"
 //   P3  idempotent replay returns the original request, debits never twice
 //   P4  EXIT GATE: 2 concurrent 8000 requests on a 10000 balance -> exactly
-//       one 201 and one 402; wallet + ledger both end at 2000/8000
+//       one 200 and one 402; wallet + ledger both end at 2000/8000
 //   P5  single request above balance -> 402, nothing persisted
 //   P6  KYC gate blocks a non-verified account -> 403, nothing persisted
 //   P7  missing payout destination -> 422 even with funds
@@ -57,8 +57,12 @@ import jwt from 'jsonwebtoken';
 import { io as createSocketClient } from 'socket.io-client';
 import prisma from '../../src/utils/db.js';
 import { walletRouter } from '../../src/modules/wallet/controller.js';
+import { withdrawalUserRouter } from '../../src/modules/withdrawal/controller.js';
+import { meRouter } from '../../src/modules/me/controller.js';
 import { adminRouter } from '../../src/modules/admin/controller.js';
 import { webhookRouter } from '../../src/modules/payment/webhookController.js';
+import { processOutboxDrainer } from '../../src/jobs/outboxDrainer.js';
+import { ensureRoles } from '../../src/modules/rbac/service.js';
 import { initSocketServer } from '../../src/sockets/index.js';
 import { getJwtSecret } from '../../src/utils/jwtEnv.js';
 import { WithdrawalService } from '../../src/modules/withdrawal/service.js';
@@ -75,6 +79,8 @@ const SOCKET_PORT = socketServer.address().port;
 const apiApp = express();
 apiApp.use(express.json());
 apiApp.use('/wallet', walletRouter);
+apiApp.use('/withdrawals', withdrawalUserRouter);
+apiApp.use('/me', meRouter);
 apiApp.use('/admin', adminRouter);
 const apiServer = apiApp.listen(0);
 const API_BASE = `http://127.0.0.1:${apiServer.address().port}`;
@@ -101,6 +107,10 @@ const paystackTransferEvent = (eventType, reference, extra = {}) =>
 const flutterwaveTransferEvent = (eventType, reference, status) =>
   Buffer.from(JSON.stringify({ event: eventType, data: { reference, status, complete_message: 'done' } }));
 
+// The HTTP idempotency claim is keyed scope+method+path+key and carries no user,
+// so reusing a fixed key would make a second run replay the first run's cached
+// response instead of creating anything. Namespace every key by run.
+const RUN_ID = crypto.randomBytes(4).toString('hex');
 const state = { users: [] };
 const results = [];
 
@@ -162,15 +172,61 @@ async function makeUser(suffix, { balance = 10000n, withBank = true, kyc = 'VERI
 
 const authed = (userId) => jwt.sign({ userId }, getJwtSecret(), { expiresIn: '1h' });
 
-const api = async (path, { method = 'GET', body, token } = {}) =>
+// The app seeds the six admin roles on boot, but this harness mounts routers
+// directly and never boots the app, so seed them or every RBAC'd admin call
+// fails against a freshly reset database.
+await ensureRoles();
+
+// isAdmin alone is not enough: the withdrawal admin routes are RBAC-gated, so an
+// operator needs a real role assignment before approve/reject will run.
+async function grantRole(userId, roleName) {
+  const role = await prisma.adminRole.findUniqueOrThrow({ where: { name: roleName } });
+  await prisma.adminRoleAssignment.upsert({
+    where: { userId_roleId: { userId, roleId: role.id } },
+    create: { userId, roleId: role.id },
+    update: {}
+  });
+}
+
+const api = async (path, { method = 'GET', body, token, idempotencyKey } = {}) =>
   fetch(`${API_BASE}${path}`, {
     method,
     headers: {
       'content-type': 'application/json',
-      ...(token ? { authorization: `Bearer ${token}` } : {})
+      ...(token ? { authorization: `Bearer ${token}` } : {}),
+      ...(idempotencyKey ? { 'idempotency-key': idempotencyKey } : {})
     },
     ...(body !== undefined ? { body: JSON.stringify(body) } : {})
   });
+
+// Single seam for every withdrawal creation here, so no probe can drift back
+// to the removed route. The caller is identified by its own token.
+// bankAccountId is deliberately omitted: the contract lets the service resolve
+// the player's default verified destination, and P15 covers that resolution.
+// Probes that need a specific destination pass it via { bankAccountId }.
+async function createWithdrawal(token, amountMinorUnits, idempotencyKey, { bankAccountId, body: extra = {} } = {}) {
+  return api('/withdrawals', {
+    method: 'POST',
+    token,
+    idempotencyKey: `${idempotencyKey}.${RUN_ID}`,
+    body: { amountMinorUnits, ...(bankAccountId ? { bankAccountId } : {}), ...extra }
+  });
+}
+
+// Turns a non-2xx admin response into a readable failure instead of the
+// "cannot read properties of undefined" that a bare .json() would produce.
+// The wallet.updated socket push is delivered by the outbox drainer, a
+// background worker the real app starts. This harness mounts routers directly,
+// so drive one drain pass explicitly or the push probes can never fire.
+const drainOutbox = () => processOutboxDrainer();
+
+const jsonOf = async (res) => {
+  const body = await res.json().catch(() => null);
+  if (res.status < 200 || res.status >= 300) {
+    throw new Error(`HTTP ${res.status} ${JSON.stringify(body)}`);
+  }
+  return body;
+};
 
 async function run(name, probe) {
   try {
@@ -276,16 +332,12 @@ await run('P1 request over HTTP reserves atomically (PENDING_REVIEW, wallet + le
   const { user, wallet } = await makeUser('p1');
   const token = authed(user.id);
 
-  const res = await api('/wallet/withdrawal-request', {
-    method: 'POST',
-    token,
-    body: { amountMinorUnits: 8000, idempotencyKey: 'pr7_p1_key' }
-  });
-  assert.equal(res.status, 201);
+  const res = await createWithdrawal(token, 8000, 'pr7_p1_key');
+  assert.equal(res.status, 200);
   const body = await res.json();
-  assert.equal(body.withdrawalRequest.status, 'PENDING_REVIEW');
-  assert.equal(body.withdrawalRequest.amountMinorUnits, '8000');
-  assert.match(body.withdrawalRequest.reference, /^wit-/);
+  assert.equal(body.data.withdrawal.status, 'PENDING_REVIEW');
+  assert.equal(body.data.withdrawal.amountMinorUnits, '8000');
+  assert.match(body.data.withdrawal.reference, /^wit-/);
 
   assert.equal(await bal(wallet), 2000n);
   assert.equal(await sumType(user.id, 'PLAYER_AVAILABLE'), 2000n);
@@ -330,16 +382,17 @@ await run('P2 wallet_updated socket push fires once, carrying the exact negative
       });
     });
 
-  const pushed = nextEvent('wallet_updated');
-  const res = await api('/wallet/withdrawal-request', {
-    method: 'POST',
-    token,
-    body: { amountMinorUnits: 8000, idempotencyKey: 'pr7_p2_key' }
-  });
-  assert.equal(res.status, 201);
+  const pushed = nextEvent('wallet.updated');
+  const res = await createWithdrawal(token, 8000, 'pr7_p2_key');
+  assert.equal(res.status, 200);
+  await drainOutbox();
   const event = await pushed;
   assert.ok(event, 'wallet_updated should fire for a withdrawal request');
-  assert.equal(event.balanceChange, '-8000');
+  // Socket contract v1 line 29: the authoritative signal is the projection, not
+  // a client-computed delta. A reserve must show 2000 available / 8000 pending.
+  assert.equal(String(event.availableMinor), '2000');
+  assert.equal(String(event.withdrawalPendingMinor), '8000');
+  assert.equal(event.reason, 'WITHDRAWAL');
   assert.equal(event.type, 'WITHDRAWAL');
   client.close();
 
@@ -351,10 +404,10 @@ await run('P3 idempotent replay returns the original request, debits never twice
   const token = authed(user.id);
   const body = { amountMinorUnits: 8000, idempotencyKey: 'pr7_p3_key' };
 
-  const first = await (await api('/wallet/withdrawal-request', { method: 'POST', token, body })).json();
-  const second = await (await api('/wallet/withdrawal-request', { method: 'POST', token, body })).json();
+  const first = await (await createWithdrawal(token, body.amountMinorUnits, body.idempotencyKey)).json();
+  const second = await (await createWithdrawal(token, body.amountMinorUnits, body.idempotencyKey)).json();
 
-  assert.equal(second.withdrawalRequest.id, first.withdrawalRequest.id);
+  assert.equal(second.data.withdrawal.id, first.data.withdrawal.id);
   assert.equal(await bal(wallet), 2000n);
   assert.equal(await prisma.withdrawal.count({ where: { userId: user.id } }), 1);
   assert.equal(await userLedgerTxCount(user.id, 'withdrawal:reserve:'), 1);
@@ -367,20 +420,20 @@ await run('P3 idempotent replay returns the original request, debits never twice
   ok('P3 idempotent replay returns the original request, debits never twice');
 });
 
-await run('P4 EXIT GATE: 2 concurrent 8000 requests on 10000 -> one 201, one 402, ledger agrees', async () => {
+await run('P4 EXIT GATE: 2 concurrent 8000 requests on 10000 -> one 200, one 402, ledger agrees', async () => {
   const { user, wallet } = await makeUser('p4');
   const token = authed(user.id);
 
   const [a, b] = await Promise.all([
-    api('/wallet/withdrawal-request', { method: 'POST', token, body: { amountMinorUnits: 8000, idempotencyKey: 'pr7_p4_a' } }),
-    api('/wallet/withdrawal-request', { method: 'POST', token, body: { amountMinorUnits: 8000, idempotencyKey: 'pr7_p4_b' } })
+    createWithdrawal(token, 8000, 'pr7_p4_a'),
+    createWithdrawal(token, 8000, 'pr7_p4_b')
   ]);
 
   const codes = [a.status, b.status].sort();
-  assert.deepEqual(codes, [201, 402]);
-  const winner = a.status === 201 ? a : b;
+  assert.deepEqual(codes, [200, 402]);
+  const winner = a.status === 200 ? a : b;
   const winnerBody = await winner.json();
-  assert.equal(winnerBody.withdrawalRequest.amountMinorUnits, '8000');
+  assert.equal(winnerBody.data.withdrawal.amountMinorUnits, '8000');
 
   assert.equal(await bal(wallet), 2000n);
   assert.equal(await sumType(user.id, 'PLAYER_AVAILABLE'), 2000n);
@@ -388,16 +441,12 @@ await run('P4 EXIT GATE: 2 concurrent 8000 requests on 10000 -> one 201, one 402
   assert.equal(await prisma.withdrawal.count({ where: { userId: user.id } }), 1);
   assert.equal(await userLedgerTxCount(user.id, 'withdrawal:reserve:'), 1);
 
-  ok('P4 EXIT GATE: 2 concurrent 8000 requests on 10000 -> one 201, one 402, ledger agrees');
+  ok('P4 EXIT GATE: 2 concurrent 8000 requests on 10000 -> one 200, one 402, ledger agrees');
 });
 
 await run('P5 single request above balance -> 402, nothing persisted', async () => {
   const { user, wallet } = await makeUser('p5', { balance: 100n });
-  const res = await api('/wallet/withdrawal-request', {
-    method: 'POST',
-    token: authed(user.id),
-    body: { amountMinorUnits: 200, idempotencyKey: 'pr7_p5_key' }
-  });
+  const res = await createWithdrawal(authed(user.id), 200, 'pr7_p5_key');
   assert.equal(res.status, 402);
   const body = await res.json();
   assert.match(body.error, /Insufficient funds/i);
@@ -411,11 +460,7 @@ await run('P5 single request above balance -> 402, nothing persisted', async () 
 
 await run('P6 KYC gate blocks a non-verified account -> 403, nothing persisted', async () => {
   const { user, wallet } = await makeUser('p6', { kyc: 'NONE' });
-  const res = await api('/wallet/withdrawal-request', {
-    method: 'POST',
-    token: authed(user.id),
-    body: { amountMinorUnits: 100, idempotencyKey: 'pr7_p6_key' }
-  });
+  const res = await createWithdrawal(authed(user.id), 100, 'pr7_p6_key');
   assert.equal(res.status, 403);
   assert.match((await res.json()).error, /KYC/i);
   assert.equal(await bal(wallet), 10000n);
@@ -426,11 +471,7 @@ await run('P6 KYC gate blocks a non-verified account -> 403, nothing persisted',
 
 await run('P7 missing payout destination -> 422 even with funds', async () => {
   const { user, wallet } = await makeUser('p7', { withBank: false });
-  const res = await api('/wallet/withdrawal-request', {
-    method: 'POST',
-    token: authed(user.id),
-    body: { amountMinorUnits: 100, idempotencyKey: 'pr7_p7_key' }
-  });
+  const res = await createWithdrawal(authed(user.id), 100, 'pr7_p7_key');
   assert.equal(res.status, 422);
   assert.match((await res.json()).error, /verified bank account/i);
   assert.equal(await bal(wallet), 10000n);
@@ -452,21 +493,19 @@ await run('P8 admin reject lifecycle: approve then release refunds exactly once,
     }
   });
   state.users.push(admin.id);
+  await grantRole(admin.id, 'FINANCE');
   const adminToken = authed(admin.id);
 
-  const created = await (await api('/wallet/withdrawal-request', {
-    method: 'POST', token,
-    body: { amountMinorUnits: 6000, idempotencyKey: 'pr7_p8_key' }
-  })).json();
-  const id = created.withdrawalRequest.id;
+  const created = await (await createWithdrawal(token, 6000, 'pr7_p8_key')).json();
+  const id = created.data.withdrawal.id;
   assert.equal(await bal(wallet), 4000n);
 
-  const approved = await (await api(`/admin/withdrawals/${id}/approve`, { method: 'POST', token: adminToken })).json();
+  const approved = await jsonOf(await api(`/admin/withdrawals/${id}/approve`, { method: 'POST', token: adminToken, idempotencyKey: `admin.p8a.${RUN_ID}` }));
   assert.equal(approved.withdrawal.status, 'APPROVED');
 
-  const rejected = await (await api(`/admin/withdrawals/${id}/reject`, {
-    method: 'POST', token: adminToken, body: { reason: 'manual check' }
-  })).json();
+  const rejected = await jsonOf(await api(`/admin/withdrawals/${id}/reject`, {
+    method: 'POST', token: adminToken, body: { reason: 'manual check' }, idempotencyKey: `admin.p8c.${RUN_ID}`
+  }));
   assert.equal(rejected.withdrawal.status, 'RELEASED');
 
   assert.equal(await bal(wallet), 10000n);
@@ -479,7 +518,7 @@ await run('P8 admin reject lifecycle: approve then release refunds exactly once,
   );
 
   // Re-release is a safe no-op: no second refund row or second credit.
-  await api(`/admin/withdrawals/${id}/reject`, { method: 'POST', token: adminToken, body: { reason: 'again' } });
+  await api(`/admin/withdrawals/${id}/reject`, { method: 'POST', token: adminToken, body: { reason: 'again' }, idempotencyKey: `admin.p8b.${RUN_ID}` });
   assert.equal(await bal(wallet), 10000n);
   assert.equal(await userLedgerTxCount(user.id, 'withdrawal:release:'), 1);
   assert.equal(
@@ -493,10 +532,7 @@ await run('P8 admin reject lifecycle: approve then release refunds exactly once,
 await run('P9 GET /wallet/withdrawals lists rows and filters by status', async () => {
   const { user } = await makeUser('p9');
   const token = authed(user.id);
-  await api('/wallet/withdrawal-request', {
-    method: 'POST', token,
-    body: { amountMinorUnits: 1000, idempotencyKey: 'pr7_p9_key' }
-  });
+  await createWithdrawal(token, 1000, 'pr7_p9_key');
 
   const list = await (await api('/wallet/withdrawals', { token })).json();
   assert.equal(list.total, 1);
@@ -645,9 +681,10 @@ await run('P13 failed payout webhook keeps reserves; admin reject releases exact
     }
   });
   state.users.push(admin.id);
-  const rejectBody = await (await api(`/admin/withdrawals/${failed.id}/reject`, {
-    method: 'POST', token: authed(admin.id), body: { reason: 'not retrying' }
-  })).json();
+  await grantRole(admin.id, 'FINANCE');
+  const rejectBody = await jsonOf(await api(`/admin/withdrawals/${failed.id}/reject`, {
+    method: 'POST', token: authed(admin.id), body: { reason: 'not retrying' }, idempotencyKey: `admin.p13.${RUN_ID}`
+  }));
   assert.equal(rejectBody.withdrawal.status, 'RELEASED');
 
   assert.equal(await bal(wallet), 60000n);
@@ -726,17 +763,13 @@ await run('P15 bank-account management over HTTP (list, default switch, delete, 
   // Seeded second destination becomes the default; next request follows it.
   const flw = await seedBank(user.id, 'FLUTTERWAVE');
   await makeDefault(user.id, flw.id);
-  const created = await (await api('/wallet/withdrawal-request', {
-    method: 'POST', token, body: { amountMinorUnits: 10000, idempotencyKey: 'deep15_default' }
-  })).json();
-  assert.equal(created.withdrawalRequest.gateway, 'FLUTTERWAVE');
+  const created = await (await createWithdrawal(token, 10000, 'deep15_default')).json();
+  assert.equal(created.data.withdrawal.gateway, 'FLUTTERWAVE');
 
   // DELETE the FLUTTERWAVE default -> request now 422 (no destination).
   const del = await api(`/wallet/bank-accounts/${flw.id}`, { method: 'DELETE', token });
   assert.equal(del.status, 200);
-  const nowMissing = await api('/wallet/withdrawal-request', {
-    method: 'POST', token, body: { amountMinorUnits: 1000, idempotencyKey: 'deep15_missing' }
-  });
+  const nowMissing = await createWithdrawal(token, 1000, 'deep15_missing');
   assert.equal(nowMissing.status, 422);
 
   // 404s on unknown ids.
@@ -752,10 +785,7 @@ await run('P16 unverified destination (recipientRef missing) -> 422 despite a ro
     where: { userId: user.id },
     data: { recipientRef: null, verifiedAt: null }
   });
-  const res = await api('/wallet/withdrawal-request', {
-    method: 'POST', token: authed(user.id),
-    body: { amountMinorUnits: 1000, idempotencyKey: 'deep16-unverified' }
-  });
+  const res = await createWithdrawal(authed(user.id), 1000, 'deep16-unverified');
   assert.equal(res.status, 422);
   assert.match((await res.json()).error, /verified/i);
   assert.equal(await bal(wallet), 60000n);
@@ -774,42 +804,41 @@ await run('P17 admin gates: double-approve no-op, report-result(false) reserves,
     }
   });
   state.users.push(admin.id);
+  await grantRole(admin.id, 'FINANCE');
   const adminToken = authed(admin.id);
 
-  const created = await (await api('/wallet/withdrawal-request', {
-    method: 'POST', token, body: { amountMinorUnits: 40000, idempotencyKey: 'deep17a-approve-x2' }
-  })).json();
-  const id = created.withdrawalRequest.id;
+  const created = await (await createWithdrawal(token, 40000, 'deep17a-approve-x2')).json();
+  const id = created.data.withdrawal.id;
 
-  const firstApprove = await (await api(`/admin/withdrawals/${id}/approve`, { method: 'POST', token: adminToken })).json();
+  const firstApprove = await jsonOf(await api(`/admin/withdrawals/${id}/approve`, { method: 'POST', token: adminToken, idempotencyKey: `admin.p17a.${RUN_ID}` }));
   assert.equal(firstApprove.withdrawal.status, 'APPROVED');
   const firstReviewedBy = firstApprove.withdrawal.reviewedBy;
   // Double-approve: no crash, no status regression, reviewedBy stable.
-  const secondApprove = await (await api(`/admin/withdrawals/${id}/approve`, { method: 'POST', token: adminToken })).json();
+  const secondApprove = await jsonOf(await api(`/admin/withdrawals/${id}/approve`, { method: 'POST', token: adminToken, idempotencyKey: `admin.p17b.${RUN_ID}` }));
   assert.equal(secondApprove.withdrawal.status, 'APPROVED');
   assert.equal(secondApprove.withdrawal.reviewedBy, firstReviewedBy);
 
   // Simulate begin-payout (PROCESSING is the only state report-result accepts),
   // then admin report-result success=false -> FAILED, funds stay reserved.
   await prisma.withdrawal.update({ where: { id }, data: { status: 'PROCESSING', processedAt: new Date() } });
-  const rejected = await (await api(`/admin/withdrawals/${id}/report-result`, {
-    method: 'POST', token: adminToken, body: { success: false, failureReason: 'ops decision' }
-  })).json();
+  const rejected = await jsonOf(await api(`/admin/withdrawals/${id}/report-result`, {
+    method: 'POST', token: adminToken, body: { success: false, failureReason: 'ops decision' }, idempotencyKey: `admin.p17c.${RUN_ID}`
+  }));
   assert.equal(rejected.withdrawal.status, 'FAILED');
   assert.equal(await bal(wallet), 20000n);
   assert.equal(await sumType(user.id, 'PLAYER_WITHDRAWAL_PENDING'), 40000n);
 
   // Release a healthily FAILED withdrawal (the operator path).
-  const released = await (await api(`/admin/withdrawals/${id}/reject`, {
-    method: 'POST', token: adminToken, body: { reason: 'no retry' }
-  })).json();
+  const released = await jsonOf(await api(`/admin/withdrawals/${id}/reject`, {
+    method: 'POST', token: adminToken, body: { reason: 'no retry' }, idempotencyKey: `admin.p17d.${RUN_ID}`
+  }));
   assert.equal(released.withdrawal.status, 'RELEASED');
   assert.equal(await bal(wallet), 60000n);
 
   // A PROCESSING withdrawal is NOT releasable: surface an error, refund nothing.
   const wd2 = await seedProcessingWithdrawal(user.id, 10000n);
   const lockRes = await api(`/admin/withdrawals/${wd2.id}/reject`, {
-    method: 'POST', token: adminToken, body: { reason: 'oops' }
+    method: 'POST', token: adminToken, body: { reason: 'oops' }, idempotencyKey: `admin.p17e.${RUN_ID}`
   });
   assert.ok(lockRes.status >= 400);
   assert.equal((await prisma.withdrawal.findUnique({ where: { id: wd2.id } })).status, 'PROCESSING');
@@ -821,9 +850,7 @@ await run('P17 admin gates: double-approve no-op, report-result(false) reserves,
 await run('P18 socket push on admin release (wallet_updated +N, WITHDRAWAL_RELEASE)', async () => {
   const { user, wallet } = await makeUser('p18', { balance: 60000n });
   const token = authed(user.id);
-  const created = await (await api('/wallet/withdrawal-request', {
-    method: 'POST', token, body: { amountMinorUnits: 40000, idempotencyKey: 'deep18-release-push' }
-  })).json();
+  const created = await (await createWithdrawal(token, 40000, 'deep18-release-push')).json();
   const admin = await prisma.user.create({
     data: {
       email: `verify-pr7-admin18-${Date.now()}@test.local`,
@@ -831,6 +858,7 @@ await run('P18 socket push on admin release (wallet_updated +N, WITHDRAWAL_RELEA
     }
   });
   state.users.push(admin.id);
+  await grantRole(admin.id, 'FINANCE');
 
   const client = createSocketClient(`http://127.0.0.1:${SOCKET_PORT}`, {
     auth: { token }, transports: ['websocket']
@@ -849,15 +877,24 @@ await run('P18 socket push on admin release (wallet_updated +N, WITHDRAWAL_RELEA
       });
     });
 
-  const pushed = nextEvent('wallet_updated');
-  await api(`/admin/withdrawals/${created.withdrawalRequest.id}/reject`, {
-    method: 'POST', token: authed(admin.id), body: { reason: 'refund now' }
+  // Flush the reserve's own push first, so the listener below only ever sees
+  // the release event rather than whichever event lands first.
+  await drainOutbox();
+  const pushed = nextEvent('wallet.updated');
+  await api(`/admin/withdrawals/${created.data.withdrawal.id}/reject`, {
+    method: 'POST', token: authed(admin.id), body: { reason: 'refund now' }, idempotencyKey: `admin.p18.${RUN_ID}`
   });
+  await drainOutbox();
   const event = await pushed;
   assert.ok(event, 'WITHDRAWAL_RELEASE socket event should fire');
-  assert.equal(event.balanceChange, '+40000');
+  // A release returns the reserve: the whole 60000 is available again and
+  // nothing is left pending.
+  assert.equal(String(event.availableMinor), '60000');
+  assert.equal(String(event.withdrawalPendingMinor), '0');
+  assert.equal(event.reason, 'WITHDRAWAL_RELEASE');
   assert.equal(event.type, 'WITHDRAWAL_RELEASE');
-  assert.equal(event.withdrawalId, created.withdrawalRequest.id);
+  // Socket contract v1 defines only the projection + reason, and the app reads
+  // nothing else off this event, so the release is identified by its reason.
   client.close();
 
   ok('P18 socket push on admin release (wallet_updated +N, WITHDRAWAL_RELEASE)');
@@ -869,10 +906,7 @@ await run('P19 eligibility gates (age / country) -> 403 before any reservation',
     where: { userId: age.user.id },
     data: { ageVerified: false }
   });
-  const ageRes = await api('/wallet/withdrawal-request', {
-    method: 'POST', token: authed(age.user.id),
-    body: { amountMinorUnits: 100, idempotencyKey: 'deep19_age' }
-  });
+  const ageRes = await createWithdrawal(authed(age.user.id), 100, 'deep19_age');
   assert.equal(ageRes.status, 403);
   assert.equal(await prisma.withdrawal.count({ where: { userId: age.user.id } }), 0);
 
@@ -881,10 +915,7 @@ await run('P19 eligibility gates (age / country) -> 403 before any reservation',
     where: { userId: country.user.id },
     data: { countryAllowed: false }
   });
-  const countryRes = await api('/wallet/withdrawal-request', {
-    method: 'POST', token: authed(country.user.id),
-    body: { amountMinorUnits: 100, idempotencyKey: 'deep19_country' }
-  });
+  const countryRes = await createWithdrawal(authed(country.user.id), 100, 'deep19_country');
   assert.equal(countryRes.status, 403);
   assert.equal(await prisma.withdrawal.count({ where: { userId: country.user.id } }), 0);
 
@@ -894,12 +925,8 @@ await run('P19 eligibility gates (age / country) -> 403 before any reservation',
 await run('P20 pagination bounds on /wallet/withdrawals', async () => {
   const { user } = await makeUser('p20', { balance: 100000n });
   const token = authed(user.id);
-  await api('/wallet/withdrawal-request', {
-    method: 'POST', token, body: { amountMinorUnits: 1000, idempotencyKey: 'deep20_1' }
-  });
-  await api('/wallet/withdrawal-request', {
-    method: 'POST', token, body: { amountMinorUnits: 2000, idempotencyKey: 'deep20_2' }
-  });
+  await createWithdrawal(token, 1000, 'deep20_1');
+  await createWithdrawal(token, 2000, 'deep20_2');
 
   const oversize = await api('/wallet/withdrawals?limit=1000', { token });
   assert.equal(oversize.status, 400);
@@ -916,14 +943,16 @@ await run('P21 concurrent same-idempotencyKey HTTP requests -> one row, one debi
   const body = { amountMinorUnits: 8000, idempotencyKey: 'deep21_same_key' };
 
   const [a, b] = await Promise.all([
-    api('/wallet/withdrawal-request', { method: 'POST', token, body }),
-    api('/wallet/withdrawal-request', { method: 'POST', token, body })
+    createWithdrawal(token, body.amountMinorUnits, body.idempotencyKey),
+    createWithdrawal(token, body.amountMinorUnits, body.idempotencyKey)
   ]);
-  assert.equal(a.status, 201);
-  assert.equal(b.status, 201);
-  const aBody = await a.json();
-  const bBody = await b.json();
-  assert.equal(aBody.withdrawalRequest.id, bBody.withdrawalRequest.id);
+  // Contract §6 routes creates through the HTTP idempotency layer, which answers
+  // a genuinely concurrent duplicate with 409 rather than letting both reach the
+  // service. One request wins; the loser must not debit anything.
+  const codes = [a.status, b.status].sort();
+  assert.deepEqual(codes, [200, 409]);
+  const winner = await (a.status === 200 ? a : b).json();
+  assert.equal(winner.data.withdrawal.status, 'PENDING_REVIEW');
   assert.equal(await bal(wallet), 2000n);
   assert.equal(await sumType(user.id, 'PLAYER_WITHDRAWAL_PENDING'), 8000n);
   assert.equal(await prisma.withdrawal.count({ where: { userId: user.id } }), 1);
@@ -955,6 +984,7 @@ await run('P22 closed book after cleanup: zero-sum ledger, single liability sing
 await prisma.ledgerTransaction.deleteMany({
   where: { idempotencyKey: { startsWith: 'withdrawal:' } }
 });
+await prisma.idempotencyRecord.deleteMany({ where: { key: { contains: RUN_ID } } });
 await prisma.ledgerTransaction.deleteMany({
   where: { idempotencyKey: { startsWith: 'pr7:seed:' } }
 });
