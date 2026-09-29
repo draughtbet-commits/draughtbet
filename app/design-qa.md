@@ -36,6 +36,44 @@ final result: passed
 
 ---
 
+# PR12 Notifications and Reconciliation Design QA
+
+- Source visual truth:
+  - `../Draught_Bet_Approved_UI_UX_Handoff_v1/approved-visuals/12-postgame-disputes-safer-play-extra.png`, visible Notifications frame.
+  - `../Draught_Bet_Approved_UI_UX_Handoff_v1/approved-visuals/11-tier-callout-extra-flow.png`, visible Notifications alternate.
+  - `../Draught_Bet_Approved_UI_UX_Handoff_v1/approved-visuals/10-empty-loading-error-states-108-119.png`, visible Empty Notifications frame.
+- Implementation screenshots: `test/goldens/pr12/*.png`.
+- Combined comparison: `test/goldens/pr12_qa/comparison.png`.
+- Viewport: 412 x 915 logical pixels at device pixel ratio 1.
+- Source pixels: the primary and alternate notification cells are 256 x 512 crops from their composite boards; the empty-state cell is a 384 x 342 crop. The comparison aspect-fits each source and implementation without stretching.
+- Implementation pixels: 412 x 915 for each Flutter golden.
+- States: Notifications, No Notifications, Notification Details, and Notification Preferences.
+
+## Findings
+
+No actionable P0, P1, or P2 differences remain for the visible approved notification list and empty state.
+
+- Fonts and typography: Sora headings and Inter list/detail text preserve the approved hierarchy, weight, wrapping, and dense notification-card treatment.
+- Spacing and layout rhythm: the four approved filters, compact cards, unread indicators, persistent navigation, centered empty state, and full-width actions match the approved composition. The initial AppBar capture truncated the title; the preferences shortcut was moved back to Profile settings and the final capture shows the complete title.
+- Colors and visual tokens: all PR12 UI uses the shared black, navy, emerald, gold, white, muted-blue, warning, and danger semantic tokens. No raw colors were added.
+- Image and icon fidelity: Lucide icons are used consistently with the existing application and approved notification patterns. No placeholder, emoji, custom SVG, or fabricated image asset was introduced.
+- Copy and content: list/detail values come only from backend notification records. The empty copy follows the approved board. Preferences identify critical money and security updates as non-disableable.
+- Interaction and responsiveness: filtering, pagination, safe refresh, bounded backoff, read acknowledgements, mark-all-read, detail navigation, invalid-link rejection, replay deduplication, empty/error handling, and compact layouts are covered by focused tests.
+
+Notification Details and Notification Preferences do not have usable dedicated phone frames in the checked-in boards: the manifest points preferences to VIS-08, while that checked-in image visibly contains match-entry screens. Those two states therefore reuse the approved notification cards, settings switches, semantic tokens, typography, and action patterns without introducing a new visual direction.
+
+## Comparison History
+
+1. The first rendered pass found a P2 AppBar title truncation caused by two trailing actions and a P2 solid green block caused by the shared scroll page painting only its content height.
+2. The preferences action was kept in Profile settings, notification pages were given a full-height black surface, the empty-state filters were removed to match its dedicated frame, and six server-shaped items were captured to match the approved list density.
+3. The post-fix captures and combined comparison show complete headings, stable full-height backgrounds, readable cards, aligned filters, approved empty-state hierarchy, and no remaining P0/P1/P2 issue.
+
+Focused regions were not required after the final full-view comparison because the list cards, unread dots, filters, empty illustration treatment, detail copy, switches, and actions are clearly readable in the original 412 x 915 captures.
+
+final result: passed
+
+---
+
 # PR10 Design QA
 
 ## Evidence
