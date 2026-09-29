@@ -3,12 +3,13 @@ import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/withdrawal_flow.dart';
+import '../config/backend_contract.dart';
 import '../services/withdrawal_gateway.dart';
 import '../services/withdrawal_recovery_store.dart';
 
 enum WithdrawalFlowPhase {
   initial,
-  loadingQuote,
+  checkingEligibility,
   selectingBank,
   loadingBanks,
   verifyingBank,
@@ -19,6 +20,7 @@ enum WithdrawalFlowPhase {
   limitReached,
   pendingReview,
   processing,
+  payoutFailed,
   successful,
   reversed,
   unavailable,
@@ -27,7 +29,7 @@ enum WithdrawalFlowPhase {
 class WithdrawalFlowState {
   const WithdrawalFlowState({
     this.phase = WithdrawalFlowPhase.initial,
-    this.quote,
+    this.intent,
     this.bankAccounts = const [],
     this.selectedBankAccount,
     this.withdrawal,
@@ -36,7 +38,7 @@ class WithdrawalFlowState {
   });
 
   final WithdrawalFlowPhase phase;
-  final WithdrawalQuote? quote;
+  final WithdrawalIntent? intent;
   final List<WithdrawalBankAccount> bankAccounts;
   final WithdrawalBankAccount? selectedBankAccount;
   final WithdrawalData? withdrawal;
@@ -47,7 +49,7 @@ class WithdrawalFlowState {
 
   WithdrawalFlowState copyWith({
     WithdrawalFlowPhase? phase,
-    WithdrawalQuote? quote,
+    WithdrawalIntent? intent,
     List<WithdrawalBankAccount>? bankAccounts,
     WithdrawalBankAccount? selectedBankAccount,
     WithdrawalData? withdrawal,
@@ -56,7 +58,7 @@ class WithdrawalFlowState {
     int? pollAttempt,
   }) => WithdrawalFlowState(
     phase: phase ?? this.phase,
-    quote: quote ?? this.quote,
+    intent: intent ?? this.intent,
     bankAccounts: bankAccounts ?? this.bankAccounts,
     selectedBankAccount: selectedBankAccount ?? this.selectedBankAccount,
     withdrawal: withdrawal ?? this.withdrawal,
@@ -87,27 +89,57 @@ class WithdrawalNotifier extends StateNotifier<WithdrawalFlowState> {
   Timer? _pollTimer;
   bool _disposed = false;
 
-  Future<WithdrawalFlowPhase> requestQuote(int amountMinorUnits) async {
-    if (state.phase == WithdrawalFlowPhase.loadingQuote) return state.phase;
-    state = const WithdrawalFlowState(phase: WithdrawalFlowPhase.loadingQuote);
+  /// Runs the contract §4 eligibility gate for the requested amount. The
+  /// contract has no withdrawal quote, so this read is the only
+  /// server-authoritative answer to "can this player withdraw right now?".
+  Future<WithdrawalFlowPhase> checkEligibility(int amountMinorUnits) async {
+    if (state.phase == WithdrawalFlowPhase.checkingEligibility) {
+      return state.phase;
+    }
+    state = const WithdrawalFlowState(
+      phase: WithdrawalFlowPhase.checkingEligibility,
+    );
     try {
-      final quote = await _gateway.createQuote(amountMinorUnits);
+      final report = await _gateway.fetchEligibility(amountMinorUnits);
       if (_disposed) return state.phase;
-      if (quote == null) {
+      if (report == null) {
         state = const WithdrawalFlowState(
           phase: WithdrawalFlowPhase.unavailable,
-          error: 'Withdrawal details could not be verified.',
+          error:
+              'We could not check whether you can withdraw right now. '
+              'Check your connection and try again.',
         );
         return state.phase;
       }
-      final next = switch (quote.eligibility) {
-        WithdrawalEligibility.eligible => WithdrawalFlowPhase.selectingBank,
-        WithdrawalEligibility.verificationRequired =>
-          WithdrawalFlowPhase.verificationRequired,
-        WithdrawalEligibility.limitReached => WithdrawalFlowPhase.limitReached,
-      };
-      state = WithdrawalFlowState(phase: next, quote: quote);
-      return next;
+      if (!report.allowed) {
+        final next = switch (report.outcome) {
+          WithdrawalEligibility.verificationRequired =>
+            WithdrawalFlowPhase.verificationRequired,
+          WithdrawalEligibility.limitReached =>
+            WithdrawalFlowPhase.limitReached,
+          // Restrictions (self-exclusion, break, banned, country) are not a
+          // verification problem and must not be dressed up as one. Surface the
+          // server's own reason instead.
+          WithdrawalEligibility.eligible => WithdrawalFlowPhase.unavailable,
+        };
+        state = WithdrawalFlowState(
+          phase: next,
+          error:
+              report.message ??
+              'A withdrawal is not available for this account right now.',
+        );
+        return next;
+      }
+      final intent = WithdrawalIntent(
+        amountMinorUnits: amountMinorUnits,
+        currency: 'NGN',
+        idempotencyKey: ClientRequestId.create('withdrawal'),
+      );
+      state = WithdrawalFlowState(
+        phase: WithdrawalFlowPhase.selectingBank,
+        intent: intent,
+      );
+      return WithdrawalFlowPhase.selectingBank;
     } catch (_) {
       if (!_disposed) {
         state = const WithdrawalFlowState(
@@ -167,7 +199,6 @@ class WithdrawalNotifier extends StateNotifier<WithdrawalFlowState> {
 
   Future<bool> verifyBankAccount({
     required String bankCode,
-    required String bankName,
     required String accountNumber,
   }) async {
     if (state.phase == WithdrawalFlowPhase.verifyingBank) return false;
@@ -178,9 +209,7 @@ class WithdrawalNotifier extends StateNotifier<WithdrawalFlowState> {
     try {
       final account = await _gateway.verifyBankAccount(
         bankCode: bankCode,
-        bankName: bankName,
         accountNumber: accountNumber,
-        idempotencyKey: state.quote?.idempotencyKey,
       );
       if (_disposed) return false;
       if (account == null) {
@@ -214,17 +243,23 @@ class WithdrawalNotifier extends StateNotifier<WithdrawalFlowState> {
 
   Future<bool> createWithdrawal() async {
     if (state.isCreating) return false;
-    final quote = state.quote;
+    final intent = state.intent;
     final bank = state.selectedBankAccount;
-    if (quote == null || bank == null) return false;
+    if (intent == null || bank == null) return false;
+    // The idempotency key must be a real unique key. A previous fallback
+    // synthesised 'withdrawal-null' when the id was absent, which would make
+    // every withdrawal replay the first one.
+    final idempotencyKey =
+        intent.idempotencyKey ?? ClientRequestId.create('withdrawal');
     state = state.copyWith(
       phase: WithdrawalFlowPhase.creating,
       clearError: true,
     );
     try {
       final withdrawal = await _gateway.createWithdrawal(
-        quote: quote,
+        intent: intent,
         bankAccount: bank,
+        idempotencyKey: idempotencyKey,
       );
       if (_disposed) return false;
       if (withdrawal == null) {
@@ -235,10 +270,10 @@ class WithdrawalNotifier extends StateNotifier<WithdrawalFlowState> {
         );
         return false;
       }
-      await _recoveryStore.saveReference(withdrawal.reference);
+      await _recoveryStore.saveWithdrawalId(withdrawal.id);
       if (_disposed) return false;
       _applyWithdrawal(withdrawal);
-      if (!withdrawal.isTerminal) _schedulePoll(withdrawal.reference);
+      if (!withdrawal.isTerminal) _schedulePoll(withdrawal.id);
       return true;
     } catch (_) {
       if (!_disposed) {
@@ -253,55 +288,58 @@ class WithdrawalNotifier extends StateNotifier<WithdrawalFlowState> {
   }
 
   Future<bool> recover() async {
-    final reference = await _recoveryStore.readReference();
-    if (_disposed || reference == null || reference.trim().isEmpty) {
+    final withdrawalId = await _recoveryStore.readWithdrawalId();
+    if (_disposed || withdrawalId == null || withdrawalId.trim().isEmpty) {
       return false;
     }
     state = state.copyWith(
       phase: WithdrawalFlowPhase.pendingReview,
       clearError: true,
     );
-    return _readStatus(reference, scheduleNext: true);
+    return _readStatus(withdrawalId, scheduleNext: true);
   }
 
   Future<bool> refreshStatus() async {
-    _pollTimer?.cancel();
-    final reference =
-        state.withdrawal?.reference ?? await _recoveryStore.readReference();
-    if (reference == null || reference.trim().isEmpty) return false;
-    return _readStatus(reference, scheduleNext: false);
+    final withdrawalId =
+        state.withdrawal?.id ?? await _recoveryStore.readWithdrawalId();
+    if (withdrawalId == null || withdrawalId.trim().isEmpty) return false;
+    // Never cancel the confirmation chain here: the status screen refreshes on
+    // mount, and cancelling it left every withdrawal stuck on its first poll.
+    state = state.copyWith(pollAttempt: 0);
+    return _readStatus(withdrawalId, scheduleNext: true);
   }
 
   Future<bool> _readStatus(
-    String reference, {
+    String withdrawalId, {
     required bool scheduleNext,
   }) async {
     if (_disposed) return false;
     try {
       final withdrawal = await _gateway.fetchStatus(
-        reference,
+        withdrawalId,
         previous: state.withdrawal,
       );
       if (_disposed) return false;
       if (withdrawal == null) {
-        _setPending('Withdrawal status is not available yet.');
-        if (scheduleNext) _schedulePoll(reference);
+        _setPending('We could not read this withdrawal status yet.');
+        if (scheduleNext) _schedulePoll(withdrawalId);
         return false;
       }
       _applyWithdrawal(withdrawal);
       if (withdrawal.isTerminal) {
         _pollTimer?.cancel();
-        await _recoveryStore.clearReference();
+        await _recoveryStore.clearWithdrawalId();
       } else if (scheduleNext) {
-        _schedulePoll(reference);
+        _schedulePoll(withdrawalId);
       }
       return true;
     } catch (_) {
       if (_disposed) return false;
       _setPending(
-        'We could not refresh this withdrawal. Its existing reference is still active.',
+        'We could not refresh this withdrawal. It is still active — do not '
+        'submit another request.',
       );
-      if (scheduleNext) _schedulePoll(reference);
+      if (scheduleNext) _schedulePoll(withdrawalId);
       return false;
     }
   }
@@ -310,6 +348,9 @@ class WithdrawalNotifier extends StateNotifier<WithdrawalFlowState> {
     final phase = switch (withdrawal.status) {
       WithdrawalStatus.pendingReview => WithdrawalFlowPhase.pendingReview,
       WithdrawalStatus.processing => WithdrawalFlowPhase.processing,
+      // Not terminal: the provider refused the payout but the funds stay
+      // reserved until an admin retries or releases them.
+      WithdrawalStatus.payoutFailed => WithdrawalFlowPhase.payoutFailed,
       WithdrawalStatus.successful => WithdrawalFlowPhase.successful,
       WithdrawalStatus.reversed => WithdrawalFlowPhase.reversed,
     };
@@ -323,14 +364,11 @@ class WithdrawalNotifier extends StateNotifier<WithdrawalFlowState> {
   void _setPending(String message) {
     state = state.copyWith(
       phase: WithdrawalFlowPhase.pendingReview,
-      withdrawal: state.withdrawal?.copyWith(
-        status: WithdrawalStatus.pendingReview,
-      ),
       error: message,
     );
   }
 
-  void _schedulePoll(String reference) {
+  void _schedulePoll(String withdrawalId) {
     _pollTimer?.cancel();
     final attempt = state.pollAttempt;
     if (_disposed ||
@@ -340,7 +378,7 @@ class WithdrawalNotifier extends StateNotifier<WithdrawalFlowState> {
     }
     state = state.copyWith(pollAttempt: attempt + 1);
     _pollTimer = Timer(_backoff[attempt], () {
-      _readStatus(reference, scheduleNext: true);
+      _readStatus(withdrawalId, scheduleNext: true);
     });
   }
 

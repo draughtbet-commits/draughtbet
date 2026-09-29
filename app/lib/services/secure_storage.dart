@@ -15,6 +15,9 @@ class SecureStorageService {
   static const _userIdKey = 'user_id';
   static const _activeMatchIdKey = 'active_match_id';
   static const _activeDepositReferenceKey = 'active_deposit_reference';
+  // GET /withdrawals/{withdrawalId} resolves on the row id, so recovery has to
+  // persist the id. The old reference key is kept only to clear on logout.
+  static const _activeWithdrawalIdKey = 'active_withdrawal_id';
   static const _activeWithdrawalReferenceKey = 'active_withdrawal_reference';
 
   final FlutterSecureStorage _storage;
@@ -25,8 +28,8 @@ class SecureStorageService {
   Future<String?> get activeMatchId => _storage.read(key: _activeMatchIdKey);
   Future<String?> get activeDepositReference =>
       _storage.read(key: _activeDepositReferenceKey);
-  Future<String?> get activeWithdrawalReference =>
-      _storage.read(key: _activeWithdrawalReferenceKey);
+  Future<String?> get activeWithdrawalId =>
+      _storage.read(key: _activeWithdrawalIdKey);
 
   Future<void> setAccessToken(String token) =>
       _storage.write(key: _accessTokenKey, value: token);
@@ -48,10 +51,14 @@ class SecureStorageService {
   Future<void> clearActiveDepositReference() =>
       _storage.delete(key: _activeDepositReferenceKey);
 
-  Future<void> setActiveWithdrawalReference(String reference) =>
-      _storage.write(key: _activeWithdrawalReferenceKey, value: reference);
+  Future<void> setActiveWithdrawalId(String id) =>
+      _storage.write(key: _activeWithdrawalIdKey, value: id);
 
-  Future<void> clearActiveWithdrawalReference() =>
+  Future<void> clearActiveWithdrawalId() =>
+      _storage.delete(key: _activeWithdrawalIdKey);
+
+  /// Removes the pre-§6 key so a stale reference cannot be mistaken for an id.
+  Future<void> clearLegacyActiveWithdrawalReference() =>
       _storage.delete(key: _activeWithdrawalReferenceKey);
 
   /// Wipes every credential the app owns (used on logout / expiry).
@@ -61,6 +68,7 @@ class SecureStorageService {
     await _storage.delete(key: _userIdKey);
     await _storage.delete(key: _activeMatchIdKey);
     await _storage.delete(key: _activeDepositReferenceKey);
+    await _storage.delete(key: _activeWithdrawalIdKey);
     await _storage.delete(key: _activeWithdrawalReferenceKey);
   }
 

@@ -57,7 +57,7 @@ class _WithdrawMoneyScreenState extends ConsumerState<WithdrawMoneyScreen> {
     if (amount == null) return;
     final phase = await ref
         .read(withdrawalProvider.notifier)
-        .requestQuote(amount);
+        .checkEligibility(amount);
     if (!mounted) return;
     switch (phase) {
       case WithdrawalFlowPhase.selectingBank:
@@ -74,7 +74,7 @@ class _WithdrawMoneyScreenState extends ConsumerState<WithdrawMoneyScreen> {
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(withdrawalProvider);
-    final loading = state.phase == WithdrawalFlowPhase.loadingQuote;
+    final loading = state.phase == WithdrawalFlowPhase.checkingEligibility;
     return _WithdrawalScaffold(
       title: 'WITHDRAW MONEY',
       child: Form(
@@ -133,9 +133,9 @@ class _WithdrawMoneyScreenState extends ConsumerState<WithdrawMoneyScreen> {
                   )
                   .toList(growable: false),
             ),
-            if (state.quote != null) ...[
+            if (state.intent != null) ...[
               const SizedBox(height: 18),
-              _AmountCard(quote: state.quote!),
+              _AmountCard(intent: state.intent!),
             ],
             if (state.error != null) ...[
               const SizedBox(height: 12),
@@ -275,7 +275,6 @@ class _AddBankAccountScreenState extends ConsumerState<AddBankAccountScreen> {
           .read(withdrawalProvider.notifier)
           .verifyBankAccount(
             bankCode: _bankCode.text.trim(),
-            bankName: _bankName.text.trim(),
             accountNumber: _accountNumber.text.trim(),
           ),
     );
@@ -438,6 +437,8 @@ class WithdrawalReviewScreen extends ConsumerWidget {
         '/wallet/withdraw/withdrawal-processing',
       WithdrawalFlowPhase.successful =>
         '/wallet/withdraw/withdrawal-successful',
+      WithdrawalFlowPhase.payoutFailed =>
+        '/wallet/withdraw/withdrawal-payout-failed',
       WithdrawalFlowPhase.reversed => '/wallet/withdraw/withdrawal-reversed',
       _ => '/wallet/withdraw/withdrawal-pending-review',
     };
@@ -447,9 +448,9 @@ class WithdrawalReviewScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final state = ref.watch(withdrawalProvider);
-    final quote = state.quote;
+    final intent = state.intent;
     final bank = state.selectedBankAccount;
-    final ready = quote != null && bank != null;
+    final ready = intent != null && bank != null;
     return _WithdrawalScaffold(
       title: 'WITHDRAWAL REVIEW',
       child: Column(
@@ -468,7 +469,7 @@ class WithdrawalReviewScreen extends ConsumerWidget {
                   'Return to Withdraw Money to request verified withdrawal terms.',
             )
           else ...[
-            _ReviewCard(quote: quote, bankAccount: bank),
+            _ReviewCard(intent: intent, bankAccount: bank),
             const SizedBox(height: 12),
             const _Notice(
               icon: LucideIcons.info,
@@ -508,7 +509,6 @@ class WithdrawalGateScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final state = ref.watch(withdrawalProvider);
     final verification = phase == WithdrawalFlowPhase.verificationRequired;
-    final quote = state.quote;
     return _WithdrawalScaffold(
       title: verification ? 'VERIFICATION REQUIRED' : 'WITHDRAWAL LIMIT',
       child: Column(
@@ -527,26 +527,14 @@ class WithdrawalGateScreen extends ConsumerWidget {
           ),
           const SizedBox(height: 8),
           Text(
-            quote?.message ??
+            // The server's own reason, not a guess.
+            state.error ??
                 (verification
                     ? 'Identity verification is required before withdrawal.'
                     : 'This request exceeds your account or safer-play limit.'),
             textAlign: TextAlign.center,
             style: AppTypography.bodyLarge,
           ),
-          if (!verification) ...[
-            const SizedBox(height: 20),
-            FlowCard(
-              child: _DetailRow(
-                label: 'Server-confirmed limit',
-                value: formatWithdrawalMoney(
-                  quote?.limitMinorUnits,
-                  quote?.currency,
-                ),
-                emphasized: true,
-              ),
-            ),
-          ],
           const SizedBox(height: 24),
           PrimaryActionButton(
             label: verification ? 'View verification' : 'Enter another amount',
@@ -639,6 +627,18 @@ class _WithdrawalStatusScreenState
               label: 'View transaction',
               icon: LucideIcons.receiptText,
               onPressed: () => context.go('/wallet/transactions'),
+            ),
+            const SizedBox(height: 10),
+            SecondaryActionButton(
+              label: 'Back to wallet',
+              onPressed: () => context.go('/wallet'),
+            ),
+          ] else if (phase == WithdrawalFlowPhase.payoutFailed) ...[
+            PrimaryActionButton(
+              label: 'Check status',
+              icon: LucideIcons.refreshCw,
+              onPressed: () =>
+                  ref.read(withdrawalProvider.notifier).refreshStatus(),
             ),
             const SizedBox(height: 10),
             SecondaryActionButton(
@@ -768,6 +768,7 @@ WithdrawalFlowPhase _visiblePhase(
   return switch (withdrawal.status) {
     WithdrawalStatus.pendingReview => WithdrawalFlowPhase.pendingReview,
     WithdrawalStatus.processing => WithdrawalFlowPhase.processing,
+    WithdrawalStatus.payoutFailed => WithdrawalFlowPhase.payoutFailed,
     WithdrawalStatus.successful => WithdrawalFlowPhase.successful,
     WithdrawalStatus.reversed => WithdrawalFlowPhase.reversed,
   };
@@ -784,9 +785,12 @@ String _statusMessage(WithdrawalFlowPhase phase, WithdrawalData? withdrawal) {
       'Your approved withdrawal is being sent to the payout provider.',
     WithdrawalFlowPhase.successful =>
       'The payout provider confirmed your withdrawal.',
+    WithdrawalFlowPhase.payoutFailed =>
+      '${withdrawal.failureReason ?? 'The payout provider could not send this withdrawal.'} '
+          'Your funds are still reserved and an admin will retry or release them.',
     WithdrawalFlowPhase.reversed =>
-      withdrawal.failureReason ??
-          'The payout was not completed and the reservation was released.',
+      'The reservation was released and the amount has returned to your '
+          'available balance.',
     _ => 'Withdrawal status is unavailable.',
   };
 }
@@ -829,9 +833,19 @@ class _StatusConfig {
       color: AppColors.success,
       titleColor: AppColors.primaryBright,
     ),
+    // The provider refused the payout. The money has NOT come back: it stays
+    // reserved until an admin retries or releases it. Showing this as
+    // "REVERSED" told players their funds were returned while they were held.
+    WithdrawalFlowPhase.payoutFailed => const _StatusConfig(
+      appBarTitle: 'WITHDRAWAL STATUS',
+      title: 'PAYOUT FAILED',
+      icon: LucideIcons.circleAlert,
+      color: AppColors.warning,
+      titleColor: AppColors.warning,
+    ),
     WithdrawalFlowPhase.reversed => const _StatusConfig(
       appBarTitle: 'WITHDRAWAL STATUS',
-      title: 'WITHDRAWAL REVERSED',
+      title: 'WITHDRAWAL RELEASED',
       icon: LucideIcons.x,
       color: AppColors.danger,
       titleColor: AppColors.danger,
@@ -860,36 +874,33 @@ class _WithdrawalScaffold extends StatelessWidget {
 }
 
 class _AmountCard extends StatelessWidget {
-  const _AmountCard({required this.quote});
+  const _AmountCard({required this.intent});
 
-  final WithdrawalQuote quote;
+  final WithdrawalIntent intent;
 
   @override
   Widget build(BuildContext context) => FlowCard(
     child: Column(
       children: [
         _DetailRow(
-          label: 'Available balance',
-          value: formatWithdrawalMoney(
-            quote.availableBalanceMinorUnits,
-            quote.currency,
-          ),
-        ),
-        const SizedBox(height: 11),
-        _DetailRow(
           label: 'Withdrawal amount',
-          value: formatWithdrawalMoney(quote.amountMinorUnits, quote.currency),
+          value: formatWithdrawalMoney(
+            intent.amountMinorUnits,
+            intent.currency,
+          ),
           emphasized: true,
         ),
+        const SizedBox(height: 11),
+        const _DetailRow(label: 'Eligibility', value: 'Confirmed by server'),
       ],
     ),
   );
 }
 
 class _ReviewCard extends StatelessWidget {
-  const _ReviewCard({required this.quote, required this.bankAccount});
+  const _ReviewCard({required this.intent, required this.bankAccount});
 
-  final WithdrawalQuote quote;
+  final WithdrawalIntent intent;
   final WithdrawalBankAccount bankAccount;
 
   @override
@@ -898,22 +909,9 @@ class _ReviewCard extends StatelessWidget {
       children: [
         _DetailRow(
           label: 'Amount',
-          value: formatWithdrawalMoney(quote.amountMinorUnits, quote.currency),
-        ),
-        const SizedBox(height: 11),
-        _DetailRow(
-          label: 'Provider fee',
-          value: formatWithdrawalMoney(quote.feeMinorUnits, quote.currency),
-        ),
-        const Padding(
-          padding: EdgeInsets.symmetric(vertical: 11),
-          child: Divider(height: 1),
-        ),
-        _DetailRow(
-          label: 'You receive',
           value: formatWithdrawalMoney(
-            quote.netAmountMinorUnits,
-            quote.currency,
+            intent.amountMinorUnits,
+            intent.currency,
           ),
           emphasized: true,
         ),
@@ -944,23 +942,6 @@ class _WithdrawalDetailsCard extends StatelessWidget {
           emphasized: true,
         ),
         const SizedBox(height: 11),
-        _DetailRow(
-          label: 'Provider fee',
-          value: formatWithdrawalMoney(
-            withdrawal?.feeMinorUnits,
-            withdrawal?.currency,
-          ),
-        ),
-        const SizedBox(height: 11),
-        _DetailRow(
-          label: withdrawal?.status == WithdrawalStatus.reversed
-              ? 'Requested amount'
-              : 'You receive',
-          value: formatWithdrawalMoney(
-            withdrawal?.netAmountMinorUnits,
-            withdrawal?.currency,
-          ),
-        ),
         const Padding(
           padding: EdgeInsets.symmetric(vertical: 11),
           child: Divider(height: 1),
@@ -1002,8 +983,11 @@ class _WithdrawalDetailsCard extends StatelessWidget {
 String _withdrawalStatusLabel(WithdrawalStatus? status) => switch (status) {
   WithdrawalStatus.pendingReview => 'PENDING REVIEW',
   WithdrawalStatus.processing => 'PROCESSING',
+  // Deliberately NOT "REVERSED": the provider refused the payout but the funds
+  // are still reserved.
+  WithdrawalStatus.payoutFailed => 'PAYOUT FAILED — FUNDS STILL RESERVED',
   WithdrawalStatus.successful => 'SUCCESSFUL',
-  WithdrawalStatus.reversed => 'REVERSED',
+  WithdrawalStatus.reversed => 'RELEASED — FUNDS RETURNED',
   null => 'UNAVAILABLE',
 };
 

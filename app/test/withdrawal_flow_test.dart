@@ -20,35 +20,38 @@ import 'withdrawal_fixtures.dart';
 
 class FakeWithdrawalGateway extends WithdrawalGateway {
   FakeWithdrawalGateway({
-    this.quote,
+    WithdrawalEligibilityReport? eligibility,
     this.accounts = withdrawalBanksFixture,
     WithdrawalBankAccount? verifiedAccount,
     this.created,
     List<WithdrawalData?>? statuses,
-  }) : statuses = statuses ?? <WithdrawalData?>[],
+  }) : eligibility = eligibility ?? withdrawalEligibilityAllowedFixture,
+       statuses = statuses ?? <WithdrawalData?>[],
        verifiedAccount = verifiedAccount ?? withdrawalBanksFixture.first,
        super(Dio());
 
-  WithdrawalQuote? quote;
+  WithdrawalEligibilityReport? eligibility;
   List<WithdrawalBankAccount>? accounts;
   WithdrawalBankAccount? verifiedAccount;
   WithdrawalData? created;
   final List<WithdrawalData?> statuses;
-  bool throwQuote = false;
+  bool throwEligibility = false;
   bool blockCreate = false;
   final Completer<void> createGate = Completer<void>();
-  int quoteCalls = 0;
+  int eligibilityCalls = 0;
   int bankReads = 0;
   int verifyCalls = 0;
   int createCalls = 0;
   int statusReads = 0;
-  String? lastStatusReference;
+  String? lastStatusId;
 
   @override
-  Future<WithdrawalQuote?> createQuote(int amountMinorUnits) async {
-    quoteCalls += 1;
-    if (throwQuote) throw DioException(requestOptions: RequestOptions());
-    return quote;
+  Future<WithdrawalEligibilityReport?> fetchEligibility(
+    int amountMinorUnits,
+  ) async {
+    eligibilityCalls += 1;
+    if (throwEligibility) throw DioException(requestOptions: RequestOptions());
+    return eligibility;
   }
 
   @override
@@ -60,7 +63,6 @@ class FakeWithdrawalGateway extends WithdrawalGateway {
   @override
   Future<WithdrawalBankAccount?> verifyBankAccount({
     required String bankCode,
-    required String bankName,
     required String accountNumber,
     String? idempotencyKey,
   }) async {
@@ -70,8 +72,9 @@ class FakeWithdrawalGateway extends WithdrawalGateway {
 
   @override
   Future<WithdrawalData?> createWithdrawal({
-    required WithdrawalQuote quote,
+    required WithdrawalIntent intent,
     required WithdrawalBankAccount bankAccount,
+    required String idempotencyKey,
   }) async {
     createCalls += 1;
     if (blockCreate) await createGate.future;
@@ -80,34 +83,34 @@ class FakeWithdrawalGateway extends WithdrawalGateway {
 
   @override
   Future<WithdrawalData?> fetchStatus(
-    String reference, {
+    String withdrawalId, {
     WithdrawalData? previous,
   }) async {
     statusReads += 1;
-    lastStatusReference = reference;
+    lastStatusId = withdrawalId;
     if (statuses.isEmpty) return previous;
     return statuses.removeAt(0);
   }
 }
 
 class MemoryWithdrawalRecoveryStore implements WithdrawalRecoveryStore {
-  String? reference;
+  String? withdrawalId;
   int saves = 0;
   int clears = 0;
 
   @override
-  Future<void> clearReference() async {
+  Future<void> clearWithdrawalId() async {
     clears += 1;
-    reference = null;
+    withdrawalId = null;
   }
 
   @override
-  Future<String?> readReference() async => reference;
+  Future<String?> readWithdrawalId() async => withdrawalId;
 
   @override
-  Future<void> saveReference(String reference) async {
+  Future<void> saveWithdrawalId(String id) async {
     saves += 1;
-    this.reference = reference;
+    withdrawalId = id;
   }
 }
 
@@ -142,14 +145,14 @@ class StaticWalletNotifier extends WalletNotifier {
 
 WithdrawalFlowState withdrawalState({
   WithdrawalFlowPhase phase = WithdrawalFlowPhase.selectingBank,
-  WithdrawalQuote? quote,
+  WithdrawalIntent? intent,
   List<WithdrawalBankAccount> accounts = const [],
   WithdrawalBankAccount? selected,
   WithdrawalData? withdrawal,
   String? error,
 }) => WithdrawalFlowState(
   phase: phase,
-  quote: quote,
+  intent: intent,
   bankAccounts: accounts,
   selectedBankAccount: selected,
   withdrawal: withdrawal,
@@ -186,38 +189,57 @@ void main() {
   test('active backend gaps do not issue unsafe withdrawal requests', () async {
     final gateway = WithdrawalGateway(Dio());
 
-    expect(await gateway.createQuote(200000), isNull);
+    expect(await gateway.fetchEligibility(200000), isNull);
     expect(await gateway.fetchBankAccounts(), isNull);
     expect(
       await gateway.verifyBankAccount(
         bankCode: '000',
-        bankName: 'Bank',
         accountNumber: '0123456789',
       ),
       isNull,
     );
-    expect(await gateway.fetchStatus('withdrawal-reference'), isNull);
+    expect(await gateway.fetchStatus('withdrawal-id'), isNull);
   });
 
-  test(
-    'quote parser preserves server financial values without calculation',
-    () {
-      final quote = WithdrawalQuote.tryFromServer({
-        'id': 'q1',
-        'amountMinorUnits': 500000,
-        'feeMinorUnits': 12345,
-        'netAmountMinorUnits': 432109,
-        'availableBalanceMinorUnits': 999999,
-        'currency': 'NGN',
-      });
-      expect(quote?.feeMinorUnits, 12345);
-      expect(quote?.netAmountMinorUnits, 432109);
-      expect(quote?.netAmountMinorUnits, isNot(500000 - 12345));
-    },
-  );
+  test('eligibility report maps the canonical gate codes to screens', () {
+    final allowed = WithdrawalEligibilityReport.tryFromServer({
+      'allowed': true,
+      'requirements': ['kyc:verified'],
+    });
+    expect(allowed?.allowed, isTrue);
+    expect(allowed?.outcome, WithdrawalEligibility.eligible);
+
+    final kyc = WithdrawalEligibilityReport.tryFromServer({
+      'allowed': false,
+      'error': {'code': 'KycRequiredError', 'message': 'Verify first'},
+      'status': 403,
+    });
+    expect(kyc?.outcome, WithdrawalEligibility.verificationRequired);
+    expect(kyc?.message, 'Verify first');
+
+    final limited = WithdrawalEligibilityReport.tryFromServer({
+      'allowed': false,
+      'error': {'code': 'DepositLimitExceededError', 'message': 'Too much'},
+      'status': 422,
+    });
+    expect(limited?.outcome, WithdrawalEligibility.limitReached);
+
+    // A self-exclusion is a restriction, not a verification problem, so it must
+    // not be dressed up as one.
+    final excluded = WithdrawalEligibilityReport.tryFromServer({
+      'allowed': false,
+      'error': {'code': 'SelfExcludedError', 'message': 'Excluded'},
+      'status': 403,
+    });
+    expect(excluded?.outcome, WithdrawalEligibility.eligible);
+    expect(excluded?.allowed, isFalse);
+  });
+
+  test('a body without an explicit allowed flag is not trusted', () {
+    expect(WithdrawalEligibilityReport.tryFromServer({'error': null}), isNull);
+  });
 
   test('missing or invalid server values are rejected', () {
-    expect(WithdrawalQuote.tryFromServer({'id': 'q1'}), isNull);
     expect(
       WithdrawalData.tryFromServer({
         'reference': 'w1',
@@ -238,6 +260,7 @@ void main() {
       'accountNumber': '0123456789',
     });
     final withdrawal = WithdrawalData.tryFromServer({
+      'id': 'withdrawal-row-9',
       'reference': 'PRIVATE-WDR-12345678',
       'amountMinorUnits': 10000,
       'currency': 'NGN',
@@ -259,7 +282,9 @@ void main() {
     tester,
   ) async {
     setPhoneViewport(tester);
-    final gateway = FakeWithdrawalGateway(quote: withdrawalQuoteFixture);
+    final gateway = FakeWithdrawalGateway(
+      eligibility: withdrawalEligibilityAllowedFixture,
+    );
     final notifier = WithdrawalNotifier(
       gateway,
       MemoryWithdrawalRecoveryStore(),
@@ -273,7 +298,7 @@ void main() {
       find.text('Enter a valid amount greater than zero.'),
       findsOneWidget,
     );
-    expect(gateway.quoteCalls, 0);
+    expect(gateway.eligibilityCalls, 0);
   });
 
   testWidgets('saved banks render only server-provided accounts', (
@@ -311,17 +336,19 @@ void main() {
       WithdrawalEligibility.verificationRequired,
       WithdrawalEligibility.limitReached,
     ]) {
-      final quote = WithdrawalQuote(
-        id: 'q-$eligibility',
-        amountMinorUnits: 500000,
-        currency: 'NGN',
-        eligibility: eligibility,
-      );
       final notifier = WithdrawalNotifier(
-        FakeWithdrawalGateway(quote: quote),
+        FakeWithdrawalGateway(
+          eligibility: WithdrawalEligibilityReport(
+            allowed: false,
+            errorCode: eligibility == WithdrawalEligibility.verificationRequired
+                ? 'KycRequiredError'
+                : 'DepositLimitExceededError',
+            message: 'Blocked by the server',
+          ),
+        ),
         MemoryWithdrawalRecoveryStore(),
       );
-      final phase = await notifier.requestQuote(500000);
+      final phase = await notifier.checkEligibility(500000);
       expect(
         phase,
         eligibility == WithdrawalEligibility.verificationRequired
@@ -341,7 +368,7 @@ void main() {
         MemoryWithdrawalRecoveryStore(),
         withdrawalState(
           phase: WithdrawalFlowPhase.reviewing,
-          quote: withdrawalQuoteFixture,
+          intent: withdrawalIntentFixture,
           accounts: withdrawalBanksFixture,
           selected: withdrawalBanksFixture.first,
         ),
@@ -364,7 +391,7 @@ void main() {
       MemoryWithdrawalRecoveryStore(),
       withdrawalState(
         phase: WithdrawalFlowPhase.reviewing,
-        quote: withdrawalQuoteFixture,
+        intent: withdrawalIntentFixture,
         selected: withdrawalBanksFixture.first,
       ),
       backoff: const [Duration(days: 1)],
@@ -374,11 +401,73 @@ void main() {
     expect(notifier.state.phase, isNot(WithdrawalFlowPhase.successful));
   });
 
+  testWidgets('a failed payout never claims the funds came back', (
+    tester,
+  ) async {
+    setPhoneViewport(tester);
+    final notifier = SeededWithdrawalNotifier(
+      FakeWithdrawalGateway(),
+      MemoryWithdrawalRecoveryStore(),
+      withdrawalState(
+        phase: WithdrawalFlowPhase.payoutFailed,
+        withdrawal: withdrawalDataFixture(
+          status: WithdrawalStatus.payoutFailed,
+          failureReason: 'The provider declined this payout.',
+        ),
+      ),
+    );
+    await tester.pumpWidget(
+      withdrawalApp(
+        const WithdrawalStatusScreen(
+          requestedPhase: WithdrawalFlowPhase.payoutFailed,
+          autoRefresh: false,
+        ),
+        notifier,
+      ),
+    );
+    expect(find.text('PAYOUT FAILED'), findsOneWidget);
+    // The reservation is still held, so the screen must say so.
+    expect(find.textContaining('still reserved'), findsOneWidget);
+    expect(
+      find.textContaining('The provider declined this payout.'),
+      findsWidgets,
+    );
+    // The wording that told players their money was returned.
+    expect(find.text('WITHDRAWAL REVERSED'), findsNothing);
+    expect(find.textContaining('returned to your'), findsNothing);
+  });
+
+  testWidgets('a released withdrawal does say the funds came back', (
+    tester,
+  ) async {
+    setPhoneViewport(tester);
+    final notifier = SeededWithdrawalNotifier(
+      FakeWithdrawalGateway(),
+      MemoryWithdrawalRecoveryStore(),
+      withdrawalState(
+        phase: WithdrawalFlowPhase.reversed,
+        withdrawal: withdrawalDataFixture(status: WithdrawalStatus.reversed),
+      ),
+    );
+    await tester.pumpWidget(
+      withdrawalApp(
+        const WithdrawalStatusScreen(
+          requestedPhase: WithdrawalFlowPhase.reversed,
+          autoRefresh: false,
+        ),
+        notifier,
+      ),
+    );
+    expect(find.text('WITHDRAWAL RELEASED'), findsOneWidget);
+    expect(find.textContaining('returned to your'), findsOneWidget);
+  });
+
   for (final entry in <WithdrawalFlowPhase, String>{
     WithdrawalFlowPhase.pendingReview: 'PENDING REVIEW',
     WithdrawalFlowPhase.processing: 'PAYOUT PROCESSING',
     WithdrawalFlowPhase.successful: 'WITHDRAWAL CONFIRMED',
-    WithdrawalFlowPhase.reversed: 'WITHDRAWAL REVERSED',
+    WithdrawalFlowPhase.payoutFailed: 'PAYOUT FAILED',
+    WithdrawalFlowPhase.reversed: 'WITHDRAWAL RELEASED',
   }.entries) {
     testWidgets('renders ${entry.key.name} withdrawal state', (tester) async {
       setPhoneViewport(tester);
@@ -386,6 +475,7 @@ void main() {
         WithdrawalFlowPhase.pendingReview => WithdrawalStatus.pendingReview,
         WithdrawalFlowPhase.processing => WithdrawalStatus.processing,
         WithdrawalFlowPhase.successful => WithdrawalStatus.successful,
+        WithdrawalFlowPhase.payoutFailed => WithdrawalStatus.payoutFailed,
         _ => WithdrawalStatus.reversed,
       };
       final notifier = SeededWithdrawalNotifier(
@@ -407,29 +497,28 @@ void main() {
     });
   }
 
-  testWidgets('review displays only server-provided financial values', (
+  testWidgets('review shows only figures the contract actually supplies', (
     tester,
   ) async {
     setPhoneViewport(tester);
-    final quote = WithdrawalQuote(
-      id: 'q1',
-      amountMinorUnits: 500000,
-      currency: 'NGN',
-      eligibility: WithdrawalEligibility.eligible,
-      feeMinorUnits: 12345,
-      netAmountMinorUnits: 432109,
-    );
     final notifier = SeededWithdrawalNotifier(
       FakeWithdrawalGateway(),
       MemoryWithdrawalRecoveryStore(),
-      withdrawalState(quote: quote, selected: withdrawalBanksFixture.first),
+      withdrawalState(
+        intent: withdrawalIntentFixture,
+        selected: withdrawalBanksFixture.first,
+      ),
     );
     await tester.pumpWidget(
       withdrawalApp(const WithdrawalReviewScreen(), notifier),
     );
-    expect(find.text('₦123.45'), findsOneWidget);
-    expect(find.text('₦4,321.09'), findsOneWidget);
-    expect(find.text('₦4,876.55'), findsNothing);
+    // The amount is the player's own, so it is safe to confirm.
+    expect(find.text('₦5,000'), findsOneWidget);
+    // §4 has no withdrawal fee, no net amount and no balance to draw from.
+    // Showing any of them would be the client inventing money.
+    expect(find.text('Provider fee'), findsNothing);
+    expect(find.text('Net amount'), findsNothing);
+    expect(find.text('Available balance'), findsNothing);
   });
 
   test('polling is bounded and stops on dispose', () async {
@@ -439,7 +528,8 @@ void main() {
         withdrawalDataFixture(status: WithdrawalStatus.pendingReview),
       ),
     );
-    final store = MemoryWithdrawalRecoveryStore()..reference = 'WDR21456789';
+    final store = MemoryWithdrawalRecoveryStore()
+      ..withdrawalId = 'withdrawal-row-1';
     final notifier = SeededWithdrawalNotifier(
       gateway,
       store,
@@ -457,7 +547,8 @@ void main() {
   test(
     'reopen recovers reference without creating another withdrawal',
     () async {
-      final store = MemoryWithdrawalRecoveryStore()..reference = 'WDR21456789';
+      final store = MemoryWithdrawalRecoveryStore()
+        ..withdrawalId = 'withdrawal-row-1';
       final gateway = FakeWithdrawalGateway(
         statuses: [withdrawalDataFixture()],
       );
@@ -467,29 +558,30 @@ void main() {
         backoff: const [Duration(days: 1)],
       );
       expect(await notifier.recover(), isTrue);
-      expect(gateway.lastStatusReference, 'WDR21456789');
+      expect(gateway.lastStatusId, 'withdrawal-row-1');
       expect(gateway.createCalls, 0);
     },
   );
 
   test('offline quote retry never invents financial data', () async {
-    final gateway = FakeWithdrawalGateway(quote: withdrawalQuoteFixture)
-      ..throwQuote = true;
+    final gateway = FakeWithdrawalGateway(
+      eligibility: withdrawalEligibilityAllowedFixture,
+    )..throwEligibility = true;
     final notifier = WithdrawalNotifier(
       gateway,
       MemoryWithdrawalRecoveryStore(),
     );
     expect(
-      await notifier.requestQuote(500000),
+      await notifier.checkEligibility(500000),
       WithdrawalFlowPhase.unavailable,
     );
-    expect(notifier.state.quote, isNull);
-    gateway.throwQuote = false;
+    expect(notifier.state.intent, isNull);
+    gateway.throwEligibility = false;
     expect(
-      await notifier.requestQuote(500000),
+      await notifier.checkEligibility(500000),
       WithdrawalFlowPhase.selectingBank,
     );
-    expect(notifier.state.quote?.netAmountMinorUnits, 500000);
+    expect(notifier.state.intent?.amountMinorUnits, 500000);
   });
 
   testWidgets('small screen and large text do not overflow', (tester) async {

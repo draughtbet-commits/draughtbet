@@ -3,7 +3,27 @@ import 'match_flow.dart';
 
 enum WithdrawalEligibility { eligible, verificationRequired, limitReached }
 
-enum WithdrawalStatus { pendingReview, processing, successful, reversed }
+// PENDING_REVIEW / APPROVED / PROCESSING are all "money is held, in flight".
+// payoutFailed is the provider-refused case: funds STAY reserved until an
+// admin retries or releases them, so it is deliberately NOT terminal and
+// polling continues. Only completed and reversed return money or confirm it
+// left the platform, so only those are terminal.
+enum WithdrawalStatus {
+  pendingReview,
+  processing,
+
+  /// The provider refused the payout. The reservation is still held, so this is
+  /// not terminal: an admin retries or releases it.
+  payoutFailed,
+  successful,
+
+  /// The reservation was released and the amount returned to the wallet.
+  reversed;
+
+  /// Only these two mean "stop polling, the money has settled".
+  bool get isTerminal =>
+      this == WithdrawalStatus.successful || this == WithdrawalStatus.reversed;
+}
 
 class WithdrawalBankAccount {
   const WithdrawalBankAccount({
@@ -58,70 +78,91 @@ class WithdrawalBankAccount {
   }
 }
 
-class WithdrawalQuote {
-  const WithdrawalQuote({
-    required this.id,
-    required this.amountMinorUnits,
-    required this.currency,
-    required this.eligibility,
-    this.availableBalanceMinorUnits,
-    this.feeMinorUnits,
-    this.netAmountMinorUnits,
-    this.limitMinorUnits,
-    this.idempotencyKey,
+/// Contract §4 GET /me/eligibility?action=WITHDRAW&amount=…
+///
+/// The backend contract has no withdrawal quote endpoint. The pre-flight gate
+/// is this read: it explains (never decides) why a withdrawal would be blocked.
+/// Response is either `{allowed: true, requirements: [...]}` or
+/// `{allowed: false, error: {code, message}, status}` where `code` is the
+/// canonical gate error name, e.g. `KycRequiredError`.
+class WithdrawalEligibilityReport {
+  const WithdrawalEligibilityReport({
+    required this.allowed,
+    this.errorCode,
     this.message,
-    this.expiresAt,
+    this.requirements = const <String>[],
   });
 
-  final String id;
-  final int amountMinorUnits;
-  final String currency;
-  final WithdrawalEligibility eligibility;
-  final int? availableBalanceMinorUnits;
-  final int? feeMinorUnits;
-  final int? netAmountMinorUnits;
-  final int? limitMinorUnits;
-  final String? idempotencyKey;
+  final bool allowed;
+  final String? errorCode;
   final String? message;
-  final DateTime? expiresAt;
+  final List<String> requirements;
 
-  static WithdrawalQuote? tryFromServer(dynamic value) {
-    if (value is! Map) return null;
-    final outer = Map<String, dynamic>.from(value);
-    final envelope = outer['data'] is Map
-        ? Map<String, dynamic>.from(outer['data'] as Map)
-        : outer;
-    final raw = envelope['quote'] is Map
-        ? Map<String, dynamic>.from(envelope['quote'] as Map)
-        : envelope;
-    final id = _text(raw['id'] ?? raw['quoteId']);
-    final amount = _minorUnits(raw['amountMinorUnits'] ?? raw['amountMinor']);
-    final currency = _text(raw['currency']);
-    if (id == null || amount == null || amount <= 0 || currency == null) {
-      return null;
+  /// The contract's gate is 403 for "on file / verified / not restricted"
+  /// checks and 422 for an amount ceiling. Which screen a block belongs on
+  /// follows from the canonical code, not the HTTP status.
+  WithdrawalEligibility get outcome {
+    if (allowed) return WithdrawalEligibility.eligible;
+    switch (errorCode) {
+      case 'KycRequiredError' ||
+          'EligibilityRequiredError' ||
+          'AgeNotVerifiedError':
+        return WithdrawalEligibility.verificationRequired;
+      case 'StakeLimitExceededError' || 'DepositLimitExceededError':
+        return WithdrawalEligibility.limitReached;
+      default:
+        return WithdrawalEligibility.eligible;
     }
-    return WithdrawalQuote(
-      id: id,
-      amountMinorUnits: amount,
-      currency: currency.toUpperCase(),
-      eligibility: _eligibility(raw),
-      availableBalanceMinorUnits: _minorUnits(
-        raw['availableBalanceMinorUnits'],
-      ),
-      feeMinorUnits: _minorUnits(raw['feeMinorUnits']),
-      netAmountMinorUnits: _minorUnits(
-        raw['netAmountMinorUnits'] ?? raw['receiveMinorUnits'],
-      ),
-      limitMinorUnits: _minorUnits(raw['limitMinorUnits']),
-      idempotencyKey: _text(raw['idempotencyKey']),
-      message: _text(raw['message'] ?? raw['reason']),
-      expiresAt: DateTime.tryParse(raw['expiresAt']?.toString() ?? ''),
+  }
+
+  static WithdrawalEligibilityReport? tryFromServer(dynamic value) {
+    if (value is! Map) return null;
+    final raw = Map<String, dynamic>.from(value);
+    final allowed = raw['allowed'];
+    if (allowed is! bool) return null;
+    if (allowed) {
+      final requirements = raw['requirements'];
+      return WithdrawalEligibilityReport(
+        allowed: true,
+        requirements: requirements is List
+            ? requirements.map((e) => e.toString()).toList(growable: false)
+            : const <String>[],
+      );
+    }
+    final error = raw['error'];
+    final code = error is Map ? _text(error['code']) : null;
+    final message = error is Map ? _text(error['message']) : null;
+    return WithdrawalEligibilityReport(
+      allowed: false,
+      errorCode: code,
+      message: message,
     );
   }
 }
 
+/// The player's own requested amount, gated by the contract eligibility read.
+/// There is deliberately no server-quoted fee, net amount or limit here: the
+/// contract never returns one for withdrawals, so any such figure shown to a
+/// player before submitting would have been invented by the app.
+class WithdrawalIntent {
+  const WithdrawalIntent({
+    required this.amountMinorUnits,
+    required this.currency,
+    this.eligibility = WithdrawalEligibility.eligible,
+    this.message,
+    this.idempotencyKey,
+  });
+
+  final int amountMinorUnits;
+  final String currency;
+  final WithdrawalEligibility eligibility;
+  final String? message;
+  final String? idempotencyKey;
+}
+
 class WithdrawalData {
   const WithdrawalData({
+    required this.id,
     required this.reference,
     required this.amountMinorUnits,
     required this.currency,
@@ -136,7 +177,15 @@ class WithdrawalData {
     this.updatedAt,
   });
 
+  /// Contract §6 GET /withdrawals/{withdrawalId} resolves on the row id. The
+  /// `wit-` reference is display-only and 404s against that route, so the two
+  /// must never be conflated again.
+  final String id;
+
+  /// Human-facing payout reference echoed to the provider. Never used to
+  /// address the status route.
   final String reference;
+
   final int amountMinorUnits;
   final String currency;
   final WithdrawalStatus status;
@@ -156,6 +205,7 @@ class WithdrawalData {
   String get maskedReference => maskReference(reference);
 
   WithdrawalData copyWith({WithdrawalStatus? status}) => WithdrawalData(
+    id: id,
     reference: reference,
     amountMinorUnits: amountMinorUnits,
     currency: currency,
@@ -172,7 +222,7 @@ class WithdrawalData {
 
   static WithdrawalData? tryFromServer(
     dynamic value, {
-    WithdrawalQuote? quote,
+    WithdrawalIntent? intent,
     WithdrawalBankAccount? bankAccount,
     WithdrawalData? previous,
   }) {
@@ -184,34 +234,37 @@ class WithdrawalData {
     final raw = envelope['withdrawal'] is Map
         ? Map<String, dynamic>.from(envelope['withdrawal'] as Map)
         : envelope;
-    final reference = _text(
-      raw['withdrawalId'] ?? raw['reference'] ?? raw['withdrawalReference'],
-    );
+    // The row id addresses GET /withdrawals/{withdrawalId}; the wit- reference
+    // is display-only. Reading only `withdrawalId` (a key the server never
+    // sends) is what sent the reference down the id lookup and 404ed.
+    final id = _text(raw['id'] ?? raw['withdrawalId']) ?? previous?.id;
+    final reference =
+        _text(raw['reference'] ?? raw['withdrawalReference']) ??
+        previous?.reference;
     final status = _withdrawalStatus(raw['status']);
     final amount =
         _minorUnits(raw['amountMinorUnits'] ?? raw['amountMinor']) ??
-        quote?.amountMinorUnits ??
+        intent?.amountMinorUnits ??
         previous?.amountMinorUnits;
     final currency =
-        _text(raw['currency']) ?? quote?.currency ?? previous?.currency;
+        _text(raw['currency']) ?? intent?.currency ?? previous?.currency;
     if (reference == null ||
+        id == null ||
         status == null ||
         amount == null ||
         currency == null) {
       return null;
     }
     return WithdrawalData(
+      id: id,
       reference: reference,
       amountMinorUnits: amount,
       currency: currency.toUpperCase(),
       status: status,
       feeMinorUnits:
-          _minorUnits(raw['feeMinorUnits']) ??
-          quote?.feeMinorUnits ??
-          previous?.feeMinorUnits,
+          _minorUnits(raw['feeMinorUnits']) ?? previous?.feeMinorUnits,
       netAmountMinorUnits:
           _minorUnits(raw['netAmountMinorUnits'] ?? raw['receiveMinorUnits']) ??
-          quote?.netAmountMinorUnits ??
           previous?.netAmountMinorUnits,
       availableBalanceMinorUnits:
           _minorUnits(raw['availableBalanceMinorUnits']) ??
@@ -249,23 +302,6 @@ String maskBankAccount(String value) {
   return '••••${digits.substring(digits.length - 4)}';
 }
 
-WithdrawalEligibility _eligibility(Map<String, dynamic> raw) {
-  final value = _text(
-    raw['eligibility'] ?? raw['eligibilityStatus'],
-  )?.toLowerCase();
-  if (raw['kycRequired'] == true ||
-      value == 'verification_required' ||
-      value == 'kyc_required') {
-    return WithdrawalEligibility.verificationRequired;
-  }
-  if (raw['limitExceeded'] == true ||
-      value == 'limit_reached' ||
-      value == 'limit_exceeded') {
-    return WithdrawalEligibility.limitReached;
-  }
-  return WithdrawalEligibility.eligible;
-}
-
 WithdrawalStatus? _withdrawalStatus(dynamic value) {
   final status = _text(value)?.toLowerCase();
   return switch (status) {
@@ -280,10 +316,11 @@ WithdrawalStatus? _withdrawalStatus(dynamic value) {
     'confirmed' ||
     'successful' ||
     'success' => WithdrawalStatus.successful,
-    'failed' ||
-    'released' ||
-    'reversed' ||
-    'rejected' => WithdrawalStatus.reversed,
+    // FAILED means the provider refused the payout and the funds are still
+    // reserved. RELEASED/rejected means they came back. Collapsing the two
+    // told players their money had been returned while it was still held.
+    'failed' => WithdrawalStatus.payoutFailed,
+    'released' || 'reversed' || 'rejected' => WithdrawalStatus.reversed,
     _ => null,
   };
 }

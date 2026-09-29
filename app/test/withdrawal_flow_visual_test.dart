@@ -20,13 +20,13 @@ class _VisualGateway extends WithdrawalGateway {
 
 class _VisualStore implements WithdrawalRecoveryStore {
   @override
-  Future<void> clearReference() async {}
+  Future<void> clearWithdrawalId() async {}
 
   @override
-  Future<String?> readReference() async => null;
+  Future<String?> readWithdrawalId() async => null;
 
   @override
-  Future<void> saveReference(String reference) async {}
+  Future<void> saveWithdrawalId(String reference) async {}
 }
 
 class _VisualNotifier extends WithdrawalNotifier {
@@ -80,14 +80,14 @@ void main() {
       const WithdrawMoneyScreen(initialAmount: '5000'),
       WithdrawalFlowState(
         phase: WithdrawalFlowPhase.selectingBank,
-        quote: withdrawalQuoteFixture,
+        intent: withdrawalIntentFixture,
       ),
     ),
     '54_select_bank_account': (
       const SelectBankAccountScreen(autoLoad: false),
       WithdrawalFlowState(
         phase: WithdrawalFlowPhase.selectingBank,
-        quote: withdrawalQuoteFixture,
+        intent: withdrawalIntentFixture,
         bankAccounts: withdrawalBanksFixture,
         selectedBankAccount: withdrawalBanksFixture.first,
       ),
@@ -96,21 +96,21 @@ void main() {
       const AddBankAccountScreen(),
       WithdrawalFlowState(
         phase: WithdrawalFlowPhase.selectingBank,
-        quote: withdrawalQuoteFixture,
+        intent: withdrawalIntentFixture,
       ),
     ),
     '56_verifying_bank_account': (
       const VerifyingBankAccountScreen(),
       WithdrawalFlowState(
         phase: WithdrawalFlowPhase.verifyingBank,
-        quote: withdrawalQuoteFixture,
+        intent: withdrawalIntentFixture,
       ),
     ),
     '57_withdrawal_review': (
       const WithdrawalReviewScreen(),
       WithdrawalFlowState(
         phase: WithdrawalFlowPhase.reviewing,
-        quote: withdrawalQuoteFixture,
+        intent: withdrawalIntentFixture,
         bankAccounts: withdrawalBanksFixture,
         selectedBankAccount: withdrawalBanksFixture.first,
       ),
@@ -121,12 +121,8 @@ void main() {
       ),
       WithdrawalFlowState(
         phase: WithdrawalFlowPhase.verificationRequired,
-        quote: WithdrawalQuote(
-          id: 'kyc-gate',
-          amountMinorUnits: 500000,
-          currency: 'NGN',
-          eligibility: WithdrawalEligibility.verificationRequired,
-        ),
+        intent: withdrawalIntentFixture,
+        error: 'Identity verification is required before withdrawal.',
       ),
     ),
     '59_withdrawal_pending_review': (
@@ -159,6 +155,19 @@ void main() {
         withdrawal: withdrawalDataFixture(status: WithdrawalStatus.successful),
       ),
     ),
+    '61b_withdrawal_payout_failed': (
+      const WithdrawalStatusScreen(
+        requestedPhase: WithdrawalFlowPhase.payoutFailed,
+        autoRefresh: false,
+      ),
+      WithdrawalFlowState(
+        phase: WithdrawalFlowPhase.payoutFailed,
+        withdrawal: withdrawalDataFixture(
+          status: WithdrawalStatus.payoutFailed,
+          failureReason: 'The provider declined this payout.',
+        ),
+      ),
+    ),
     '62_withdrawal_reversed': (
       const WithdrawalStatusScreen(
         requestedPhase: WithdrawalFlowPhase.reversed,
@@ -175,15 +184,10 @@ void main() {
     ),
     '63_withdrawal_limit_reached': (
       const WithdrawalGateScreen(phase: WithdrawalFlowPhase.limitReached),
-      const WithdrawalFlowState(
+      WithdrawalFlowState(
         phase: WithdrawalFlowPhase.limitReached,
-        quote: WithdrawalQuote(
-          id: 'limit-gate',
-          amountMinorUnits: 500000,
-          currency: 'NGN',
-          eligibility: WithdrawalEligibility.limitReached,
-          limitMinorUnits: 200000,
-        ),
+        intent: withdrawalIntentFixture,
+        error: 'This request exceeds your account or safer-play limit.',
       ),
     ),
     '134_saved_bank_accounts': (

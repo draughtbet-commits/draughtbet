@@ -2,10 +2,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'secure_storage.dart';
 
+/// Persists the active withdrawal so the app can resume tracking it after a
+/// restart. This holds the row **id**, because the contract's status route is
+/// `GET /withdrawals/{withdrawalId}` and a `wit-` reference 404s there.
 abstract class WithdrawalRecoveryStore {
-  Future<String?> readReference();
-  Future<void> saveReference(String reference);
-  Future<void> clearReference();
+  Future<String?> readWithdrawalId();
+  Future<void> saveWithdrawalId(String id);
+  Future<void> clearWithdrawalId();
 }
 
 class SecureWithdrawalRecoveryStore implements WithdrawalRecoveryStore {
@@ -14,14 +17,14 @@ class SecureWithdrawalRecoveryStore implements WithdrawalRecoveryStore {
   final SecureStorageService _storage;
 
   @override
-  Future<String?> readReference() => _storage.activeWithdrawalReference;
+  Future<String?> readWithdrawalId() => _storage.activeWithdrawalId;
 
   @override
-  Future<void> saveReference(String reference) =>
-      _storage.setActiveWithdrawalReference(reference);
+  Future<void> saveWithdrawalId(String id) =>
+      _storage.setActiveWithdrawalId(id);
 
   @override
-  Future<void> clearReference() => _storage.clearActiveWithdrawalReference();
+  Future<void> clearWithdrawalId() => _storage.clearActiveWithdrawalId();
 }
 
 final withdrawalRecoveryStoreProvider = Provider<WithdrawalRecoveryStore>(

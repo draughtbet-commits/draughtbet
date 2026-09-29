@@ -255,12 +255,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           builder: (context, ref, _) {
             final snapshot = state.extra! as MatchLifecycleSnapshot;
             final notifier = ref.read(matchFlowProvider.notifier);
-            final sent =
-                snapshot.phase == MatchLifecyclePhase.challengeSent;
+            final sent = snapshot.phase == MatchLifecyclePhase.challengeSent;
             final screen = ChallengeStatusScreen(
               snapshot: snapshot,
-              onAccept:
-                  snapshot.phase == MatchLifecyclePhase.incomingChallenge
+              onAccept: snapshot.phase == MatchLifecyclePhase.incomingChallenge
                   ? () async {
                       final updated = await notifier.acceptChallenge();
                       if (!context.mounted || updated == null) return;
@@ -281,9 +279,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
             );
             // The inviter waits idle on the sent screen; advance once the
             // invitee joins through the normal fund path.
-            return sent
-                ? _SentChallengeWatcher(child: screen)
-                : screen;
+            return sent ? _SentChallengeWatcher(child: screen) : screen;
           },
         ),
       ),
@@ -435,6 +431,12 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         ),
       ),
       GoRoute(
+        path: '/wallet/withdraw/withdrawal-payout-failed',
+        builder: (context, state) => const WithdrawalStatusScreen(
+          requestedPhase: WithdrawalFlowPhase.payoutFailed,
+        ),
+      ),
+      GoRoute(
         path: '/wallet/withdraw/withdrawal-reversed',
         builder: (context, state) => const WithdrawalStatusScreen(
           requestedPhase: WithdrawalFlowPhase.reversed,
@@ -530,7 +532,9 @@ class _PrePlayLifecycleWatcherState
     // The server pings the parked opponent's user room the moment the
     // pre-start socket drops; refresh immediately instead of waiting on the
     // next poll, then the phase change navigates.
-    _disconnectSub = socketService.onOpponentDisconnected.listen((_) => _tick());
+    _disconnectSub = socketService.onOpponentDisconnected.listen(
+      (_) => _tick(),
+    );
     // `game.started` is the server's authoritative start signal. A player
     // parked on a readiness screen has no other way to learn the match is live.
     _startedSub = socketService.onGameStarted.listen((_) => _tick());

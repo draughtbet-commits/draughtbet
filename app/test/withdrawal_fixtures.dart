@@ -18,23 +18,39 @@ const withdrawalBanksFixture = [
   ),
 ];
 
-final withdrawalQuoteFixture = WithdrawalQuote(
-  id: 'withdrawal-quote-1',
+// The contract has no withdrawal quote, so the flow carries the player's own
+// amount plus the server's eligibility verdict.
+final withdrawalIntentFixture = WithdrawalIntent(
   amountMinorUnits: 500000,
   currency: 'NGN',
   eligibility: WithdrawalEligibility.eligible,
-  availableBalanceMinorUnits: 3245000,
-  feeMinorUnits: 0,
-  netAmountMinorUnits: 500000,
   idempotencyKey: 'withdrawal-idempotency-test-only',
-  expiresAt: DateTime.utc(2026, 9, 19, 10),
+);
+
+/// An allowed §4 eligibility report.
+final withdrawalEligibilityAllowedFixture = WithdrawalEligibilityReport(
+  allowed: true,
+  requirements: const [
+    'eligibility:on_file',
+    'country:allowed',
+    'kyc:verified',
+  ],
+);
+
+/// A §4 report blocked on KYC, carrying the canonical gate code and the
+/// server's own message.
+final withdrawalEligibilityKycFixture = WithdrawalEligibilityReport(
+  allowed: false,
+  errorCode: 'KycRequiredError',
+  message: 'Identity verification is required before withdrawal.',
 );
 
 WithdrawalData withdrawalDataFixture({
   WithdrawalStatus status = WithdrawalStatus.pendingReview,
   String? failureReason,
 }) => WithdrawalData(
-  reference: 'WDR21456789',
+  id: 'withdrawal-row-1',
+  reference: 'wit-00000000-0000-4000-8000-000000000001',
   amountMinorUnits: 500000,
   currency: 'NGN',
   status: status,

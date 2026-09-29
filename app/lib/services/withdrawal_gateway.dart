@@ -13,11 +13,24 @@ class WithdrawalGateway {
   final Dio _dio;
   final BackendContractConfig contract;
 
-  Future<WithdrawalQuote?> createQuote(int amountMinorUnits) async {
-    // V2 deliberately defines no quote/eligibility read. Fees, limits and net
-    // amount are server-owned, so the approved review UI remains unavailable
-    // until that read contract exists.
-    return null;
+  /// Contract §4 GET /me/eligibility — the pre-flight gate for a withdrawal.
+  /// This is the only server-authoritative "can I withdraw?" read in the
+  /// contract; there is no withdrawal quote endpoint.
+  Future<WithdrawalEligibilityReport?> fetchEligibility(
+    int amountMinorUnits,
+  ) async {
+    if (!contract.isV2) return null;
+    final response = await _dio.get<dynamic>(
+      '/me/eligibility',
+      queryParameters: {'action': 'WITHDRAW', 'amount': '$amountMinorUnits'},
+      // A blocked gate is a legitimate answer, not a transport failure, so the
+      // body must be read instead of thrown. 403/422 carry the same shape as a
+      // 200.
+      options: Options(
+        validateStatus: (status) => status != null && status < 500,
+      ),
+    );
+    return WithdrawalEligibilityReport.tryFromServer(response.data);
   }
 
   Future<List<WithdrawalBankAccount>?> fetchBankAccounts() async {
@@ -33,7 +46,6 @@ class WithdrawalGateway {
 
   Future<WithdrawalBankAccount?> verifyBankAccount({
     required String bankCode,
-    required String bankName,
     required String accountNumber,
     String? idempotencyKey,
   }) async {
@@ -50,44 +62,40 @@ class WithdrawalGateway {
     );
     final data = unwrapData(response.data);
     if (data == null || data['verified'] != true) return null;
-    return WithdrawalBankAccount.tryFromServer({
-      ...data,
-      'bankCode': bankCode,
-      'bankName': bankName,
-      'accountNumber': accountNumber,
-    });
+    // Keep the server's resolved bank name. The backend derives it from the
+    // code when the client omits it, and overwriting it with a client-supplied
+    // label let the review screen show a destination the server never stored.
+    return WithdrawalBankAccount.tryFromServer(data);
   }
 
   Future<WithdrawalData?> createWithdrawal({
-    required WithdrawalQuote quote,
+    required WithdrawalIntent intent,
     required WithdrawalBankAccount bankAccount,
+    required String idempotencyKey,
   }) async {
     if (!contract.isV2) return null;
     final response = await _dio.post<dynamic>(
       '/withdrawals',
       data: {
-        'amountMinor': quote.amountMinorUnits,
+        'amountMinorUnits': intent.amountMinorUnits,
         'bankAccountId': bankAccount.id,
       },
-      options: Options(
-        headers: {
-          'Idempotency-Key': quote.idempotencyKey ?? 'withdrawal-${quote.id}',
-        },
-      ),
+      options: Options(headers: {'Idempotency-Key': idempotencyKey}),
     );
     return WithdrawalData.tryFromServer(
       response.data,
-      quote: quote,
+      intent: intent,
       bankAccount: bankAccount,
     );
   }
 
+  /// Contract §6 GET /withdrawals/{withdrawalId} resolves on the row id.
   Future<WithdrawalData?> fetchStatus(
-    String reference, {
+    String withdrawalId, {
     WithdrawalData? previous,
   }) async {
     if (!contract.isV2) return null;
-    final response = await _dio.get<dynamic>('/withdrawals/$reference');
+    final response = await _dio.get<dynamic>('/withdrawals/$withdrawalId');
     return WithdrawalData.tryFromServer(response.data, previous: previous);
   }
 }

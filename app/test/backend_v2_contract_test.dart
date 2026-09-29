@@ -90,7 +90,10 @@ void main() {
         contract: v2,
       ).loadOpenMatches();
 
-      expect(wireUrl(adapter.requests.single), 'https://api.example.test/api/v1/matches');
+      expect(
+        wireUrl(adapter.requests.single),
+        'https://api.example.test/api/v1/matches',
+      );
       expect(matches.single.id, 'mat_1');
       expect(matches.single.terms.stakeMinorUnits, 200000);
       expect(matches.single.host.name, 'KingMoves');
@@ -142,9 +145,15 @@ void main() {
       await gateway.leaveQueue(terms);
 
       expect(gateway.lastSearchId, isNull);
-      expect(wireUrl(adapter.requests[0]), 'https://api.example.test/api/v1/matchmaking/search');
+      expect(
+        wireUrl(adapter.requests[0]),
+        'https://api.example.test/api/v1/matchmaking/search',
+      );
       expect(adapter.requests[1].method, 'DELETE');
-      expect(wireUrl(adapter.requests[1]), 'https://api.example.test/api/v1/matchmaking/search/mm_1');
+      expect(
+        wireUrl(adapter.requests[1]),
+        'https://api.example.test/api/v1/matchmaking/search/mm_1',
+      );
       expect(adapter.requests[1].headers['Idempotency-Key'], isNotEmpty);
     });
   });
@@ -178,7 +187,10 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(wireUrl(adapter.requests.single), 'https://api.example.test/api/v1/me/matches');
+      expect(
+        wireUrl(adapter.requests.single),
+        'https://api.example.test/api/v1/me/matches',
+      );
       expect(find.text('VICTORY'), findsOneWidget);
       expect(find.text('₦3,600'), findsOneWidget);
       expect(find.text('Payout'), findsOneWidget);
@@ -203,7 +215,10 @@ void main() {
 
       final receipt = await SettlementGateway(dio, v2).fetchReceipt('mat_1');
 
-      expect(wireUrl(adapter.requests.single), 'https://api.example.test/api/v1/matches/mat_1/receipt');
+      expect(
+        wireUrl(adapter.requests.single),
+        'https://api.example.test/api/v1/matches/mat_1/receipt',
+      );
       expect(receipt, isNotNull);
       expect(receipt!.result, isNull);
       expect(receipt.opponent, isNull);
@@ -258,7 +273,10 @@ void main() {
       expect(quote.totalMinorUnits, 500000);
       // A replayed checkout must reuse the quote's operation key so it resolves
       // to the same intent instead of opening a second checkout.
-      expect(adapter.requests[0].headers['Idempotency-Key'], startsWith('deposit-quote-'));
+      expect(
+        adapter.requests[0].headers['Idempotency-Key'],
+        startsWith('deposit-quote-'),
+      );
       // Checkout is opened on the route the server actually serves, carrying
       // the quote so the server re-validates the exact quoted amount.
       expect(
@@ -296,63 +314,98 @@ void main() {
               'id': 'bank_1',
               'bankName': 'Example Bank',
               'accountName': 'W. E.',
-              'maskedAccount': '******1234',
+              'maskedAccountNumber': '******1234',
               'verified': true,
             },
           ],
         })
         ..enqueue({
           'data': {
-            'withdrawalId': 'wd_1',
-            'status': 'UNDER_REVIEW',
-            'amountMinor': 2000000,
+            'id': 'wd_1',
+            'reference': 'wit_9f2c',
+            'status': 'PENDING_REVIEW',
+            'amountMinorUnits': '2000000',
+            'currency': 'NGN',
+            'bankAccountId': 'bank_1',
           },
         })
         ..enqueue({
           'data': {
-            'withdrawalId': 'wd_1',
-            'status': 'CONFIRMED',
-            'amountMinor': 2000000,
+            'id': 'wd_1',
+            'reference': 'wit_9f2c',
+            'status': 'COMPLETED',
+            'amountMinorUnits': '2000000',
+            'currency': 'NGN',
+            'bankAccountId': 'bank_1',
           },
         });
       final gateway = WithdrawalGateway(dio, contract: v2);
       final accounts = await gateway.fetchBankAccounts();
       final account = accounts!.single;
-      const quote = WithdrawalQuote(
-        id: 'quote_1',
+      const intent = WithdrawalIntent(
         amountMinorUnits: 2000000,
         currency: 'NGN',
         eligibility: WithdrawalEligibility.eligible,
-        idempotencyKey: 'withdrawal-key-1',
       );
 
       final withdrawal = await gateway.createWithdrawal(
-        quote: quote,
+        intent: intent,
         bankAccount: account,
+        idempotencyKey: 'withdrawal-key-1',
       );
+      // Status must be read by row id. The reference is display-only, and using
+      // it here is exactly what made every poll 404 in PR7.
       final confirmed = await gateway.fetchStatus(
-        withdrawal!.reference,
+        withdrawal!.id,
         previous: withdrawal,
       );
 
       expect(account.maskedAccountNumber, '******1234');
-      expect(wireUrl(adapter.requests[1]), 'https://api.example.test/api/v1/withdrawals');
+      expect(
+        wireUrl(adapter.requests[1]),
+        'https://api.example.test/api/v1/withdrawals',
+      );
+      // The backend reads amountMinorUnits on every money route; sending the
+      // one-off amountMinor would silently create an invalid-amount failure.
+      expect(
+        Map<String, dynamic>.from(adapter.requests[1].data as Map),
+        containsPair('amountMinorUnits', 2000000),
+      );
+      expect(
+        adapter.requests[1].data as Map,
+        isNot(contains('amountMinor')),
+      );
       expect(
         adapter.requests[1].headers['Idempotency-Key'],
         'withdrawal-key-1',
       );
-      expect(wireUrl(adapter.requests[2]), 'https://api.example.test/api/v1/withdrawals/wd_1');
+      expect(
+        wireUrl(adapter.requests[2]),
+        'https://api.example.test/api/v1/withdrawals/wd_1',
+      );
       expect(confirmed!.status, WithdrawalStatus.successful);
+      expect(confirmed.reference, 'wit_9f2c');
+      // A refused payout is NOT a release: funds stay reserved.
+      expect(WithdrawalStatus.payoutFailed.isTerminal, isFalse);
+      expect(WithdrawalStatus.reversed.isTerminal, isTrue);
     });
 
     test(
-      'does not fabricate a quote absent from the frozen contract',
+      'reads the §4 eligibility gate instead of inventing a quote',
       () async {
-        final (dio, _) = client();
-        expect(
-          await WithdrawalGateway(dio, contract: v2).createQuote(2000000),
-          isNull,
-        );
+        final (dio, adapter) = client();
+        adapter.enqueue({
+          'allowed': false,
+          'error': {'code': 'KycRequiredError', 'message': 'Verify first'},
+          'status': 403,
+        });
+        final report = await WithdrawalGateway(
+          dio,
+          contract: v2,
+        ).fetchEligibility(2000000);
+        expect(wireUrl(adapter.requests.single), contains('/me/eligibility'));
+        expect(report!.outcome, WithdrawalEligibility.verificationRequired);
+        expect(report.message, 'Verify first');
       },
     );
   });
