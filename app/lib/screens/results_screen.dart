@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
-import '../config/backend_contract.dart';
+import '../models/dispute.dart';
 import '../services/api_client.dart';
 import '../services/secure_storage.dart';
 import '../theme/colors.dart';
@@ -21,7 +22,6 @@ class _ResultsScreenState extends ConsumerState<ResultsScreen> {
   String? _error;
   List<dynamic> _matches = [];
   String? _currentUserId;
-  bool _usingV2 = false;
 
   @override
   void initState() {
@@ -36,18 +36,12 @@ class _ResultsScreenState extends ConsumerState<ResultsScreen> {
         _error = null;
       });
 
-      final contract = ref.read(backendContractProvider);
-      _usingV2 = contract.isV2;
-      _currentUserId = _usingV2 ? null : await _storage.userId;
+      _currentUserId = await _storage.userId;
       final dio = ref.read(apiClientProvider);
-      final res = await dio.get(
-        _usingV2 ? '/api/v1/me/matches' : '/matches/history',
-      );
+      final res = await dio.get('/matches/history');
 
       if (res.statusCode == 200 && res.data is Map) {
-        final matches = _usingV2
-            ? (res.data['data'] as List?) ?? []
-            : (res.data['matches'] as List?) ?? [];
+        final matches = (res.data['matches'] as List?) ?? [];
         if (mounted) {
           setState(() {
             _matches = matches;
@@ -156,27 +150,17 @@ class _ResultsScreenState extends ConsumerState<ResultsScreen> {
               itemBuilder: (context, index) {
                 final m = _matches[index] as Map<String, dynamic>;
                 final winnerId = m['winnerId'] as String?;
-                final tier = _usingV2
-                    ? null
-                    : (m['tier'] as String? ?? 'AMATEUR').toUpperCase();
-                final outcome = m['outcome']?.toString().toUpperCase();
-                final stake = _usingV2
-                    ? (outcome == 'WON' ? m['payoutMinor'] : m['stakeMinor'])
-                    : m['stakeMinorUnits'];
+                final tier = (m['tier'] as String? ?? 'AMATEUR').toUpperCase();
+                final stake = m['stakeMinorUnits'];
                 final endedAtStr = m['endedAt'] as String?;
                 final endedAt = DateTime.tryParse(endedAtStr ?? '');
 
-                final bool isWinner = _usingV2
-                    ? outcome == 'WON'
-                    : winnerId != null &&
-                          _currentUserId != null &&
-                          winnerId == _currentUserId;
-                final bool isDraw = _usingV2
-                    ? outcome == 'DRAW'
-                    : winnerId == null || winnerId.isEmpty;
-                final bool isDefeat = _usingV2
-                    ? outcome == 'LOST'
-                    : !isWinner && !isDraw;
+                final bool isWinner =
+                    winnerId != null &&
+                    _currentUserId != null &&
+                    winnerId == _currentUserId;
+                final bool isDraw = winnerId == null || winnerId.isEmpty;
+                final bool isDefeat = !isWinner && !isDraw;
 
                 final lightPlayer = m['playerLight'] as Map<String, dynamic>?;
                 final darkPlayer = m['playerDark'] as Map<String, dynamic>?;
@@ -185,9 +169,7 @@ class _ResultsScreenState extends ConsumerState<ResultsScreen> {
                 final bool isLight =
                     lightPlayerId != null && lightPlayerId == _currentUserId;
                 // S17: the history API exposes only the public handle — never the email.
-                final String opponentName = _usingV2
-                    ? 'Opponent unavailable'
-                    : isLight
+                final String opponentName = isLight
                     ? (darkPlayer?['username'] as String? ?? 'Opponent')
                     : (lightPlayer?['username'] as String? ?? 'Opponent');
 
@@ -213,111 +195,137 @@ class _ResultsScreenState extends ConsumerState<ResultsScreen> {
                   resultIcon = LucideIcons.circleHelp;
                 }
 
-                return Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: AppColors.surface1,
+                final matchId = m['id']?.toString() ?? '';
+                return Semantics(
+                  button: true,
+                  label: 'Report match against $opponentName',
+                  child: InkWell(
                     borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: isWinner
-                          ? AppColors.gold500.withValues(alpha: 0.4)
-                          : (isDraw || !isDefeat
-                                ? AppColors.borderDim
-                                : AppColors.danger.withValues(alpha: 0.3)),
-                    ),
-                  ),
-                  child: Row(
-                    children: [
-                      // Result Icon Circle
-                      CircleAvatar(
-                        radius: 22,
-                        backgroundColor: isWinner
-                            ? AppColors.gold500.withValues(alpha: 0.15)
-                            : (isDraw || !isDefeat
-                                  ? AppColors.surface3
-                                  : AppColors.danger.withValues(alpha: 0.15)),
-                        child: Icon(resultIcon, color: statusColor, size: 20),
-                      ),
-                      const SizedBox(width: 16),
-                      // Match details
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: [
-                                Text(
-                                  resultText,
-                                  style: AppTypography.labelBold.copyWith(
-                                    color: statusColor,
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                if (tier != null) ...[
-                                  const SizedBox(width: 8),
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 6,
-                                      vertical: 2,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: AppColors.surface3,
-                                      borderRadius: BorderRadius.circular(4),
-                                    ),
-                                    child: Text(
-                                      tier,
-                                      style: AppTypography.bodySmall.copyWith(
-                                        fontSize: 10,
-                                        fontWeight: FontWeight.bold,
-                                        color: AppColors.textSecondary,
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ],
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              'vs $opponentName',
-                              style: AppTypography.bodyMedium,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              endedAt == null
-                                  ? 'Date unavailable'
-                                  : DateFormat(
-                                      'MMM d, y • h:mm a',
-                                    ).format(endedAt.toLocal()),
-                              style: AppTypography.bodySmall,
-                            ),
-                          ],
-                        ),
-                      ),
-                      // Stake Amount
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.end,
-                        children: [
-                          Text(
-                            _formatNaira(stake),
-                            style: AppTypography.labelBold.copyWith(
-                              color: isWinner
-                                  ? AppColors.gold500
-                                  : AppColors.textPrimary,
-                              fontSize: 16,
+                    onTap: matchId.isEmpty
+                        ? null
+                        : () => context.push(
+                            '/profile/report-match',
+                            extra: DisputeMatchSummary(
+                              matchId: matchId,
+                              opponentName: opponentName,
+                              playedAt: endedAt,
                             ),
                           ),
-                          const SizedBox(height: 2),
-                          Text(
-                            isWinner ? 'Payout' : 'Stake',
-                            style: AppTypography.bodySmall.copyWith(
-                              fontSize: 11,
+                    child: Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: AppColors.surface1,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: isWinner
+                              ? AppColors.gold500.withValues(alpha: 0.4)
+                              : (isDraw || !isDefeat
+                                    ? AppColors.borderDim
+                                    : AppColors.danger.withValues(alpha: 0.3)),
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          // Result Icon Circle
+                          CircleAvatar(
+                            radius: 22,
+                            backgroundColor: isWinner
+                                ? AppColors.gold500.withValues(alpha: 0.15)
+                                : (isDraw || !isDefeat
+                                      ? AppColors.surface3
+                                      : AppColors.danger.withValues(
+                                          alpha: 0.15,
+                                        )),
+                            child: Icon(
+                              resultIcon,
+                              color: statusColor,
+                              size: 20,
                             ),
+                          ),
+                          const SizedBox(width: 16),
+                          // Match details
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Text(
+                                      resultText,
+                                      style: AppTypography.labelBold.copyWith(
+                                        color: statusColor,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 6,
+                                        vertical: 2,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: AppColors.surface3,
+                                        borderRadius: BorderRadius.circular(4),
+                                      ),
+                                      child: Text(
+                                        tier,
+                                        style: AppTypography.bodySmall.copyWith(
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.bold,
+                                          color: AppColors.textSecondary,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  'vs $opponentName',
+                                  style: AppTypography.bodyMedium,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  endedAt == null
+                                      ? 'Date unavailable'
+                                      : DateFormat(
+                                          'MMM d, y • h:mm a',
+                                        ).format(endedAt.toLocal()),
+                                  style: AppTypography.bodySmall,
+                                ),
+                              ],
+                            ),
+                          ),
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: [
+                              Text(
+                                _formatNaira(stake),
+                                style: AppTypography.labelBold.copyWith(
+                                  color: isWinner
+                                      ? AppColors.gold500
+                                      : AppColors.textPrimary,
+                                  fontSize: 16,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                'Stake',
+                                style: AppTypography.bodySmall.copyWith(
+                                  fontSize: 11,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(width: 5),
+                          const Icon(
+                            LucideIcons.chevronRight,
+                            color: AppColors.textMuted,
+                            size: 18,
                           ),
                         ],
                       ),
-                    ],
+                    ),
                   ),
                 );
               },

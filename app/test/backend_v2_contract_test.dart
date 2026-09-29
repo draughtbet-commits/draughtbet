@@ -16,6 +16,7 @@ import 'package:draughts_arena/services/api_client.dart';
 import 'package:draughts_arena/screens/results_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 const v2 = BackendContractConfig(BackendContractMode.v2);
@@ -145,19 +146,24 @@ void main() {
   });
 
   group('PR5 settlement V2 contract', () {
-    testWidgets('history renders the server outcome and payout directly', (
+    testWidgets('history uses the mounted match history contract', (
       tester,
     ) async {
+      FlutterSecureStorage.setMockInitialValues({'user_id': 'usr_1'});
       final (dio, adapter) = client();
       adapter.enqueue({
-        'data': [
+        'matches': [
           {
-            'matchId': 'mat_1',
-            'outcome': 'WON',
-            'terminalReason': 'NORMAL_WIN',
-            'stakeMinor': 200000,
-            'payoutMinor': 360000,
-            'settlementStatus': 'SETTLED',
+            'id': 'mat_1',
+            'playerLightId': 'usr_1',
+            'playerDarkId': 'usr_2',
+            'playerLight': {'id': 'usr_1', 'username': 'Raptor'},
+            'playerDark': {'id': 'usr_2', 'username': 'KingMoves'},
+            'tier': 'MASTER',
+            'stakeMinorUnits': '200000',
+            'status': 'SETTLED',
+            'winnerId': 'usr_1',
+            'endedAt': '2026-09-04T14:35:00Z',
           },
         ],
       });
@@ -173,10 +179,11 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(adapter.requests.single.path, '/api/v1/me/matches');
+      expect(adapter.requests.single.path, '/matches/history');
       expect(find.text('VICTORY'), findsOneWidget);
-      expect(find.text('₦3,600'), findsOneWidget);
-      expect(find.text('Payout'), findsOneWidget);
+      expect(find.text('₦2,000'), findsOneWidget);
+      expect(find.text('Stake'), findsOneWidget);
+      expect(find.text('Payout'), findsNothing);
       expect(find.text('Winnings'), findsNothing);
     });
 

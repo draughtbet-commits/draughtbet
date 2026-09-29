@@ -66,3 +66,32 @@ material visual variance; no financial, identity or eligibility data was invente
 to make the captures resemble the boards.
 
 Final result: **passed with documented source-asset limitation**.
+
+---
+
+# PR11 Player Disputes Design QA
+
+- Source visual truth: `../Draught_Bet_Approved_UI_UX_Handoff_v1/approved-visuals/12-postgame-disputes-safer-play-extra.png`, visible screens 6-9.
+- Implementation captures: `test/goldens/pr11/*.png`.
+- Combined comparison: `test/goldens/pr11_qa/comparison.png`.
+- Flutter viewport: 412 x 915 logical pixels at device pixel ratio 1.
+- Source pixels: 1024 x 1536 composite board. Each relevant phone viewport was cropped from its 256 x 512 board cell, aspect-fitted and padded without stretching before comparison.
+- Implementation pixels: 412 x 915 per capture.
+- States: Report Match, Dispute Reason, Add Evidence, Dispute Submitted and Dispute Status.
+
+## Findings
+
+No actionable P0, P1 or P2 visual differences remain.
+
+- Fonts and typography: Sora headings and Inter body text preserve the approved hierarchy, weight and wrapping.
+- Spacing and layout rhythm: match summary, choice cards, evidence form, confirmation details and status timeline follow the approved vertical rhythm and remain scrollable on compact screens.
+- Colors and visual tokens: all PR11 UI uses the shared black, navy, emerald, gold, white and muted-blue semantic tokens. No raw colors were added.
+- Image and icon fidelity: existing production avatars and Lucide icons were reused consistently. Device chrome and decorative board-only effects were not recreated as application content.
+- Copy and content: report, review and decision copy never promises a result or balance change. Identifiers are masked where appropriate. Add Evidence is derived from the approved Dispute Reason component pattern because no dedicated approved frame exists.
+- Interaction and responsiveness: selection, validation, navigation, duplicate-submit prevention, unavailable states and safe status refresh are covered. The five screens render without overflow at 320 x 568 with 1.25x text scaling.
+
+The backend currently exposes dispute management only through admin RBAC routes. The production player flow therefore shows an approved unavailable state and never displays Dispute Submitted without a server-confirmed case. Test fixtures are used only for widget and visual capture evidence.
+
+Focused regions were not required after the full-view comparison because all report choices, case fields, timeline labels and actions remain legible in the normalized comparison artifact.
+
+final result: passed

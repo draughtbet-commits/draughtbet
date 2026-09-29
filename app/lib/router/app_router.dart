@@ -33,6 +33,8 @@ import '../screens/eligibility_screens.dart';
 import '../screens/safer_play_screens.dart';
 import '../screens/verification_screens.dart';
 import '../models/eligibility.dart';
+import '../screens/dispute_screens.dart';
+import '../models/dispute.dart';
 import '../widgets/main_layout.dart';
 
 final appRouterProvider = Provider<GoRouter>((ref) {
@@ -123,6 +125,31 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: '/results',
             builder: (context, state) => const ResultsScreen(),
+          ),
+          GoRoute(
+            path: '/profile/report-match',
+            builder: (context, state) => ReportMatchScreen(
+              match: state.extra is DisputeMatchSummary
+                  ? state.extra! as DisputeMatchSummary
+                  : null,
+            ),
+          ),
+          GoRoute(
+            path: '/profile/dispute-reason',
+            builder: (context, state) => const DisputeReasonScreen(),
+          ),
+          GoRoute(
+            path: '/profile/add-evidence',
+            builder: (context, state) => const AddEvidenceScreen(),
+          ),
+          GoRoute(
+            path: '/profile/dispute-submitted',
+            builder: (context, state) => const DisputeSubmittedScreen(),
+          ),
+          GoRoute(
+            path: '/profile/dispute-status',
+            builder: (context, state) =>
+                DisputeStatusScreen(disputeId: state.uri.queryParameters['id']),
           ),
           GoRoute(
             path: '/profile',
