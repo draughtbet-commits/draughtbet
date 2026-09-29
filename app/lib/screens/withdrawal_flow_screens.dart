@@ -256,13 +256,11 @@ class AddBankAccountScreen extends ConsumerStatefulWidget {
 
 class _AddBankAccountScreenState extends ConsumerState<AddBankAccountScreen> {
   final _formKey = GlobalKey<FormState>();
-  final _bankName = TextEditingController();
   final _bankCode = TextEditingController();
   final _accountNumber = TextEditingController();
 
   @override
   void dispose() {
-    _bankName.dispose();
     _bankCode.dispose();
     _accountNumber.dispose();
     super.dispose();
@@ -294,14 +292,6 @@ class _AddBankAccountScreenState extends ConsumerState<AddBankAccountScreen> {
             subtitle: 'Enter bank details for secure server-side verification.',
           ),
           const SizedBox(height: 18),
-          TextFormField(
-            controller: _bankName,
-            textCapitalization: TextCapitalization.words,
-            decoration: const InputDecoration(labelText: 'Bank name'),
-            validator: (value) =>
-                (value?.trim().length ?? 0) < 2 ? 'Enter the bank name.' : null,
-          ),
-          const SizedBox(height: 12),
           TextFormField(
             controller: _bankCode,
             keyboardType: TextInputType.number,
