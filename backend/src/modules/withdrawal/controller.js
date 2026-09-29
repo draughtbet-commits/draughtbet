@@ -11,6 +11,18 @@ import {
 } from './service.js';
 import { InsufficientFundsError } from '../../services/matchService.js';
 
+// Money-OUT gate refusals. These are player-state problems, not server faults:
+// an underage or country-blocked player must get a clear 403, never a 500.
+// Matched by name so the check still holds if the error class is loaded twice.
+const ELIGIBILITY_DENIALS = new Set([
+  'EligibilityRequiredError',
+  'CountryNotAllowedError',
+  'AgeNotVerifiedError',
+  'KycRequiredError',
+  'AccountRestrictedError',
+  'SelfExcludedError'
+]);
+
 export const withdrawalUserRouter = express.Router();
 
 const paystackGateway = new PaystackGateway();
@@ -41,14 +53,14 @@ const withdrawalPayload = (w) => ({
 // Reserves the funds immediately (PENDING_REVIEW) and replays idempotently.
 withdrawalUserRouter.post('/', requireAuth, requireIdempotencyKey({ scope: 'withdrawal' }), async (req, res, next) => {
   try {
-    const { amountMinor, bankAccountId } = req.body ?? {};
+    const { amountMinorUnits, bankAccountId } = req.body ?? {};
     const withdrawal = await withdrawalService.requestWithdrawal(
       req.user.id,
-      amountMinor,
+      amountMinorUnits,
       req.get('idempotency-key'),
       bankAccountId
     );
-    res.status(201).json({ data: { withdrawal: withdrawalPayload(withdrawal) } });
+    res.status(200).json({ data: { withdrawal: withdrawalPayload(withdrawal) } });
   } catch (error) {
     if (error?.name === 'InvalidAmountError') {
       return res.status(400).json({ error: 'Invalid amount' });
@@ -61,6 +73,9 @@ withdrawalUserRouter.post('/', requireAuth, requireIdempotencyKey({ scope: 'with
     }
     if (error instanceof InsufficientFundsError) {
       return res.status(402).json({ error: error.message });
+    }
+    if (ELIGIBILITY_DENIALS.has(error?.name)) {
+      return res.status(403).json({ error: error.message });
     }
     next(error);
   }
@@ -75,7 +90,7 @@ withdrawalUserRouter.get('/:withdrawalId', requireAuth, async (req, res, next) =
       return res.status(404).json({ error: { code: 'WITHDRAWAL_NOT_FOUND', message: 'Withdrawal not found' } });
     }
     res.json({
-      withdrawal: withdrawalPayload(withdrawal)
+      data: { withdrawal: withdrawalPayload(withdrawal) }
     });
   } catch (error) {
     next(error);

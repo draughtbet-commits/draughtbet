@@ -6,6 +6,7 @@ import { requireAuth } from '../../middleware/auth.js';
 import { requireIdempotencyKey } from '../../middleware/idempotency.js';
 import { EligibilityService } from '../eligibility/service.js';
 import { withdrawalService } from '../withdrawal/controller.js';
+import { toPlayerBankAccount } from '../withdrawal/service.js';
 import { PaymentGatewayError } from '../payment/PaymentGateway.js';
 import {
   registerPushToken,
@@ -13,6 +14,7 @@ import {
   revokePushToken,
   PushTokenError
 } from './pushTokenService.js';
+import { getProfile as getSaferPlayProfile } from '../saferPlay/service.js';
 
 export const meRouter = express.Router();
 
@@ -49,18 +51,9 @@ const NGN_BANKS = {
   '057': 'Zenith Bank'
 };
 
-// V2 list payload (withdrawal §2): every destination the user has saved.
-const bankAccountPayload = (b) => ({
-  id: b.id,
-  gateway: b.gateway,
-  bankCode: b.bankCode,
-  bankName: b.bankName,
-  accountNumber: b.accountNumber,
-  accountName: b.accountName,
-  isDefault: b.isDefault,
-  verifiedAt: b.verifiedAt,
-  createdAt: b.createdAt
-});
+// V2 list payload (withdrawal §2): every destination the user has saved. The raw
+// account number is never serialised — see toPlayerBankAccount.
+const bankAccountPayload = (b) => toPlayerBankAccount(b);
 
 const updateProfileSchema = z.object({
   // Only predesigned avatar ids are accepted. No uploads.
@@ -187,7 +180,7 @@ meRouter.post('/bank-accounts', requireAuth, requireIdempotencyKey({ scope: 'ban
 
     const existing = await prisma.bankAccount.findFirst({ where: { userId, accountNumber } });
     if (existing) {
-      return res.status(201).json({ data: { ...bankAccountPayload(existing), verified: true } });
+      return res.status(200).json({ data: { ...bankAccountPayload(existing), verified: true } });
     }
 
     const resolvedBankName = bankName || NGN_BANKS[bankCode] || `Bank ${bankCode}`;
@@ -223,7 +216,7 @@ meRouter.post('/bank-accounts', requireAuth, requireIdempotencyKey({ scope: 'ban
         });
       });
     }
-    res.status(201).json({ data: { ...bankAccountPayload(account), verified: true } });
+    res.status(200).json({ data: { ...bankAccountPayload(account), verified: true } });
   } catch (err) {
     if (err?.name === 'InvalidBankAccountError') {
       return res.status(400).json({ error: err.message });
@@ -292,6 +285,45 @@ meRouter.get('/matches', requireAuth, async (req, res, next) => {
     });
 
     res.json({ data: items });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * Contract §4: GET /me/limits — the safer-play limits that actually apply to
+ * this player, read from SaferPlayProfile with pending-raise cooling already
+ * resolved.
+ *
+ * There is deliberately NO withdrawal limit here. Neither SaferPlayProfile nor
+ * the frozen schema carries one, and the eligibility service does not evaluate
+ * an amount for WITHDRAW. Reporting a number would be inventing a financial
+ * rule, so the withdrawal block states plainly that no ceiling is enforced and
+ * points at the gate that does apply.
+ */
+const limitsPayload = (profile) => ({
+  currency: 'NGN',
+  depositLimitMinorUnits: profile?.depositLimitMinorUnits ?? null,
+  effectiveDepositLimitMinorUnits: profile?.effectiveDepositLimitMinorUnits ?? null,
+  pendingDepositLimitMinorUnits: profile?.pendingDepositLimitMinorUnits ?? null,
+  pendingDepositLimitRaisedAt: profile?.pendingDepositLimitRaisedAt ?? null,
+  stakeLimitMinorUnits: profile?.stakeLimitMinorUnits ?? null,
+  effectiveStakeLimitMinorUnits: profile?.effectiveStakeLimitMinorUnits ?? null,
+  pendingStakeLimitMinorUnits: profile?.pendingStakeLimitMinorUnits ?? null,
+  pendingStakeLimitRaisedAt: profile?.pendingStakeLimitRaisedAt ?? null,
+  timeoutUntil: profile?.timeoutUntil ?? null,
+  selfExcludedUntil: profile?.selfExcludedUntil ?? null,
+  withdrawal: {
+    limitMinorUnits: null,
+    enforced: false,
+    note: 'No withdrawal ceiling is configured. The gates that do apply are reported by /me/eligibility?action=WITHDRAW.'
+  }
+});
+
+meRouter.get('/limits', requireAuth, async (req, res, next) => {
+  try {
+    const profile = await getSaferPlayProfile(req.user.id);
+    res.json({ data: limitsPayload(profile) });
   } catch (err) {
     next(err);
   }

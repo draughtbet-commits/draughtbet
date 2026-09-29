@@ -112,7 +112,17 @@ jest.unstable_mockModule('../../payment/FlutterwaveGateway.js', () => ({ Flutter
 jest.unstable_mockModule('../../payment/PaymentGateway.js', () => ({ PaymentGatewayError }));
 jest.unstable_mockModule('../../withdrawal/service.js', () => ({
   WithdrawalService: WithdrawalServiceMock,
-  BankAccountNotFoundError
+  BankAccountNotFoundError,
+  // The wallet controller serialises player-facing bank accounts through this,
+  // so the module mock has to provide it.
+  toPlayerBankAccount: (b) => ({
+    id: b.id,
+    bankCode: b.bankCode,
+    bankName: b.bankName,
+    maskedAccountNumber: b.maskedAccountNumber ?? null,
+    accountName: b.accountName,
+    isDefault: b.isDefault
+  })
 }));
 jest.unstable_mockModule('../../eligibility/service.js', () => ({ EligibilityService: EligibilityServiceMock }));
 

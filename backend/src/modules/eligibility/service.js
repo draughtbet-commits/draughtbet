@@ -199,6 +199,12 @@ export class EligibilityService {
     }
     if (user.kycStatus === 'VERIFIED') requirements.push('kyc:verified');
 
+    // A withdrawal amount is deliberately NOT checked. No withdrawal ceiling
+    // exists in SaferPlayProfile or the frozen schema, so the amount is ignored
+    // rather than compared against a number we would have to invent. Say so in
+    // the report so a client does not assume the amount was evaluated.
+    if (normalized === 'WITHDRAW') requirements.push('withdrawal_amount:not_evaluated');
+
     return { allowed: true, requirements };
   }
 }

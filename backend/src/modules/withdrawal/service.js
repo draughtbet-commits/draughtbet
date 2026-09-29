@@ -102,6 +102,33 @@ const toPayload = (w) => ({
  * Provider calls (resolve/createRecipient/initiatePayout) are injected so tests
  * and verification can substitute a fake client — no real money moves in tests.
  */
+/**
+ * Player-facing bank account shape. The full account number stays in the
+ * database (the payout itself is sent to the provider via `providerRecipientCode`,
+ * so nothing downstream needs the digits), but it must never be serialised into
+ * a response the player can read or an intermediary can log. Every player-facing
+ * bank-account payload goes through here.
+ */
+export const toPlayerBankAccount = (b) => ({
+  id: b.id,
+  gateway: b.gateway,
+  bankCode: b.bankCode,
+  bankName: b.bankName,
+  maskedAccountNumber: maskAccountNumber(b.accountNumber),
+  accountName: b.accountName,
+  isDefault: b.isDefault,
+  verifiedAt: b.verifiedAt,
+  createdAt: b.createdAt
+});
+
+/** Keeps only the last four digits, which is all a player needs to recognise a destination. */
+export const maskAccountNumber = (value) => {
+  const digits = String(value ?? '').replace(/\D/g, '');
+  if (!digits) return null;
+  if (digits.length <= 4) return `••••${digits}`;
+  return `••••${digits.slice(-4)}`;
+};
+
 export class WithdrawalService {
   constructor({ providers = {} } = {}) {
     this.providers = providers; // { PAYSTACK: gateway, FLUTTERWAVE: gateway }
@@ -328,17 +355,7 @@ export class WithdrawalService {
       where: { userId },
       orderBy: [{ isDefault: 'desc' }, { createdAt: 'asc' }]
     });
-    return rows.map((b) => ({
-      id: b.id,
-      gateway: b.gateway,
-      bankCode: b.bankCode,
-      bankName: b.bankName,
-      accountNumber: b.accountNumber,
-      accountName: b.accountName,
-      isDefault: b.isDefault,
-      verifiedAt: b.verifiedAt,
-      createdAt: b.createdAt
-    }));
+    return rows.map(toPlayerBankAccount);
   }
 
   async setDefaultBankAccount(userId, bankAccountId) {

@@ -15,7 +15,11 @@ import {
 } from './service.js';
 import { PaystackGateway } from '../payment/PaystackGateway.js';
 import { FlutterwaveGateway } from '../payment/FlutterwaveGateway.js';
-import { WithdrawalService, BankAccountNotFoundError } from '../withdrawal/service.js';
+import {
+  WithdrawalService,
+  BankAccountNotFoundError,
+  toPlayerBankAccount
+} from '../withdrawal/service.js';
 import { PaymentGatewayError } from '../payment/PaymentGateway.js';
 import { EligibilityService } from '../eligibility/service.js';
 import prisma from '../../utils/db.js';
@@ -309,41 +313,14 @@ walletRouter.post('/deposit-intent', requireAuth, async (req, res, next) => {
   }
 });
 
-walletRouter.post('/withdrawal-request', requireAuth, async (req, res, next) => {
-  try {
-    const { id: userId } = req.user;
-    const { amountMinorUnits, idempotencyKey } = req.body;
-
-    // Enforced canonically by the service (parseMinorUnits); this fast-path
-    // check mirrors it for malformed junk.
-    if (amountMinorUnits === undefined || amountMinorUnits === null) {
-      return res.status(400).json({ error: 'Invalid amount' });
-    }
-
-    const request = await withdrawalService.requestWithdrawal(userId, amountMinorUnits, idempotencyKey);
-
-    res.status(201).json({
-      withdrawalRequest: {
-        ...request,
-        amountMinorUnits: request.amountMinorUnits.toString()
-      }
-    });
-  } catch (error) {
-    if (error.name === 'InsufficientFundsError') {
-      return res.status(402).json({ error: error.message });
-    }
-    if (['InvalidAmountError', 'InvalidIdempotencyKeyError'].includes(error.name)) {
-      return res.status(400).json({ error: error.message });
-    }
-    if (['BankAccountRequiredError', 'BankAccountNotVerifiedError', 'BankAccountNotFoundError'].includes(error.name)) {
-      return res.status(422).json({ error: error.message });
-    }
-    if (['EligibilityRequiredError', 'CountryNotAllowedError', 'AgeNotVerifiedError', 'KycRequiredError', 'AccountRestrictedError', 'SelfExcludedError'].includes(error.name)) {
-      return res.status(403).json({ error: error.message });
-    }
-    next(error);
-  }
-});
+// REMOVED: POST /wallet/withdrawal-request.
+//
+// This duplicate of the contract route let a client create a withdrawal with a
+// body `idempotencyKey`, no `bankAccountId`, and a `withdrawalRequest` response
+// key, entirely bypassing contract §6 (POST /withdrawals, `Idempotency-Key`
+// header, required verified destination). Two ways to move money out of the
+// platform is two ways to get it wrong, and this one was the weaker of the
+// pair. Use POST /withdrawals.
 
 walletRouter.get('/withdrawals', requireAuth, async (req, res, next) => {
   try {
@@ -389,19 +366,7 @@ walletRouter.post('/bank-accounts', requireAuth, async (req, res, next) => {
       accountNumber
     });
 
-    res.status(201).json({
-      bankAccount: {
-        id: account.id,
-        gateway: account.gateway,
-        bankCode: account.bankCode,
-        bankName: account.bankName,
-        accountNumber: account.accountNumber,
-        accountName: account.accountName,
-        isDefault: account.isDefault,
-        verifiedAt: account.verifiedAt,
-        createdAt: account.createdAt
-      }
-    });
+    res.status(201).json({ bankAccount: toPlayerBankAccount(account) });
   } catch (error) {
     if (error.name === 'InvalidBankAccountError') {
       return res.status(400).json({ error: error.message });
@@ -417,7 +382,7 @@ walletRouter.patch('/bank-accounts/:id/default', requireAuth, async (req, res, n
   try {
     const { id: userId } = req.user;
     const account = await withdrawalService.setDefaultBankAccount(userId, req.params.id);
-    res.json({ bankAccount: account });
+    res.json({ bankAccount: toPlayerBankAccount(account) });
   } catch (error) {
     if (error instanceof BankAccountNotFoundError) {
       return res.status(404).json({ error: error.message });

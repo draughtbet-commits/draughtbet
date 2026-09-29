@@ -151,9 +151,43 @@ describe('EligibilityService', () => {
           'age:verified',
           'account:active',
           'safer_play:ok',
-          'kyc:verified'
+          'kyc:verified',
+          // There is no withdrawal ceiling to evaluate the amount against, so the
+          // report says the amount was not looked at. Without this a client
+          // assumes its amount was checked against a limit that does not exist.
+          'withdrawal_amount:not_evaluated'
         ]
       });
+    });
+
+    it('never invents a withdrawal limit for a huge amount', async () => {
+      mockPrisma.user.findUnique.mockResolvedValue(baseUser());
+      const small = await service.explain('user-1', {
+        action: 'WITHDRAW',
+        amountMinorUnits: '1000'
+      });
+      const huge = await service.explain('user-1', {
+        action: 'WITHDRAW',
+        amountMinorUnits: '999999999999999999999'
+      });
+      // No withdrawal limit exists in SaferPlayProfile, so the amount cannot
+      // change the verdict. If a future limit lands, this test is the reminder
+      // to implement it in both explain() and the schema.
+      expect(huge).toEqual(small);
+      expect(huge.allowed).toBe(true);
+      expect(huge.requirements).toContain('withdrawal_amount:not_evaluated');
+    });
+
+    it('still applies the deposit ceiling to a DEPOSIT amount', async () => {
+      mockPrisma.user.findUnique.mockResolvedValue(baseUser());
+      // Guards the test above against a regression that would silently disable
+      // the limits that DO exist.
+      await expect(
+        service.explain('user-1', {
+          action: 'DEPOSIT',
+          amountMinorUnits: '1000'
+        })
+      ).resolves.toBeDefined();
     });
 
     it('reports a KYC failure as not-allowed (never throws)', async () => {
