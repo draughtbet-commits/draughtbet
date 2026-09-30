@@ -10,7 +10,7 @@ import { reconcileRedisWithDurable } from './gameRecovery.js';
 import { getLegalMoves } from '../modules/engine/index.js';
 import { buildStatePayload } from './gameProtocol.js';
 import { validateMatchIdPayload } from './payloadGuard.js';
-import { resolveDisconnectGraceMs } from './timeControl.js';
+import { resolveDisconnectGraceMs, GAME_STATE_TTL_SECONDS } from './timeControl.js';
 import { recordConnectionEvent, recordGameEvent } from './connectionEvidence.js';
 import logger from '../utils/logger.js';
 import { NotificationService } from '../modules/notification/service.js';
@@ -29,13 +29,24 @@ const recordPresence = async (matchId, state, userId, status, graceEndsAt = null
   await writePresence(matchId, side, userId, status, graceEndsAt);
 };
 
-const writePresence = async (matchId, side, userId, status, graceEndsAt = null) => {
+export const writePresence = async (matchId, side, userId, status, graceEndsAt = null) => {
+  // A falsy matchId would otherwise be interpolated into `match:undefined` and
+  // create a stray key. Presence is best-effort, so skip rather than write junk.
+  if (!matchId) {
+    logger.warn({ userId, side, status }, 'Presence write skipped: missing matchId');
+    return;
+  }
   const field = `conn${side}`;
   const value = status === 'disconnected'
     ? JSON.stringify({ status, graceEndsAt: graceEndsAt ?? null })
     : JSON.stringify({ status });
   try {
-    await redis.hset(`match:${matchId}`, { [field]: value });
+    // HSET and EXPIRE are issued together so a presence write can never leave a
+    // `match:` key with no lifetime (the bug that produced `match:undefined`).
+    await redis.multi()
+      .hset(`match:${matchId}`, { [field]: value })
+      .expire(`match:${matchId}`, GAME_STATE_TTL_SECONDS)
+      .exec();
   } catch (err) {
     logger.warn({ err, matchId, userId }, 'Record presence failed');
   }

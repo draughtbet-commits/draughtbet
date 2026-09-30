@@ -12,11 +12,11 @@ import {
 } from '../modules/engine/index.js';
 import {
   DEFAULT_TIME_CONTROL_SECONDS,
+  GAME_STATE_TTL_SECONDS,
   disconnectGraceMs,
   resolveDisconnectGraceMs
 } from './timeControl.js';
 
-const GAME_STATE_TTL = 24 * 60 * 60;
 const LIVE_MATCH_STATUSES = ['IN_PLAY', 'ACTIVE'];
 const SIDE_COLOR = { LIGHT: COLOR_WHITE, DARK: COLOR_BLACK };
 
@@ -145,7 +145,7 @@ export const rebuildProjectionFromDurable = async (matchId, { durable = null, li
 
   const projection = buildProjection({ live, durable: durableState, match, rows });
   await redis.hset(`match:${matchId}`, projection);
-  await redis.expire(`match:${matchId}`, GAME_STATE_TTL);
+  await redis.expire(`match:${matchId}`, GAME_STATE_TTL_SECONDS);
   return projection;
 };
 

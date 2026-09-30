@@ -14,14 +14,13 @@ import { getIO } from './index.js';
 import {
   DEFAULT_TIME_CONTROL_SECONDS,
   TURN_EXPIRED_REASON,
+  GAME_STATE_TTL_SECONDS,
   disconnectGraceMs,
   remainingMs
 } from './timeControl.js';
 import prisma from '../utils/db.js';
 import { transitionMatchWhere, isLiveStatus } from '../modules/match/service.js';
 import * as Sentry from '@sentry/node';
-
-const GAME_STATE_TTL = 24 * 60 * 60; // 24 hours
 
 // Lua script for atomic compare-and-swap. The expiry guard is embedded in the
 // script so a move/resign can never race the turn-deadline sweep: any
@@ -367,7 +366,7 @@ export const initializeGame = async (matchId, player1Id, player2Id, stakeTier, {
 
   try {
     await redis.hset(matchKey, initialState);
-    await redis.expire(matchKey, GAME_STATE_TTL);
+    await redis.expire(matchKey, GAME_STATE_TTL_SECONDS);
     await redis.set(`user:${player1Id}:activeMatch`, matchId);
     await redis.set(`user:${player2Id}:activeMatch`, matchId);
 

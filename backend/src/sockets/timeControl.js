@@ -7,6 +7,10 @@ export const DEFAULT_TIME_CONTROL_SECONDS = 60;
 // Settlement endReason for a forfeit caused by an expired turn.
 export const TURN_EXPIRED_REASON = 'timeout_forfeit';
 
+// Lifetime of the Redis `match:<id>` projection. Every write to that key must
+// carry a TTL so a projection can never outlive the match it belongs to.
+export const GAME_STATE_TTL_SECONDS = 24 * 60 * 60;
+
 // Disconnect grace defaults/band; per-match snapshot overrides the env value.
 export const DEFAULT_DISCONNECT_GRACE_MS = 60 * 1000;
 export const MIN_DISCONNECT_GRACE_MS = 5 * 1000;

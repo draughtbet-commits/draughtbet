@@ -6,9 +6,18 @@ const mockPrisma = {
   }
 };
 
+// writePresence writes atomically via MULTI; expose the chain so tests can
+// assert the HSET and the TTL-carrying EXPIRE go out together.
+const mockMulti = {
+  hset: jest.fn().mockReturnThis(),
+  expire: jest.fn().mockReturnThis(),
+  exec: jest.fn().mockResolvedValue([])
+};
+
 const mockRedis = {
   zrem: jest.fn(),
-  zadd: jest.fn()
+  zadd: jest.fn(),
+  multi: jest.fn(() => mockMulti)
 };
 
 const mockLogger = {
@@ -56,7 +65,7 @@ jest.unstable_mockModule('../../modules/notification/service.js', () => ({
   NotificationService: { create: jest.fn() }
 }));
 
-const { handleJoinMatch, handleDisconnect } = await import('../disconnectHandler.js');
+const { handleJoinMatch, handleDisconnect, writePresence } = await import('../disconnectHandler.js');
 const { reconcileRedisWithDurable } = await import('../gameRecovery.js');
 const { getIO } = await import('../index.js');
 const { getActiveGameForUser, getGameState } = await import('../gameManager.js');
@@ -250,5 +259,33 @@ describe('handleDisconnect last-socket grace', () => {
     await handleDisconnect(makeSocket());
 
     expect(mockRedis.zadd).not.toHaveBeenCalled();
+  });
+});
+
+describe('writePresence lifetime', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('writes presence with a TTL so the match key can never outlive the match', async () => {
+    await writePresence('match-1', 'LIGHT', 'user-1', 'connected');
+
+    expect(mockRedis.multi).toHaveBeenCalledTimes(1);
+    expect(mockMulti.hset).toHaveBeenCalledWith('match:match-1', {
+      connLIGHT: JSON.stringify({ status: 'connected' })
+    });
+    expect(mockMulti.expire).toHaveBeenCalledWith('match:match-1', 86400);
+    expect(mockMulti.exec).toHaveBeenCalledTimes(1);
+  });
+
+  it('skips the write entirely when matchId is missing', async () => {
+    await writePresence(undefined, 'LIGHT', 'user-1', 'connected');
+
+    expect(mockRedis.multi).not.toHaveBeenCalled();
+    expect(mockMulti.hset).not.toHaveBeenCalled();
+    expect(mockLogger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: 'user-1' }),
+      expect.stringContaining('missing matchId')
+    );
   });
 });
