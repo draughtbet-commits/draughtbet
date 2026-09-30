@@ -45,7 +45,11 @@ export function getRegularMoves(board, color) {
     const pieceIsKing = isKing(piece);
     
     for (const { dr, dc } of DIRS) {
-      // Men can only move forward
+      // Men can only move forward. Square numbers increase with the row index
+      // (squareToRowCol), so WHITE on rows 6-9 advances toward lower rows
+      // (dr -1) and BLACK on rows 0-3 toward higher rows (dr +1) — both into the
+      // middle band (rows 4-5, squares 21-30), which is where they meet.
+      // Kings are exempt and use all four directions.
       if (!pieceIsKing) {
         if (color === COLOR_WHITE && dr === 1) continue;
         if (color === COLOR_BLACK && dr === -1) continue;

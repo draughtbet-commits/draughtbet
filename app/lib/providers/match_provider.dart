@@ -194,12 +194,16 @@ class MatchNotifier extends StateNotifier<MatchState> {
       _socketService.onGameState.listen((data) {
         try {
           final gameState = GameState.fromJson(data);
+          // Deliberately does NOT clear the rejection banner. This snapshot is
+          // the remedy the stale-state path itself requests, so it lands
+          // immediately after move_rejected and used to wipe the notice before
+          // the player could ever see it. The banner is dismissed explicitly
+          // (clearRejection) or by the next deliberate action.
           state = state.copyWith(
             gameState: gameState,
             syncState: MatchSyncState.synced,
             isMovePending: false,
             clearPendingMove: true,
-            clearRejection: true,
           );
         } catch (_) {
           state = state.copyWith(syncState: MatchSyncState.syncing);
