@@ -1,5 +1,7 @@
 import redis, { isRedisReady } from '../utils/redis.js';
+import prisma from '../utils/db.js';
 import logger from '../utils/logger.js';
+import { isLiveStatus } from '../modules/match/service.js';
 import { settleGameWithRetry } from '../sockets/settlement.js';
 import { TURN_EXPIRED_REASON } from '../sockets/timeControl.js';
 import cron from 'node-cron';
@@ -38,6 +40,25 @@ export const processTurnDeadlineSweep = async ({ now = Date.now(), pageSize = SW
   for (const { matchId, state } of expired) {
     try {
       // Each match has its own try/catch so one failure never blocks the batch.
+      //
+      // A Redis projection can outlive a match that is already terminal in
+      // Postgres (a draw refund, or a cleanup/re-init race). Settling it as a
+      // win would hit the idempotency gate and, with no winner to attribute,
+      // never delete the key — so the sweep would re-forfeit it forever. Never
+      // settle a match the DB no longer considers live; clear the orphan instead.
+      const match = await prisma.match.findUnique({
+        where: { id: matchId },
+        select: { status: true }
+      });
+      if (!match || !isLiveStatus(match.status)) {
+        logger.info({ matchId, status: match?.status },
+          'Turn deadline sweep: match no longer live — clearing stale state');
+        try { await redis.del(`match:${matchId}`); } catch (e) {
+          logger.warn({ e, matchId }, 'Turn deadline sweep: failed to clear stale match state');
+        }
+        continue;
+      }
+
       const loserId = state.currentTurnUserId;
       const winnerId = state.player1 === loserId ? state.player2 : state.player1;
       if (!winnerId) {

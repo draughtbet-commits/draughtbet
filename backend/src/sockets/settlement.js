@@ -181,7 +181,14 @@ async function runCleanupFromDbForWin(matchId) {
   const record = await readSettlementOrLegacyPayout(matchId);
   if (!record) return;
   const winnerId = record.winnerId ?? match.winnerId;
-  if (!winnerId) return;
+  if (!winnerId) {
+    // A terminal record without a winner (draw / both disconnected) can still
+    // arrive through the win retry path when that path is the one holding the
+    // idempotency gate. Delegate to the draw cleanup so the live Redis
+    // projection is always released rather than left to be re-forfeited.
+    await runCleanupFromDbForDraw(matchId);
+    return;
+  }
 
   await notifyAndCleanupWin(
     matchId,

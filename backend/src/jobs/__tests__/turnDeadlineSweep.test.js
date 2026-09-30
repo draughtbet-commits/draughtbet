@@ -2,7 +2,8 @@ import { jest } from '@jest/globals';
 
 const mockRedis = {
   scan: jest.fn(),
-  hgetall: jest.fn()
+  hgetall: jest.fn(),
+  del: jest.fn().mockResolvedValue(1)
 };
 
 const mockSettlement = {
@@ -15,11 +16,21 @@ const mockLogger = {
   error: jest.fn()
 };
 
+// Default to a live match so the pre-existing cases keep settling; individual
+// tests override the return value to exercise the terminal-match guard.
+const mockPrisma = {
+  match: { findUnique: jest.fn().mockResolvedValue({ status: 'IN_PLAY' }) }
+};
+
 jest.unstable_mockModule('../../utils/redis.js', () => ({
   default: mockRedis,
   isRedisReady: jest.fn().mockReturnValue(true)
 }));
 
+jest.unstable_mockModule('../../utils/db.js', () => ({ default: mockPrisma }));
+jest.unstable_mockModule('../../modules/match/service.js', () => ({
+  isLiveStatus: jest.fn((status) => status === 'IN_PLAY' || status === 'ACTIVE')
+}));
 jest.unstable_mockModule('../../sockets/settlement.js', () => mockSettlement);
 jest.unstable_mockModule('../../utils/logger.js', () => ({
   default: mockLogger
@@ -100,6 +111,27 @@ describe('turnDeadlineSweep', () => {
       expect.objectContaining({ matchId: 'a' }),
       expect.stringContaining('settlement failed')
     );
+  });
+
+  it('clears a stale Redis projection instead of re-forfeiting a terminal match', async () => {
+    const now = Date.now();
+    mockRedis.scan.mockResolvedValueOnce(['0', ['match:phantom']]);
+    mockRedis.hgetall.mockResolvedValue({
+      player1: 'p1',
+      player2: 'p2',
+      status: 'in_progress',
+      currentTurnUserId: 'p2',
+      deadlineAt: String(now - 1)
+    });
+    // DB says the match already ended (e.g. a both-disconnected draw refund),
+    // yet the Redis hash still claims in_progress with an expired deadline.
+    mockPrisma.match.findUnique.mockResolvedValueOnce({ status: 'SETTLED' });
+
+    const result = await processTurnDeadlineSweep({ now });
+
+    expect(mockSettlement.settleGameWithRetry).not.toHaveBeenCalled();
+    expect(mockRedis.del).toHaveBeenCalledWith('match:phantom');
+    expect(result.settled).toEqual([]);
   });
 
   it('skips matches whose opponent cannot be resolved', async () => {
