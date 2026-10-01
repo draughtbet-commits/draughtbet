@@ -16,6 +16,7 @@ import { startProviderFollowUp } from './jobs/providerFollowUp.js';
 import { startFinancialReconciliation } from './jobs/financialReconciliation.js';
 import { startGameRecovery } from './sockets/gameRecovery.js';
 import { startReadyGateSweep } from './jobs/readyGateSweep.js';
+import { startStakeLockSweep } from './jobs/stakeLockSweep.js';
 import { startChallengeExpirySweep } from './jobs/challengeExpirySweep.js';
 import { startDepositQuoteExpirySweep } from './jobs/depositQuoteExpiry.js';
 import { ensureActiveConfigVersions } from './services/configVersionsService.js';
@@ -39,6 +40,7 @@ const startBackgroundJobs = () => {
   startFinancialReconciliation();
   startGameRecovery();
   startReadyGateSweep();
+  startStakeLockSweep();
   startChallengeExpirySweep();
   startDepositQuoteExpirySweep();
 };

@@ -22,6 +22,7 @@ import prisma from '../src/utils/db.js';
 import redis from '../src/utils/redis.js';
 import { AuthService } from '../src/modules/auth/service.js';
 import { postDepositCredit } from '../src/services/ledgerService.js';
+import { reconcileStakeLocks } from '../src/services/lockReconciliation.js';
 import { debitStakes } from '../src/services/matchService.js';
 import { finalizeMatchActivation, cancelPreplayMatch } from '../src/services/gameActivationService.js';
 import {
@@ -166,13 +167,30 @@ const main = async () => {
     try {
       await cancelPreplayMatch(row.id);
     } catch (err) {
-      // Falling back to a direct status write is fine here: this is fixture
-      // teardown, and the stake is refunded by the top-up above on the next
-      // run. It is logged rather than swallowed so a real failure is visible.
-      console.warn(`seed: cancelMatch(${row.id}) failed: ${err.message}; forcing status`);
-      await prisma.match.update({ where: { id: row.id }, data: { status: 'CANCELLED' } });
+      // Never force a match to CANCELLED here. The status write is not the
+      // teardown: cancelling is what releases the locked stake and closes the
+      // reservation, so writing the status alone strands the players' money in
+      // PLAYER_LOCKED forever and leaves a RESERVED row pointing at a dead
+      // match. Fail loudly and let the operator reconcile instead.
+      throw new Error(
+        `seed: cancelPreplayMatch(${row.id}) failed: ${err.message}. ` +
+        'Refusing to force the status, because that would strand the reserved stake. ' +
+        'Run the stake-lock reconciliation (STAKE_LOCK_RECONCILE_REPAIR=true) or fix the cause.'
+      );
     }
     await redis.del(`match:${row.id}`);
+  }
+
+  // Self-heal any lock drift a previous run left behind, so repeated seeding
+  // converges instead of accumulating stranded stake.
+  for (const user of [p1, p2]) {
+    const reconciled = await reconcileStakeLocks(prisma, user.id);
+    if (reconciled.staleRowsClosed > 0 || reconciled.repairedMinorUnits > 0n) {
+      console.log(
+        `seed: reconciled stake locks for ${user.email}: ` +
+        `returned ${reconciled.repairedMinorUnits}, closed ${reconciled.staleRowsClosed} stale rows`
+      );
+    }
   }
 
   // A real match: stakes debited, then activated through the outbox.
