@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../models/match_flow.dart';
 import '../providers/match_flow_provider.dart';
+import '../providers/profile_provider.dart';
 import '../theme/colors.dart';
 import '../widgets/flow_widgets.dart';
 
@@ -16,6 +17,14 @@ class ArenaScreen extends ConsumerStatefulWidget {
 
 class _ArenaScreenState extends ConsumerState<ArenaScreen> {
   int? _maxStake;
+
+  /// Filter chips follow the account tier, so a MASTER user is not offered a
+  /// ≤₦2,000 filter that hides every match they are actually eligible for.
+  List<int?> get _stakeFilters {
+    final tier = ref.read(profileProvider).profile?.tier;
+    if (tier == null) return const [null, 100000, 200000, 500000];
+    return [null, ...stakePresetsForTier(tier).reversed];
+  }
 
   @override
   void initState() {
@@ -46,7 +55,7 @@ class _ArenaScreenState extends ConsumerState<ArenaScreen> {
               const SizedBox(height: 16),
               Wrap(
                 spacing: 8,
-                children: [null, 100000, 200000, 500000].map((value) {
+                children: _stakeFilters.map((value) {
                   return ChoiceChip(
                     label: Text(
                       value == null ? 'All stakes' : Money(value).format(),

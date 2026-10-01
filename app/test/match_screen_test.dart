@@ -63,6 +63,9 @@ void main() {
         () => mockSocketService.onMatchEnded,
       ).thenAnswer((_) => matchEndedController.stream);
       when(
+        () => mockSocketService.onPreplayReleased,
+      ).thenAnswer((_) => const Stream.empty());
+      when(
         () => mockSocketService.onDrawOffer,
       ).thenAnswer((_) => const Stream.empty());
       when(
@@ -74,6 +77,10 @@ void main() {
       when(
         () => mockSocketService.onSettlementCompleted,
       ).thenAnswer((_) => const Stream.empty());
+      when(
+        () => mockSocketService.onConnectionPhase,
+      ).thenAnswer((_) => const Stream.empty());
+      when(() => mockSocketService.isV2).thenReturn(false);
       when(
         () => mockSocketService.attemptMove(any(), any(), any()),
       ).thenReturn(null);

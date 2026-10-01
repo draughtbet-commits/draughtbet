@@ -26,9 +26,10 @@ class _PlayerSearchScreenState extends ConsumerState<PlayerSearchScreen> {
   void initState() {
     super.initState();
     if (widget.players.isNotEmpty) {
-      Future.microtask(() => ref
-          .read(playerSearchProvider.notifier)
-          .setResults(widget.players));
+      Future.microtask(
+        () =>
+            ref.read(playerSearchProvider.notifier).setResults(widget.players),
+      );
     }
   }
 
@@ -46,7 +47,8 @@ class _PlayerSearchScreenState extends ConsumerState<PlayerSearchScreen> {
         height: 420,
         child: RecoverableState(
           title: 'Search the arena',
-          message: 'Look up any player by username and view their public '
+          message:
+              'Look up any player by username and view their public '
               'profile. Contact and balance details are never shown.',
           actionLabel: 'Browse Arena',
           onAction: _browseArena,
@@ -62,9 +64,8 @@ class _PlayerSearchScreenState extends ConsumerState<PlayerSearchScreen> {
         message:
             state.message ?? 'Could not reach the server. Please try again.',
         actionLabel: 'Try again',
-        onAction: () => ref
-            .read(playerSearchProvider.notifier)
-            .updateQuery(state.query),
+        onAction: () =>
+            ref.read(playerSearchProvider.notifier).updateQuery(state.query),
         icon: LucideIcons.searchX,
       ),
       PlayerSearchPhase.empty => RecoverableState(
@@ -98,8 +99,7 @@ class _PlayerSearchScreenState extends ConsumerState<PlayerSearchScreen> {
                         style: AppTypography.bodySmall,
                       ),
                       trailing: const Icon(LucideIcons.chevronRight),
-                      onTap: () =>
-                          context.push('/arena/player', extra: player),
+                      onTap: () => context.push('/arena/player', extra: player),
                     ),
                   ),
                 ),
@@ -185,16 +185,10 @@ class _PublicPlayerProfileScreenState
     }
   }
 
-  static const Map<String, List<int>> _stakePresets = {
-    'PRO': [6000000, 5000000, 3000000],
-    'MASTER': [3000000, 1500000, 1000000],
-    'AMATEUR': [500000, 200000, 100000, 50000],
-  };
-
   Future<void> _sendChallenge(MatchPlayer target) async {
     ref.read(profileProvider.notifier).load();
-    final tier = ref.read(profileProvider).profile?.tier ?? 'AMATEUR';
-    final presets = _stakePresets[tier] ?? _stakePresets['AMATEUR']!;
+    final tier = ref.read(profileProvider).profile?.tier;
+    final presets = stakePresetsForTier(tier);
     final stake = await showModalBottomSheet<int>(
       context: context,
       isScrollControlled: true,
@@ -243,8 +237,7 @@ class _PublicPlayerProfileScreenState
           child: LayoutBuilder(
             builder: (context, constraints) => SingleChildScrollView(
               child: ConstrainedBox(
-                constraints:
-                    BoxConstraints(minHeight: constraints.maxHeight),
+                constraints: BoxConstraints(minHeight: constraints.maxHeight),
                 child: IntrinsicHeight(
                   child: Column(
                     children: [
@@ -291,8 +284,9 @@ class _PublicPlayerProfileScreenState
                       PrimaryActionButton(
                         label: 'Challenge Player',
                         loading: _challenging,
-                        onPressed:
-                            _challenging ? null : () => _sendChallenge(player),
+                        onPressed: _challenging
+                            ? null
+                            : () => _sendChallenge(player),
                       ),
                       const SizedBox(height: 8),
                       SecondaryActionButton(

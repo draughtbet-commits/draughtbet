@@ -1,5 +1,19 @@
 import 'package:intl/intl.dart';
 
+/// Matchmaking stake presets, in minor units, mirroring the backend's
+/// `STAKE_PRESETS` per tier. The quick-match and challenge paths reject any
+/// stake outside these lists, so every picker has to follow the account's tier
+/// instead of assuming AMATEUR.
+const Map<String, List<int>> kStakePresetsByTier = {
+  'PRO': [6000000, 5000000, 3000000],
+  'MASTER': [3000000, 1500000, 1000000],
+  'AMATEUR': [500000, 200000, 100000, 50000],
+};
+
+List<int> stakePresetsForTier(String? tier) =>
+    kStakePresetsByTier[(tier ?? '').toUpperCase()] ??
+    kStakePresetsByTier['AMATEUR']!;
+
 enum LoadPhase { initial, loading, ready, empty, error, offline }
 
 enum MatchActionPhase { idle, submitting, succeeded, failed, unknown }
@@ -489,17 +503,23 @@ class MatchReceiptData {
         ? Map<String, dynamic>.from(outer['data'] as Map)
         : outer;
     final matchId = envelope['matchId']?.toString().trim() ?? '';
-    final settledAt = DateTime.tryParse(envelope['settledAt']?.toString() ?? '');
+    final settledAt = DateTime.tryParse(
+      envelope['settledAt']?.toString() ?? '',
+    );
 
     // The active V2 contract serves one receipt row per participant
     // (`receipts[]`), each with its own reference and money line. Pick the
     // caller's own row so the receipt reflects this player's result.
     final receipts = envelope['receipts'];
-    if (receipts is List && receipts.isNotEmpty && matchId.isNotEmpty && settledAt != null) {
+    if (receipts is List &&
+        receipts.isNotEmpty &&
+        matchId.isNotEmpty &&
+        settledAt != null) {
       Map<String, dynamic>? pick;
       if (currentUserId != null && currentUserId.trim().isNotEmpty) {
         for (final item in receipts) {
-          if (item is Map && item['userId']?.toString().trim() == currentUserId) {
+          if (item is Map &&
+              item['userId']?.toString().trim() == currentUserId) {
             pick = Map<String, dynamic>.from(item);
             break;
           }
@@ -563,7 +583,9 @@ class MatchReceiptData {
         : envelope;
     final legacyMatchId = body['matchId']?.toString().trim() ?? '';
     final reference = body['reference']?.toString().trim();
-    final legacySettledAt = DateTime.tryParse(body['settledAt']?.toString() ?? '');
+    final legacySettledAt = DateTime.tryParse(
+      body['settledAt']?.toString() ?? '',
+    );
     final resultBody = body['result'] is Map
         ? Map<String, dynamic>.from(body['result'] as Map)
         : const <String, dynamic>{};

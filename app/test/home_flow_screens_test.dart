@@ -131,9 +131,17 @@ class SilentSocketService extends SocketService {
   @override
   Stream<Map<String, dynamic>> get onMatchEnded => const Stream.empty();
   @override
+  Stream<SocketConnectionPhase> get onConnectionPhase => const Stream.empty();
+  @override
+  Stream<Map<String, dynamic>> get onClockSync => const Stream.empty();
+  @override
   void joinMatch(String matchId) {}
   @override
   void attemptMove(String matchId, int from, int to) {}
+  @override
+  void requestClockSync(String matchId) {}
+  @override
+  Future<void> reconnect() async {}
 }
 
 class StaticMatchNotifier extends MatchNotifier {
@@ -144,6 +152,9 @@ class StaticMatchNotifier extends MatchNotifier {
 
   @override
   Future<void> fetchGameState(String matchId) async {}
+
+  @override
+  Future<void> restoreActiveMatch() async {}
 
   @override
   void joinMatch(String matchId) {}
@@ -218,7 +229,9 @@ Widget appFor(
         (ref) => StaticMatchNotifier(match ?? const MatchState()),
       ),
       notificationProvider.overrideWith((ref) => StaticNotificationNotifier()),
-      walletProvider.overrideWith((ref) => StaticWalletNotifier(const WalletState())),
+      walletProvider.overrideWith(
+        (ref) => StaticWalletNotifier(const WalletState()),
+      ),
     ],
     child: MaterialApp(theme: AppTheme.dark, home: child),
   );
@@ -302,7 +315,9 @@ Widget navigationApp({
         (ref) => StaticMatchNotifier(match ?? const MatchState()),
       ),
       notificationProvider.overrideWith((ref) => StaticNotificationNotifier()),
-      walletProvider.overrideWith((ref) => StaticWalletNotifier(const WalletState())),
+      walletProvider.overrideWith(
+        (ref) => StaticWalletNotifier(const WalletState()),
+      ),
     ],
     child: MaterialApp.router(theme: AppTheme.dark, routerConfig: router),
   );
@@ -355,7 +370,12 @@ void main() {
     await tester.pump();
     expect(find.text('FIND A MATCH'), findsOneWidget);
     expect(find.text('Quick Match'), findsOneWidget);
-    expect(find.text('₦2K'), findsOneWidget);
+    // The fixture profile is MASTER, so the quick stakes must be that tier's
+    // presets rather than the AMATEUR list.
+    expect(find.text('₦30K'), findsOneWidget);
+    expect(find.text('₦15K'), findsOneWidget);
+    expect(find.text('₦10K'), findsOneWidget);
+    expect(find.text('₦2K'), findsNothing);
     expect(find.text('ACTIVE MATCHES'), findsOneWidget);
   });
 

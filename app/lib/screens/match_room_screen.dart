@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'dart:async';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -130,24 +131,9 @@ class _MatchRoomScreenState extends ConsumerState<MatchRoomScreen> {
                 MatchTermsCard(terms: terms),
                 if (opponentDisconnected) ...[
                   const SizedBox(height: 12),
-                  FlowCard(
-                    borderColor: AppColors.danger.withValues(alpha: .5),
-                    child: const Row(
-                      children: [
-                        Icon(LucideIcons.userRoundX, color: AppColors.danger),
-                        SizedBox(width: 10),
-                        Expanded(
-                          child: Text(
-                            'Opponent disconnected. Waiting for the server reconnect window.',
-                            style: TextStyle(
-                              fontFamily: 'Inter',
-                              color: AppColors.textSecondary,
-                              fontSize: 11,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
+                  _RoomDisconnectCard(
+                    key: ValueKey(game.opponentDisconnectSequence),
+                    gracePeriodMs: game.opponentGracePeriodMs ?? 60000,
                   ),
                 ],
                 const SizedBox(height: 18),
@@ -273,6 +259,93 @@ class _MatchRoomScreenState extends ConsumerState<MatchRoomScreen> {
           backgroundColor: AppColors.surfaceRaised,
           child: const Icon(LucideIcons.messageCircle, size: 19),
         ),
+      ),
+    );
+  }
+}
+
+class _RoomDisconnectCard extends StatefulWidget {
+  const _RoomDisconnectCard({super.key, required this.gracePeriodMs});
+
+  final int gracePeriodMs;
+
+  @override
+  State<_RoomDisconnectCard> createState() => _RoomDisconnectCardState();
+}
+
+class _RoomDisconnectCardState extends State<_RoomDisconnectCard> {
+  final Stopwatch _elapsed = Stopwatch();
+  Timer? _ticker;
+
+  @override
+  void initState() {
+    super.initState();
+    _elapsed.start();
+    _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _ticker?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final remainingMs = widget.gracePeriodMs - _elapsed.elapsedMilliseconds;
+    final remaining = remainingMs <= 0 ? 0 : (remainingMs / 1000).ceil();
+    return FlowCard(
+      borderColor: AppColors.valueAccent.withValues(alpha: .5),
+      child: Row(
+        children: [
+          Container(
+            width: 48,
+            height: 48,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              border: Border.all(color: AppColors.primaryBright, width: 3),
+            ),
+            child: Text(
+              remaining > 0 ? '$remaining' : '…',
+              style: const TextStyle(
+                fontFamily: 'Sora',
+                fontSize: 17,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'OPPONENT DISCONNECTED',
+                  style: TextStyle(
+                    fontFamily: 'Sora',
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  remaining > 0
+                      ? 'Waiting during the server reconnect window.'
+                      : 'Awaiting the server decision. No funds are released locally.',
+                  style: const TextStyle(
+                    fontFamily: 'Inter',
+                    color: AppColors.textSecondary,
+                    fontSize: 10,
+                    height: 1.3,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }

@@ -14,11 +14,16 @@ class CreateMatchScreen extends ConsumerStatefulWidget {
 }
 
 class _CreateMatchScreenState extends ConsumerState<CreateMatchScreen> {
-  int _stake = 200000;
-  static const _timeControl = 'Server configured';
+  // MASTER call-out stakes run from 1,000,000 to 15,000,000 minor units, so the
+  // picker offers only values the create endpoint will accept for this tier.
+  int _stake = 1000000;
+  // The gateway turns this into `timeControlSeconds` for the create endpoint by
+  // reading the leading number, so it has to be a real control and not a label.
+  static const _timeControl = '10 minutes';
   static const _gameType = 'Classic';
   static const _board = '10×10 (International)';
-  static const _visibility = 'Same tier';
+  // The create endpoint only accepts PUBLIC, PRIVATE or ANYONE.
+  static const _visibility = 'Anyone';
 
   void _review() {
     final intent = MatchFlowIntent(
@@ -79,7 +84,7 @@ class _CreateMatchScreenState extends ConsumerState<CreateMatchScreen> {
               DropdownButtonFormField<int>(
                 isExpanded: true,
                 initialValue: _stake,
-                items: const [50000, 100000, 200000, 500000]
+                items: const [1000000, 2000000, 5000000, 10000000, 15000000]
                     .map(
                       (value) => DropdownMenuItem(
                         value: value,

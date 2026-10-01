@@ -17,6 +17,7 @@ class ProtocolSocket extends SocketService {
   final moveRejected = StreamController<Map<String, dynamic>>.broadcast();
   final drawOffer = StreamController<Map<String, dynamic>>.broadcast();
   final drawResponse = StreamController<Map<String, dynamic>>.broadcast();
+  final clockSync = StreamController<Map<String, dynamic>>.broadcast();
 
   Map<String, dynamic>? v2Move;
   List<Object?>? legacyMove;
@@ -34,6 +35,8 @@ class ProtocolSocket extends SocketService {
   Stream<Map<String, dynamic>> get onDrawOffer => drawOffer.stream;
   @override
   Stream<Map<String, dynamic>> get onDrawResponse => drawResponse.stream;
+  @override
+  Stream<Map<String, dynamic>> get onClockSync => clockSync.stream;
   @override
   Stream<Map<String, dynamic>> get onMatchFound => const Stream.empty();
   @override
@@ -122,6 +125,7 @@ class ProtocolSocket extends SocketService {
     moveRejected.close();
     drawOffer.close();
     drawResponse.close();
+    clockSync.close();
     super.dispose();
   }
 }
@@ -189,6 +193,33 @@ void main() {
     expect(parsed.legalMoves.single.path, [22, 13]);
     expect(parsed.legalMoves.single.capturedSquares, [27, 18]);
     expect(parsed.moveHistory.single.clientMoveId, 'move-1');
+  });
+
+  test('the socket match.state shape resolves both players', () {
+    // The shape the server actually sends on join: participants with
+    // LIGHT/DARK sides, not the players.light/players.dark the test above
+    // assumed. Getting this wrong left player1 and player2 empty, so the app
+    // thought it was never the player's turn and disabled the board.
+    final parsed = GameState.fromJson({
+      'matchId': 'm-1',
+      'version': '0',
+      'stateVersion': 0,
+      'currentTurn': 'WHITE',
+      'currentTurnUserId': 'light-user',
+      'status': 'in_progress',
+      'board': List.filled(50, 0),
+      'legalMoves': <dynamic>[],
+      'participants': [
+        {'userId': 'light-user', 'side': 'LIGHT', 'ready': false},
+        {'userId': 'dark-user', 'side': 'DARK', 'ready': false},
+      ],
+    });
+
+    expect(parsed.player1, 'light-user');
+    expect(parsed.player2, 'dark-user');
+    // The turn belongs to player1, which is what lets the board accept input.
+    expect(parsed.currentTurn, 'WHITE');
+    expect(parsed.player1, isNotEmpty);
   });
 
   test('stable server rejection codes map to safe player copy', () {
@@ -494,5 +525,101 @@ void main() {
     expect(find.text('MOVE HISTORY'), findsOneWidget);
     expect(find.text('32–14'), findsOneWidget);
     expect(find.textContaining('payout'), findsNothing);
+  });
+
+  test('the turn clock lands from the authoritative snapshot', () async {
+    final socket = ProtocolSocket();
+    final notifier = ProtocolNotifier(socket, Dio());
+    notifier.setCurrentUserId('player-one');
+    notifier.state = notifier.state.copyWith(
+      currentMatchId: 'match-clock',
+      gameState: game(),
+    );
+
+    socket.clockSync.add({
+      'matchId': 'match-clock',
+      'serverNowMs': 100000,
+      'currentTurnUserId': 'player-one',
+      'deadlineAt': 109500,
+      'remainingMs': 9500,
+    });
+    await Future<void>.delayed(Duration.zero);
+
+    expect(notifier.state.serverClock?.remainingMs, 9500);
+    expect(notifier.state.serverClock?.currentTurnUserId, 'player-one');
+    expect(notifier.state.serverClock?.serverNowMs, 100000);
+    expect(notifier.state.clockRevision, 1);
+
+    // A packet for a different match must not overwrite this match's clock.
+    socket.clockSync.add({
+      'matchId': 'match-other',
+      'serverNowMs': 200000,
+      'currentTurnUserId': 'player-two',
+      'deadlineAt': 201000,
+      'remainingMs': 1000,
+    });
+    await Future<void>.delayed(Duration.zero);
+
+    expect(notifier.state.serverClock?.remainingMs, 9500);
+    expect(notifier.state.clockRevision, 1);
+    notifier.dispose();
+  });
+
+  test('a zero-remaining snapshot is a clock, not a missing clock', () async {
+    final socket = ProtocolSocket();
+    final notifier = ProtocolNotifier(socket, Dio());
+    notifier.setCurrentUserId('player-one');
+    notifier.state = notifier.state.copyWith(
+      currentMatchId: 'match-clock',
+      gameState: game(),
+    );
+
+    // No deadline yet: the server reports zero remaining rather than omitting
+    // the field, so the board reads 00:00 and waits on the server instead of
+    // declaring a timeout or falling back to a placeholder.
+    socket.clockSync.add({
+      'matchId': 'match-clock',
+      'serverNowMs': 100000,
+      'currentTurnUserId': 'player-one',
+      'deadlineAt': null,
+      'remainingMs': 0,
+    });
+    await Future<void>.delayed(Duration.zero);
+
+    expect(notifier.state.serverClock?.remainingMs, 0);
+    expect(notifier.state.clockRevision, 1);
+    notifier.dispose();
+  });
+
+  testWidgets('the clock renders on the board for the side to move', (
+    tester,
+  ) async {
+    final socket = ProtocolSocket();
+    final notifier = ProtocolNotifier(socket, Dio());
+    notifier.setCurrentUserId('player-one');
+    notifier.state = notifier.state.copyWith(
+      currentMatchId: 'match-clock',
+      gameState: game(),
+      syncState: MatchSyncState.synced,
+      serverClock: const ServerClockSnapshot(
+        matchId: 'match-clock',
+        serverNowMs: 100000,
+        remainingMs: 9500,
+        currentTurnUserId: 'player-one',
+      ),
+      clockRevision: 1,
+    );
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [matchProvider.overrideWith((ref) => notifier)],
+        child: const MaterialApp(home: MatchScreen(matchId: 'match-clock')),
+      ),
+    );
+    await tester.pump();
+
+    // 9500ms truncates to 9s, shown on this player's own strip because the
+    // snapshot names them as the side to move.
+    expect(find.text('00:09'), findsOneWidget);
   });
 }

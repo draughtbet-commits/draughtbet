@@ -974,7 +974,7 @@ export const handleClockSync = async (socket, payload) => {
     timeControlSeconds: Number(state.timeControlSeconds) > 0
       ? Number(state.timeControlSeconds)
       : null,
-    remainingMs: remainingMs(deadlineAt, nowMs)
+    remainingMs: remainingMs(deadlineAt, nowMs) ?? 0
   });
 };
 

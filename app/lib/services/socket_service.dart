@@ -1,8 +1,11 @@
 import 'dart:async';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:socket_io_client/socket_io_client.dart' as socket_io;
 import '../config/backend_contract.dart';
 import 'secure_storage.dart';
+
+enum SocketConnectionPhase { connected, disconnected, reconnecting, failed }
 
 class SocketService {
   SocketService({BackendContractConfig? contract}) : _contract = contract;
@@ -12,6 +15,8 @@ class SocketService {
       _contract ?? BackendContractConfig.fromEnvironment();
   socket_io.Socket? _socket;
   final _storage = SecureStorageService();
+  String? _appVersion;
+  Future<void>? _refreshInFlight;
 
   // Stream controllers for different events
   final _matchFoundController =
@@ -41,10 +46,14 @@ class SocketService {
       StreamController<Map<String, dynamic>>.broadcast();
   final _drawResponseController =
       StreamController<Map<String, dynamic>>.broadcast();
+  final _preplayReleasedController =
+      StreamController<Map<String, dynamic>>.broadcast();
   final _clockSyncController =
       StreamController<Map<String, dynamic>>.broadcast();
   final _settlementCompletedController =
       StreamController<Map<String, dynamic>>.broadcast();
+  final _connectionPhaseController =
+      StreamController<SocketConnectionPhase>.broadcast();
   final _gameStartedController =
       StreamController<Map<String, dynamic>>.broadcast();
 
@@ -62,6 +71,12 @@ class SocketService {
   Stream<Map<String, dynamic>> get onMatchEndedResign =>
       _matchEndedResignController.stream;
   Stream<Map<String, dynamic>> get onMatchEnded => _matchEndedController.stream;
+
+  /// A pre-play match left the gate (timeout or pre-play cancel) before play
+  /// started. The sweep that releases it is not a request path, so it pushes
+  /// this instead of a `match_ended` — there is no result to settle.
+  Stream<Map<String, dynamic>> get onPreplayReleased =>
+      _preplayReleasedController.stream;
   Stream<Map<String, dynamic>> get onOpponentDisconnected =>
       _opponentDisconnectedController.stream;
   Stream<Map<String, dynamic>> get onOpponentReconnected =>
@@ -79,7 +94,44 @@ class SocketService {
   Stream<Map<String, dynamic>> get onClockSync => _clockSyncController.stream;
   Stream<Map<String, dynamic>> get onSettlementCompleted =>
       _settlementCompletedController.stream;
+  Stream<SocketConnectionPhase> get onConnectionPhase =>
+      _connectionPhaseController.stream;
   bool get isV2 => contract.isV2;
+
+  /// Re-reads the access token from storage and, when it differs from the one
+  /// the socket is carrying, updates the socket's auth payload and headers so
+  /// the in-flight reconnect handshake uses a token that has not expired.
+  Future<void> _refreshSocketAuth() async {
+    final inFlight = _refreshInFlight;
+    if (inFlight != null) return inFlight;
+    final future = _doRefreshSocketAuth().whenComplete(() {
+      _refreshInFlight = null;
+    });
+    _refreshInFlight = future;
+    return future;
+  }
+
+  Future<void> _doRefreshSocketAuth() async {
+    final socket = _socket;
+    if (socket == null) return;
+
+    String? fresh;
+    try {
+      fresh = await _storage.accessToken;
+    } catch (_) {
+      return;
+    }
+    if (fresh == null || fresh.isEmpty) return;
+
+    final current = socket.auth is Map ? socket.auth['token'] : null;
+    if (current == fresh) return;
+
+    // Only `auth` can be reassigned on a live socket; the Authorization extra
+    // header is fixed at construction. The handshake authenticates from the
+    // auth payload, so updating it is enough to stop the stale-token retries.
+    final version = _appVersion;
+    socket.auth = {'token': fresh, 'version': ?version};
+  }
 
   Future<void> initSocket() async {
     if (_socket != null) {
@@ -93,6 +145,9 @@ class SocketService {
     }
 
     final backendUrl = dotenv.env['BACKEND_URL'] ?? 'http://localhost:3000';
+    final appVersion = (await PackageInfo.fromPlatform()).version;
+    _appVersion = appVersion;
+
     // BACKEND_URL is the REST base (…/api/v1); Socket.IO lives at the bare
     // origin with its default /socket.io path on the root namespace (V2 event
     // names like match.state are served there too). Connecting via the API
@@ -104,12 +159,45 @@ class SocketService {
       socket_io.OptionBuilder()
           .setTransports(['websocket'])
           .disableAutoConnect()
-          .setAuth({'token': token})
+          .setAuth({'token': token, 'version': appVersion})
           .setExtraHeaders(
-            contract.isV2 ? {'Authorization': 'Bearer $token'} : {},
+            contract.isV2
+                ? {
+                    'Authorization': 'Bearer $token',
+                    'x-app-version': appVersion,
+                  }
+                : {},
           )
           .build(),
     );
+
+    _socket!.onConnect((_) {
+      _connectionPhaseController.add(SocketConnectionPhase.connected);
+    });
+    _socket!.onDisconnect((_) {
+      _connectionPhaseController.add(SocketConnectionPhase.disconnected);
+    });
+    _socket!.onReconnectAttempt((_) {
+      // socket.io replays the token captured at connect time on every attempt,
+      // so once the 15 minute access token lapses the handshake fails with
+      // "jwt expired" and the client retries that same dead token forever. Pull
+      // a current token from storage (the REST interceptor refreshes it there)
+      // and swap it in before this attempt goes out.
+      unawaited(_refreshSocketAuth());
+      _connectionPhaseController.add(SocketConnectionPhase.reconnecting);
+    });
+    _socket!.onReconnecting((_) {
+      _connectionPhaseController.add(SocketConnectionPhase.reconnecting);
+    });
+    _socket!.onConnectError((_) {
+      _connectionPhaseController.add(SocketConnectionPhase.failed);
+    });
+    _socket!.onReconnectError((_) {
+      _connectionPhaseController.add(SocketConnectionPhase.failed);
+    });
+    _socket!.onReconnectFailed((_) {
+      _connectionPhaseController.add(SocketConnectionPhase.failed);
+    });
 
     _socket!.on('match_found', (data) {
       if (data is Map) {
@@ -118,6 +206,7 @@ class SocketService {
     });
 
     _socket!.on('game_state', (data) {
+      if (contract.isV2) return;
       if (data is Map) {
         _gameStateController.add(Map<String, dynamic>.from(data));
       }
@@ -173,11 +262,18 @@ class SocketService {
       }
     });
 
+    _socket!.on('match_preplay_released', (data) {
+      if (data is Map) {
+        _preplayReleasedController.add(Map<String, dynamic>.from(data));
+      }
+    });
+
     _socket!.on('match_ended', (data) {
       if (data is Map) {
         _matchEndedController.add(Map<String, dynamic>.from(data));
       }
     });
+
     _socket!.on('match.finished', (data) {
       if (data is Map) {
         _matchEndedController.add(Map<String, dynamic>.from(data));
@@ -199,7 +295,6 @@ class SocketService {
         _drawResponseController.add(Map<String, dynamic>.from(data));
       }
     });
-
     _socket!.on('clock.sync', (data) {
       if (data is Map) {
         _clockSyncController.add(Map<String, dynamic>.from(data));
@@ -209,12 +304,10 @@ class SocketService {
     _socket!.on('opponent.connection', (data) {
       if (data is! Map) return;
       final payload = Map<String, dynamic>.from(data);
-      final connected =
-          payload['connected'] == true ||
-          payload['status']?.toString().toLowerCase() == 'connected';
-      if (connected) {
+      final status = payload['status']?.toString();
+      if (status == 'connected') {
         _opponentReconnectedController.add(payload);
-      } else {
+      } else if (status == 'disconnected') {
         _opponentDisconnectedController.add(payload);
       }
     });
@@ -273,6 +366,13 @@ class SocketService {
 
   void requestCanonicalState(String matchId) => joinMatch(matchId);
 
+  void requestClockSync(String matchId) {
+    if (!contract.isV2) return;
+    _socket?.emit('clock.sync', {'matchId': matchId});
+  }
+
+  Future<void> reconnect() => initSocket();
+
   void markReady(String matchId, String actionId) {
     if (!contract.isV2) return;
     _socket?.emit('player.ready', {'matchId': matchId, 'actionId': actionId});
@@ -280,14 +380,33 @@ class SocketService {
 
   void _forwardClocks(Map<String, dynamic> payload) {
     final clocks = payload['clocks'];
-    if (clocks is! Map) return;
-    _clockSyncController.add({
-      ...Map<String, dynamic>.from(clocks),
-      if (payload['matchId'] != null) 'matchId': payload['matchId'],
-      if (payload['stateVersion'] != null)
-        'stateVersion': payload['stateVersion'],
-      if (payload['sideToMove'] != null) 'sideToMove': payload['sideToMove'],
-    });
+    final clockPayload = <String, dynamic>{
+      if (clocks is Map) ...Map<String, dynamic>.from(clocks),
+    };
+    const clockKeys = <String>[
+      'matchId',
+      'serverNowMs',
+      'clientSentAt',
+      'version',
+      'stateVersion',
+      'status',
+      'currentTurn',
+      'currentTurnUserId',
+      'turnStartedAtServer',
+      'deadlineAt',
+      'timeControlSeconds',
+      'remainingMs',
+      'disconnectGraceMs',
+    ];
+    for (final key in clockKeys) {
+      if (payload[key] != null) clockPayload[key] = payload[key];
+    }
+    if (clockPayload['remainingMs'] == null &&
+        clockPayload['deadlineAt'] == null &&
+        clockPayload['serverNowMs'] == null) {
+      return;
+    }
+    _clockSyncController.add(clockPayload);
   }
 
   void attemptMove(String matchId, int from, int to) {
@@ -331,6 +450,7 @@ class SocketService {
     required String actionId,
     required int expectedStateVersion,
   }) {
+    if (!contract.isV2) return;
     _socket?.emit('draw.offer', {
       'matchId': matchId,
       'actionId': actionId,
@@ -368,6 +488,7 @@ class SocketService {
     _opponentDisconnectedController.close();
     _opponentReconnectedController.close();
     _errorController.close();
+    _preplayReleasedController.close();
     _calloutCreatedController.close();
     _walletUpdatedController.close();
     _notificationController.close();
@@ -375,6 +496,7 @@ class SocketService {
     _drawResponseController.close();
     _clockSyncController.close();
     _settlementCompletedController.close();
+    _connectionPhaseController.close();
     _gameStartedController.close();
     disconnect();
   }

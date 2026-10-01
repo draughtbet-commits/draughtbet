@@ -2,6 +2,7 @@ import cron from 'node-cron';
 import prisma from '../utils/db.js';
 import redis from '../utils/redis.js';
 import logger from '../utils/logger.js';
+import { getIO } from '../sockets/index.js';
 import { cancelPreplayMatch } from '../services/gameActivationService.js';
 
 // A funded match that never reaches both-players-ready within the timeout is
@@ -30,6 +31,36 @@ export const processReadyGateSweep = async ({ now = Date.now(), timeoutMs = READ
     select: { id: true, playerLightId: true, playerDarkId: true }
   });
 
+/**
+ * Tells both players, over the socket, that the pre-play window closed.
+ *
+ * Without this the release only touches Postgres and Redis, so a client sitting
+ * in the pre-match room keeps waiting for authoritative state that will never
+ * arrive — the sweep is not a request/response path, so nothing tells it a
+ * release happened. Emitted to the match room and to each player's user room
+ * because a player may hold the room join without being seated in it yet.
+ */
+const notifyReleased = (row, reason) => {
+  try {
+    const io = getIO();
+    if (!io) return;
+    const payload = {
+      matchId: row.id,
+      reason,
+      terminalReason: reason,
+      endReason: reason,
+      refunded: true,
+      status: 'RELEASED'
+    };
+    io.to(`match:${row.id}`).emit('match_preplay_released', payload);
+    for (const userId of [row.playerLightId, row.playerDarkId]) {
+      if (userId) io.to(`user:${userId}`).emit('match_preplay_released', payload);
+    }
+  } catch (err) {
+    logger.warn({ err, matchId: row.id }, 'Ready gate sweep: release notify failed');
+  }
+};
+
   let released = 0;
   for (const row of rows) {
     try {
@@ -44,6 +75,7 @@ export const processReadyGateSweep = async ({ now = Date.now(), timeoutMs = READ
       } catch (err) {
         logger.warn({ err, matchId: row.id }, 'Ready gate sweep: Redis cleanup failed');
       }
+      notifyReleased(row, 'ready_gate_timeout');
       logger.info({ matchId: row.id }, 'Ready gate timeout — pre-play match released, stakes refunded');
     } catch (err) {
       logger.error({ err, matchId: row.id }, 'Ready gate sweep failed for a match');

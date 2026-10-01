@@ -1,9 +1,22 @@
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../config/backend_contract.dart';
 import '../models/match_flow.dart';
 import '../services/api_client.dart';
 import '../services/match_flow_gateway.dart';
+
+String _describeDioFailure(DioException error) {
+  return switch (error.type) {
+    DioExceptionType.connectionError =>
+      'Cannot reach the server. Check your connection and try again.',
+    DioExceptionType.badCertificate => 'The server certificate was rejected.',
+    DioExceptionType.cancel => 'The request was cancelled.',
+    DioExceptionType.badResponse =>
+      'The server rejected the request (${error.response?.statusCode}).',
+    _ => 'The reservation could not be confirmed. Try again.',
+  };
+}
 
 class MatchFlowState {
   const MatchFlowState({
@@ -159,14 +172,21 @@ class MatchFlowNotifier extends StateNotifier<MatchFlowState> {
         return null;
       }
       final message =
-          apiErrorMessage(error.response?.data) ??
-          'The reservation could not be confirmed. Try again.';
+          apiErrorMessage(error.response?.data) ?? _describeDioFailure(error);
+      debugPrint(
+        'matchFlow: create reservation rejected '
+        '(status=${error.response?.statusCode}, type=${error.type}): $message',
+      );
       state = state.copyWith(
         actionPhase: MatchActionPhase.failed,
         message: message,
       );
       return null;
-    } catch (_) {
+    } catch (error, stackTrace) {
+      debugPrint(
+        'matchFlow: match reservation failed before/around the request: '
+        '$error\n$stackTrace',
+      );
       state = state.copyWith(
         actionPhase: MatchActionPhase.failed,
         message: 'The reservation could not be confirmed. Try again.',
@@ -364,7 +384,9 @@ class MatchFlowNotifier extends StateNotifier<MatchFlowState> {
   }
 
   /// Builds the incoming-challenge screen state from the players listing.
-  Future<MatchLifecycleSnapshot?> handleIncomingChallenge(String matchId) async {
+  Future<MatchLifecycleSnapshot?> handleIncomingChallenge(
+    String matchId,
+  ) async {
     try {
       final invite = await _gateway.fetchChallenge(matchId);
       if (invite == null) return null;

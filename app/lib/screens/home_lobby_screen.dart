@@ -22,8 +22,7 @@ class HomeLobbyScreen extends ConsumerStatefulWidget {
 }
 
 class _HomeLobbyScreenState extends ConsumerState<HomeLobbyScreen> {
-  static const _stakes = [50000, 100000, 200000, 500000];
-  int _selectedStake = 200000;
+  int? _selectedStake;
 
   @override
   void initState() {
@@ -37,10 +36,15 @@ class _HomeLobbyScreenState extends ConsumerState<HomeLobbyScreen> {
     });
   }
 
+  List<int> get _stakes =>
+      stakePresetsForTier(ref.read(profileProvider).profile?.tier);
+
+  int get _effectiveStake => _selectedStake ?? _stakes.first;
+
   Future<void> _startQuickMatch() async {
     final intent = MatchFlowIntent(
       kind: MatchEntryKind.quick,
-      terms: MatchTerms(stakeMinorUnits: _selectedStake),
+      terms: MatchTerms(stakeMinorUnits: _effectiveStake),
     );
     ref.read(matchFlowProvider.notifier).review(intent);
     await ref.read(matchFlowProvider.notifier).confirm();
@@ -188,7 +192,7 @@ class _HomeLobbyScreenState extends ConsumerState<HomeLobbyScreen> {
             const SizedBox(height: 10),
             Row(
               children: _stakes.map((stake) {
-                final selected = stake == _selectedStake;
+                final selected = stake == _effectiveStake;
                 return Expanded(
                   child: Padding(
                     padding: EdgeInsets.only(
@@ -357,7 +361,9 @@ class _HomeLobbyScreenState extends ConsumerState<HomeLobbyScreen> {
                             context.go('/match/${matchState.currentMatchId}'),
                         style: OutlinedButton.styleFrom(
                           minimumSize: const Size(0, 42),
-                          side: const BorderSide(color: AppColors.primaryBright),
+                          side: const BorderSide(
+                            color: AppColors.primaryBright,
+                          ),
                         ),
                         child: const Text(
                           'Return to Match',
@@ -386,18 +392,17 @@ class _ActiveMatchCard extends StatelessWidget {
   final MatchLifecycleSnapshot snapshot;
 
   String get _route => switch (snapshot.phase) {
-        MatchLifecyclePhase.readyCheck => '/play/ready',
-        MatchLifecyclePhase.waitingOpponentReady => '/play/waiting-ready',
-        _ => '/play/waiting-stake',
-      };
+    MatchLifecyclePhase.readyCheck => '/play/ready',
+    MatchLifecyclePhase.waitingOpponentReady => '/play/waiting-ready',
+    _ => '/play/waiting-stake',
+  };
 
   String get _status => switch (snapshot.phase) {
-        MatchLifecyclePhase.readyCheck =>
-          'Both stakes confirmed · ready to start',
-        MatchLifecyclePhase.waitingOpponentReady =>
-          'Waiting for opponent to confirm',
-        _ => 'Waiting for an opponent stake',
-      };
+    MatchLifecyclePhase.readyCheck => 'Both stakes confirmed · ready to start',
+    MatchLifecyclePhase.waitingOpponentReady =>
+      'Waiting for opponent to confirm',
+    _ => 'Waiting for an opponent stake',
+  };
 
   String get _opponentLabel {
     final name = snapshot.opponent?.name ?? '';
@@ -451,10 +456,7 @@ class _ActiveMatchCard extends StatelessWidget {
               minimumSize: const Size(0, 42),
               side: const BorderSide(color: AppColors.primaryBright),
             ),
-            child: const Text(
-              'Return to Room',
-              style: TextStyle(fontSize: 11),
-            ),
+            child: const Text('Return to Room', style: TextStyle(fontSize: 11)),
           ),
         ],
       ),

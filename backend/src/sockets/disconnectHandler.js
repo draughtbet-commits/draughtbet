@@ -167,13 +167,21 @@ async function notifyPreStartDisconnect(userId, socket) {
       match.playerLightId === userId ? match.playerDarkId : match.playerLightId;
     await writePresence(match.id, match.playerLightId === userId ? 'LIGHT' : 'DARK', userId, 'disconnected');
 
+    // Pre-start there is no live turn clock to protect, but the waiting window
+    // is still bounded, so report the same resolved grace the mid-game path
+    // sends. Omitting it left the client with a null countdown and no idea how
+    // long the opponent has.
+    const preStartGrace = resolveDisconnectGraceMs(match);
+
     socket.to(`user:${opponentId}`).emit('opponent_disconnected', {
       userId,
+      gracePeriodMs: preStartGrace,
       preStart: true
     });
     socket.to(`user:${opponentId}`).emit('opponent.connection', {
       userId,
       status: 'disconnected',
+      graceEndsAt: Date.now() + preStartGrace,
       preStart: true
     });
     logger.info({ userId, matchId: match.id }, 'Pre-start opponent disconnect notified');

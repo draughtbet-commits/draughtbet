@@ -77,20 +77,85 @@ Stable `code` values: `invalid_payload`, `game_already_ended`,
 {
   "matchId": "uuid",
   "version": "8",
+  "stateVersion": 8,
+  "sideToMove": { "color": "WHITE", "userId": "uuid" },   // null unless in_progress
   "board": [ ... ],
-  "currentTurn": "WHITE",
+  "currentTurn": "WHITE",                                 // see colour note below
   "currentTurnUserId": "uuid",
   "status": "in_progress",
   "winnerId": null,
   "moveCount": 8,
   "deadlineAt": 1789690000000,
   "timeControlSeconds": 300,
-  "legalMoves": [ ... ]
+  "turnStartedAtServer": 1789690000000,
+  "serverNowMs": 1789690000000,                           // when the server knows the clock
+  "remainingMs": 284000,
+  "disconnectGraceMs": 60000,
+  "legalMoves": [ ... ],                                   // [] unless status === in_progress
+  "participants": [                                       // REQUIRED to seat the two players
+    { "userId": "uuid-a", "side": "LIGHT", "ready": true },
+    { "userId": "uuid-b", "side": "DARK",  "ready": true }
+  ],
+  "connection": [
+    { "userId": "uuid-a", "side": "LIGHT", "status": "connected", "graceEndsAt": null },
+    { "userId": "uuid-b", "side": "DARK",  "status": "disconnected", "graceEndsAt": 1789690060000 }
+  ],
+  "pendingDrawOffer": null,
+  "settlementStatus": null                                // "pending" on a terminal Redis status
 }
 ```
 
 `match.state` is emitted to the joining socket on `match.join` and alongside any
 `stale_state` rejection.
+
+## Colour vocabulary — `WHITE`/`BLACK` on the wire, `LIGHT`/`DARK` in the database
+
+This is the single easiest thing to get wrong when consuming PR8, and it has
+already broken one client. The two vocabularies are both correct, for different
+consumers, and neither field is negotiable.
+
+| Field | Spelling | Source |
+|---|---|---|
+| `currentTurn` | `WHITE` / `BLACK` | Engine colour, passed verbatim into `getLegalMoves(board, currentTurn)` |
+| `move.accepted.nextTurn` | `WHITE` / `BLACK` | Engine colour |
+| `participants[].side` | `LIGHT` / `DARK` | Durable `MatchSide` enum (`gameProtocol.js:62-63`) |
+| `connection[].side` | `LIGHT` / `DARK` | Durable `MatchSide` enum |
+| `MatchGameState.currentTurn` (DB row) | `LIGHT` / `DARK` | `gameManager.js:751` writes `SIDE_BY_COLOR[nextTurn]` |
+
+`LIGHT` is always `WHITE` and `DARK` is always `BLACK` — see
+`SIDE_BY_COLOR` in `backend/src/sockets/gameProtocol.js:6` and `SIDE_COLOR` in
+`backend/src/sockets/gameRecovery.js:21`. There is no rotation and no
+per-player colour assignment: the LIGHT participant moves WHITE.
+
+### Seating the two players
+
+`match.state` carries **no top-level `player1` / `player2`**. A client that needs
+to know which side it is must seat itself from `participants`:
+
+- `side: "LIGHT"` → the `WHITE` side → the seat whose `userId` matches
+  `currentTurnUserId` whenever `currentTurn === "WHITE"`.
+- `side: "DARK"` → the `BLACK` side → the seat that matches `currentTurnUserId`
+  whenever `currentTurn === "BLACK"`.
+
+`currentTurnUserId` is the authoritative answer to "whose turn is it" and does
+not need the colour comparison at all.
+
+**Do not match `participants[].side` against `WHITE`/`BLACK`.** A client that
+does will fail silently and expensively: both player ids stay unset, the
+turn check is permanently false, and the board renders as read-only with input
+disabled — no move can ever be played, and nothing in the logs says why. The
+Flutter normaliser in `app/lib/models/game_state.dart` now accepts both
+spellings for exactly this reason; if you add another client, normalise at the
+boundary and never leak a `LIGHT`/`DARK` string into board logic.
+
+### Also absent from earlier revisions of this document
+
+`sideToMove`, `stateVersion`, `turnStartedAtServer`, `serverNowMs`,
+`remainingMs`, `disconnectGraceMs`, `participants`, `connection`,
+`pendingDrawOffer`, and `settlementStatus` are all emitted by
+`buildStatePayload` (`gameProtocol.js:88-117`) and are required to drive the
+board, the clocks, and the opponent-presence UI. `connection` and
+`pendingDrawOffer` are covered by PR 9; the rest land here.
 
 ## Legacy compatibility
 

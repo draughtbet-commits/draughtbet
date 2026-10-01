@@ -12,8 +12,74 @@ import '../models/match_flow.dart';
 
 enum MatchSyncState { synced, syncing, offline }
 
+enum MatchRecoveryPhase {
+  none,
+  connectionLost,
+  reconnecting,
+  appResumed,
+  resyncing,
+}
+
+class ServerClockSnapshot {
+  const ServerClockSnapshot({
+    required this.matchId,
+    required this.serverNowMs,
+    required this.remainingMs,
+    this.deadlineAt,
+    this.turnStartedAtServer,
+    this.timeControlSeconds,
+    this.currentTurn,
+    this.currentTurnUserId,
+    this.status,
+    this.version,
+  });
+
+  final String matchId;
+  final int serverNowMs;
+  final int remainingMs;
+  final int? deadlineAt;
+  final int? turnStartedAtServer;
+  final int? timeControlSeconds;
+  final String? currentTurn;
+  final String? currentTurnUserId;
+  final String? status;
+  final int? version;
+
+  static ServerClockSnapshot? tryFromServer(Map<String, dynamic> data) {
+    final matchId = data['matchId']?.toString().trim();
+    final serverNowMs = int.tryParse(data['serverNowMs']?.toString() ?? '');
+    final remainingMs = int.tryParse(data['remainingMs']?.toString() ?? '');
+    if (matchId == null ||
+        matchId.isEmpty ||
+        serverNowMs == null ||
+        remainingMs == null ||
+        remainingMs < 0) {
+      return null;
+    }
+    return ServerClockSnapshot(
+      matchId: matchId,
+      serverNowMs: serverNowMs,
+      remainingMs: remainingMs,
+      deadlineAt: int.tryParse(data['deadlineAt']?.toString() ?? ''),
+      turnStartedAtServer: int.tryParse(
+        data['turnStartedAtServer']?.toString() ?? '',
+      ),
+      timeControlSeconds: int.tryParse(
+        data['timeControlSeconds']?.toString() ?? '',
+      ),
+      currentTurn: data['currentTurn']?.toString(),
+      currentTurnUserId: data['currentTurnUserId']?.toString(),
+      status: data['status']?.toString(),
+      version: int.tryParse(
+        (data['version'] ?? data['stateVersion'])?.toString() ?? '',
+      ),
+    );
+  }
+}
+
 class MatchState {
   final GameState? gameState;
+  final String? currentUserId;
   final MatchSyncState syncState;
   final bool isFindingMatch;
   final String? currentMatchId;
@@ -29,18 +95,19 @@ class MatchState {
   final bool promotionVisible;
   final List<int> lastCapturedSquares;
   final bool opponentConnected;
-  final DateTime? opponentDisconnectedAt;
   final int? opponentGracePeriodMs;
+  final int opponentDisconnectSequence;
   final SettlementPhase settlementPhase;
   final int? confirmedPayoutMinorUnits;
   final String? endReason;
   final MatchResultViewData? authoritativeResult;
-  final int? ownRemainingMs;
-  final int? opponentRemainingMs;
-  final DateTime? serverClockAt;
+  final ServerClockSnapshot? serverClock;
+  final int clockRevision;
+  final MatchRecoveryPhase recoveryPhase;
 
   const MatchState({
     this.gameState,
+    this.currentUserId,
     this.syncState = MatchSyncState.synced,
     this.isFindingMatch = false,
     this.currentMatchId,
@@ -56,19 +123,20 @@ class MatchState {
     this.promotionVisible = false,
     this.lastCapturedSquares = const [],
     this.opponentConnected = true,
-    this.opponentDisconnectedAt,
     this.opponentGracePeriodMs,
+    this.opponentDisconnectSequence = 0,
     this.settlementPhase = SettlementPhase.pending,
     this.confirmedPayoutMinorUnits,
     this.endReason,
     this.authoritativeResult,
-    this.ownRemainingMs,
-    this.opponentRemainingMs,
-    this.serverClockAt,
+    this.serverClock,
+    this.clockRevision = 0,
+    this.recoveryPhase = MatchRecoveryPhase.none,
   });
 
   MatchState copyWith({
     GameState? gameState,
+    String? currentUserId,
     MatchSyncState? syncState,
     bool? isFindingMatch,
     String? currentMatchId,
@@ -87,20 +155,22 @@ class MatchState {
     bool? promotionVisible,
     List<int>? lastCapturedSquares,
     bool? opponentConnected,
-    DateTime? opponentDisconnectedAt,
     bool clearOpponentDisconnect = false,
     int? opponentGracePeriodMs,
+    int? opponentDisconnectSequence,
     SettlementPhase? settlementPhase,
     int? confirmedPayoutMinorUnits,
     String? endReason,
     MatchResultViewData? authoritativeResult,
     bool clearResult = false,
-    int? ownRemainingMs,
-    int? opponentRemainingMs,
-    DateTime? serverClockAt,
+    ServerClockSnapshot? serverClock,
+    bool clearServerClock = false,
+    int? clockRevision,
+    MatchRecoveryPhase? recoveryPhase,
   }) {
     return MatchState(
       gameState: gameState ?? this.gameState,
+      currentUserId: currentUserId ?? this.currentUserId,
       syncState: syncState ?? this.syncState,
       isFindingMatch: isFindingMatch ?? this.isFindingMatch,
       currentMatchId: currentMatchId ?? this.currentMatchId,
@@ -124,12 +194,11 @@ class MatchState {
       promotionVisible: promotionVisible ?? this.promotionVisible,
       lastCapturedSquares: lastCapturedSquares ?? this.lastCapturedSquares,
       opponentConnected: opponentConnected ?? this.opponentConnected,
-      opponentDisconnectedAt: clearOpponentDisconnect
-          ? null
-          : opponentDisconnectedAt ?? this.opponentDisconnectedAt,
       opponentGracePeriodMs: clearOpponentDisconnect
           ? null
           : opponentGracePeriodMs ?? this.opponentGracePeriodMs,
+      opponentDisconnectSequence:
+          opponentDisconnectSequence ?? this.opponentDisconnectSequence,
       settlementPhase: settlementPhase ?? this.settlementPhase,
       confirmedPayoutMinorUnits: clearResult
           ? null
@@ -138,9 +207,9 @@ class MatchState {
       authoritativeResult: clearResult
           ? null
           : authoritativeResult ?? this.authoritativeResult,
-      ownRemainingMs: ownRemainingMs ?? this.ownRemainingMs,
-      opponentRemainingMs: opponentRemainingMs ?? this.opponentRemainingMs,
-      serverClockAt: serverClockAt ?? this.serverClockAt,
+      serverClock: clearServerClock ? null : serverClock ?? this.serverClock,
+      clockRevision: clockRevision ?? this.clockRevision,
+      recoveryPhase: recoveryPhase ?? this.recoveryPhase,
     );
   }
 }
@@ -153,8 +222,10 @@ class MatchNotifier extends StateNotifier<MatchState> {
   bool _isReconnecting = false;
   int _actionSequence = 0;
   String? _currentUserId;
-  final List<StreamSubscription<Map<String, dynamic>>> _subscriptions = [];
+  final List<StreamSubscription<dynamic>> _subscriptions = [];
   StreamSubscription<List<ConnectivityResult>>? _connectivitySubscription;
+  Timer? _clockSyncTimer;
+  bool _hasConnectedSocket = false;
 
   MatchNotifier(this._socketService, this._dio) : super(const MatchState()) {
     _initListeners();
@@ -163,6 +234,7 @@ class MatchNotifier extends StateNotifier<MatchState> {
   void setCurrentUserId(String? userId) {
     if (userId != null && userId.trim().isNotEmpty) {
       _currentUserId = userId;
+      state = state.copyWith(currentUserId: userId);
     }
   }
 
@@ -202,6 +274,7 @@ class MatchNotifier extends StateNotifier<MatchState> {
           state = state.copyWith(
             gameState: gameState,
             syncState: MatchSyncState.synced,
+            recoveryPhase: MatchRecoveryPhase.none,
             isMovePending: false,
             clearPendingMove: true,
           );
@@ -339,44 +412,101 @@ class MatchNotifier extends StateNotifier<MatchState> {
 
     _subscriptions.add(
       _socketService.onOpponentDisconnected.listen((data) {
-        final disconnectedAt = DateTime.now();
-        final graceEndsAt = DateTime.tryParse(
-          data['graceEndsAt']?.toString() ?? '',
-        );
         final explicitGrace = int.tryParse(
           data['gracePeriodMs']?.toString() ?? '',
         );
         state = state.copyWith(
           opponentConnected: false,
-          opponentDisconnectedAt: disconnectedAt,
-          opponentGracePeriodMs:
-              explicitGrace ??
-              graceEndsAt?.difference(disconnectedAt).inMilliseconds,
+          opponentGracePeriodMs: explicitGrace,
+          opponentDisconnectSequence: state.opponentDisconnectSequence + 1,
         );
       }),
     );
     _subscriptions.add(
       _socketService.onOpponentReconnected.listen((_) {
+        final matchId = state.currentMatchId;
         state = state.copyWith(
           opponentConnected: true,
           clearOpponentDisconnect: true,
+          syncState: matchId == null ? state.syncState : MatchSyncState.syncing,
+          recoveryPhase: matchId == null
+              ? state.recoveryPhase
+              : MatchRecoveryPhase.resyncing,
         );
+        if (matchId != null) _requestAuthoritativeMatchState(matchId);
       }),
     );
     _subscriptions.add(
       _socketService.onClockSync.listen((data) {
-        final white = int.tryParse(data['whiteRemainingMs']?.toString() ?? '');
-        final black = int.tryParse(data['blackRemainingMs']?.toString() ?? '');
-        if (white == null || black == null) return;
-        final game = state.gameState;
-        final userIsWhite = game != null && _currentUserId == game.player1;
+        final snapshot = ServerClockSnapshot.tryFromServer(data);
+        if (snapshot == null || snapshot.matchId != state.currentMatchId) {
+          return;
+        }
         state = state.copyWith(
-          ownRemainingMs: userIsWhite ? white : black,
-          opponentRemainingMs: userIsWhite ? black : white,
-          serverClockAt: DateTime.tryParse(data['serverNow']?.toString() ?? ''),
+          serverClock: snapshot,
+          clockRevision: state.clockRevision + 1,
         );
       }),
     );
+    _subscriptions.add(
+      _socketService.onConnectionPhase.listen((phase) {
+        switch (phase) {
+          case SocketConnectionPhase.connected:
+            final recovering =
+                _hasConnectedSocket ||
+                state.recoveryPhase != MatchRecoveryPhase.none;
+            _hasConnectedSocket = true;
+            final matchId = state.currentMatchId;
+            if (recovering && matchId != null) {
+              state = state.copyWith(
+                syncState: MatchSyncState.syncing,
+                recoveryPhase: MatchRecoveryPhase.resyncing,
+              );
+              _requestAuthoritativeMatchState(matchId);
+            }
+          case SocketConnectionPhase.disconnected:
+          case SocketConnectionPhase.failed:
+            state = state.copyWith(
+              syncState: MatchSyncState.offline,
+              recoveryPhase: MatchRecoveryPhase.connectionLost,
+            );
+          case SocketConnectionPhase.reconnecting:
+            state = state.copyWith(
+              syncState: MatchSyncState.syncing,
+              recoveryPhase: MatchRecoveryPhase.reconnecting,
+            );
+        }
+      }),
+    );
+    _subscriptions.add(
+      _socketService.onPreplayReleased.listen((data) {
+        // The ready gate closed before play began. There is no settlement to
+        // wait for, so mark the match terminal immediately — otherwise the room
+        // sits on "Waiting for authoritative match state" for ever, because no
+        // further clock.sync or match.state will arrive for a released match.
+        final matchId = data['matchId']?.toString();
+        if (matchId != null &&
+            state.currentMatchId != null &&
+            matchId != state.currentMatchId) {
+          return;
+        }
+        final current = state.gameState;
+        final endReason = data['reason']?.toString() ?? 'cancelled_pre_play';
+        // The stored pointer outlives the app; leaving it set is what makes a
+        // released match look live on the next launch.
+        unawaited(_storage.clearActiveMatchId());
+        state = state.copyWith(
+          gameState: current?.copyWith(status: 'completed'),
+          isMovePending: false,
+          resignPending: false,
+          settlementPhase: SettlementPhase.confirmed,
+          endReason: endReason,
+          syncState: MatchSyncState.synced,
+          recoveryPhase: MatchRecoveryPhase.none,
+        );
+      }),
+    );
+
     _subscriptions.add(
       _socketService.onMatchEndedResign.listen((data) {
         final current = state.gameState;
@@ -450,14 +580,26 @@ class MatchNotifier extends StateNotifier<MatchState> {
       if (!result.contains(ConnectivityResult.none)) {
         if (!_isReconnecting && state.currentMatchId != null) {
           _isReconnecting = true;
-          fetchGameState(state.currentMatchId!).then((_) {
+          state = state.copyWith(
+            syncState: MatchSyncState.syncing,
+            recoveryPhase: MatchRecoveryPhase.reconnecting,
+          );
+          _socketService.reconnect().then((_) {
             _isReconnecting = false;
           });
         }
       } else {
-        state = state.copyWith(syncState: MatchSyncState.offline);
+        state = state.copyWith(
+          syncState: MatchSyncState.offline,
+          recoveryPhase: MatchRecoveryPhase.connectionLost,
+        );
       }
     });
+  }
+
+  void _requestAuthoritativeMatchState(String matchId) {
+    _socketService.requestCanonicalState(matchId);
+    _socketService.requestClockSync(matchId);
   }
 
   Future<void> fetchGameState(String matchId) async {
@@ -466,7 +608,7 @@ class MatchNotifier extends StateNotifier<MatchState> {
       syncState: MatchSyncState.syncing,
     );
     if (_socketService.isV2) {
-      _socketService.requestCanonicalState(matchId);
+      _requestAuthoritativeMatchState(matchId);
       return;
     }
     try {
@@ -477,6 +619,7 @@ class MatchNotifier extends StateNotifier<MatchState> {
         state = state.copyWith(
           gameState: gameState,
           syncState: MatchSyncState.synced,
+          recoveryPhase: MatchRecoveryPhase.none,
         );
       }
     } catch (e) {
@@ -484,10 +627,35 @@ class MatchNotifier extends StateNotifier<MatchState> {
     }
   }
 
+  /// Restores a match the app was last in, but only if the server still agrees
+  /// it is live.
+  ///
+  /// The stored pointer survives restarts, and a match that ended while the app
+  /// was closed (released by the ready gate, or settled on the other device)
+  /// never emits anything afterwards — so trusting it alone strands the UI on
+  /// "in play" for a match that no longer exists. Cross-check `GET
+  /// /matches/active` and drop the pointer when the match is gone.
   Future<void> restoreActiveMatch() async {
     if (state.currentMatchId != null) return;
     final matchId = await _storage.activeMatchId;
     if (matchId == null || matchId.isEmpty) return;
+    try {
+      final response = await _dio.get<dynamic>('/matches/active');
+      final data = response.data;
+      final list = data is Map ? data['data'] : null;
+      final stillLive =
+          list is List &&
+          list.any(
+            (item) => item is Map && item['matchId']?.toString() == matchId,
+          );
+      if (!stillLive) {
+        await _storage.clearActiveMatchId();
+        return;
+      }
+    } catch (_) {
+      // The check is best-effort: a failed lookup must not strand a match that
+      // really is live, so fall through and let the socket reconcile.
+    }
     await fetchGameState(matchId);
   }
 
@@ -580,6 +748,36 @@ class MatchNotifier extends StateNotifier<MatchState> {
     );
     unawaited(_storage.setActiveMatchId(matchId));
     _socketService.joinMatch(matchId);
+    _socketService.requestClockSync(matchId);
+    _clockSyncTimer?.cancel();
+    if (_socketService.isV2) {
+      _clockSyncTimer = Timer.periodic(const Duration(seconds: 15), (_) {
+        if (state.currentMatchId == matchId &&
+            state.syncState == MatchSyncState.synced) {
+          _socketService.requestClockSync(matchId);
+        }
+      });
+    }
+  }
+
+  void handleAppResumed(String matchId) {
+    if (state.currentMatchId != matchId) return;
+    state = state.copyWith(
+      syncState: MatchSyncState.syncing,
+      recoveryPhase: MatchRecoveryPhase.appResumed,
+    );
+    _requestAuthoritativeMatchState(matchId);
+  }
+
+  Future<void> retryConnection() async {
+    final matchId = state.currentMatchId;
+    if (matchId == null) return;
+    state = state.copyWith(
+      syncState: MatchSyncState.syncing,
+      recoveryPhase: MatchRecoveryPhase.reconnecting,
+    );
+    await _socketService.reconnect();
+    _requestAuthoritativeMatchState(matchId);
   }
 
   void dismissPromotion() {
@@ -652,6 +850,7 @@ class MatchNotifier extends StateNotifier<MatchState> {
       subscription.cancel();
     }
     _connectivitySubscription?.cancel();
+    _clockSyncTimer?.cancel();
     super.dispose();
   }
 }

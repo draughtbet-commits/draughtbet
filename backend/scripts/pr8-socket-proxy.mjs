@@ -122,7 +122,7 @@ const noteAppSubmit = (text) => {
   }
 };
 
-const proxy = http.createServer((req, res) => {
+const proxy = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
 
   // The drive test runs on the device and cannot read the host's filesystem,
@@ -295,6 +295,92 @@ const proxy = http.createServer((req, res) => {
       console.log('[proxy] reset');
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(JSON.stringify({ reset: true }));
+      return;
+    }
+    if (action === 'clock') {
+      // Rewrites the match's turn deadline in the projection, which is the same
+      // field the seed writes and the same field the server reads when it builds
+      // every clock.sync. The app therefore renders the server's real answer to a
+      // real request; only the length of the turn was chosen here, so a
+      // low-time or imminent-clock recording shows a genuine server clock.
+      const matchId = url.searchParams.get('matchId');
+      const remainingMs = Number(url.searchParams.get('remainingMs'));
+      if (!matchId || !Number.isFinite(remainingMs) || remainingMs <= 0) {
+        res.writeHead(400, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ error: 'matchId and a positive remainingMs are required' }));
+        return;
+      }
+      try {
+        const redis = (await import(path.join(BACKEND_DIR, 'src/utils/redis.js'))).default;
+        // enableOfflineQueue is off in the backend's client, so a write issued
+        // before the socket is up is rejected outright. Wait for ready rather
+        // than retrying the write.
+        if (redis.status !== 'ready') {
+          await new Promise((resolve, reject) => {
+            const timer = setTimeout(() => reject(new Error('redis did not become ready')), 10000);
+            redis.once('ready', () => { clearTimeout(timer); resolve(); });
+            redis.once('error', (err) => { clearTimeout(timer); reject(err); });
+          });
+        }
+        const deadlineAt = Date.now() + remainingMs;
+        await redis.hset(`match:${matchId}`, {
+          deadlineAt: String(deadlineAt),
+          turnStartedAtServer: String(Date.now()),
+        });
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ matchId, deadlineAt, remainingMs }));
+      } catch (error) {
+        res.writeHead(500, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ error: error.message }));
+      }
+      return;
+    }
+    if (action === 'budget') {
+      // Clears the socket rate-limit windows for the drive's users. Every run
+      // signs the same account in and joins, and `match.join` and `clock.sync`
+      // are capped at 30 per 60s, so back-to-back runs exhaust the window and
+      // the server answers "too many events" — which the app then retries
+      // against, so the storm feeds itself. The limiter is not what any of these
+      // steps are testing, and a recording must not depend on how many times the
+      // drive has been run in the last minute.
+      try {
+        const redis = (await import(path.join(BACKEND_DIR, 'src/utils/redis.js'))).default;
+        if (redis.status !== 'ready') {
+          await new Promise((resolve, reject) => {
+            const timer = setTimeout(() => reject(new Error('redis did not become ready')), 10000);
+            redis.once('ready', () => { clearTimeout(timer); resolve(); });
+            redis.once('error', (err) => { clearTimeout(timer); reject(err); });
+          });
+        }
+        const keys = await redis.keys('sockrl:*');
+        if (keys.length) await redis.del(...keys);
+        // ignore: avoid_print
+        console.log(`[proxy] cleared ${keys.length} socket budget key(s)`);
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ cleared: keys.length }));
+      } catch (error) {
+        res.writeHead(500, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ error: error.message }));
+      }
+      return;
+    }
+    if (action === 'cut') {
+      // Severs the app's socket the way a dropped connection does, without
+      // stopping the proxy: the client must see a transport-level disconnect and
+      // run its own recovery, while REST and the control plane stay reachable.
+      // The upstream mirror is closed with it, so the backend also releases the
+      // presence the app was holding.
+      let cut = 0;
+      for (const client of sockets) {
+        if (client.readyState === WebSocket.OPEN) {
+          client.close();
+          cut++;
+        }
+      }
+      // ignore: avoid_print
+      console.log(`[proxy] cut ${cut} socket(s)`);
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ cut }));
       return;
     }
     if (action === 'release') {

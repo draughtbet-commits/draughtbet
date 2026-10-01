@@ -524,6 +524,98 @@ void main() {
     await _settleCapture(tester, '82_opponent_disconnect_countdown');
   });
 
+  testWidgets('capture connection lost', (tester) async {
+    _setViewport(tester);
+    await tester.pumpWidget(
+      _captureApp(
+        const MatchScreen(matchId: '214567'),
+        match: MatchState(
+          currentMatchId: '214567',
+          gameState: fixtures.gameFixture(),
+          syncState: MatchSyncState.offline,
+          recoveryPhase: MatchRecoveryPhase.connectionLost,
+        ),
+      ),
+    );
+    await _settleCapture(tester, 'connection_lost');
+  });
+
+  testWidgets('capture reconnecting', (tester) async {
+    _setViewport(tester);
+    await tester.pumpWidget(
+      _captureApp(
+        const MatchScreen(matchId: '214567'),
+        match: MatchState(
+          currentMatchId: '214567',
+          gameState: fixtures.gameFixture(),
+          syncState: MatchSyncState.syncing,
+          recoveryPhase: MatchRecoveryPhase.reconnecting,
+        ),
+      ),
+    );
+    await _settleCapture(tester, 'reconnecting');
+  });
+
+  testWidgets('capture app resumed', (tester) async {
+    _setViewport(tester);
+    await tester.pumpWidget(
+      _captureApp(
+        const MatchScreen(matchId: '214567'),
+        match: MatchState(
+          currentMatchId: '214567',
+          gameState: fixtures.gameFixture(),
+          syncState: MatchSyncState.syncing,
+          recoveryPhase: MatchRecoveryPhase.appResumed,
+        ),
+      ),
+    );
+    await _settleCapture(tester, 'app_resumed');
+  });
+
+  testWidgets('capture low time warning', (tester) async {
+    _setViewport(tester);
+    await tester.pumpWidget(
+      _captureApp(
+        const MatchScreen(matchId: '214567'),
+        match: MatchState(
+          currentMatchId: '214567',
+          currentUserId: 'player-1',
+          gameState: fixtures.gameFixture(),
+          serverClock: const ServerClockSnapshot(
+            matchId: '214567',
+            serverNowMs: 100000,
+            remainingMs: 28000,
+            currentTurnUserId: 'player-1',
+          ),
+          clockRevision: 1,
+        ),
+      ),
+    );
+    await _settleCapture(tester, 'low_time_warning');
+  });
+
+  testWidgets('capture timeout imminent', (tester) async {
+    _setViewport(tester);
+    await tester.pumpWidget(
+      _captureApp(
+        const MatchScreen(matchId: '214567'),
+        match: MatchState(
+          currentMatchId: '214567',
+          currentUserId: 'player-1',
+          gameState: fixtures.gameFixture(),
+          serverClock: const ServerClockSnapshot(
+            matchId: '214567',
+            serverNowMs: 100000,
+            remainingMs: 9000,
+            currentTurnUserId: 'player-1',
+          ),
+          clockRevision: 1,
+        ),
+      ),
+    );
+    await _settleCapture(tester, 'timeout_imminent');
+  });
+
   testWidgets('capture supporting settlement-processing state', (tester) async {
     _setViewport(tester);
     await tester.pumpWidget(

@@ -90,10 +90,19 @@ Map<String, dynamic> _normalizeGameState(Map<String, dynamic> json) {
   final participants = json['participants'];
   if (participants is List) {
     for (final participant in participants.whereType<Map>()) {
+      // The socket's participants speak LIGHT/DARK (see the match.state payload
+      // in the game protocol handoff) while the board speaks WHITE/BLACK. Matching only
+      // WHITE/BLACK left player1 and player2 empty, which made _isMyTurn always
+      // false — the board rendered, but as the opponent's turn and with input
+      // disabled, so no move could ever be played from the app.
       final side = participant['side']?.toString().toUpperCase();
       final userId = participant['userId']?.toString();
-      if (side == 'WHITE') normalized['player1'] ??= userId;
-      if (side == 'BLACK') normalized['player2'] ??= userId;
+      if (side == 'WHITE' || side == 'LIGHT') {
+        normalized['player1'] ??= userId;
+      }
+      if (side == 'BLACK' || side == 'DARK') {
+        normalized['player2'] ??= userId;
+      }
     }
   }
   normalized['moveCount'] ??= 0;
