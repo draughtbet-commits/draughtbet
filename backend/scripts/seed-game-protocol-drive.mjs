@@ -39,7 +39,13 @@ const OUT = process.env.DRIVE_FIXTURE || '/tmp/opencode/record/pr8-fixture.json'
 // Mirrors PRETTERMINAL_STATUSES in src/modules/match/service.js. Duplicated
 // rather than imported because that module pulls in the whole match domain and
 // this script only needs the list to find leftovers to clean up.
-const PRETERMINAL_STATUSES = ['DRAFT', 'OPEN', 'FUNDED', 'READY', 'IN_PLAY', 'ACTIVE'];
+// Cancellable statuses only. This deliberately is NOT the full pre-terminal
+// list: cancelPreplayMatch refuses IN_PLAY/ACTIVE because a live match's stake
+// is wagered and must be settled, not refunded. The drive stands its own match
+// up to IN_PLAY, so a broad pre-terminal query made every run request an
+// impossible cancellation and leak the stake.
+const CANCELLABLE_STATUSES = ['DRAFT', 'OPEN', 'FUNDED', 'READY'];
+const LIVE_STATUSES = ['IN_PLAY', 'ACTIVE'];
 
 const PASSWORD = 'Draughts@Dev2026';
 const START_BALANCE = 5000000n; // 50,000.00, enough for the stake twice over
@@ -155,9 +161,17 @@ const main = async () => {
   // new one can be funded. Cancelling releases the reserved stake back to both
   // players through the real service, so the ledger stays balanced and the two
   // accounts stay reusable across runs.
+  //
+  // Only genuinely cancellable statuses belong here. cancelPreplayMatch refuses
+  // IN_PLAY/ACTIVE on purpose (isLiveStatus): once a match is live its stake is
+  // wagered and must be settled, never refunded. The drive deliberately stands
+  // its own match up to IN_PLAY below, so querying pre-terminal broadly made
+  // every run ask to cancel a match that could not be cancelled -- the old
+  // fallback then forced the status and stranded the stake. Narrow the query and
+  // report live leftovers instead of trying to refund them.
   const stale = await prisma.match.findMany({
     where: {
-      status: { in: PRETERMINAL_STATUSES },
+      status: { in: CANCELLABLE_STATUSES },
       OR: [{ playerLightId: p1.id }, { playerDarkId: p1.id }]
     },
     select: { id: true, status: true }
@@ -179,6 +193,24 @@ const main = async () => {
       );
     }
     await redis.del(`match:${row.id}`);
+  }
+
+  // Live leftovers are expected, not a leak: an unfinished live match holds its
+  // stake legitimately, which is exactly what the lock invariant describes. They
+  // are reported so an accumulating pile is visible rather than silent.
+  const liveLeftovers = await prisma.match.findMany({
+    where: {
+      status: { in: LIVE_STATUSES },
+      OR: [{ playerLightId: p1.id }, { playerDarkId: p1.id }]
+    },
+    select: { id: true, status: true }
+  });
+  if (liveLeftovers.length > 0) {
+    console.log(
+      `seed: ${liveLeftovers.length} live leftover match(es) still hold their stake ` +
+        `(expected: their stake stays locked until settled): ` +
+        liveLeftovers.map((m) => `${m.id.slice(0, 8)}=${m.status}`).join(', ')
+    );
   }
 
   // Self-heal any lock drift a previous run left behind, so repeated seeding
