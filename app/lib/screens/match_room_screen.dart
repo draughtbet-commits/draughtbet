@@ -60,13 +60,18 @@ class _MatchRoomScreenState extends ConsumerState<MatchRoomScreen> {
     final game = ref.watch(matchProvider);
     final intent = ref.watch(matchFlowProvider).currentIntent;
     final terms = intent?.terms ?? const MatchTerms(stakeMinorUnits: 0);
-    final synced =
-        game.gameState != null && game.syncState == MatchSyncState.synced;
-    final offline = game.syncState == MatchSyncState.offline;
     final opponentDisconnected = !game.opponentConnected;
     final ended =
         game.gameState?.status == 'completed' ||
         game.gameState?.status == 'draw';
+    // Before the opening goes live there is no board yet -- it is created when a
+    // player enters. Gating Enter on `synced` therefore demanded the very state
+    // that entering creates, so the action could never become available.
+    final prePlay = game.gameState == null;
+    final synced =
+        game.gameState != null && game.syncState == MatchSyncState.synced;
+    final canEnter = (synced || prePlay) && !opponentDisconnected && !ended;
+    final offline = game.syncState == MatchSyncState.offline;
     final opponent = intent?.opponent;
 
     return PopScope(
@@ -245,9 +250,7 @@ class _MatchRoomScreenState extends ConsumerState<MatchRoomScreen> {
                   PrimaryActionButton(
                     label: _joining ? 'Joining Match' : 'Enter Match',
                     loading: _joining,
-                    onPressed: synced && !opponentDisconnected
-                        ? _enterMatch
-                        : null,
+                    onPressed: canEnter ? _enterMatch : null,
                   ),
               ],
             ),

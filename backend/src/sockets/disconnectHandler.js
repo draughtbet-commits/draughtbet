@@ -228,6 +228,20 @@ export async function handleJoinMatch(socket, payload) {
     await redis.zrem('disconnects', `${matchId}:${userId}`);
     socket.join(`match:${matchId}`);
 
+    // Pre-play matches have no game projection yet -- the board is created when
+    // a player enters, not when they take a seat. Requiring the projection here
+    // rejected every seated player with "Game not found", which left the room
+    // permanently unsynced and the Enter action permanently disabled. Record
+    // presence and return instead.
+    if (match.status === 'FUNDED' || match.status === 'READY') {
+      const side = match.playerLightId === userId ? 'LIGHT' : 'DARK';
+      await writePresence(match.id, side, userId, 'connected');
+      socket.to(`user:${userId === match.playerLightId ? match.playerDarkId : match.playerLightId}`)
+        .emit('opponent.connection', { userId, status: 'connected', preStart: true });
+      logger.info({ userId, matchId }, 'Player seated in pre-play match room');
+      return;
+    }
+
     // Reconcile the live projection against the durable log before serving it:
     // a restart or Redis loss must surface the canonical board, never a stale
     // or missing one.
@@ -259,14 +273,6 @@ export async function handleJoinMatch(socket, payload) {
         status: 'connected'
       });
       await recordConnectionEvent({ matchId, userId, state: 'RECONNECTED', socket });
-    } else if (match.status === 'FUNDED' || match.status === 'READY') {
-      // A participant can be present (socket attached to the match) before the
-      // opening is live; record it so the lifecycle snapshot can say the
-      // opponent is online even though the game_state projection may not exist.
-      const side = match.playerLightId === userId ? 'LIGHT' : 'DARK';
-      await writePresence(match.id, side, userId, 'connected');
-      socket.to(`user:${userId === match.playerLightId ? match.playerDarkId : match.playerLightId}`)
-        .emit('opponent.connection', { userId, status: 'connected', preStart: true });
     }
     logger.info({ userId, matchId }, 'Player reconnected and joined match room');
   } catch (err) {
