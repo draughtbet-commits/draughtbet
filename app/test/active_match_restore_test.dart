@@ -24,12 +24,25 @@ class JoinRecordingSocket extends SocketService {
   void clearJoinedMatch() => cleared += 1;
 }
 
-Response<dynamic> _activeList(List<Map<String, dynamic>> items) =>
+/// GET /matches/:id -- the authoritative per-match lifecycle snapshot. This is
+/// what restore consults: /matches/active deliberately omits in-play matches.
+Response<dynamic> _snapshot(String matchId, String status) =>
     Response<dynamic>(
-      requestOptions: RequestOptions(path: '/matches/active'),
+      requestOptions: RequestOptions(path: '/matches/$matchId'),
       statusCode: 200,
-      data: {'data': items},
+      data: {
+        'data': {'matchId': matchId, 'status': status},
+      },
     );
+
+DioException _notFound(String matchId) => DioException(
+  requestOptions: RequestOptions(path: '/matches/$matchId'),
+  response: Response<dynamic>(
+    requestOptions: RequestOptions(path: '/matches/$matchId'),
+    statusCode: 404,
+  ),
+  type: DioExceptionType.badResponse,
+);
 
 void main() {
   setUpAll(() {
@@ -44,9 +57,7 @@ void main() {
     FlutterSecureStorage.setMockInitialValues({'active_match_id': 'match-1'});
     final dio = MockDio();
     when(() => dio.get<dynamic>(any())).thenAnswer(
-      (_) async => _activeList([
-        {'matchId': 'match-1'},
-      ]),
+      (_) async => _snapshot('match-1', 'READY'),
     );
     final socket = JoinRecordingSocket();
     final notifier = MatchNotifier(socket, dio);
@@ -58,13 +69,52 @@ void main() {
     notifier.dispose();
   });
 
-  test('a stored match the server no longer lists is dropped', () async {
+  // Regression: the restore probe used GET /matches/active, which only lists
+  // OPEN / FUNDED / READY. Every in-play match was therefore "absent", so
+  // returning mid-game deleted the stored pointer and removed the player's
+  // only way back to the board.
+  test('an IN_PLAY match is rejoined, not mistaken for an ended one', () async {
+    FlutterSecureStorage.setMockInitialValues({'active_match_id': 'match-1'});
+    final dio = MockDio();
+    when(() => dio.get<dynamic>(any())).thenAnswer(
+      (_) async => _snapshot('match-1', 'IN_PLAY'),
+    );
+    final socket = JoinRecordingSocket();
+    final notifier = MatchNotifier(socket, dio);
+
+    await notifier.restoreActiveMatch();
+
+    expect(socket.joined, ['match-1']);
+    expect(socket.cleared, 0);
+    expect(await SecureStorageProbe.read(), 'match-1');
+    notifier.dispose();
+  });
+
+  test('a settled match is dropped rather than re-entered', () async {
+    FlutterSecureStorage.setMockInitialValues({'active_match_id': 'match-1'});
+    final dio = MockDio();
+    when(() => dio.get<dynamic>(any())).thenAnswer(
+      (_) async => _snapshot('match-1', 'SETTLED'),
+    );
+    final socket = JoinRecordingSocket();
+    final notifier = MatchNotifier(socket, dio);
+
+    await notifier.restoreActiveMatch();
+
+    expect(socket.joined, isEmpty);
+    expect(socket.cleared, 1);
+    expect(await SecureStorageProbe.read(), isNull);
+    notifier.dispose();
+  });
+
+  // Guards the per-match contract: the probe asks for one specific id, so a
+  // snapshot describing a different match means the stored pointer is stale and
+  // must not be re-entered.
+  test('a snapshot for a different match drops the stale pointer', () async {
     FlutterSecureStorage.setMockInitialValues({'active_match_id': 'match-gone'});
     final dio = MockDio();
     when(() => dio.get<dynamic>(any())).thenAnswer(
-      (_) async => _activeList([
-        {'matchId': 'match-other'},
-      ]),
+      (_) async => _snapshot('match-other', 'READY'),
     );
     final socket = JoinRecordingSocket();
     final notifier = MatchNotifier(socket, dio);
@@ -79,12 +129,10 @@ void main() {
     notifier.dispose();
   });
 
-  test('an empty active list clears the pointer without joining', () async {
+  test('a 404 clears the pointer without joining', () async {
     FlutterSecureStorage.setMockInitialValues({'active_match_id': 'match-gone'});
     final dio = MockDio();
-    when(() => dio.get<dynamic>(any())).thenAnswer(
-      (_) async => _activeList(const []),
-    );
+    when(() => dio.get<dynamic>(any())).thenThrow(_notFound('match-gone'));
     final socket = JoinRecordingSocket();
     final notifier = MatchNotifier(socket, dio);
 
@@ -95,7 +143,7 @@ void main() {
     notifier.dispose();
   });
 
-  test('an unreachable active list still rejoins rather than stranding', () async {
+  test('an unreachable probe still rejoins rather than stranding', () async {
     FlutterSecureStorage.setMockInitialValues({'active_match_id': 'match-1'});
     final dio = MockDio();
     when(() => dio.get<dynamic>(any())).thenThrow(DioException(requestOptions: RequestOptions()));

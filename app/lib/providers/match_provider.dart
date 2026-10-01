@@ -644,31 +644,83 @@ class MatchNotifier extends StateNotifier<MatchState> {
   /// The stored pointer survives restarts, and a match that ended while the app
   /// was closed (released by the ready gate, or settled on the other device)
   /// never emits anything afterwards — so trusting it alone strands the UI on
-  /// "in play" for a match that no longer exists. Cross-check `GET
-  /// /matches/active` and drop the pointer when the match is gone.
+  /// "in play" for a match that no longer exists.
+  ///
+  /// Absence from `GET /matches/active` is NOT proof the match is gone: that
+  /// endpoint only lists pre-start matches (OPEN / FUNDED / READY), so every
+  /// in-play match is missing from it. Treating the omission as "ended" deleted
+  /// the pointer on every mid-game reconnect, which left the player with no
+  /// "Return to Match" at all. Only drop the pointer when the server positively
+  /// reports the match as finished.
   Future<void> restoreActiveMatch() async {
     if (state.currentMatchId != null) return;
     final matchId = await _storage.activeMatchId;
     if (matchId == null || matchId.isEmpty) return;
+
+    // Authoritative per-match check: this covers in-play, which /matches/active
+    // omits by design.
+    String? status;
     try {
-      final response = await _dio.get<dynamic>('/matches/active');
+      final response = await _dio.get<dynamic>('/matches/$matchId');
       final data = response.data;
-      final list = data is Map ? data['data'] : null;
-      final stillLive =
-          list is List &&
-          list.any(
-            (item) => item is Map && item['matchId']?.toString() == matchId,
-          );
-      if (!stillLive) {
+      final body = data is Map && data['data'] is Map
+          ? Map<String, dynamic>.from(data['data'] as Map)
+          : null;
+      if (body == null) {
+        await fetchGameState(matchId);
+        return;
+      }
+      final snapshotId = body['matchId']?.toString() ?? body['id']?.toString();
+      if (snapshotId != null && snapshotId != matchId) {
+        // Asked for one match and told about another: the stored pointer is
+        // stale, so drop it rather than joining a room we did not ask for.
         await _storage.clearActiveMatchId();
         _socketService.clearJoinedMatch();
         return;
       }
-    } catch (_) {
-      // The check is best-effort: a failed lookup must not strand a match that
-      // really is live, so fall through and let the socket reconcile.
+      status = body['status']?.toString();
+    } catch (error) {
+      // 404 means the match is genuinely gone; anything else (offline, timeout,
+      // 5xx) must not strand a match that really is live.
+      if (_statusCodeOf(error) == 404) {
+        await _storage.clearActiveMatchId();
+        _socketService.clearJoinedMatch();
+        return;
+      }
+      await fetchGameState(matchId);
+      return;
+    }
+
+    if (_terminalMatchStatuses.contains(status)) {
+      await _storage.clearActiveMatchId();
+      _socketService.clearJoinedMatch();
+      return;
     }
     await fetchGameState(matchId);
+  }
+
+  /// Statuses after which a match can never be resumed: the board is finished
+  /// and any further state request would be rejected as stale.
+  static const _terminalMatchStatuses = {
+    'SETTLED',
+    'RELEASED',
+    'EXPIRED',
+    'CANCELLED',
+    'CANCELED',
+    'FORFEITED',
+  };
+
+  /// HTTP status carried by a DioException, or null for anything else. Uses a
+  /// runtime-safe read because the socket layer can surface non-Dio errors.
+  int? _statusCodeOf(Object error) {
+    try {
+      final response = (error as dynamic).response;
+      if (response == null) return null;
+      final code = (response as dynamic).statusCode;
+      return code is int ? code : null;
+    } catch (_) {
+      return null;
+    }
   }
 
   Future<void> joinQueue(String tier, int stakeMinorUnits) async {

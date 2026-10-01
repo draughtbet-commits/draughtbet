@@ -394,6 +394,11 @@ class _ActiveMatchCard extends StatelessWidget {
   String get _route => switch (snapshot.phase) {
     MatchLifecyclePhase.readyCheck => '/play/ready',
     MatchLifecyclePhase.waitingOpponentReady => '/play/waiting-ready',
+    // A started match belongs on the board. Falling through to a pre-start
+    // screen here would strand a returning player on a waiting screen that
+    // cannot reach the match they are actually playing.
+    MatchLifecyclePhase.inPlay =>
+      '/match/${snapshot.matchId ?? ''}',
     _ => '/play/waiting-stake',
   };
 
