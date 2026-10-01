@@ -40,8 +40,12 @@ export const initSocketServer = (httpServer) => {
     // Connection quota: bound how many sockets one account can hold at once so
     // a compromised client cannot stack connections and multiply event budgets.
     try {
+      // The socket has already joined its user room above, so `live` includes
+      // this very connection; excluding it keeps the cap at MAX rather than
+      // silently allowing MAX + 1.
       const live = await io.in(`user:${socket.user.userId}`).fetchSockets();
-      if (live.length > MAX_SOCKETS_PER_USER) {
+      const others = Math.max(live.length - 1, 0);
+      if (others >= MAX_SOCKETS_PER_USER) {
         socket.emit('error', {
           message: `Connection limit reached (${MAX_SOCKETS_PER_USER})`
         });
@@ -100,16 +104,32 @@ export const getIO = () => {
 export const guardSocketHandler = (socket, handler, eventName = null) => async (payload) => {
   try {
     if (socket.user?.tokenExpiresAt && Date.now() > socket.user.tokenExpiresAt) {
-      socket.emit('error', { message: 'Session expired' });
+      // Coded so the client can refresh and reconnect deliberately, instead of
+      // waiting for the *next* handshake to fail and having to diagnose that.
+      socket.emit('auth_expired', {
+        code: 'TOKEN_EXPIRED',
+        message: 'Session expired'
+      });
       socket.disconnect?.(true);
       return;
     }
     if (eventName) {
       const budget = await consumeBudget({ userId: socket.user?.userId, eventName });
       if (!budget.allowed) {
-        socket.emit('error', {
-          message: 'Too many events, please slow down',
-          retryAfterMs: budget.retryAfterMs
+        // A throttle is not a broken connection, and the client must be able to
+        // tell them apart: lumping them together as `error` makes a transient
+        // budget rejection look like a dropped session, which pushes the client
+        // into reconnecting and re-sending the very event that was throttled.
+        // Log the event name so a flood is diagnosable instead of anonymous.
+        logger.warn(
+          { userId: socket.user?.userId, eventName, socketId: socket.id },
+          'Socket event budget exceeded'
+        );
+        socket.emit('rate_limited', {
+          code: 'RATE_LIMITED',
+          event: eventName,
+          retryAfterMs: budget.retryAfterMs,
+          message: 'Too many events, please slow down'
         });
         return;
       }

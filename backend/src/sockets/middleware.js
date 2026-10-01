@@ -66,7 +66,7 @@ export const socketAuthMiddleware = async (socket, next) => {
       select: { id: true, isBanned: true }
     });
     if (!user || user.isBanned) {
-      return next(new Error('Account suspended'));
+      return next(new Error('ACCOUNT_SUSPENDED: This account is suspended'));
     }
 
     // Attach decoded user info to the socket
@@ -77,7 +77,16 @@ export const socketAuthMiddleware = async (socket, next) => {
 
     next();
   } catch (err) {
-    logger.warn({ err: err.message, socketId: socket.id }, 'Socket authentication failed');
-    next(new Error('Authentication error: Invalid or expired token'));
+    // Distinguish an expired token from an invalid one. They used to collapse
+    // into one opaque message, so the client could only react by retrying the
+    // same dead token forever — an expired access token is recoverable by
+    // refreshing, an invalid one is not.
+    const expired = err?.name === 'TokenExpiredError';
+    const code = expired ? 'TOKEN_EXPIRED' : 'TOKEN_INVALID';
+    logger.warn(
+      { err: err.message, code, socketId: socket.id },
+      'Socket authentication failed'
+    );
+    next(new Error(`${code}: ${expired ? 'Access token expired' : 'Invalid or expired token'}`));
   }
 };

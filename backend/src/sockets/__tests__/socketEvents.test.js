@@ -147,7 +147,7 @@ describe('socket event rejection safety (real server)', () => {
     bannedUserId = 'socket-test-user';
     const socket = connect();
     try {
-      await expect(connectClient(socket)).rejects.toThrow('Account suspended');
+      await expect(connectClient(socket)).rejects.toThrow('ACCOUNT_SUSPENDED');
     } finally {
       bannedUserId = null;
       socket.close();
@@ -165,7 +165,12 @@ describe('socket event rejection safety (real server)', () => {
     const handler = jest.fn();
     await guardSocketHandler(socket, handler, 'move_attempt')({});
     expect(handler).not.toHaveBeenCalled();
-    expect(socket.emit).toHaveBeenCalledWith('error', { message: 'Session expired' });
+    // Coded, so the client refreshes deliberately rather than waiting for the
+    // next handshake to be rejected and having to infer why.
+    expect(socket.emit).toHaveBeenCalledWith('auth_expired', {
+      code: 'TOKEN_EXPIRED',
+      message: 'Session expired'
+    });
     expect(socket.disconnect).toHaveBeenCalledWith(true);
   });
 
@@ -190,13 +195,59 @@ describe('socket event rejection safety (real server)', () => {
       socket.emit('move_attempt', null);
       expect(await third).toEqual({ reason: 'invalid_payload' });
 
-      // Fourth event exceeds the (overridden) budget of 3/min → controlled 'error'.
-      const throttled = onceEvent(socket, 'error');
+      // Fourth event exceeds the (overridden) budget of 3/min. It is reported
+      // as 'rate_limited', never as 'error': a throttle is not a broken
+      // connection, and conflating them makes the client reconnect and re-send
+      // the event that was just throttled.
+      const throttled = onceEvent(socket, 'rate_limited');
       socket.emit('move_attempt', null);
       const reply = await throttled;
+      expect(reply.code).toBe('RATE_LIMITED');
+      expect(reply.event).toBe('move_attempt');
       expect(reply.message).toBe('Too many events, please slow down');
       expect(reply.retryAfterMs).toBeGreaterThan(0);
     } finally {
+      socket.close();
+    }
+  });
+
+  it('rejects an expired token with a code the client can refresh on', async () => {
+    // A plain "invalid token" message is unactionable: the client retries the
+    // same dead token forever. TOKEN_EXPIRED tells it to refresh first.
+    const socket = ioClient(`http://127.0.0.1:${port}`, {
+      transports: ['websocket'],
+      reconnection: false,
+      auth: { token: jwt.sign({ userId: 'refresh-user' }, 'test_secret', { expiresIn: '-1m' }) }
+    });
+    try {
+      const err = await connectClient(socket).then(
+        () => { throw new Error('handshake unexpectedly succeeded'); },
+        (e) => e
+      );
+      expect(String(err?.message ?? err)).toContain('TOKEN_EXPIRED');
+    } finally {
+      socket.close();
+    }
+  });
+
+  it('rejects a suspended account with a distinct code', async () => {
+    bannedUserId = 'banned-user';
+    const socket = ioClient(`http://127.0.0.1:${port}`, {
+      transports: ['websocket'],
+      reconnection: false,
+      auth: { token: jwt.sign({ userId: 'banned-user' }, 'test_secret', { expiresIn: '1h' }) }
+    });
+    try {
+      const err = await connectClient(socket).then(
+        () => { throw new Error('handshake unexpectedly succeeded'); },
+        (e) => e
+      );
+      const message = String(err?.message ?? err);
+      // Must NOT be refreshable, or the client would spin refreshing forever.
+      expect(message).toContain('ACCOUNT_SUSPENDED');
+      expect(message).not.toContain('TOKEN_EXPIRED');
+    } finally {
+      bannedUserId = null;
       socket.close();
     }
   });

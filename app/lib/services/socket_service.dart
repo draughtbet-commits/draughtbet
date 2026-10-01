@@ -4,6 +4,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:socket_io_client/socket_io_client.dart' as socket_io;
 import '../config/backend_contract.dart';
 import 'secure_storage.dart';
+import 'token_refresher.dart';
 
 enum SocketConnectionPhase { connected, disconnected, reconnecting, failed }
 
@@ -24,8 +25,21 @@ class SocketService {
   /// believes it entered.
   String? _joinedMatchId;
   final _storage = SecureStorageService();
+  late final TokenRefresher _tokenRefresher =
+      TokenRefresher(storage: _storage);
   String? _appVersion;
   Future<void>? _refreshInFlight;
+
+  /// Set while a token refresh triggered by a failed handshake is in flight, so
+  /// a reconnect storm cannot fan out into parallel refresh calls (each of
+  /// which would rotate the refresh token and invalidate the others).
+  Future<void>? _handshakeRecovery;
+
+  /// Consecutive failed handshake recoveries. Past a small bound the session is
+  /// treated as genuinely dead (bad refresh token, banned account) and we stop
+  /// looping rather than retrying forever.
+  int _handshakeRecoveryAttempts = 0;
+  static const _maxHandshakeRecoveries = 3;
 
   // Stream controllers for different events
   final _matchFoundController =
@@ -45,6 +59,8 @@ class SocketService {
   final _opponentReconnectedController =
       StreamController<Map<String, dynamic>>.broadcast();
   final _errorController = StreamController<Map<String, dynamic>>.broadcast();
+  final _rateLimitedController =
+      StreamController<Map<String, dynamic>>.broadcast();
   final _calloutCreatedController =
       StreamController<Map<String, dynamic>>.broadcast();
   final _walletUpdatedController =
@@ -91,6 +107,12 @@ class SocketService {
   Stream<Map<String, dynamic>> get onOpponentReconnected =>
       _opponentReconnectedController.stream;
   Stream<Map<String, dynamic>> get onError => _errorController.stream;
+
+  /// The server refused one event because the per-user budget for it was spent.
+  /// Separate from [onError] so a throttle is never mistaken for a dropped
+  /// session (see the handler in [initSocket]).
+  Stream<Map<String, dynamic>> get onRateLimited =>
+      _rateLimitedController.stream;
   Stream<Map<String, dynamic>> get onCalloutCreated =>
       _calloutCreatedController.stream;
   Stream<Map<String, dynamic>> get onWalletUpdated =>
@@ -110,6 +132,53 @@ class SocketService {
   /// Re-reads the access token from storage and, when it differs from the one
   /// the socket is carrying, updates the socket's auth payload and headers so
   /// the in-flight reconnect handshake uses a token that has not expired.
+  /// True when the handshake failed because the access token is expired or
+  /// malformed — recoverable by refreshing, as opposed to a suspended account
+  /// or an unsupported app version, which are not.
+  bool _isRecoverableAuthError(dynamic err) {
+    final message = err?.toString().toUpperCase() ?? '';
+    return message.contains('TOKEN_EXPIRED') ||
+        message.contains('TOKEN_INVALID') ||
+        message.contains('EXPIRED') ||
+        message.contains('JWT');
+  }
+
+  /// Refreshes the access token and reconnects, bounded so a permanently dead
+  /// session fails fast instead of looping.
+  Future<void> _recoverFromAuthFailure() async {
+    if (_handshakeRecoveryAttempts >= _maxHandshakeRecoveries) {
+      _connectionPhaseController.add(SocketConnectionPhase.failed);
+      return;
+    }
+    final inFlight = _handshakeRecovery;
+    if (inFlight != null) return inFlight;
+
+    _connectionPhaseController.add(SocketConnectionPhase.reconnecting);
+    final future = _doRecoverFromAuthFailure().whenComplete(() {
+      _handshakeRecovery = null;
+    });
+    _handshakeRecovery = future;
+    return future;
+  }
+
+  Future<void> _doRecoverFromAuthFailure() async {
+    _handshakeRecoveryAttempts++;
+    try {
+      final tokens = await _tokenRefresher.refresh();
+      final socket = _socket;
+      if (socket == null) return;
+      // Carry the new token into the next handshake. The Authorization extra
+      // header is fixed at construction, but the handshake reads `auth`.
+      socket.auth = {'token': tokens.accessToken, 'version': ?_appVersion};
+      _handshakeRecoveryAttempts = 0;
+      if (!socket.connected) socket.connect();
+    } catch (_) {
+      // Refresh failed: the refresh token is dead or the session was revoked.
+      // Stop trying rather than looping on a token that will never work.
+      _connectionPhaseController.add(SocketConnectionPhase.failed);
+    }
+  }
+
   Future<void> _refreshSocketAuth() async {
     final inFlight = _refreshInFlight;
     if (inFlight != null) return inFlight;
@@ -187,6 +256,15 @@ class SocketService {
       final joined = _joinedMatchId;
       if (joined != null) _emitJoin(joined);
     });
+    _socket!.on('auth_expired', (data) {
+      // The server dropped us because the access token lapsed mid-session.
+      // Refresh and reconnect immediately rather than waiting for the next
+      // handshake to be rejected.
+      if (data is Map && (data['code']?.toString().contains('TOKEN') ?? false)) {
+        unawaited(_recoverFromAuthFailure());
+      }
+    });
+
     _socket!.onDisconnect((_) {
       _connectionPhaseController.add(SocketConnectionPhase.disconnected);
     });
@@ -202,7 +280,15 @@ class SocketService {
     _socket!.onReconnecting((_) {
       _connectionPhaseController.add(SocketConnectionPhase.reconnecting);
     });
-    _socket!.onConnectError((_) {
+    _socket!.onConnectError((err) {
+      // A dead access token cannot be fixed by reconnecting: socket.io replays
+      // the same auth payload on every attempt, so without an explicit refresh
+      // the client retries an expired token forever and the player is locked out
+      // of the room until they manually restart the app.
+      if (_isRecoverableAuthError(err)) {
+        unawaited(_recoverFromAuthFailure());
+        return;
+      }
       _connectionPhaseController.add(SocketConnectionPhase.failed);
     });
     _socket!.onReconnectError((_) {
@@ -334,6 +420,16 @@ class SocketService {
     _socket!.on('opponent_reconnected', (data) {
       if (data is Map) {
         _opponentReconnectedController.add(Map<String, dynamic>.from(data));
+      }
+    });
+
+    _socket!.on('rate_limited', (data) {
+      if (data is Map) {
+        // Deliberately not routed to onError: being throttled is a transient
+        // server-side guard, not a failure the player caused or can act on by
+        // retrying. Routing it as an error invites exactly the reconnect storm
+        // that exhausts the budget in the first place.
+        _rateLimitedController.add(Map<String, dynamic>.from(data));
       }
     });
 
@@ -512,6 +608,7 @@ class SocketService {
     _opponentDisconnectedController.close();
     _opponentReconnectedController.close();
     _errorController.close();
+    _rateLimitedController.close();
     _preplayReleasedController.close();
     _calloutCreatedController.close();
     _walletUpdatedController.close();
