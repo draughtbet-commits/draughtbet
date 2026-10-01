@@ -165,6 +165,48 @@ describe('runFinancialReconciliation', () => {
     expect(result.discrepancies.join(' ')).toMatch(/settlement\.m1\.posting/);
   });
 
+  it('accepts a draw, whose payout is split across two player credits', async () => {
+    // Each player gets their own stake back as a separate credit, so the total
+    // equals netPayout while no single entry ever does. Comparing one entry
+    // against the total flagged every draw as a HIGH mismatch.
+    mockPrisma.matchSettlement.findMany.mockResolvedValue([
+      { matchId: 'draw-1', netPayoutMinorUnits: 200000n }
+    ]);
+    mockPrisma.ledgerTransaction.findUnique.mockResolvedValue({
+      entries: [
+        { amountMinorUnits: -100000n, account: { type: 'PLAYER_LOCKED' } },
+        { amountMinorUnits: 100000n, account: { type: 'PLAYER_AVAILABLE' } },
+        { amountMinorUnits: -100000n, account: { type: 'PLAYER_LOCKED' } },
+        { amountMinorUnits: 100000n, account: { type: 'PLAYER_AVAILABLE' } }
+      ]
+    });
+
+    const result = await runFinancialReconciliation();
+
+    expect(result.discrepancies).toEqual([]);
+    expect(result.status).toBe('PASSED');
+  });
+
+  it('still flags a win that credits less than the recorded payout', async () => {
+    // Guards the loosened check: the total really is compared, so an
+    // under-payment cannot slip through.
+    mockPrisma.matchSettlement.findMany.mockResolvedValue([
+      { matchId: 'short-1', netPayoutMinorUnits: 1800000n }
+    ]);
+    mockPrisma.ledgerTransaction.findUnique.mockResolvedValue({
+      entries: [
+        { amountMinorUnits: -1000000n, account: { type: 'PLAYER_LOCKED' } },
+        { amountMinorUnits: -1000000n, account: { type: 'PLAYER_LOCKED' } },
+        { amountMinorUnits: 1700000n, account: { type: 'PLAYER_AVAILABLE' } },
+        { amountMinorUnits: 300000n, account: { type: 'PLATFORM_REVENUE' } }
+      ]
+    });
+
+    const result = await runFinancialReconciliation();
+
+    expect(result.discrepancies.join(' ')).toMatch(/short-1\.posting\.amount/);
+  });
+
   it('pages through withdrawal and deposit rows', async () => {
     // do-while loops only continue while a full PAGE_SIZE page came back
     const FULL_PAGE = Array.from({ length: 200 }, () => ({}));

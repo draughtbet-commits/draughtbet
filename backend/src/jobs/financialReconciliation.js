@@ -194,12 +194,21 @@ export async function runFinancialReconciliation({ clock = () => new Date() } = 
     const settlementIssue = { type: 'MATCH_SETTLEMENT_MISMATCH', severity: 'HIGH', entityType: 'Match', entityId: s.matchId };
     const posting = await prisma.ledgerTransaction.findUnique({
       where: { idempotencyKey: `MATCH_SETTLEMENT:${s.matchId}` },
-      include: { entries: { select: { amountMinorUnits: true } } }
+      include: { entries: { select: { amountMinorUnits: true, account: { select: { type: true } } } } }
     });
     check(results, `settlement.${s.matchId}.posting`, Boolean(posting), `settled match without MATCH_SETTLEMENT posting`, settlementIssue);
     if (posting) {
       const net = posting.entries.reduce((sum, e) => sum + e.amountMinorUnits, 0n);
-      const coversPayout = posting.entries.some((e) => e.amountMinorUnits === s.netPayoutMinorUnits);
+      // The payout is what came BACK to players, so the invariant is the total
+      // credited to player available accounts, not the size of any single entry.
+      // A draw returns each player's own stake as two separate credits, so the
+      // total matches while no individual entry ever equals netPayout —
+      // comparing one entry against the total flagged every draw as a HIGH
+      // mismatch even though every kobo was returned.
+      const creditedToPlayers = posting.entries
+        .filter((e) => e.account.type === 'PLAYER_AVAILABLE' && e.amountMinorUnits > 0n)
+        .reduce((sum, e) => sum + e.amountMinorUnits, 0n);
+      const coversPayout = creditedToPlayers === s.netPayoutMinorUnits;
       check(results, `settlement.${s.matchId}.posting.amount`, net === 0n && coversPayout, `settlement posting does not cover the recorded payout`, settlementIssue);
     }
   }
