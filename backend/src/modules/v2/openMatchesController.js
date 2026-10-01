@@ -28,6 +28,7 @@ import {
   MatchNotReadyError,
   JoinUnavailableError
 } from './lifecycleService.js';
+import { clearPrePlayState, notifyPrePlayReleased } from '../../sockets/prePlayNotifier.js';
 
 export const openMatchRouter = Router();
 const eligibilityService = new EligibilityService();
@@ -237,17 +238,38 @@ openMatchRouter.post('/:id/cancel', requireAuth, requireIdempotencyKey({ scope: 
         id: matchId,
         OR: [{ playerLightId: userId }, { playerDarkId: userId }]
       },
-      select: { id: true }
+      select: { id: true, playerLightId: true, playerDarkId: true }
     });
     if (!holder) {
       throw new NotParticipantError('Only a participant can cancel this match');
     }
 
     const result = await cancelPreplayMatch(matchId);
+
     await prisma.matchChallenge.updateMany({
       where: { matchId },
       data: { status: 'CANCELLED' }
     });
+
+    // The canceller gets the snapshot in this response, but the opponent is on a
+    // socket and has no request to answer: without this emit they sit in the
+    // pre-match room waiting for state that will never arrive. Redis cleanup
+    // matters for the same reason from the other direction — a stale
+    // activeMatch pointer is what resurrects a cancelled match on cold start.
+    //
+    // endReason stays the default 'cancelled_pre_play' so the stored record is
+    // unchanged; cancelledBy carries the actor for the opponent's copy.
+    const playerIds = [holder.playerLightId, holder.playerDarkId];
+    await clearPrePlayState(matchId, playerIds);
+    notifyPrePlayReleased({
+      matchId,
+      playerIds,
+      reason: 'cancelled_by_opponent',
+      status: result.status,
+      refunded: result.refunded,
+      cancelledBy: userId
+    });
+
     const snapshot = await buildLifecycleSnapshot(prisma, matchId, userId);
     res.json({ data: { ...snapshot, ...result } });
   } catch (err) {
@@ -286,6 +308,23 @@ openMatchRouter.post('/:id/decline', requireAuth, requireIdempotencyKey({ scope:
     }
 
     await cancelPreplayMatch(matchId);
+
+    // Declining an invite ends the match before play; the inviter must be
+    // notified on the socket, and any cached activeMatch pointers cleared.
+    const challenger = await prisma.match.findFirst({
+      where: { id: matchId },
+      select: { playerLightId: true, playerDarkId: true }
+    });
+    const playerIds = challenger ? [challenger.playerLightId, challenger.playerDarkId] : [];
+    await clearPrePlayState(matchId, playerIds);
+    notifyPrePlayReleased({
+      matchId,
+      playerIds,
+      reason: 'challenge_declined',
+      status: 'CANCELLED',
+      refunded: false
+    });
+
     await prisma.matchChallenge.update({
       where: { id: challenge.id },
       data: { status: 'DECLINED' }
