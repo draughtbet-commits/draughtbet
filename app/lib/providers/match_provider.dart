@@ -425,6 +425,13 @@ class MatchNotifier extends StateNotifier<MatchState> {
     _subscriptions.add(
       _socketService.onOpponentReconnected.listen((_) {
         final matchId = state.currentMatchId;
+        // Presence echo, not news. When the opponent is already known to be
+        // present this notification is a duplicate of state we hold, and it must
+        // not trigger a canonical resync: resyncing re-joins, the server sees
+        // that as a join and notifies the opponent, who resyncs and re-joins --
+        // a mutual loop that exhausts the match.join budget and stops both
+        // players entering the room.
+        if (state.opponentConnected) return;
         state = state.copyWith(
           opponentConnected: true,
           clearOpponentDisconnect: true,

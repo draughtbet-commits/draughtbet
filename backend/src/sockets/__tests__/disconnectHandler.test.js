@@ -17,7 +17,11 @@ const mockMulti = {
 const mockRedis = {
   zrem: jest.fn(),
   zadd: jest.fn(),
-  multi: jest.fn(() => mockMulti)
+  multi: jest.fn(() => mockMulti),
+  // markPresenceIfChanged decides the connected/disconnected transition with one
+  // atomic Lua call; default to "the player just arrived" and let a test flip it
+  // to "already present" to prove the echo is suppressed.
+  eval: jest.fn().mockResolvedValue(1)
 };
 
 const mockLogger = {
@@ -65,7 +69,7 @@ jest.unstable_mockModule('../../modules/notification/service.js', () => ({
   NotificationService: { create: jest.fn() }
 }));
 
-const { handleJoinMatch, handleDisconnect, writePresence } = await import('../disconnectHandler.js');
+const { handleJoinMatch, handleDisconnect, writePresence, markPresenceIfChanged } = await import('../disconnectHandler.js');
 const { reconcileRedisWithDurable } = await import('../gameRecovery.js');
 const { getIO } = await import('../index.js');
 const { getActiveGameForUser, getGameState } = await import('../gameManager.js');
@@ -287,5 +291,157 @@ describe('writePresence lifetime', () => {
       expect.objectContaining({ userId: 'user-1' }),
       expect.stringContaining('missing matchId')
     );
+  });
+});
+// Regression: a join notified the opponent unconditionally, and the opponent's
+// client answers a "connected" notification by resyncing (re-joining). That
+// mutual loop pinned both clients at ~20 joins/second until the 30/min
+// match.join budget was spent, after which presence was never recorded and both
+// players were stuck in the room. Notifications must be edge-triggered.
+describe('presence notification is edge-triggered', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockRedis.eval.mockResolvedValue(1);
+    mockRedis.multi.mockImplementation(() => mockMulti);
+  });
+
+  const prePlayMatch = (overrides = {}) => ({
+    id: 'match-1',
+    status: 'READY',
+    playerLightId: 'user-1',
+    playerDarkId: 'user-2',
+    ...overrides
+  });
+
+  it('tells the opponent once when a seated player actually arrives (pre-play)', async () => {
+    mockPrisma.match.findUnique.mockResolvedValue(prePlayMatch());
+    const socket = makeSocket();
+
+    await handleJoinMatch(socket, { matchId: 'match-1' });
+
+    expect(socket.to).toHaveBeenCalledWith('user:user-2');
+    expect(socket.to('user:user-2').emit).toHaveBeenCalledWith('opponent.connection', {
+      userId: 'user-1', status: 'connected', preStart: true
+    });
+  });
+
+  it('stays silent on a duplicate join from an already-present player', async () => {
+    mockRedis.eval.mockResolvedValue(0);
+    mockPrisma.match.findUnique.mockResolvedValue(prePlayMatch());
+    const socket = makeSocket();
+
+    await handleJoinMatch(socket, { matchId: 'match-1' });
+
+    // Presence is still recorded so the seat survives a resync...
+    expect(mockRedis.eval).toHaveBeenCalled();
+    // ...but no notification, so the opponent is not dragged into a resync.
+    expect(socket.to).not.toHaveBeenCalled();
+  });
+
+  it('does not ping-pong when two players each re-join (the original loop)', async () => {
+    mockPrisma.match.findUnique.mockResolvedValue(prePlayMatch());
+    const light = makeSocket();
+    const dark = makeSocket({ user: { userId: 'user-2' } });
+
+    // Both players re-join five times each. Once presence is settled the atomic
+    // script reports "no change", so no further notification can be produced and
+    // the loop cannot restart.
+    mockRedis.eval.mockResolvedValueOnce(1).mockResolvedValue(0);
+
+    for (let i = 0; i < 5; i += 1) {
+      await handleJoinMatch(light, { matchId: 'match-1' });
+      await handleJoinMatch(dark, { matchId: 'match-1' });
+    }
+
+    const lightBroadcasts = light.to.mock.calls.length;
+    const darkBroadcasts = dark.to.mock.calls.length;
+    expect(lightBroadcasts).toBe(1);
+    expect(darkBroadcasts).toBe(0);
+  });
+
+  it('suppresses the live-match reconnect broadcast for a duplicate join', async () => {
+    mockPrisma.match.findUnique.mockResolvedValue(liveMatch());
+    reconcileRedisWithDurable.mockResolvedValue({
+      board: '[]', currentTurn: 'white', player1: 'user-1', player2: 'user-2'
+    });
+    mockRedis.eval.mockResolvedValue(0);
+    const socket = makeSocket();
+
+    await handleJoinMatch(socket, { matchId: 'match-1' });
+
+    // The canonical board is still served on every join...
+    expect(socket.emit).toHaveBeenCalledWith('game_state', expect.anything());
+    // ...but no reconnect broadcast, so the opponent does not re-join in reply.
+    expect(socket.to).not.toHaveBeenCalled();
+  });
+
+  it('still broadcasts both reconnect signals on a genuine live reconnect', async () => {
+    mockPrisma.match.findUnique.mockResolvedValue(liveMatch());
+    reconcileRedisWithDurable.mockResolvedValue({
+      board: '[]', currentTurn: 'white', player1: 'user-1', player2: 'user-2'
+    });
+    mockRedis.eval.mockResolvedValue(1);
+    const socket = makeSocket();
+
+    await handleJoinMatch(socket, { matchId: 'match-1' });
+
+    expect(socket.to('match:match-1').emit).toHaveBeenCalledWith('opponent_reconnected', {
+      userId: 'user-1'
+    });
+    expect(socket.to('match:match-1').emit).toHaveBeenCalledWith('opponent.connection', {
+      userId: 'user-1', status: 'connected'
+    });
+  });
+});
+
+describe('markPresenceIfChanged', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockRedis.multi.mockImplementation(() => mockMulti);
+    mockRedis.eval.mockResolvedValue(1);
+  });
+
+  it('reports a change only when the atomic script saw a disconnected player', async () => {
+    await expect(markPresenceIfChanged('match-1', 'LIGHT', 'user-1')).resolves.toBe(true);
+    mockRedis.eval.mockResolvedValue(0);
+    await expect(markPresenceIfChanged('match-1', 'LIGHT', 'user-1')).resolves.toBe(false);
+  });
+
+  it('decides the transition atomically instead of a read-then-write race', async () => {
+    await markPresenceIfChanged('match-1', 'LIGHT', 'user-1');
+
+    expect(mockRedis.eval).toHaveBeenCalledTimes(1);
+    // key, field, TTL, value -- a single round trip, so two concurrent joins
+    // cannot both observe "disconnected" and both report a transition.
+    // key, field, value, TTL-string -- a single round trip, so two concurrent
+    // joins cannot both observe "disconnected" and both report a transition.
+    // The TTL must be a string: Redis rejects non-string Lua ARGVs, which threw
+    // and silently degraded every presence write to the "always notify" path.
+    expect(mockRedis.eval.mock.calls[0].slice(1)).toEqual([
+      1, 'match:match-1', 'connLIGHT',
+      JSON.stringify({ status: 'connected' }), '86400'
+    ]);
+    expect(typeof mockRedis.eval.mock.calls[0][4]).toBe('string');
+    expect(typeof mockRedis.eval.mock.calls[0][5]).toBe('string');
+  });
+
+  it('skips Redis entirely when matchId is missing', async () => {
+    await expect(markPresenceIfChanged(undefined, 'LIGHT', 'user-1')).resolves.toBe(false);
+
+    expect(mockRedis.eval).not.toHaveBeenCalled();
+  });
+
+  it('falls back to a direct presence write and still notifies when eval fails', async () => {
+    mockRedis.eval.mockRejectedValue(new Error('redis down'));
+
+    await expect(markPresenceIfChanged('match-1', 'LIGHT', 'user-1')).resolves.toBe(true);
+
+    // Presence must not be lost to a Lua failure...
+    expect(mockMulti.hset).toHaveBeenCalledWith('match:match-1', {
+      connLIGHT: JSON.stringify({ status: 'connected' })
+    });
+    // ...and the notification is withheld only never: better a duplicate echo
+    // the client now ignores than a silently wrong opponent view.
+    expect(mockLogger.warn).toHaveBeenCalled();
   });
 });

@@ -156,16 +156,22 @@ class _MatchRoomScreenState extends ConsumerState<MatchRoomScreen> {
                     ),
                     const SizedBox(width: 7),
                     Flexible(
-                      child: Text(
-                        ended
-                            ? 'This match has ended'
-                            : opponentDisconnected
-                            ? 'Waiting for opponent to reconnect'
-                            : synced
-                            ? 'Canonical match state received'
-                            : offline
-                            ? 'Connection lost before match start'
-                            : 'Waiting for authoritative match state',
+child: Text(
+                          ended
+                              ? 'This match has ended'
+                              : opponentDisconnected
+                              ? 'Waiting for opponent to reconnect'
+                              : synced
+                              ? 'Canonical match state received'
+                              : offline
+                              ? 'Connection lost before match start'
+                              // Pre-play has no board yet and never will until
+                              // the match goes live, so promising "waiting for
+                              // authoritative match state" here would be a
+                              // promise the server cannot keep.
+                              : prePlay
+                              ? 'Board appears when the match starts'
+                              : 'Waiting for authoritative match state',
                         textAlign: TextAlign.center,
                         style: TextStyle(
                           fontFamily: 'Inter',

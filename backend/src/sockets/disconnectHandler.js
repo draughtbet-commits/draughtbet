@@ -52,6 +52,61 @@ export const writePresence = async (matchId, side, userId, status, graceEndsAt =
   }
 };
 
+/**
+ * Records presence as connected, but only reports a change when the player was
+ * not already present.
+ *
+ * Decided with a single atomic Lua call: a read-then-write would let two
+ * concurrent joins from the same player both observe "disconnected" and both
+ * report a transition, so a duplicated presence notification would still reach
+ * the opponent. Returns true only on a genuine disconnected -> connected edge,
+ * which is what makes the notification safe to trigger a client resync from.
+ */
+export const markPresenceIfChanged = async (matchId, side, userId) => {
+  if (!matchId) {
+    logger.warn({ userId, side }, 'Presence write skipped: missing matchId');
+    return false;
+  }
+  const field = `conn${side}`;
+  try {
+    const result = await redis.eval(
+      markConnectedIfChangedScript,
+      1,
+      `match:${matchId}`,
+      field,
+      JSON.stringify({ status: 'connected' }),
+      String(GAME_STATE_TTL_SECONDS)
+    );
+    return Number(result) === 1;
+  } catch (err) {
+    // Best-effort: fall back to writing presence so the seat is still recorded,
+    // but report "changed" so the notification is not silently withheld.
+    logger.warn({ err, matchId, userId }, 'markPresenceIfChanged failed; writing presence directly');
+    await writePresence(matchId, side, userId, 'connected');
+    return true;
+  }
+};
+
+// HGET the field, set it only if it does not already record a connection, and
+// always refresh the key TTL. Returns 1 when the value changed.
+// KEYS[1] = match key, ARGV[1] = field, ARGV[2] = value, ARGV[3] = TTL (string)
+const markConnectedIfChangedScript = `
+local current = redis.call("HGET", KEYS[1], ARGV[1])
+local wasConnected = 0
+if current then
+  local ok, decoded = pcall(cjson.decode, current)
+  if ok and type(decoded) == "table" and decoded["status"] == "connected" then
+    wasConnected = 1
+  end
+end
+if wasConnected == 0 then
+  redis.call("HSET", KEYS[1], ARGV[1], ARGV[2])
+end
+redis.call("EXPIRE", KEYS[1], tonumber(ARGV[3]))
+if wasConnected == 1 then return 0 end
+return 1
+`;
+
 export async function handleDisconnect(socket) {
   const userId = socket.user?.userId;
   if (!userId) return;
@@ -235,10 +290,18 @@ export async function handleJoinMatch(socket, payload) {
     // presence and return instead.
     if (match.status === 'FUNDED' || match.status === 'READY') {
       const side = match.playerLightId === userId ? 'LIGHT' : 'DARK';
-      await writePresence(match.id, side, userId, 'connected');
-      socket.to(`user:${userId === match.playerLightId ? match.playerDarkId : match.playerLightId}`)
-        .emit('opponent.connection', { userId, status: 'connected', preStart: true });
-      logger.info({ userId, matchId }, 'Player seated in pre-play match room');
+      // Notify the opponent only when this join actually MOVES their presence
+      // from disconnected to connected. Emitting on every join made presence an
+      // echo: the opponent's client resyncs (re-joins) on hearing "connected",
+      // which notifies us, which makes us resync and re-join -- a mutual loop
+      // that pinned both clients at ~20 joins/second until the per-user
+      // match.join budget was spent and room entry stopped working.
+      const becamePresent = await markPresenceIfChanged(matchId, side, userId);
+      if (becamePresent) {
+        socket.to(`user:${userId === match.playerLightId ? match.playerDarkId : match.playerLightId}`)
+          .emit('opponent.connection', { userId, status: 'connected', preStart: true });
+      }
+      logger.info({ userId, matchId, becamePresent }, 'Player seated in pre-play match room');
       return;
     }
 
@@ -265,13 +328,22 @@ export async function handleJoinMatch(socket, payload) {
     const canonical = buildStatePayload(matchId, state, nowMs);
     if (canonical) socket.emit('match.state', canonical);
 
-    if (isLiveStatus(match.status)) {
-      await recordPresence(matchId, state, userId, 'connected');
-      socket.to(`match:${matchId}`).emit('opponent_reconnected', { userId });
-      socket.to(`match:${matchId}`).emit('opponent.connection', {
-        userId,
-        status: 'connected'
-      });
+if (isLiveStatus(match.status)) {
+      // Same echo hazard as the pre-play branch: notifying on every join makes
+      // the opponent resync, which re-joins, which notifies us. Gate both
+      // notifications on a real disconnected -> connected edge.
+      const side = state.player1 === userId ? 'LIGHT' : state.player2 === userId ? 'DARK' : null;
+      const becamePresent = side
+        ? await markPresenceIfChanged(matchId, side, userId)
+        : true;
+      if (!side) await recordPresence(matchId, state, userId, 'connected');
+      if (becamePresent) {
+        socket.to(`match:${matchId}`).emit('opponent_reconnected', { userId });
+        socket.to(`match:${matchId}`).emit('opponent.connection', {
+          userId,
+          status: 'connected'
+        });
+      }
       await recordConnectionEvent({ matchId, userId, state: 'RECONNECTED', socket });
     }
     logger.info({ userId, matchId }, 'Player reconnected and joined match room');
