@@ -207,9 +207,30 @@ class MatchFlowNotifier extends StateNotifier<MatchFlowState> {
     );
   }
 
+  /// Re-seeds the in-memory match context from a snapshot the app already
+  /// holds.
+  ///
+  /// `currentMatchId` and `currentIntent` only ever get set by a live flow, so
+  /// after a cold start into a pre-play room both are null while the UI renders
+  /// a perfectly good snapshot. Every pre-play action then bailed out on
+  /// `terms == null` before issuing a request, leaving a button that looked live
+  /// but did nothing. The snapshot is server-derived, so it is a safe source for
+  /// both the id and the terms.
+  void adoptLifecycle(MatchLifecycleSnapshot snapshot) {
+    final matchId = snapshot.matchId;
+    if (matchId == null) return;
+    state = state.copyWith(
+      lifecycle: snapshot,
+      currentMatchId: matchId,
+      currentIntent:
+          state.currentIntent ??
+          MatchFlowIntent(kind: MatchEntryKind.quick, terms: snapshot.terms),
+    );
+  }
+
   Future<MatchLifecycleSnapshot?> refreshLifecycle() async {
     final matchId = state.currentMatchId;
-    final terms = state.currentIntent?.terms;
+    final terms = state.currentIntent?.terms ?? state.lifecycle?.terms;
     if (matchId == null || terms == null) return null;
     final snapshot = await _gateway.fetchMatch(matchId, terms);
     if (snapshot != null) applyLifecycle(snapshot);
@@ -218,8 +239,17 @@ class MatchFlowNotifier extends StateNotifier<MatchFlowState> {
 
   Future<MatchLifecycleSnapshot?> markReady() async {
     final matchId = state.currentMatchId;
-    final terms = state.currentIntent?.terms;
-    if (matchId == null || terms == null) return null;
+    final terms = state.currentIntent?.terms ?? state.lifecycle?.terms;
+    if (matchId == null || terms == null) {
+      // Never leave a live-looking button silently inert: without a match
+      // context there is nothing to confirm, and the player must be told.
+      state = state.copyWith(
+        actionPhase: MatchActionPhase.failed,
+        message:
+            'This match is no longer ready to start. Return to the room list.',
+      );
+      return null;
+    }
     final snapshot = await _gateway.markReady(matchId, terms);
     if (snapshot != null) applyLifecycle(snapshot);
     return snapshot;

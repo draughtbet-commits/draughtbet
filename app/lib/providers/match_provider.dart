@@ -495,6 +495,7 @@ class MatchNotifier extends StateNotifier<MatchState> {
         // The stored pointer outlives the app; leaving it set is what makes a
         // released match look live on the next launch.
         unawaited(_storage.clearActiveMatchId());
+        _socketService.clearJoinedMatch();
         state = state.copyWith(
           gameState: current?.copyWith(status: 'completed'),
           isMovePending: false,
@@ -554,7 +555,10 @@ class MatchNotifier extends StateNotifier<MatchState> {
           endReason: result?.reason,
           authoritativeResult: result,
         );
-        if (result != null) unawaited(_storage.clearActiveMatchId());
+        if (result != null) {
+          unawaited(_storage.clearActiveMatchId());
+          _socketService.clearJoinedMatch();
+        }
       }),
     );
     _subscriptions.add(
@@ -650,6 +654,7 @@ class MatchNotifier extends StateNotifier<MatchState> {
           );
       if (!stillLive) {
         await _storage.clearActiveMatchId();
+        _socketService.clearJoinedMatch();
         return;
       }
     } catch (_) {

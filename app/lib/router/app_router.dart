@@ -199,6 +199,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           builder: (context, ref, _) {
             final snapshot = state.extra! as MatchLifecycleSnapshot;
             return _PrePlayLifecycleWatcher(
+              snapshot: snapshot,
               child: ReadyCheckScreen(
                 snapshot: snapshot,
                 onReady: () async {
@@ -217,11 +218,13 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         path: '/play/waiting-ready',
         redirect: (context, state) =>
             state.extra is MatchLifecycleSnapshot ? null : '/play/unavailable',
-        builder: (context, state) => _PrePlayLifecycleWatcher(
-          child: WaitingOpponentReadyScreen(
-            snapshot: state.extra! as MatchLifecycleSnapshot,
-          ),
-        ),
+        builder: (context, state) {
+          final snapshot = state.extra! as MatchLifecycleSnapshot;
+          return _PrePlayLifecycleWatcher(
+            snapshot: snapshot,
+            child: WaitingOpponentReadyScreen(snapshot: snapshot),
+          );
+        },
       ),
       GoRoute(
         path: '/play/ready-timeout',
@@ -510,9 +513,10 @@ class _SentChallengeWatcherState extends ConsumerState<_SentChallengeWatcher> {
 /// opponent dropping their socket before the opening. Mirrors the sent
 /// challenge watcher: no dedicated socket event reaches the parked player.
 class _PrePlayLifecycleWatcher extends ConsumerStatefulWidget {
-  const _PrePlayLifecycleWatcher({required this.child});
+  const _PrePlayLifecycleWatcher({required this.child, required this.snapshot});
 
   final Widget child;
+  final MatchLifecycleSnapshot snapshot;
 
   @override
   ConsumerState<_PrePlayLifecycleWatcher> createState() =>
@@ -528,6 +532,13 @@ class _PrePlayLifecycleWatcherState
   @override
   void initState() {
     super.initState();
+    // Re-enter the match context before anything can poll or act on it. After a
+    // cold start the provider holds no match id or terms, so the readiness
+    // action would silently no-op.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      ref.read(matchFlowProvider.notifier).adoptLifecycle(widget.snapshot);
+    });
     _timer = Timer.periodic(const Duration(seconds: 2), (_) => _tick());
     // The server pings the parked opponent's user room the moment the
     // pre-start socket drops; refresh immediately instead of waiting on the

@@ -14,6 +14,15 @@ class SocketService {
   BackendContractConfig get contract =>
       _contract ?? BackendContractConfig.fromEnvironment();
   socket_io.Socket? _socket;
+
+  /// The match room we intend to be in.
+  ///
+  /// Room membership lives on the connection, so it is lost on every reconnect
+  /// and is absent at cold start: `joinMatch` is routinely called from provider
+  /// init, before the socket has connected. Remembering the intent lets
+  /// `onConnect` replay the join, so the client never sits outside a room it
+  /// believes it entered.
+  String? _joinedMatchId;
   final _storage = SecureStorageService();
   String? _appVersion;
   Future<void>? _refreshInFlight;
@@ -173,6 +182,10 @@ class SocketService {
 
     _socket!.onConnect((_) {
       _connectionPhaseController.add(SocketConnectionPhase.connected);
+      // Membership does not survive a reconnect, and the first join at cold
+      // start is dropped before the socket exists. Re-issue it.
+      final joined = _joinedMatchId;
+      if (joined != null) _emitJoin(joined);
     });
     _socket!.onDisconnect((_) {
       _connectionPhaseController.add(SocketConnectionPhase.disconnected);
@@ -359,6 +372,17 @@ class SocketService {
   }
 
   void joinMatch(String matchId) {
+    _joinedMatchId = matchId;
+    _emitJoin(matchId);
+  }
+
+  /// Forgets the current room intent so a later reconnect does not re-enter a
+  /// match the player has left or that has already ended.
+  void clearJoinedMatch() {
+    _joinedMatchId = null;
+  }
+
+  void _emitJoin(String matchId) {
     _socket?.emit(contract.isV2 ? 'match.join' : 'join_match', {
       'matchId': matchId,
     });
