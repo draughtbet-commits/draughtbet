@@ -171,6 +171,11 @@ describe('socket event rejection safety (real server)', () => {
       code: 'TOKEN_EXPIRED',
       message: 'Session expired'
     });
+    // Deferred by a tick: disconnecting in the same tick as the emit can close
+    // the transport before the packet flushes, which drops the client with a
+    // bare disconnect mid-match and starts the disconnect grace for no reason.
+    expect(socket.disconnect).not.toHaveBeenCalled();
+    await new Promise((resolve) => setTimeout(resolve, 5));
     expect(socket.disconnect).toHaveBeenCalledWith(true);
   });
 

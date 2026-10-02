@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:socket_io_client/socket_io_client.dart' as socket_io;
@@ -40,6 +41,30 @@ class SocketService {
   /// looping rather than retrying forever.
   int _handshakeRecoveryAttempts = 0;
   static const _maxHandshakeRecoveries = 3;
+
+  /// Refresh the access token this long before it actually expires.
+  ///
+  /// Recovery is reactive today: the token is only replaced after something has
+  /// already failed -- a REST 401, or a socket event the server refuses. Inside
+  /// a match neither reliably happens. The board is driven entirely by socket
+  /// events and does no REST, so a 15 minute token simply lapses mid-game; the
+  /// server then drops the socket, the 60s disconnect grace starts, and if the
+  /// reconnect loses the race the match is forfeited on time and the opponent
+  /// wins. Refreshing ahead of expiry removes the failure window entirely.
+  static const _proactiveRefreshLeeway = Duration(minutes: 2);
+
+  /// Floor for the retry cadence.
+  ///
+  /// Without it, a token whose expiry cannot be parsed resolves to a zero delay,
+  /// and the resulting refresh either re-fails or returns an equally unparseable
+  /// token -- an unbounded tight loop hammering the refresh endpoint. Known-past
+  /// expiry still refreshes immediately; only the unknown case is floored.
+  static const _proactiveRefreshFloor = Duration(minutes: 1);
+
+  Timer? _proactiveRefreshTimer;
+
+  /// Guards timers and async continuations after [dispose].
+  bool _disposed = false;
 
   // Stream controllers for different events
   final _matchFoundController =
@@ -171,12 +196,78 @@ class SocketService {
       // header is fixed at construction, but the handshake reads `auth`.
       socket.auth = {'token': tokens.accessToken, 'version': ?_appVersion};
       _handshakeRecoveryAttempts = 0;
+      _scheduleProactiveRefresh();
       if (!socket.connected) socket.connect();
     } catch (_) {
       // Refresh failed: the refresh token is dead or the session was revoked.
       // Stop trying rather than looping on a token that will never work.
       _connectionPhaseController.add(SocketConnectionPhase.failed);
     }
+  }
+
+  /// Reads the `exp` claim from the stored access token. Null when the token is
+  /// absent or unparseable, which callers treat as "refresh now".
+  Future<DateTime?> _accessTokenExpiry() async {
+    try {
+      final token = await _storage.accessToken;
+      if (token == null || token.isEmpty) return null;
+      final parts = token.split('.');
+      if (parts.length != 3) return null;
+      final payload = jsonDecode(
+        utf8.decode(base64Url.decode(base64Url.normalize(parts[1]))),
+      );
+      if (payload is! Map) return null;
+      final exp = payload['exp'];
+      if (exp is! num) return null;
+      return DateTime.fromMillisecondsSinceEpoch(exp.toInt() * 1000);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Schedules the next proactive refresh for the stored access token. Safe to
+  /// call repeatedly; each call replaces the pending timer.
+  ///
+  /// [lastAttemptFailed] applies the retry floor. An expired token whose
+  /// refresh keeps failing would otherwise recompute a zero delay forever and
+  /// spin, so a failure backs off instead of retrying immediately.
+  void _scheduleProactiveRefresh({bool lastAttemptFailed = false}) {
+    _proactiveRefreshTimer?.cancel();
+    final token = _accessTokenExpiry().then((expiry) {
+      if (_disposed) return;
+      final due = expiry == null
+          ? _proactiveRefreshFloor
+          : expiry
+                    .subtract(_proactiveRefreshLeeway)
+                    .difference(DateTime.now());
+      final delay = due.isNegative ? Duration.zero : due;
+      final bounded = lastAttemptFailed && delay < _proactiveRefreshFloor
+          ? _proactiveRefreshFloor
+          : delay;
+      _proactiveRefreshTimer = Timer(
+        bounded,
+        () => unawaited(_runProactiveRefresh()),
+      );
+    });
+    unawaited(token);
+  }
+
+  Future<void> _runProactiveRefresh() async {
+    if (_disposed) return;
+    var failed = false;
+    try {
+      await _tokenRefresher.refresh();
+      if (_disposed) return;
+      // Keep the socket's auth payload aligned with storage so a reconnect
+      // racing this refresh uses the new token, not the one it is replacing.
+      await _refreshSocketAuth();
+    } catch (_) {
+      // A failed proactive refresh is not fatal: the reactive paths (REST 401,
+      // handshake rejection) still recover. Retry on a bounded cadence rather
+      // than giving up on the schedule or spinning on it.
+      failed = true;
+    }
+    if (!_disposed) _scheduleProactiveRefresh(lastAttemptFailed: failed);
   }
 
   Future<void> _refreshSocketAuth() async {
@@ -251,6 +342,7 @@ class SocketService {
 
     _socket!.onConnect((_) {
       _connectionPhaseController.add(SocketConnectionPhase.connected);
+      _scheduleProactiveRefresh();
       // Membership does not survive a reconnect, and the first join at cold
       // start is dropped before the socket exists. Re-issue it.
       final joined = _joinedMatchId;
@@ -599,6 +691,8 @@ class SocketService {
   }
 
   void dispose() {
+    _disposed = true;
+    _proactiveRefreshTimer?.cancel();
     _matchFoundController.close();
     _gameStateController.close();
     _moveAppliedController.close();

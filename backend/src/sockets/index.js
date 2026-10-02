@@ -106,11 +106,17 @@ export const guardSocketHandler = (socket, handler, eventName = null) => async (
     if (socket.user?.tokenExpiresAt && Date.now() > socket.user.tokenExpiresAt) {
       // Coded so the client can refresh and reconnect deliberately, instead of
       // waiting for the *next* handshake to fail and having to diagnose that.
+      //
+      // Disconnecting in the same tick as the emit can close the transport
+      // before the packet is flushed, so a mid-game expiry would drop the
+      // client with no idea why: it sees a bare disconnect, falls into the 60s
+      // grace, and loses on time without ever being told to refresh. Give the
+      // event a tick to drain first, then drop the connection.
       socket.emit('auth_expired', {
         code: 'TOKEN_EXPIRED',
         message: 'Session expired'
       });
-      socket.disconnect?.(true);
+      setTimeout(() => socket.disconnect?.(true), 0);
       return;
     }
     if (eventName) {
