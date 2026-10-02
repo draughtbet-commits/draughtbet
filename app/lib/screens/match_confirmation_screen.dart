@@ -15,6 +15,10 @@ class MatchConfirmationScreen extends ConsumerWidget {
     final id = await ref.read(matchFlowProvider.notifier).confirm();
     if (!context.mounted) return;
     final state = ref.read(matchFlowProvider);
+    if (state.eligibilityDecision != null) {
+      context.push('/eligibility/blocked', extra: state.eligibilityDecision);
+      return;
+    }
     if (state.actionPhase != MatchActionPhase.succeeded) return;
     final intent = state.currentIntent;
     if (intent?.kind == MatchEntryKind.openMatch && id != null) {

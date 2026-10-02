@@ -185,6 +185,13 @@ class PaymentMethodScreen extends ConsumerWidget {
     final created = await ref.read(depositProvider.notifier).createIntent();
     if (created && context.mounted) {
       context.push('/wallet/hosted-checkout');
+      return;
+    }
+    if (context.mounted) {
+      final decision = ref.read(depositProvider).eligibilityDecision;
+      if (decision != null) {
+        context.push('/eligibility/blocked', extra: decision);
+      }
     }
   }
 

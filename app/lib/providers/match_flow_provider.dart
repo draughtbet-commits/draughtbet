@@ -3,7 +3,9 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../config/backend_contract.dart';
 import '../models/match_flow.dart';
+import '../models/eligibility.dart';
 import '../services/api_client.dart';
+import 'eligibility_provider.dart';
 import '../services/match_flow_gateway.dart';
 
 String _describeDioFailure(DioException error) {
@@ -30,6 +32,7 @@ class MatchFlowState {
     this.lifecycle,
     this.message,
     this.activeMatches = const [],
+    this.eligibilityDecision,
   });
 
   final LoadPhase arenaPhase;
@@ -42,6 +45,7 @@ class MatchFlowState {
   final MatchLifecycleSnapshot? lifecycle;
   final String? message;
   final List<MatchLifecycleSnapshot> activeMatches;
+  final EligibilityDecision? eligibilityDecision;
 
   MatchFlowState copyWith({
     LoadPhase? arenaPhase,
@@ -57,6 +61,8 @@ class MatchFlowState {
     bool clearCurrentMatchId = false,
     bool clearSearchId = false,
     bool clearMessage = false,
+    EligibilityDecision? eligibilityDecision,
+    bool clearEligibilityDecision = false,
   }) {
     return MatchFlowState(
       arenaPhase: arenaPhase ?? this.arenaPhase,
@@ -71,6 +77,9 @@ class MatchFlowState {
       lifecycle: lifecycle ?? this.lifecycle,
       message: clearMessage ? null : message ?? this.message,
       activeMatches: activeMatches ?? this.activeMatches,
+      eligibilityDecision: clearEligibilityDecision
+          ? null
+          : eligibilityDecision ?? this.eligibilityDecision,
     );
   }
 }
@@ -126,6 +135,7 @@ class MatchFlowNotifier extends StateNotifier<MatchFlowState> {
       clearCurrentMatchId: true,
       clearSearchId: true,
       clearMessage: true,
+      clearEligibilityDecision: true,
     );
   }
 
@@ -177,9 +187,11 @@ class MatchFlowNotifier extends StateNotifier<MatchFlowState> {
         'matchFlow: create reservation rejected '
         '(status=${error.response?.statusCode}, type=${error.type}): $message',
       );
+      final decision = eligibilityDecisionFromDio(error);
       state = state.copyWith(
         actionPhase: MatchActionPhase.failed,
         message: message,
+        eligibilityDecision: decision,
       );
       return null;
     } catch (error, stackTrace) {
@@ -204,6 +216,7 @@ class MatchFlowNotifier extends StateNotifier<MatchFlowState> {
       lifecycle: snapshot,
       currentMatchId: snapshot.matchId,
       clearMessage: true,
+      clearEligibilityDecision: true,
     );
   }
 

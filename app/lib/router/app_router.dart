@@ -34,6 +34,10 @@ import '../screens/results_screen.dart';
 import '../screens/game_move_history_screen.dart';
 import '../services/socket_service.dart';
 import 'lifecycle_routes.dart';
+import '../screens/eligibility_screens.dart';
+import '../screens/safer_play_screens.dart';
+import '../screens/verification_screens.dart';
+import '../models/eligibility.dart';
 import '../widgets/main_layout.dart';
 
 final appRouterProvider = Provider<GoRouter>((ref) {
@@ -132,6 +136,104 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: '/profile/saved-bank-accounts',
             builder: (context, state) => const SavedBankAccountsScreen(),
+          ),
+          GoRoute(
+            path: '/profile/settings/safer-play',
+            builder: (context, state) => const SaferPlayDashboardScreen(),
+          ),
+          GoRoute(
+            path: '/eligibility/age-legal',
+            builder: (context, state) => const AgeLegalEligibilityScreen(),
+          ),
+          GoRoute(
+            path: '/eligibility/blocked',
+            builder: (context, state) => EligibilityBlockedScreen(
+              decision: state.extra is EligibilityDecision
+                  ? state.extra! as EligibilityDecision
+                  : null,
+            ),
+          ),
+          GoRoute(
+            path: '/profile/settings/account-restricted',
+            builder: (context, state) => const AccountRestrictedScreen(),
+          ),
+          GoRoute(
+            path: '/profile/verification',
+            builder: (context, state) => const VerificationIntroScreen(),
+          ),
+          GoRoute(
+            path: '/profile/verification/personal-details',
+            builder: (context, state) => const VerificationPersonalDetailsScreen(),
+          ),
+          GoRoute(
+            path: '/profile/verification/select-id',
+            builder: (context, state) => const VerificationIdTypeScreen(),
+          ),
+          GoRoute(
+            path: '/profile/verification/upload-id',
+            builder: (context, state) => VerificationUploadIdScreen(
+              type: _verificationType(state.uri.queryParameters['type']),
+            ),
+          ),
+          GoRoute(
+            path: '/profile/verification/selfie',
+            builder: (context, state) => VerificationSelfieScreen(
+              type: _verificationType(state.uri.queryParameters['type']),
+            ),
+          ),
+          GoRoute(
+            path: '/profile/verification/processing',
+            builder: (context, state) =>
+                const VerificationStatusScreen(status: VerificationStatus.pending),
+          ),
+          GoRoute(
+            path: '/profile/verification/successful',
+            builder: (context, state) =>
+                const VerificationStatusScreen(status: VerificationStatus.verified),
+          ),
+          GoRoute(
+            path: '/profile/verification/rejected',
+            builder: (context, state) =>
+                const VerificationStatusScreen(status: VerificationStatus.rejected),
+          ),
+          GoRoute(
+            path: '/profile/verification/expired',
+            builder: (context, state) =>
+                const VerificationStatusScreen(status: VerificationStatus.expired),
+          ),
+          GoRoute(
+            path: '/profile/settings/deposit-limits',
+            builder: (context, state) => const LimitEditorScreen(deposit: true),
+          ),
+          GoRoute(
+            path: '/profile/settings/stake-limits',
+            builder: (context, state) => const LimitEditorScreen(deposit: false),
+          ),
+          GoRoute(
+            path: '/profile/settings/take-a-break',
+            builder: (context, state) => const TakeBreakScreen(),
+          ),
+          GoRoute(
+            path: '/profile/settings/self-exclusion',
+            builder: (context, state) => const SelfExclusionScreen(),
+          ),
+          GoRoute(
+            path: '/profile/settings/session-reminder',
+            builder: (context, state) => const SessionReminderScreen(),
+          ),
+          GoRoute(
+            path: '/profile/settings/restriction',
+            builder: (context, state) => const ActiveRestrictionScreen(),
+          ),
+          GoRoute(
+            path: '/profile/settings/limit-confirmed',
+            builder: (context, state) => LimitConfirmedScreen(
+              deposit: switch (state.uri.queryParameters['control']) {
+                'deposit' => true,
+                'stake' => false,
+                _ => null,
+              },
+            ),
           ),
         ],
       ),
@@ -592,3 +694,9 @@ class _PrePlayLifecycleWatcherState
   @override
   Widget build(BuildContext context) => widget.child;
 }
+
+VerificationCheckType _verificationType(String? raw) =>
+    VerificationCheckType.values.firstWhere(
+      (type) => type.wireValue == raw,
+      orElse: () => VerificationCheckType.idDocument,
+    );

@@ -3,8 +3,12 @@ import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/deposit_flow.dart';
+import '../models/eligibility.dart';
+import '../config/backend_contract.dart';
 import '../services/deposit_gateway.dart';
 import '../services/deposit_recovery_store.dart';
+import 'eligibility_provider.dart';
+import 'package:dio/dio.dart';
 
 enum DepositFlowPhase {
   initial,
@@ -27,6 +31,7 @@ class DepositFlowState {
     this.intent,
     this.error,
     this.pollAttempt = 0,
+    this.eligibilityDecision,
   });
 
   final DepositFlowPhase phase;
@@ -35,6 +40,7 @@ class DepositFlowState {
   final DepositIntentData? intent;
   final String? error;
   final int pollAttempt;
+  final EligibilityDecision? eligibilityDecision;
 
   bool get isCreating => phase == DepositFlowPhase.creatingIntent;
   bool get canPoll => intent != null && !(intent?.isTerminal ?? true);
@@ -47,6 +53,8 @@ class DepositFlowState {
     String? error,
     bool clearError = false,
     int? pollAttempt,
+    EligibilityDecision? eligibilityDecision,
+    bool clearEligibilityDecision = false,
   }) => DepositFlowState(
     phase: phase ?? this.phase,
     quote: quote ?? this.quote,
@@ -54,6 +62,9 @@ class DepositFlowState {
     intent: intent ?? this.intent,
     error: clearError ? null : error ?? this.error,
     pollAttempt: pollAttempt ?? this.pollAttempt,
+    eligibilityDecision: clearEligibilityDecision
+        ? null
+        : eligibilityDecision ?? this.eligibilityDecision,
   );
 }
 
@@ -141,6 +152,19 @@ class DepositNotifier extends StateNotifier<DepositFlowState> {
         pollAttempt: 0,
       );
       return true;
+    } on DioException catch (error) {
+      if (!_disposed) {
+        final decision = eligibilityDecisionFromDio(error);
+        state = state.copyWith(
+          phase: DepositFlowPhase.unavailable,
+          error:
+              decision?.message ??
+              apiErrorMessage(error.response?.data) ??
+              'Secure checkout could not be created. Try again.',
+          eligibilityDecision: decision,
+        );
+      }
+      return false;
     } catch (_) {
       if (!_disposed) {
         state = state.copyWith(
