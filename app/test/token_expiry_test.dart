@@ -73,21 +73,40 @@ void main() {
       expect(payload['exp'], isA<num>());
     });
 
-    test('a token inside the leeway window must be refreshed before it lapses', () {
+    Duration leadTime(Duration remaining) {
+      // Mirrors the scheduling rule: headroom is half the remaining lifetime,
+      // capped at two minutes.
+      const maxLeeway = Duration(minutes: 2);
+      final half = Duration(
+        milliseconds: (remaining.inMilliseconds * 0.5).round(),
+      );
+      return remaining - (half < maxLeeway ? half : maxLeeway);
+    }
+
+    test('a long-lived token is refreshed a couple of minutes early', () {
       // The bug this guards: a 15 minute token lapsed mid-match and the player
       // lost on the 60s disconnect grace, because nothing refreshed until
       // something had already failed.
-      const leeway = Duration(minutes: 2);
-      final now = DateTime.now();
-      final tokenExpiry = now.add(const Duration(minutes: 15));
-      final refreshDueAt = tokenExpiry.subtract(leeway);
+      final remaining = const Duration(minutes: 15);
+      final delay = leadTime(remaining);
 
-      expect(refreshDueAt.isAfter(now), isTrue);
-      expect(
-        tokenExpiry.difference(now) < const Duration(minutes: 3),
-        isFalse,
-        reason: 'a fresh token is not yet inside the refresh window',
-      );
+      expect(delay, const Duration(minutes: 13));
+      expect(remaining - delay, const Duration(minutes: 2));
+    });
+
+    test('a short-lived token does not refresh immediately in a loop', () {
+      // A fixed 2 minute lead exceeds a 45s lifetime, so every freshly issued
+      // token looks due at once and the client hammers the refresh endpoint
+      // into its rate limit.
+      final remaining = const Duration(seconds: 45);
+      final delay = leadTime(remaining);
+
+      expect(delay, greaterThan(Duration.zero));
+      expect(remaining - delay, const Duration(seconds: 22, milliseconds: 500));
+    });
+
+    test('an already expired token is refreshed immediately', () {
+      expect(leadTime(const Duration(seconds: -30)), lessThan(Duration.zero));
     });
 
     test('a failed refresh is backed off instead of retried immediately', () {
@@ -105,6 +124,47 @@ void main() {
 
       expect(afterFailure, greaterThanOrEqualTo(floor));
       expect(afterFailure, isNot(Duration.zero));
+    });
+  });
+
+  group('refresh endpoint URL', () {
+    // BACKEND_URL already carries the /api/v1 prefix. TokenRefresher used to
+    // append it a second time, so every refresh 404'd and tokens lapsed
+    // mid-match with no visible error.
+    test('base URL is used verbatim without re-appending the api prefix', () {
+      dotenv.testLoad(fileInput: 'BACKEND_URL=http://10.0.2.2:3200/api/v1');
+      expect(
+        TokenRefresher.resolveBaseUrl(),
+        'http://10.0.2.2:3200/api/v1',
+      );
+    });
+
+    test('falls back to localhost when unset', () {
+      dotenv.testLoad(fileInput: 'OTHER=1');
+      expect(TokenRefresher.resolveBaseUrl(), 'http://localhost:3000');
+    });
+
+    test('refresh resolves to a single /api/v1/auth/refresh path', () async {
+      dotenv.testLoad(fileInput: 'BACKEND_URL=http://10.0.2.2:3200/api/v1');
+      final storage = MockStorage(accessToken: jwtExpiringAt(DateTime.now()));
+      String? requestedPath;
+      final dio = Dio(BaseOptions(baseUrl: TokenRefresher.resolveBaseUrl()));
+      dio.httpClientAdapter = FakeAdapter((options) {
+        requestedPath = options.uri.path;
+        return ResponseBody.fromString(
+          jsonEncode({
+            'accessToken': 'new.access.token',
+            'refreshToken': 'new.refresh.token',
+          }),
+          200,
+          headers: const {'content-type': ['application/json']},
+        );
+      });
+
+      await TokenRefresher(storage: storage, dio: dio).refresh();
+
+      expect(requestedPath, '/api/v1/auth/refresh');
+      expect(requestedPath, isNot(contains('/api/v1/api/v1')));
     });
   });
 

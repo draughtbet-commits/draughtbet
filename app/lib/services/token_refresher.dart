@@ -21,11 +21,43 @@ class RefreshedTokens {
 /// place, so a socket retry and an in-flight REST 401 cannot race into two
 /// refresh calls and invalidate each other's rotated refresh token.
 class TokenRefresher {
-  TokenRefresher({required this.storage, Dio? dio}) : _dio = dio ?? Dio();
+  TokenRefresher({required this.storage, Dio? dio}) : _dio = dio ?? _buildDio();
+
+  /// Mirrors `apiClientProvider`'s base URL resolution.
+  ///
+  /// `BACKEND_URL` already includes the `/api/v1` prefix (e.g.
+  /// `http://10.0.2.2:3200/api/v1`), so the request path must be relative. This
+  /// class used to hardcode `'$baseUrl/api/v1/auth/refresh'`, producing
+  /// `/api/v1/api/v1/auth/refresh` -- a silent 404 that made every refresh fail
+  /// and let tokens lapse mid-match.
+  static Dio _buildDio() => Dio(
+        BaseOptions(
+          baseUrl: resolveBaseUrl(),
+          connectTimeout: const Duration(seconds: 15),
+          receiveTimeout: const Duration(seconds: 15),
+        ),
+      );
+
+  /// `BACKEND_URL` is used verbatim. It already carries the `/api/v1` prefix,
+  /// so appending that prefix here is what produced the doubled path.
+  static String resolveBaseUrl() {
+    final configured = dotenv.isInitialized
+        ? dotenv.env['BACKEND_URL']?.trim() ?? ''
+        : '';
+    return configured.isNotEmpty ? configured : 'http://localhost:3000';
+  }
 
   final SecureStorageService storage;
   final Dio _dio;
-  Future<RefreshedTokens>? _inFlight;
+  /// Process-wide, not per-instance.
+  ///
+  /// The REST interceptor and the socket legitimately hold separate instances
+  /// (they use different Dio clients), but a per-instance guard would not
+  /// dedupe across them. Refresh tokens are single-use, so two concurrent
+  /// exchanges rotate the token twice and the backend flags the second as reuse
+  /// and revokes every session for that user -- a far worse outcome than the
+  /// expiry this code exists to prevent.
+  static Future<RefreshedTokens>? _inFlight;
 
   Future<RefreshedTokens> refresh() {
     final inFlight = _inFlight;
@@ -51,9 +83,8 @@ class TokenRefresher {
       throw TokenRefreshException('No user id available to refresh with');
     }
 
-    final baseUrl = dotenv.env['BACKEND_URL'] ?? 'http://localhost:3000';
     final res = await _dio.post<Map<String, dynamic>>(
-      '$baseUrl/api/v1/auth/refresh',
+      '/auth/refresh',
       data: {'userId': userId, 'refreshToken': refreshToken},
     );
     final data = res.data;

@@ -5,6 +5,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'secure_storage.dart';
+import 'token_refresher.dart';
 
 /// Broadcast bus for "session can no longer be refreshed" events. The auth
 /// interceptor emits on it and the auth notifier subscribes, so the auth
@@ -58,11 +59,26 @@ class AuthInterceptor extends QueuedInterceptor {
     required this.dio,
     required this.storage,
     required this.onSessionExpired,
-  });
+    TokenRefresher? refresher,
+  }) : refresher = refresher ??
+            TokenRefresher(
+              storage: storage,
+              // Isolated from the app-wide [Dio] so a refresh round-trip cannot
+              // deadlock the QueuedInterceptor chain (an inner error on the same
+              // interceptor would await the very request blocked on it). Shares
+              // the transport adapter and base options, carries no
+              // AuthInterceptor of its own.
+              dio: Dio(dio.options)..httpClientAdapter = dio.httpClientAdapter,
+            );
 
   final Dio dio;
   final SecureStorageService storage;
   final void Function() onSessionExpired;
+
+  /// Shared with [SocketService] so concurrent refreshes collapse into one
+  /// call. Refresh tokens are single-use: a second concurrent exchange is
+  /// detected server-side as reuse and revokes the user's sessions.
+  final TokenRefresher refresher;
 
   /// Endpoints that must never trigger a refresh (they carry their own
   /// credentials or are the refresh/login calls themselves).
@@ -160,14 +176,22 @@ class AuthInterceptor extends QueuedInterceptor {
     }
 
     try {
-      final tokens = await _refresh(userId, refreshToken);
-      await storage.setAccessToken(tokens.accessToken);
-      await storage.setRefreshToken(tokens.refreshToken);
+      // Delegates to the shared TokenRefresher so a REST 401 and a socket
+      // refresh cannot race: two concurrent refreshes rotate the refresh token
+      // twice, and the backend treats the second as token reuse and revokes
+      // every session for the user.
+      final tokens = await refresher.refresh();
 
       err.requestOptions.headers['Authorization'] =
           'Bearer ${tokens.accessToken}';
       final cloned = await dio.fetch<void>(err.requestOptions);
       handler.resolve(cloned);
+    } on TokenRefreshException {
+      // Missing refresh token / user id, or a malformed response: the session
+      // cannot be recovered.
+      await storage.clearCredentials();
+      onSessionExpired();
+      handler.next(err);
     } on DioException catch (refreshError) {
       final refreshStatus = refreshError.response?.statusCode;
       // A rate-limited refresh is not a dead session; let the request fail so
@@ -181,43 +205,4 @@ class AuthInterceptor extends QueuedInterceptor {
       handler.next(err);
     }
   }
-
-  Future<_RefreshResult>? _refreshInFlight;
-  Dio? _refreshDio;
-
-  /// A dedicated refresh client, isolated from the app-wide [Dio] so a refresh
-  /// round-trip cannot deadlock the QueuedInterceptor chain (an inner error on
-  /// the same interceptor would wait for the very request whose callback is
-  /// blocked awaiting it). It shares the transport adapter and base options but
-  /// carries no AuthInterceptor of its own.
-  Dio get _refreshClient => _refreshDio ??= Dio(dio.options)
-    ..httpClientAdapter = dio.httpClientAdapter;
-
-  Future<_RefreshResult> _refresh(String userId, String refreshToken) {
-    // Dedupe concurrent refreshes to a single in-flight call.
-    final inFlight = _refreshInFlight;
-    if (inFlight != null) return inFlight;
-    final future = _doRefresh(userId, refreshToken).whenComplete(() {
-      _refreshInFlight = null;
-    });
-    _refreshInFlight = future;
-    return future;
-  }
-
-  Future<_RefreshResult> _doRefresh(String userId, String refreshToken) async {
-    final res = await _refreshClient.post(
-      '/auth/refresh',
-      data: {'userId': userId, 'refreshToken': refreshToken},
-    );
-    return _RefreshResult(
-      accessToken: res.data['accessToken'] as String,
-      refreshToken: res.data['refreshToken'] as String,
-    );
-  }
-}
-
-class _RefreshResult {
-  _RefreshResult({required this.accessToken, required this.refreshToken});
-  final String accessToken;
-  final String refreshToken;
 }

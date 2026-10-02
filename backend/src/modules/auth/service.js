@@ -27,7 +27,11 @@ dotenv.config();
 
 const jwtSecret = getJwtSecret();
 
-const ACCESS_TOKEN_EXPIRY = '15m';
+// Honours JWT_EXPIRES_IN from the environment. This was hardcoded to '15m',
+// which made the .env entry dead config: changing it appeared to work but the
+// token lifetime never moved, so expiry-related behaviour could not be
+// exercised at any other value (e.g. to test mid-session refresh).
+const ACCESS_TOKEN_EXPIRY = process.env.JWT_EXPIRES_IN || '15m';
 const REFRESH_TOKEN_TTL_SECONDS = 7 * 24 * 60 * 60; // 7 days
 const GEO_BINDING_TTL_SECONDS = 10 * 60; // geo evidence lasts 10 minutes
 

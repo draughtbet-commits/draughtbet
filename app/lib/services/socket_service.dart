@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:socket_io_client/socket_io_client.dart' as socket_io;
@@ -42,16 +43,23 @@ class SocketService {
   int _handshakeRecoveryAttempts = 0;
   static const _maxHandshakeRecoveries = 3;
 
-  /// Refresh the access token this long before it actually expires.
+  /// Upper bound on how early the access token is refreshed.
   ///
-  /// Recovery is reactive today: the token is only replaced after something has
-  /// already failed -- a REST 401, or a socket event the server refuses. Inside
-  /// a match neither reliably happens. The board is driven entirely by socket
-  /// events and does no REST, so a 15 minute token simply lapses mid-game; the
-  /// server then drops the socket, the 60s disconnect grace starts, and if the
-  /// reconnect loses the race the match is forfeited on time and the opponent
-  /// wins. Refreshing ahead of expiry removes the failure window entirely.
-  static const _proactiveRefreshLeeway = Duration(minutes: 2);
+  /// Recovery used to be purely reactive: the token was only replaced after
+  /// something had already failed -- a REST 401, or a socket event the server
+  /// refuses. Inside a match neither reliably happens. The board is driven
+  /// entirely by socket events and does no REST, so a 15 minute token simply
+  /// lapses mid-game; the server then drops the socket, the 60s disconnect
+  /// grace starts, and if the reconnect loses the race the match is forfeited on
+  /// time. Refreshing ahead of expiry removes that window.
+  ///
+  /// This is a *cap*, not the actual lead time. A fixed lead larger than the
+  /// token lifetime would make every token look due the moment it is issued and
+  /// refresh in a tight loop straight into the endpoint's rate limit.
+  static const _maxRefreshLeeway = Duration(minutes: 2);
+
+  /// Fraction of the remaining lifetime to leave as headroom.
+  static const _remainingLifetimeFraction = 0.5;
 
   /// Floor for the retry cadence.
   ///
@@ -198,9 +206,14 @@ class SocketService {
       _handshakeRecoveryAttempts = 0;
       _scheduleProactiveRefresh();
       if (!socket.connected) socket.connect();
-    } catch (_) {
+    } catch (error, stack) {
       // Refresh failed: the refresh token is dead or the session was revoked.
       // Stop trying rather than looping on a token that will never work.
+      //
+      // Logged because this is the path that locks a player out of a live
+      // match with only "failed" on screen.
+      debugPrint('handshake auth recovery refresh failed: $error');
+      debugPrintStack(stackTrace: stack, maxFrames: 6);
       _connectionPhaseController.add(SocketConnectionPhase.failed);
     }
   }
@@ -235,11 +248,22 @@ class SocketService {
     _proactiveRefreshTimer?.cancel();
     final token = _accessTokenExpiry().then((expiry) {
       if (_disposed) return;
-      final due = expiry == null
+      final now = DateTime.now();
+      final remaining = expiry?.difference(now);
+      // Headroom scales with what is actually left: half the remaining life,
+      // capped so a long-lived token is refreshed a couple of minutes early
+      // rather than at its midpoint.
+      final leeway = remaining == null
+          ? null
+          : Duration(
+              milliseconds:
+                  (remaining.inMilliseconds * _remainingLifetimeFraction)
+                      .round(),
+            );
+      final due = remaining == null
           ? _proactiveRefreshFloor
-          : expiry
-                    .subtract(_proactiveRefreshLeeway)
-                    .difference(DateTime.now());
+          : remaining -
+              (leeway! < _maxRefreshLeeway ? leeway : _maxRefreshLeeway);
       final delay = due.isNegative ? Duration.zero : due;
       final bounded = lastAttemptFailed && delay < _proactiveRefreshFloor
           ? _proactiveRefreshFloor
@@ -261,11 +285,16 @@ class SocketService {
       // Keep the socket's auth payload aligned with storage so a reconnect
       // racing this refresh uses the new token, not the one it is replacing.
       await _refreshSocketAuth();
-    } catch (_) {
+    } catch (error) {
       // A failed proactive refresh is not fatal: the reactive paths (REST 401,
       // handshake rejection) still recover. Retry on a bounded cadence rather
       // than giving up on the schedule or spinning on it.
+      //
+      // Logged, because this is the one failure that silently ends a match:
+      // the token lapses, the reconnect handshake is rejected, and the player
+      // forfeits on the disconnect grace with nothing on screen to explain it.
       failed = true;
+      debugPrint('proactive token refresh failed: $error');
     }
     if (!_disposed) _scheduleProactiveRefresh(lastAttemptFailed: failed);
   }
@@ -556,7 +585,51 @@ class SocketService {
       }
     });
 
-    _socket!.connect();
+    // Start the refresh schedule as soon as the socket exists, not only after a
+    // successful connect. A stored token that is already expired is rejected at
+    // the handshake, so `onConnect` never fires and the schedule would never be
+    // armed -- leaving the app unable to heal itself on launch.
+    _scheduleProactiveRefresh();
+
+    // If the stored token is already due, mint a valid one before the first
+    // handshake instead of spending failed handshakes discovering that. Without
+    // this the client races its own refresh, the server rejects the stale token
+    // a few times, and the app flashes "Reconnecting" on every launch.
+    unawaited(
+      _primeTokenBeforeConnect()
+          .timeout(const Duration(seconds: 5), onTimeout: () {})
+          .whenComplete(() {
+        // Priming defers the connect, so another caller may have connected in
+        // the meantime; connecting again would churn the socket.
+        final socket = _socket;
+        if (!_disposed && socket != null && !socket.connected) {
+          socket.connect();
+        }
+      }),
+    );
+  }
+
+  /// Refreshes before the first handshake when the stored token is already
+  /// inside its refresh window. Never throws: a failure just means the connect
+  /// proceeds and the normal recovery path handles it.
+  Future<void> _primeTokenBeforeConnect() async {
+    if (_disposed) return;
+    try {
+      final expiry = await _accessTokenExpiry();
+      if (expiry == null || _disposed) return;
+      final remaining = expiry.difference(DateTime.now());
+      final half = Duration(
+        milliseconds: (remaining.inMilliseconds * _remainingLifetimeFraction)
+            .round(),
+      );
+      final leeway = half < _maxRefreshLeeway ? half : _maxRefreshLeeway;
+      if (remaining > leeway) return;
+      await _tokenRefresher.refresh();
+      if (_disposed) return;
+      await _refreshSocketAuth();
+    } catch (error) {
+      debugPrint('priming token before connect failed: $error');
+    }
   }
 
   void joinMatch(String matchId) {
