@@ -67,6 +67,24 @@ class FixtureGateway extends MatchFlowGateway {
   Future<List<OpenMatch>> loadOpenMatches() async => const [];
 }
 
+MatchLifecycleSnapshot inPlaySnapshot() => const MatchLifecycleSnapshot(
+  phase: MatchLifecyclePhase.inPlay,
+  matchId: 'match-123',
+  roomCode: 'DB-2415',
+  terms: MatchTerms(
+    stakeMinorUnits: 100000,
+    opponentStakeMinorUnits: 100000,
+    platformFeeMinorUnits: 10000,
+    totalPrizeMinorUnits: 210000,
+    serverQuoted: true,
+  ),
+  opponent: MatchPlayer(id: 'opp-1', name: 'Player'),
+  availableBalanceMinorUnits: 85000,
+  limitMinorUnits: 100000,
+  playerStake: AuthoritativeProgress.confirmed,
+  playerReady: AuthoritativeProgress.confirmed,
+);
+
 class StaticFlowNotifier extends MatchFlowNotifier {
   StaticFlowNotifier(MatchFlowState initial) : super(FixtureGateway()) {
     state = initial;
@@ -377,6 +395,30 @@ void main() {
     expect(find.text('₦10K'), findsOneWidget);
     expect(find.text('₦2K'), findsNothing);
     expect(find.text('ACTIVE MATCHES'), findsOneWidget);
+  });
+
+  // Regression for the reported dead end: an in-play match surfaced under
+  // ACTIVE MATCHES used to fall through to a pre-start waiting screen whose
+  // only action routes back to Home.
+  testWidgets('an in-play active match returns to the board, not a waiting screen',
+      (tester) async {
+    await tester.pumpWidget(
+      navigationApp(
+        initialLocation: '/home',
+        flow: MatchFlowState(activeMatches: [inPlaySnapshot()]),
+      ),
+    );
+    await tester.pump();
+    expect(find.text('Return to Room'), findsOneWidget);
+
+    final button = find.text('Return to Room');
+    await tester.ensureVisible(button);
+    await tester.pumpAndSettle();
+    await tester.tap(button);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Gameplay destination'), findsOneWidget);
+    expect(find.text('Return to Room'), findsNothing);
   });
 
   testWidgets('Arena renders approved open-match card content', (tester) async {
