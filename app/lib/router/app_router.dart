@@ -33,6 +33,7 @@ import '../screens/settings_screen.dart';
 import '../screens/results_screen.dart';
 import '../screens/game_move_history_screen.dart';
 import '../services/socket_service.dart';
+import 'lifecycle_routes.dart';
 import '../widgets/main_layout.dart';
 
 final appRouterProvider = Provider<GoRouter>((ref) {
@@ -576,24 +577,16 @@ class _PrePlayLifecycleWatcherState
     }
     _timer?.cancel();
     if (!context.mounted) return;
-    switch (phase) {
-      case MatchLifecyclePhase.inPlay:
-        // Seat the player on the board the way the room screen's Enter Match does.
-        final startedMatchId = next.matchId;
-        if (startedMatchId == null || startedMatchId.isEmpty) return;
-        ref.read(matchProvider.notifier).joinMatch(startedMatchId);
-        context.go('/match/$startedMatchId');
-      case MatchLifecyclePhase.readyTimeout:
-        context.go('/play/ready-timeout', extra: next);
-      case MatchLifecyclePhase.opponentDisconnected:
-        context.go('/play/disconnected-before-start', extra: next);
-      case MatchLifecyclePhase.challengeExpired:
-        context.go('/play/challenge', extra: next);
-      case MatchLifecyclePhase.unavailable:
-        context.go('/arena');
-      default:
-        context.go('/play/ready', extra: next);
+    final route = lifecyclePhaseRoute(next);
+    if (isBoardRoute(route)) {
+      // Seat the player on the board the way the room screen's Enter Match does.
+      ref.read(matchProvider.notifier).joinMatch(next.matchId!);
+      context.go(route);
+      return;
     }
+    // Pre-play screens carry the snapshot through `extra`; the router rejects
+    // them without it.
+    context.go(route, extra: next);
   }
 
   @override

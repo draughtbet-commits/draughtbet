@@ -8,6 +8,7 @@ import '../providers/match_flow_provider.dart';
 import '../providers/match_provider.dart';
 import '../providers/profile_provider.dart';
 import '../providers/wallet_provider.dart';
+import '../router/lifecycle_routes.dart';
 import '../theme/colors.dart';
 import '../widgets/balance_card.dart';
 import '../widgets/flow_widgets.dart';
@@ -391,16 +392,7 @@ class _ActiveMatchCard extends StatelessWidget {
 
   final MatchLifecycleSnapshot snapshot;
 
-  String get _route => switch (snapshot.phase) {
-    MatchLifecyclePhase.readyCheck => '/play/ready',
-    MatchLifecyclePhase.waitingOpponentReady => '/play/waiting-ready',
-    // A started match belongs on the board. Falling through to a pre-start
-    // screen here would strand a returning player on a waiting screen that
-    // cannot reach the match they are actually playing.
-    MatchLifecyclePhase.inPlay =>
-      '/match/${snapshot.matchId ?? ''}',
-    _ => '/play/waiting-stake',
-  };
+  String get _route => lifecyclePhaseRoute(snapshot);
 
   String get _status => switch (snapshot.phase) {
     MatchLifecyclePhase.readyCheck => 'Both stakes confirmed · ready to start',

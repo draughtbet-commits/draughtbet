@@ -237,6 +237,21 @@ class MatchFlowNotifier extends StateNotifier<MatchFlowState> {
     return snapshot;
   }
 
+  /// Lifecycle snapshot for a specific match, without requiring an adopted
+  /// lifecycle or a known current match id. The room screen resolves a match
+  /// the player is not yet seated in.
+  Future<MatchLifecycleSnapshot?> fetchLifecycleFor(
+    String matchId, {
+    MatchTerms? fallbackTerms,
+  }) async {
+    final terms =
+        fallbackTerms ??
+        state.currentIntent?.terms ??
+        state.lifecycle?.terms ??
+        const MatchTerms(stakeMinorUnits: 0);
+    return _gateway.fetchMatch(matchId, terms);
+  }
+
   Future<MatchLifecycleSnapshot?> markReady() async {
     final matchId = state.currentMatchId;
     final terms = state.currentIntent?.terms ?? state.lifecycle?.terms;

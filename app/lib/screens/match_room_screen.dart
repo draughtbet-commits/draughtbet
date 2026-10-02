@@ -8,6 +8,7 @@ import '../models/match_flow.dart';
 import '../providers/match_flow_provider.dart';
 import '../providers/match_provider.dart';
 import '../providers/profile_provider.dart';
+import '../router/lifecycle_routes.dart';
 import '../theme/colors.dart';
 import '../widgets/flow_widgets.dart';
 
@@ -50,8 +51,38 @@ class _MatchRoomScreenState extends ConsumerState<MatchRoomScreen> {
   Future<void> _enterMatch() async {
     if (_joining) return;
     setState(() => _joining = true);
-    ref.read(matchProvider.notifier).joinMatch(widget.matchId);
-    if (mounted) context.go('/match/${widget.matchId}');
+    // Ask the server where this match actually is before seating the player.
+    // A funded-but-not-started match has no board yet, so navigating straight
+    // to /match/:id would show "Reconnecting" indefinitely -- the board is
+    // only created once both players have passed the ready gate.
+    final notifier = ref.read(matchFlowProvider.notifier);
+    final intent = ref.read(matchFlowProvider).currentIntent;
+    final terms = intent?.terms ?? const MatchTerms(stakeMinorUnits: 0);
+    MatchLifecycleSnapshot? snapshot;
+    try {
+      snapshot = await notifier.fetchLifecycleFor(widget.matchId);
+      if (snapshot != null) notifier.applyLifecycle(snapshot);
+    } catch (_) {
+      snapshot = null;
+    }
+    // Offline, transient failure, or no answer: fall through to the board and
+    // let the existing retry affordances recover, rather than trapping the
+    // player on a lifecycle screen we cannot verify.
+    snapshot ??= MatchLifecycleSnapshot(
+      phase: MatchLifecyclePhase.inPlay,
+      matchId: widget.matchId,
+      terms: terms,
+    );
+    if (!mounted) return;
+    final route = lifecyclePhaseRoute(snapshot);
+    if (isBoardRoute(route)) {
+      ref.read(matchProvider.notifier).joinMatch(widget.matchId);
+      context.go(route);
+      return;
+    }
+    // Pre-play screens carry the snapshot through `extra`; the router rejects
+    // them without it.
+    context.go(route, extra: snapshot);
   }
 
   @override

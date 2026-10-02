@@ -67,6 +67,26 @@ class FixtureGateway extends MatchFlowGateway {
   Future<List<OpenMatch>> loadOpenMatches() async => const [];
 }
 
+/// Reports a funded-but-not-started match: the ready gate has not completed,
+/// so the board does not exist yet.
+class PreStartGateway extends MatchFlowGateway {
+  PreStartGateway() : super(Dio());
+
+  @override
+  Future<List<OpenMatch>> loadOpenMatches() async => const [];
+
+  @override
+  Future<MatchLifecycleSnapshot?> fetchMatch(
+    String matchId,
+    MatchTerms fallbackTerms,
+  ) async =>
+      MatchLifecycleSnapshot(
+        phase: MatchLifecyclePhase.readyCheck,
+        matchId: matchId,
+        terms: fallbackTerms,
+      );
+}
+
 MatchLifecycleSnapshot inPlaySnapshot() => const MatchLifecycleSnapshot(
   phase: MatchLifecyclePhase.inPlay,
   matchId: 'match-123',
@@ -98,7 +118,10 @@ class StaticFlowNotifier extends MatchFlowNotifier {
 }
 
 class NavigationFlowNotifier extends MatchFlowNotifier {
-  NavigationFlowNotifier(MatchFlowState initial) : super(FixtureGateway()) {
+  NavigationFlowNotifier(
+    MatchFlowState initial, {
+    MatchFlowGateway? gateway,
+  }) : super(gateway ?? FixtureGateway()) {
     state = initial;
   }
 
@@ -261,6 +284,7 @@ Widget navigationApp({
   MatchState? match,
   MatchResultViewData? result,
   bool renderGameplay = false,
+  MatchFlowGateway? gateway,
 }) {
   final router = GoRouter(
     initialLocation: initialLocation,
@@ -315,6 +339,17 @@ Widget navigationApp({
             : const Scaffold(body: Center(child: Text('Gameplay destination'))),
       ),
       GoRoute(
+        path: '/play/ready',
+        builder: (context, state) =>
+            const Scaffold(body: Center(child: Text('Ready check destination'))),
+      ),
+      GoRoute(
+        path: '/play/waiting-ready',
+        builder: (context, state) => const Scaffold(
+          body: Center(child: Text('Waiting for opponent destination')),
+        ),
+      ),
+      GoRoute(
         path: '/play/result',
         builder: (context, state) =>
             MatchResultScreen(result: state.extra! as MatchResultViewData),
@@ -328,7 +363,9 @@ Widget navigationApp({
   return ProviderScope(
     overrides: [
       profileProvider.overrideWith((ref) => StaticProfileNotifier()),
-      matchFlowProvider.overrideWith((ref) => NavigationFlowNotifier(flow)),
+      matchFlowProvider.overrideWith(
+        (ref) => NavigationFlowNotifier(flow, gateway: gateway),
+      ),
       matchProvider.overrideWith(
         (ref) => StaticMatchNotifier(match ?? const MatchState()),
       ),
@@ -773,6 +810,28 @@ void main() {
       tester.getSize(find.byType(DraughtBoard)).width,
       lessThanOrEqualTo(560),
     );
+  });
+
+  // Regression for "tried to play on enter it shows reconnecting not the board":
+  // Enter Match navigated straight to /match/:id even when the server still
+  // reported the match as funded and not started. No board exists then, so the
+  // board screen could only ever render "Reconnecting".
+  testWidgets('Enter Match on a funded match goes to the ready gate, not the board',
+      (tester) async {
+    usePhoneViewport(tester);
+    await tester.pumpWidget(
+      navigationApp(
+        initialLocation: '/play/room/match-123',
+        gateway: PreStartGateway(),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    invokeButton(tester, 'Enter Match');
+    await tester.pumpAndSettle();
+
+    expect(find.text('Ready check destination'), findsOneWidget);
+    expect(find.text('Gameplay destination'), findsNothing);
   });
 
   testWidgets('Flow A navigates quick match from Home into gameplay', (
