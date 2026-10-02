@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import '../models/game_state.dart';
+import '../models/piece.dart';
 import '../theme/colors.dart';
 
 class DraughtBoard extends StatelessWidget {
@@ -212,9 +213,9 @@ class BoardPainter extends CustomPainter {
             ..strokeWidth = 1.5,
         );
       }
-      if (piece == 0) continue;
+      if (Piece.isEmpty(piece)) continue;
 
-      final isLight = piece > 0;
+      final isLight = Piece.isLight(piece);
       final pieceColor = isLight ? AppColors.pieceLight : AppColors.pieceDark;
       canvas.drawCircle(
         center.translate(0, square * .05),
@@ -233,7 +234,7 @@ class BoardPainter extends CustomPainter {
           ..strokeWidth = math.max(1, square * .055),
       );
 
-      if (piece.abs() == 2) {
+      if (Piece.isKing(piece)) {
         canvas.drawCircle(
           center,
           square * .17,

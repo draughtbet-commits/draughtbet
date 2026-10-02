@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:draughts_arena/models/game_state.dart';
 import 'package:draughts_arena/models/match_flow.dart';
+import 'package:draughts_arena/models/piece.dart';
 import 'package:draughts_arena/providers/match_flow_provider.dart';
 import 'package:draughts_arena/providers/match_provider.dart';
 import 'package:draughts_arena/providers/notification_provider.dart';
@@ -238,11 +239,14 @@ GameState gameFixture({
   String? winnerId,
 }) {
   final board = List<int>.filled(50, 0);
+  // Matches the server engine's unsigned encoding: black men are 3, not -1.
+  // A signed fixture here made `piece > 0` look correct in tests while the real
+  // board painted every piece white.
   for (var square = 1; square <= 20; square++) {
-    board[square - 1] = -1;
+    board[square - 1] = Piece.blackMan;
   }
   for (var square = 31; square <= 50; square++) {
-    board[square - 1] = 1;
+    board[square - 1] = Piece.whiteMan;
   }
   return GameState(
     board: board,
