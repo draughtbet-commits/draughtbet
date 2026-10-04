@@ -283,6 +283,17 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               ),
               onTap: () => context.push('/profile/settings/safer-play'),
             ),
+            const SizedBox(height: 8),
+            _tile(
+              icon: LucideIcons.messageSquareWarning,
+              title: 'Support',
+              subtitle: 'Open a case or track an existing one',
+              trailing: const Icon(
+                LucideIcons.chevronRight,
+                color: AppColors.textMuted,
+              ),
+              onTap: () => context.push('/support'),
+            ),
             _sectionLabel('Notifications'),
             if (_loadedPrefs) ...[
               _tile(

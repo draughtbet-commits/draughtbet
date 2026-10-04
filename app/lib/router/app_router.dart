@@ -36,9 +36,18 @@ import '../services/socket_service.dart';
 import 'lifecycle_routes.dart';
 import '../screens/eligibility_screens.dart';
 import '../screens/safer_play_screens.dart';
+import '../screens/support_screen.dart';
 import '../screens/verification_screens.dart';
 import '../models/eligibility.dart';
+import '../models/support_case.dart';
 import '../widgets/main_layout.dart';
+
+/// Root navigator, used to host full-screen interstitials outside MainLayout's
+/// shell. Pushing `/eligibility/blocked` as a shell child while another shell
+/// route was already on the stack produced two pages with the same key in one
+/// Navigator, which trips go_router's duplicate-page-key assertion in debug and
+/// silently renders an empty page in release.
+final rootNavigatorKey = GlobalKey<NavigatorState>(debugLabel: 'root');
 
 final appRouterProvider = Provider<GoRouter>((ref) {
   final refresh = ValueNotifier<bool>(false);
@@ -50,6 +59,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
 
   return GoRouter(
     initialLocation: LandingPage.route,
+    navigatorKey: rootNavigatorKey,
     refreshListenable: refresh,
     redirect: (context, state) {
       final isLoggedIn = ref.read(authProvider).isAuthenticated;
@@ -58,10 +68,13 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       final isPublicRoute = location == LandingPage.route;
 
       // Authenticated users never see onboarding or the auth forms.
-      if (isLoggedIn) return (isAuthRoute || isPublicRoute) ? '/home' : null;
-      if (isPublicRoute) return null; // logged-out users start on the landing
-      if (!isAuthRoute) return '/login';
-      return null;
+      final result = _resolve(
+        isLoggedIn: isLoggedIn,
+        location: location,
+        isAuthRoute: isAuthRoute,
+        isPublicRoute: isPublicRoute,
+      );
+      return result;
     },
     routes: [
       GoRoute(
@@ -72,6 +85,21 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/register',
         builder: (context, state) => const RegisterScreen(),
+      ),
+      // Deliberately a top-level route, not a ShellRoute child. It is a
+      // full-screen interstitial that must sit above MainLayout, and giving a
+      // nested shell child a parentNavigatorKey breaks go_router's shell
+      // matching (ShellRouteMatch expects its own children under the null
+      // navigator bucket). Hosting it at the top level keeps the pushed page
+      // off the shell navigator entirely.
+      GoRoute(
+        path: '/eligibility/blocked',
+        parentNavigatorKey: rootNavigatorKey,
+        builder: (context, state) => EligibilityBlockedScreen(
+          decision: state.extra is EligibilityDecision
+              ? state.extra! as EligibilityDecision
+              : null,
+        ),
       ),
       ShellRoute(
         builder: (context, state, child) {
@@ -146,16 +174,24 @@ final appRouterProvider = Provider<GoRouter>((ref) {
             builder: (context, state) => const AgeLegalEligibilityScreen(),
           ),
           GoRoute(
-            path: '/eligibility/blocked',
-            builder: (context, state) => EligibilityBlockedScreen(
-              decision: state.extra is EligibilityDecision
-                  ? state.extra! as EligibilityDecision
-                  : null,
-            ),
-          ),
-          GoRoute(
             path: '/profile/settings/account-restricted',
             builder: (context, state) => const AccountRestrictedScreen(),
+          ),
+          // Reachable by everyone, including a restricted account: restricting
+          // a player without an appeal route is a dead end.
+          GoRoute(
+            path: '/support',
+            builder: (context, state) => SupportScreen(
+              initialType: switch (state.uri.queryParameters['type']) {
+                'account' => SupportCaseType.account,
+                'payment' => SupportCaseType.payment,
+                'withdrawal' => SupportCaseType.withdrawal,
+                'kyc' => SupportCaseType.kyc,
+                'match' => SupportCaseType.match,
+                'safer-play' => SupportCaseType.saferPlay,
+                _ => null,
+              },
+            ),
           ),
           GoRoute(
             path: '/profile/verification',
@@ -700,3 +736,18 @@ VerificationCheckType _verificationType(String? raw) =>
       (type) => type.wireValue == raw,
       orElse: () => VerificationCheckType.idDocument,
     );
+
+
+/// Pure form of the auth gate so the redirect above can log both the requested
+/// location and where it resolved to.
+String? _resolve({
+  required bool isLoggedIn,
+  required String location,
+  required bool isAuthRoute,
+  required bool isPublicRoute,
+}) {
+  if (isLoggedIn) return (isAuthRoute || isPublicRoute) ? '/home' : null;
+  if (isPublicRoute) return null;
+  if (!isAuthRoute) return '/login';
+  return null;
+}

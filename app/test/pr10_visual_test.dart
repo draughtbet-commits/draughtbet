@@ -1,5 +1,6 @@
 import 'package:draughts_arena/models/eligibility.dart';
 import 'package:draughts_arena/providers/eligibility_provider.dart';
+import 'package:draughts_arena/providers/support_provider.dart';
 import 'package:draughts_arena/screens/eligibility_screens.dart';
 import 'package:draughts_arena/screens/safer_play_screens.dart';
 import 'package:draughts_arena/screens/verification_screens.dart';
@@ -68,6 +69,9 @@ void _setViewport(WidgetTester tester) {
 Widget _capture(Widget child, EligibilityState state) => ProviderScope(
   overrides: [
     eligibilityProvider.overrideWith((ref) => _VisualNotifier(state)),
+    // Restricted/support screens load cases on entry; keep the golden free of
+    // real I/O and pending timers.
+    supportProvider.overrideWith((ref) => FakeSupportNotifier()),
   ],
   child: MaterialApp(
     theme: AppTheme.dark,
@@ -170,7 +174,7 @@ void main() {
       const EligibilityState(phase: EligibilityLoadPhase.ready),
     ),
     'account_restricted': (
-      const AccountRestrictedScreen(caseReference: 'CASE-123456789'),
+      const AccountRestrictedScreen(),
       const EligibilityState(phase: EligibilityLoadPhase.ready),
     ),
   };

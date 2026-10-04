@@ -5,6 +5,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../models/eligibility.dart';
 import '../providers/eligibility_provider.dart';
+import '../providers/support_provider.dart';
 import '../theme/colors.dart';
 import '../theme/typography.dart';
 import '../widgets/flow_widgets.dart';
@@ -129,14 +130,29 @@ class EligibilityBlockedScreen extends ConsumerWidget {
   }
 }
 
-class AccountRestrictedScreen extends StatelessWidget {
-  const AccountRestrictedScreen({this.caseReference, super.key});
-  final String? caseReference;
+class AccountRestrictedScreen extends ConsumerStatefulWidget {
+  const AccountRestrictedScreen({super.key});
 
-  String get maskedReference {
-    final value = caseReference?.trim();
-    if (value == null || value.length < 6) return 'Unavailable';
-    return '${value.substring(0, 3)}••••${value.substring(value.length - 3)}';
+  @override
+  ConsumerState<AccountRestrictedScreen> createState() =>
+      _AccountRestrictedScreenState();
+}
+
+class _AccountRestrictedScreenState
+    extends ConsumerState<AccountRestrictedScreen> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      ref.read(supportProvider.notifier).load();
+    });
+  }
+
+  /// The player's own open appeal case, if they raised one. Showing their real
+  /// reference is what makes the restriction answerable rather than a dead end.
+  String get _caseReference {
+    final open = ref.watch(supportProvider).latestAccountCase;
+    return open?.maskedReference ?? 'None yet';
   }
 
   @override
@@ -171,18 +187,25 @@ class AccountRestrictedScreen extends StatelessWidget {
               Expanded(
                 child: Text('Case reference', style: AppTypography.bodySmall),
               ),
-              Text(maskedReference, style: AppTypography.bodyMedium),
+              Text(_caseReference, style: AppTypography.bodyMedium),
             ],
           ),
         ),
         const SizedBox(height: 16),
         const Text(
-          'No money or play action will be attempted while this restriction is active.',
+          'No money or play action will be attempted while this restriction '
+          'is active. You can still sign in and open a support case to appeal.',
           textAlign: TextAlign.center,
           style: AppTypography.bodySmall,
         ),
-        const SizedBox(height: 36),
+        const SizedBox(height: 24),
         PrimaryActionButton(
+          label: 'Contact support',
+          icon: LucideIcons.messageSquareWarning,
+          onPressed: () => context.go('/support?type=account'),
+        ),
+        const SizedBox(height: 10),
+        SecondaryActionButton(
           label: 'Go to Home',
           onPressed: () => context.go('/home'),
         ),
