@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../theme/colors.dart';
+import 'restricted_banner.dart';
 
 class MainLayout extends StatefulWidget {
   final Widget child;
@@ -49,7 +50,12 @@ class _MainLayoutState extends State<MainLayout> {
 
     return Scaffold(
       backgroundColor: AppColors.voidBg,
-      body: widget.child,
+      body: Column(
+        children: [
+          const RestrictedBanner(),
+          Expanded(child: widget.child),
+        ],
+      ),
       bottomNavigationBar: Container(
         decoration: const BoxDecoration(
           color: AppColors.surface,

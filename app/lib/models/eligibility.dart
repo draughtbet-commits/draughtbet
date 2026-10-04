@@ -50,12 +50,18 @@ class VerificationSnapshot {
     this.caseId,
     this.updatedAt,
     this.checks = const [],
+    this.isBanned = false,
   });
 
   final VerificationStatus status;
   final String? caseId;
   final DateTime? updatedAt;
   final List<VerificationCheck> checks;
+
+  /// Server-owned account restriction. A ban blocks money and play but never
+  /// blocks sign-in, so the client surfaces it as a dismissible banner rather
+  /// than a dead end.
+  final bool isBanned;
 
   bool get isInFlight => switch (status) {
     VerificationStatus.started ||
@@ -90,6 +96,7 @@ class VerificationSnapshot {
                 )
                 .toList(growable: false)
           : const [],
+      isBanned: raw['isBanned'] == true,
     );
   }
 }
