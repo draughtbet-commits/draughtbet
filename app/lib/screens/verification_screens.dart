@@ -65,7 +65,7 @@ class VerificationIntroScreen extends ConsumerWidget {
       context.go(_routeForStatus(status));
       return;
     }
-    context.push('/profile/verification/personal-details');
+    context.push('/profile/verification/select-id');
   }
 
   @override
@@ -137,65 +137,6 @@ class VerificationIntroScreen extends ConsumerWidget {
   }
 }
 
-class VerificationPersonalDetailsScreen extends StatefulWidget {
-  const VerificationPersonalDetailsScreen({super.key});
-
-  @override
-  State<VerificationPersonalDetailsScreen> createState() =>
-      _VerificationPersonalDetailsScreenState();
-}
-
-class _VerificationPersonalDetailsScreenState
-    extends State<VerificationPersonalDetailsScreen> {
-  final _form = GlobalKey<FormState>();
-
-  @override
-  Widget build(BuildContext context) => _VerificationScaffold(
-    title: 'PERSONAL DETAILS',
-    child: Form(
-      key: _form,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          const SizedBox(height: 12),
-          const ScreenHeading(
-            title: 'Personal details',
-            subtitle: 'Enter details exactly as they appear on your ID.',
-          ),
-          const SizedBox(height: 22),
-          const _PrivateField(label: 'Full name', hint: 'As shown on your ID'),
-          const SizedBox(height: 14),
-          const _PrivateField(
-            label: 'Date of birth',
-            hint: 'Select date of birth',
-            icon: LucideIcons.calendarDays,
-          ),
-          const SizedBox(height: 14),
-          const _PrivateField(
-            label: 'Nationality',
-            hint: 'Select nationality',
-            icon: LucideIcons.chevronDown,
-          ),
-          const SizedBox(height: 14),
-          const _PrivateField(
-            label: 'Residential address',
-            hint: 'Enter your address',
-          ),
-          const SizedBox(height: 18),
-          const _InlineMessage(
-            'These fields remain only on this screen. The current backend has no personal-details submission contract.',
-            icon: LucideIcons.shieldAlert,
-          ),
-          const SizedBox(height: 28),
-          PrimaryActionButton(
-            label: 'Continue',
-            onPressed: () => context.push('/profile/verification/select-id'),
-          ),
-        ],
-      ),
-    ),
-  );
-}
 
 class VerificationIdTypeScreen extends StatefulWidget {
   const VerificationIdTypeScreen({super.key});
@@ -231,7 +172,7 @@ class _VerificationIdTypeScreenState extends State<VerificationIdTypeScreen> {
         PrimaryActionButton(
           label: 'Continue',
           onPressed: () => context.push(
-            '/profile/verification/upload-id?type=${_selected.wireValue}',
+            '/profile/verification/selfie?type=${_selected.wireValue}',
           ),
         ),
       ],
@@ -239,70 +180,6 @@ class _VerificationIdTypeScreenState extends State<VerificationIdTypeScreen> {
   );
 }
 
-class VerificationUploadIdScreen extends StatelessWidget {
-  const VerificationUploadIdScreen({required this.type, super.key});
-  final VerificationCheckType type;
-
-  @override
-  Widget build(BuildContext context) => _VerificationScaffold(
-    title: 'UPLOAD ID',
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        const ScreenHeading(
-          title: 'Upload ID',
-          subtitle: 'Take a clear photo of your document.',
-        ),
-        const SizedBox(height: 24),
-        SizedBox(
-          height: 280,
-          child: Container(
-            decoration: BoxDecoration(
-              color: AppColors.surface.withValues(alpha: .82),
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: AppColors.textSecondary),
-            ),
-            child: const Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(
-                  LucideIcons.scanLine,
-                  size: 72,
-                  color: AppColors.textSecondary,
-                ),
-                SizedBox(height: 18),
-                Text('Secure document capture', style: AppTypography.heading3),
-                SizedBox(height: 8),
-                Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 24),
-                  child: Text(
-                    'Your document is never stored in Flutter logs or local preferences.',
-                    textAlign: TextAlign.center,
-                    style: AppTypography.bodySmall,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-        const SizedBox(height: 18),
-        const _InlineMessage(
-          'A document-upload endpoint or provider SDK is not available. Continue uses only the server-supported check type and sends no document data.',
-          icon: LucideIcons.info,
-        ),
-        const SizedBox(height: 18),
-        PrimaryActionButton(
-          label: type == VerificationCheckType.selfie
-              ? 'Continue to selfie check'
-              : 'Continue',
-          onPressed: () => context.push(
-            '/profile/verification/selfie?type=${type.wireValue}',
-          ),
-        ),
-      ],
-    ),
-  );
-}
 
 class VerificationSelfieScreen extends ConsumerWidget {
   const VerificationSelfieScreen({required this.type, super.key});
@@ -620,24 +497,6 @@ class _BenefitRow extends StatelessWidget {
   );
 }
 
-class _PrivateField extends StatelessWidget {
-  const _PrivateField({required this.label, required this.hint, this.icon});
-  final String label;
-  final String hint;
-  final IconData? icon;
-
-  @override
-  Widget build(BuildContext context) => TextFormField(
-    obscureText: false,
-    enableSuggestions: false,
-    autocorrect: false,
-    decoration: InputDecoration(
-      labelText: label,
-      hintText: hint,
-      suffixIcon: icon == null ? null : Icon(icon, size: 18),
-    ),
-  );
-}
 
 class _ChoiceTile extends StatelessWidget {
   const _ChoiceTile({

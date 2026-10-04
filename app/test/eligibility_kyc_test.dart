@@ -467,16 +467,12 @@ void main() {
       });
     }
 
-    testWidgets('renders intro, personal, ID, upload and selfie steps', (
+    testWidgets('renders intro, ID and selfie steps', (
       tester,
     ) async {
       for (final screen in <Widget>[
         const VerificationIntroScreen(),
-        const VerificationPersonalDetailsScreen(),
         const VerificationIdTypeScreen(),
-        const VerificationUploadIdScreen(
-          type: VerificationCheckType.idDocument,
-        ),
         const VerificationSelfieScreen(type: VerificationCheckType.idDocument),
       ]) {
         await _pump(tester, screen);

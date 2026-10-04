@@ -198,18 +198,8 @@ final appRouterProvider = Provider<GoRouter>((ref) {
             builder: (context, state) => const VerificationIntroScreen(),
           ),
           GoRoute(
-            path: '/profile/verification/personal-details',
-            builder: (context, state) => const VerificationPersonalDetailsScreen(),
-          ),
-          GoRoute(
             path: '/profile/verification/select-id',
             builder: (context, state) => const VerificationIdTypeScreen(),
-          ),
-          GoRoute(
-            path: '/profile/verification/upload-id',
-            builder: (context, state) => VerificationUploadIdScreen(
-              type: _verificationType(state.uri.queryParameters['type']),
-            ),
           ),
           GoRoute(
             path: '/profile/verification/selfie',
