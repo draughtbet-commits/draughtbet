@@ -345,6 +345,9 @@ export const startVerification = async (
       caseId: caseRow.id,
       checkId: check.id,
       providerReference: caseRow.providerReference,
+      // Mobile clients launch the provider's native SDK by widget id rather
+      // than opening a URL, so both forms are returned.
+      widgetId: started?.widgetId ?? null,
       widgetUrl: started?.widgetUrl ?? null
     };
   }

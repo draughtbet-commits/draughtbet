@@ -1,3 +1,4 @@
+import 'package:dojah_kyc_sdk_flutter/dojah_kyc_sdk_flutter.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -5,6 +6,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../models/eligibility.dart';
 import '../providers/eligibility_provider.dart';
+import '../services/eligibility_gateway.dart';
 import '../theme/colors.dart';
 import '../theme/typography.dart';
 import '../widgets/flow_widgets.dart';
@@ -306,13 +308,57 @@ class VerificationSelfieScreen extends ConsumerWidget {
   const VerificationSelfieScreen({required this.type, super.key});
   final VerificationCheckType type;
 
-  Future<void> _continue(BuildContext context, WidgetRef ref) async {
+  /// Starts the attempt, then hands the capture over to the provider.
+///
+/// With a synchronous provider the verdict is already here and the status
+/// screen opens as before. With an asynchronous one the case is pending: we
+/// launch the provider's widget and then wait for the server, which is the only
+/// party that learns the outcome.
+Future<void> _continue(BuildContext context, WidgetRef ref) async {
     context.push('/profile/verification/processing');
-    final result = await ref
-        .read(eligibilityProvider.notifier)
-        .startVerification(type);
+    final notifier = ref.read(eligibilityProvider.notifier);
+    final result = await notifier.startVerification(type);
     if (!context.mounted) return;
-    context.go(_routeForStatus(result.snapshot?.status ?? VerificationStatus.unavailable));
+
+    final widgetId = result.widgetId;
+    if (widgetId == null || widgetId.isEmpty) {
+      // No hosted capture to open, so there is nothing to wait for either.
+      context.go(
+        _routeForStatus(result.snapshot?.status ?? VerificationStatus.unavailable),
+      );
+      return;
+    }
+
+    final settled = await _runCapture(context, ref, widgetId, result);
+    if (!context.mounted) return;
+    context.go(_routeForStatus(settled ?? VerificationStatus.unavailable));
+  }
+
+  /// Opens the provider's capture experience, tolerating a failure to launch.
+  ///
+  /// The SDK returns a plain string and falls back to a success-looking message
+  /// when the platform gives it nothing, so its result is deliberately ignored
+  /// -- treating it as a verdict would let a failed launch read as a pass.
+  Future<VerificationStatus?> _runCapture(
+    BuildContext context,
+    WidgetRef ref,
+    String widgetId,
+    VerificationStartResult result,
+  ) async {
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    try {
+      await DojahKyc.launch(widgetId, referenceId: result.providerReference);
+    } catch (_) {
+      // The case is still open, so the player can be sent back to retry rather
+      // than being shown a failure the provider never reported.
+      messenger?.showSnackBar(
+        const SnackBar(content: Text('The verification page could not open.')),
+      );
+      return result.snapshot?.status;
+    }
+    if (!context.mounted) return null;
+    // The provider now decides on its own schedule.
+    return ref.read(eligibilityProvider.notifier).awaitVerificationVerdict();
   }
 
   @override

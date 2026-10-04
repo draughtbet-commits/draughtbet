@@ -30,6 +30,7 @@ dependencies:
   geolocator: ^12.0.0
   shared_preferences: ^2.3.2
   flutter_local_notifications: ^18.0.1
+  dojah_kyc_sdk_flutter: ^0.1.17
 dev_dependencies:
   flutter_test:
     sdk: flutter

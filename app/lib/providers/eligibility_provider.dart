@@ -58,6 +58,7 @@ class EligibilityNotifier extends StateNotifier<EligibilityState> {
   final EligibilityGateway _gateway;
   final Duration _reconcileInterval;
   Timer? _reconcileTimer;
+  Timer? _pendingPoll;
 
   /// Begins periodically re-reading the server-owned restriction flag.
   ///
@@ -72,6 +73,80 @@ class EligibilityNotifier extends StateNotifier<EligibilityState> {
       if (!mounted) return;
       unawaited(refreshCanonical());
     });
+  }
+
+  /// Polls until the provider reaches a verdict on a pending case.
+  ///
+  /// A provider widget reports back over a webhook the client never sees, and
+  /// the SDK hands the client nothing it could be trusted to decide on, so the
+  /// only honest source of the outcome is the server's own status. Polling
+  /// stops the moment the case settles, when the player leaves, or on error,
+  /// so a dropped connection cannot spin here forever.
+  ///
+  /// Returns the settled status, or null if it never settled.
+  Future<VerificationStatus?> awaitVerificationVerdict({
+    Duration interval = const Duration(seconds: 3),
+    Duration timeout = const Duration(minutes: 10),
+  }) async {
+    _pendingPoll?.cancel();
+    final deadline = DateTime.now().add(timeout);
+    final completer = Completer<VerificationStatus?>();
+
+    Future<void> poll() async {
+      // Disposed mid-wait: still complete, or the caller awaiting this future
+      // would hang for good.
+      if (completer.isCompleted) return;
+      if (!mounted) {
+        _pendingPoll = null;
+        completer.complete(null);
+        return;
+      }
+      if (DateTime.now().isAfter(deadline)) {
+        _pendingPoll = null;
+        if (!completer.isCompleted) completer.complete(null);
+        return;
+      }
+      try {
+        final snapshot = await _gateway.fetchVerificationStatus();
+        // The player navigated away or signed out mid-wait.
+        if (!mounted) {
+          _pendingPoll = null;
+          if (!completer.isCompleted) completer.complete(null);
+          return;
+        }
+        if (snapshot != null) {
+          state = state.copyWith(phase: EligibilityLoadPhase.ready, verification: snapshot);
+        }
+        final status = snapshot?.status;
+        if (status != null && !_isAwaiting(status)) {
+          _pendingPoll = null;
+          if (!completer.isCompleted) completer.complete(status);
+          return;
+        }
+      } catch (_) {
+        // A failed poll is not a failed verification. Keep trying until the
+        // deadline and let the player retry from the screen.
+      }
+      if (!completer.isCompleted) _pendingPoll = Timer(interval, poll);
+    }
+
+    // Checked immediately, not after one interval: the provider's webhook may
+    // already have landed while the player was still in the capture widget, and
+    // there is no reason to keep them on a processing screen for that.
+    unawaited(poll());
+    return completer.future;
+  }
+
+  /// Statuses that mean the provider has not finished deciding yet.
+  static bool _isAwaiting(VerificationStatus status) =>
+      status == VerificationStatus.started ||
+      status == VerificationStatus.pending ||
+      status == VerificationStatus.underReview;
+
+  /// Stops any in-flight wait, e.g. when the player leaves the flow.
+  void cancelVerdictWait() {
+    _pendingPoll?.cancel();
+    _pendingPoll = null;
   }
 
   /// Lets the shell clear a dismissed restriction the moment an admin
@@ -174,6 +249,8 @@ class EligibilityNotifier extends StateNotifier<EligibilityState> {
       );
       return VerificationStartResult(
         snapshot: snapshot,
+        providerReference: result.providerReference,
+        widgetId: result.widgetId,
         widgetUrl: result.widgetUrl,
       );
     } on DioException catch (error) {
@@ -280,6 +357,7 @@ class EligibilityNotifier extends StateNotifier<EligibilityState> {
   @override
   void dispose() {
     _reconcileTimer?.cancel();
+    _pendingPoll?.cancel();
     super.dispose();
   }
 }

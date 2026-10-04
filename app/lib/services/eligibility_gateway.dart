@@ -11,9 +11,26 @@ import 'api_client.dart';
 /// pending and returns [widgetUrl]: the hosted page where the player captures
 /// their ID and selfie, which they must open before the verdict can exist.
 class VerificationStartResult {
-  const VerificationStartResult({required this.snapshot, this.widgetUrl});
+  const VerificationStartResult({
+    required this.snapshot,
+    this.providerReference,
+    this.widgetId,
+    this.widgetUrl,
+  });
 
   final VerificationSnapshot? snapshot;
+
+  /// The attempt's handle at the provider. Must be handed back to the provider
+  /// when capture starts: it is how the eventual webhook is matched to this
+  /// case, so a client that launched the widget under a different reference
+  /// would leave the verdict unmatchable.
+  final String? providerReference;
+
+  /// Launches the provider's native SDK. Preferred over [widgetUrl] where the
+  /// SDK is available.
+  final String? widgetId;
+
+  /// The hosted capture page, for clients without the SDK.
   final String? widgetUrl;
 }
 
@@ -35,10 +52,12 @@ class EligibilityGateway {
       data: {'type': type.wireValue},
     );
     final data = response.data;
-    final widgetUrl = data is Map ? data['widgetUrl'] as String? : null;
+    String? field(String name) => data is Map ? data[name] as String? : null;
     return VerificationStartResult(
       snapshot: await fetchVerificationStatus(),
-      widgetUrl: widgetUrl,
+      providerReference: field('providerReference'),
+      widgetId: field('widgetId'),
+      widgetUrl: field('widgetUrl'),
     );
   }
 

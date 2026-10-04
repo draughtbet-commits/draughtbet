@@ -237,6 +237,9 @@ describe('async verification flow', () => {
         data: expect.objectContaining({ status: 'PENDING', providerReference: result.providerReference })
       })
     );
+    // The mobile SDK launches by widget id rather than by URL.
+    expect(result.widgetId).toBe('widget-abc');
+    expect(result.widgetUrl).toContain('reference_id=');
     // Nothing is decided, so nothing about the player changes.
     expect(mockPrisma.user.update).not.toHaveBeenCalled();
     expect(mockPrisma.verificationCase.update).not.toHaveBeenCalledWith(

@@ -12,6 +12,31 @@ import 'dart:async';
 
 class _MockDio extends Mock implements Dio {}
 
+class _ThrowingGateway implements EligibilityGateway {
+  @override
+  Future<VerificationSnapshot?> fetchVerificationStatus() async =>
+      throw DioException(requestOptions: RequestOptions(path: '/verification/status'));
+
+  @override
+  Future<VerificationStartResult> startVerification(VerificationCheckType type) async =>
+      const VerificationStartResult(snapshot: null);
+
+  @override
+  Future<SaferPlayProfile?> fetchSaferPlayProfile() async => null;
+
+  @override
+  Future<SaferPlayProfile?> setDepositLimit(int? amountMinorUnits) async => null;
+
+  @override
+  Future<SaferPlayProfile?> setStakeLimit(int? amountMinorUnits) async => null;
+
+  @override
+  Future<SaferPlayProfile?> startTimeout(int minutes) async => null;
+
+  @override
+  Future<SaferPlayProfile?> startSelfExclusion(String until) async => null;
+}
+
 class _FakeGateway implements EligibilityGateway {
   VerificationSnapshot? verification = const VerificationSnapshot(
     status: VerificationStatus.notRequired,
@@ -283,6 +308,96 @@ void main() {
       expect(result.widgetUrl, contains('reference_id=dbt-abc123'));
     },
   );
+
+  group('waiting for an asynchronous verdict', () {
+    test('polls until the provider settles, then stops', () async {
+      final gateway = _FakeGateway()
+        ..verification = const VerificationSnapshot(
+          status: VerificationStatus.pending,
+        );
+      final notifier = EligibilityNotifier(gateway);
+
+      final statuses = <VerificationStatus>[
+        VerificationStatus.started,
+        VerificationStatus.pending,
+        VerificationStatus.underReview,
+        VerificationStatus.pending,
+        VerificationStatus.verified,
+      ];
+      var call = 0;
+      gateway.verification = const VerificationSnapshot(
+        status: VerificationStatus.pending,
+      );
+
+      final waiter = notifier.awaitVerificationVerdict(
+        interval: const Duration(milliseconds: 5),
+        timeout: const Duration(seconds: 5),
+      );
+      // Feed the transition the webhook would eventually cause.
+      Timer.periodic(const Duration(milliseconds: 5), (_) {
+        if (call >= statuses.length) return;
+        gateway.verification = VerificationSnapshot(status: statuses[call]);
+        call++;
+      });
+
+      final settled = await waiter;
+      notifier.dispose();
+
+      expect(settled, VerificationStatus.verified);
+      // Stopping on a verdict is what keeps this from polling forever.
+      final settledAt = gateway.refreshCount;
+      await Future<void>.delayed(const Duration(milliseconds: 40));
+      expect(gateway.refreshCount, settledAt);
+      expect(statuses.take(call), contains(VerificationStatus.verified));
+    });
+
+    test('gives up at the timeout instead of polling forever', () async {
+      final gateway = _FakeGateway()
+        ..verification = const VerificationSnapshot(
+          status: VerificationStatus.pending,
+        );
+      final notifier = EligibilityNotifier(gateway);
+
+      final settled = await notifier.awaitVerificationVerdict(
+        interval: const Duration(milliseconds: 5),
+        timeout: const Duration(milliseconds: 40),
+      );
+      notifier.dispose();
+
+      expect(settled, isNull);
+    });
+
+    test('a failing poll is not treated as a failed verification', () async {
+      final gateway = _ThrowingGateway();
+      final notifier = EligibilityNotifier(gateway);
+
+      final settled = await notifier.awaitVerificationVerdict(
+        interval: const Duration(milliseconds: 5),
+        timeout: const Duration(milliseconds: 40),
+      );
+      // The provider never reported a verdict, so none may be invented.
+      final visible = notifier.state.verification?.status;
+      notifier.dispose();
+
+      expect(settled, isNull);
+      expect(visible, anyOf(isNull, isNot(VerificationStatus.rejected)));
+    });
+
+    test('a verdict already on record returns without waiting for a tick', () async {
+      final gateway = _FakeGateway()
+        ..verification = const VerificationSnapshot(
+          status: VerificationStatus.verified,
+        );
+      final notifier = EligibilityNotifier(gateway);
+
+      final settled = await notifier.awaitVerificationVerdict(
+        interval: const Duration(seconds: 30),
+      );
+      notifier.dispose();
+
+      expect(settled, VerificationStatus.verified);
+    });
+  });
 
   group('verification screens', () {
     final states = <VerificationStatus, String>{
