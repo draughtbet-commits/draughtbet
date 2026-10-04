@@ -4,6 +4,19 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/eligibility.dart';
 import 'api_client.dart';
 
+/// What starting a verification attempt produced.
+///
+/// Most providers answer inline, so [snapshot] already carries the verdict and
+/// [widgetUrl] is null. An asynchronous provider instead leaves the case
+/// pending and returns [widgetUrl]: the hosted page where the player captures
+/// their ID and selfie, which they must open before the verdict can exist.
+class VerificationStartResult {
+  const VerificationStartResult({required this.snapshot, this.widgetUrl});
+
+  final VerificationSnapshot? snapshot;
+  final String? widgetUrl;
+}
+
 class EligibilityGateway {
   const EligibilityGateway(this._dio);
 
@@ -14,14 +27,19 @@ class EligibilityGateway {
     return VerificationSnapshot.tryFromServer(response.data);
   }
 
-  Future<VerificationSnapshot?> startVerification(
+  Future<VerificationStartResult> startVerification(
     VerificationCheckType type,
   ) async {
-    await _dio.post<dynamic>(
+    final response = await _dio.post<dynamic>(
       '/verification/start',
       data: {'type': type.wireValue},
     );
-    return fetchVerificationStatus();
+    final data = response.data;
+    final widgetUrl = data is Map ? data['widgetUrl'] as String? : null;
+    return VerificationStartResult(
+      snapshot: await fetchVerificationStatus(),
+      widgetUrl: widgetUrl,
+    );
   }
 
   Future<SaferPlayProfile?> fetchSaferPlayProfile() async {

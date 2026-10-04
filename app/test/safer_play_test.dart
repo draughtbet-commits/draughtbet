@@ -31,9 +31,11 @@ class _SaferGateway implements EligibilityGateway {
   Future<SaferPlayProfile?> fetchSaferPlayProfile() async => profile;
 
   @override
-  Future<VerificationSnapshot?> startVerification(
+  Future<VerificationStartResult> startVerification(
     VerificationCheckType type,
-  ) async => const VerificationSnapshot(status: VerificationStatus.pending);
+  ) async => const VerificationStartResult(
+    snapshot: VerificationSnapshot(status: VerificationStatus.pending),
+  );
 
   @override
   Future<SaferPlayProfile?> setDepositLimit(int? amountMinorUnits) {

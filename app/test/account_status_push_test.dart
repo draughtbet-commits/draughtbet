@@ -24,8 +24,8 @@ class _FakeGateway implements EligibilityGateway {
       const SaferPlayProfile();
 
   @override
-  Future<VerificationSnapshot?> startVerification(VerificationCheckType t) async =>
-      _snapshot;
+  Future<VerificationStartResult> startVerification(VerificationCheckType t) async =>
+      VerificationStartResult(snapshot: _snapshot);
 
   @override
   Future<SaferPlayProfile?> setDepositLimit(int? a) async => null;

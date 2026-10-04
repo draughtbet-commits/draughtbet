@@ -308,11 +308,11 @@ class VerificationSelfieScreen extends ConsumerWidget {
 
   Future<void> _continue(BuildContext context, WidgetRef ref) async {
     context.push('/profile/verification/processing');
-    final status = await ref
+    final result = await ref
         .read(eligibilityProvider.notifier)
         .startVerification(type);
     if (!context.mounted) return;
-    context.go(_routeForStatus(status));
+    context.go(_routeForStatus(result.snapshot?.status ?? VerificationStatus.unavailable));
   }
 
   @override

@@ -20,7 +20,7 @@ class _FakeGateway implements EligibilityGateway {
   int refreshCount = 0;
   int startCount = 0;
   VerificationCheckType? startedType;
-  Completer<VerificationSnapshot?>? pendingVerification;
+  Completer<VerificationStartResult>? pendingVerification;
 
   @override
   Future<VerificationSnapshot?> fetchVerificationStatus() async {
@@ -32,10 +32,13 @@ class _FakeGateway implements EligibilityGateway {
   Future<SaferPlayProfile?> fetchSaferPlayProfile() async => profile;
 
   @override
-  Future<VerificationSnapshot?> startVerification(VerificationCheckType type) {
+  Future<VerificationStartResult> startVerification(VerificationCheckType type) {
     startCount++;
     startedType = type;
-    return pendingVerification?.future ?? Future.value(verification);
+    return pendingVerification?.future ??
+        Future<VerificationStartResult>.value(
+          VerificationStartResult(snapshot: verification),
+        );
   }
 
   @override
@@ -183,19 +186,21 @@ void main() {
 
   test('duplicate verification start is prevented', () async {
     final gateway = _FakeGateway()
-      ..pendingVerification = Completer<VerificationSnapshot?>();
+      ..pendingVerification = Completer<VerificationStartResult>();
     final notifier = EligibilityNotifier(gateway);
     final first = notifier.startVerification(VerificationCheckType.idDocument);
     expect(notifier.state.submitting, isTrue);
     expect(
-      await notifier.startVerification(VerificationCheckType.selfie),
-      VerificationStatus.unavailable,
+      (await notifier.startVerification(VerificationCheckType.selfie)).snapshot?.status,
+      isNull,
     );
     expect(gateway.startCount, 1);
     gateway.pendingVerification!.complete(
-      const VerificationSnapshot(status: VerificationStatus.pending),
+      const VerificationStartResult(
+        snapshot: VerificationSnapshot(status: VerificationStatus.pending),
+      ),
     );
-    expect(await first, VerificationStatus.pending);
+    expect((await first).snapshot?.status, VerificationStatus.pending);
   });
 
   test(
@@ -222,7 +227,9 @@ void main() {
       final result = await gateway.startVerification(
         VerificationCheckType.idDocument,
       );
-      expect(result?.status, VerificationStatus.verified);
+      expect(result.snapshot?.status, VerificationStatus.verified);
+      // An inline provider has no hosted page for the player to open.
+      expect(result.widgetUrl, isNull);
       final captured =
           verify(
                 () => dio.post<dynamic>(
@@ -235,6 +242,45 @@ void main() {
       expect(captured.keys, isNot(contains('document')));
       expect(captured.keys, isNot(contains('selfie')));
       expect(captured.keys, isNot(contains('personalDetails')));
+    },
+  );
+
+  test(
+    'gateway surfaces the hosted page when the provider decides asynchronously',
+    () async {
+      final dio = _MockDio();
+      when(
+        () =>
+            dio.post<dynamic>('/verification/start', data: any(named: 'data')),
+      ).thenAnswer(
+        (_) async => Response<dynamic>(
+          requestOptions: RequestOptions(path: '/verification/start'),
+          statusCode: 201,
+          data: {
+            'status': 'PENDING',
+            'providerReference': 'dbt-abc123',
+            'widgetUrl':
+                'https://identity.dojah.io/?widget_id=w1&reference_id=dbt-abc123',
+          },
+        ),
+      );
+      when(() => dio.get<dynamic>('/verification/status')).thenAnswer(
+        (_) async => Response<dynamic>(
+          requestOptions: RequestOptions(path: '/verification/status'),
+          data: {
+            'kycStatus': 'NONE',
+            'case': {'id': 'case-1', 'status': 'PENDING', 'provider': 'dojah'},
+          },
+        ),
+      );
+
+      final result = await EligibilityGateway(
+        dio,
+      ).startVerification(VerificationCheckType.idDocument);
+
+      // No verdict exists yet; the player has to open the provider's page.
+      expect(result.snapshot?.status, VerificationStatus.pending);
+      expect(result.widgetUrl, contains('reference_id=dbt-abc123'));
     },
   );
 

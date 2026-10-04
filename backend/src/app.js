@@ -31,6 +31,7 @@ import { matchmakingRouter } from './modules/matchmaking/controller.js';
 import { walletRouter, depositsRouter } from './modules/wallet/controller.js';
 import { withdrawalUserRouter } from './modules/withdrawal/controller.js';
 import { webhookRouter } from './modules/payment/webhookController.js';
+import { verificationWebhookRouter } from './modules/verification/webhookController.js';
 import { notificationRouter } from './modules/notification/controller.js';
 import { verificationRouter } from './modules/verification/controller.js';
 import { saferPlayRouter } from './modules/saferPlay/controller.js';
@@ -82,6 +83,7 @@ if (process.env.APP_ENFORCE_TLS === 'true') {
 // Mount webhooks BEFORE express.json() so they get raw Buffer bodies for HMAC verification
 app.use(requestIdMiddleware);
 app.use('/webhooks', webhookRouter);
+app.use('/webhooks', verificationWebhookRouter);
 
 app.use(express.json());
 app.use(httpLogger);

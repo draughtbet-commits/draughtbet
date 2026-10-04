@@ -26,9 +26,9 @@ class _VisualGateway implements EligibilityGateway {
   Future<SaferPlayProfile?> fetchSaferPlayProfile() async => profile;
 
   @override
-  Future<VerificationSnapshot?> startVerification(
+  Future<VerificationStartResult> startVerification(
     VerificationCheckType type,
-  ) async => verification;
+  ) async => VerificationStartResult(snapshot: verification);
 
   @override
   Future<SaferPlayProfile?> setDepositLimit(int? amountMinorUnits) async =>

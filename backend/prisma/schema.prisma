@@ -594,6 +594,10 @@ model VerificationCase {
   user        User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
   status      VerificationCaseStatus @default(NOT_REQUIRED)
   provider    String?                // e.g. "dojah", "flutterwave-kyc"
+  /// The provider's handle for this attempt (Dojah: the reference_id we
+  /// generate). Persisted at start so an asynchronous webhook -- which knows
+  /// nothing but this value -- can be matched back to its case.
+  providerReference String?
   metadata    Json?
   createdAt   DateTime               @default(now())
   updatedAt   DateTime               @updatedAt
@@ -602,6 +606,29 @@ model VerificationCase {
   documents   KycDocument[]
 
   @@index([userId, status])
+  @@index([providerReference])
+}
+
+/// One received KYC webhook delivery. Kept separate from PaymentWebhookEvent
+/// because a verification delivery carries identity payloads rather than money
+/// movements, and must be auditable on its own terms.
+model VerificationWebhookEvent {
+  id                String                  @id @default(uuid())
+  provider          String
+  /// provider + reference + event id. Unique so a replayed delivery is
+  /// recognised instead of being applied twice.
+  dedupeKey         String                  @unique
+  providerReference String?
+  eventType         String?
+  signatureValid    Boolean
+  payloadHash       String
+  processingStatus  WebhookProcessingStatus @default(RECEIVED)
+  errorCode         String?
+  receivedAt        DateTime                @default(now())
+  processedAt       DateTime?
+
+  @@index([provider, providerReference])
+  @@index([processingStatus, receivedAt])
 }
 
 enum VerificationCheckType {

@@ -149,29 +149,33 @@ class EligibilityNotifier extends StateNotifier<EligibilityState> {
     }
   }
 
-  Future<VerificationStatus> startVerification(
+  Future<VerificationStartResult> startVerification(
     VerificationCheckType type,
   ) async {
     if (state.submitting) {
-      return state.verification?.status ?? VerificationStatus.unavailable;
+      return VerificationStartResult(snapshot: state.verification);
     }
     state = state.copyWith(submitting: true, clearMessage: true);
     try {
-      final snapshot = await _gateway.startVerification(type);
+      final result = await _gateway.startVerification(type);
+      final snapshot = result.snapshot;
       if (snapshot == null) {
         state = state.copyWith(
           submitting: false,
           phase: EligibilityLoadPhase.unavailable,
           message: 'Verification status could not be confirmed.',
         );
-        return VerificationStatus.unavailable;
+        return const VerificationStartResult(snapshot: null);
       }
       state = state.copyWith(
         submitting: false,
         phase: EligibilityLoadPhase.ready,
         verification: snapshot,
       );
-      return snapshot.status;
+      return VerificationStartResult(
+        snapshot: snapshot,
+        widgetUrl: result.widgetUrl,
+      );
     } on DioException catch (error) {
       // A conflict can mean the server already has a live or completed case;
       // refresh the canonical status instead of starting another one.
@@ -188,7 +192,7 @@ class EligibilityNotifier extends StateNotifier<EligibilityState> {
                 ? 'Verification status could not be confirmed.'
                 : null,
           );
-          return snapshot?.status ?? VerificationStatus.unavailable;
+          return VerificationStartResult(snapshot: snapshot);
         } catch (_) {
           // Fall through to the safe unavailable state below.
         }
@@ -209,7 +213,7 @@ class EligibilityNotifier extends StateNotifier<EligibilityState> {
             apiErrorMessage(error.response?.data) ??
             'Verification could not be completed safely.',
       );
-      return snapshot.status;
+      return VerificationStartResult(snapshot: snapshot);
     }
   }
 

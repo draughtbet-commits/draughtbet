@@ -157,17 +157,134 @@ export const getKycStatus = async (userId, { dbp = prisma } = {}) => {
 };
 
 /**
- * Runs a verification pass for the player through the injected (or simulated)
- * provider. The atomic result is projected onto the VerificationCase/Check rows
- * and the User.kycStatus compatibility column.
+ * Projects a provider verdict onto the VerificationCase, its checks and the
+ * User.kycStatus compatibility column.
  *
- * A pass also flips `ageVerified` when the case passes — the provider has
- * confirmed the applicant is an adult, so the separate age gate is satisfied
- * by the same evidence.
+ * This is the single place a provider result becomes a decision, so the inline
+ * (synchronous provider) path and the webhook path cannot drift apart.
+ *
+ * Terminal case statuses are sticky. A replayed or out-of-order delivery must
+ * never walk a VERIFIED case back to REJECTED. Admin review is a deliberate
+ * override and lives in approve/rejectVerificationCase, which is unaffected.
+ *
+ * Returns the case id, or null when no case owns this provider reference (an
+ * unknown reference is not an error — the provider may have been handed one by
+ * a different system).
+ */
+export const applyVerificationResult = async (
+  { providerReference, result, caseRow: knownCase },
+  { dbp = prisma } = {}
+) => {
+  if (!providerReference || !result) return null;
+
+  // The inline path already holds the row it just created, so it passes it in
+  // and skips the lookup the webhook path needs.
+  const caseRow =
+    knownCase ??
+    (await dbp.verificationCase.findUnique({
+      where: { providerReference },
+      include: { checks: true }
+    }));
+  if (!caseRow) {
+    logger.warn({ providerReference }, 'Verification result for an unknown provider reference');
+    return null;
+  }
+
+  if (caseRow.status === 'VERIFIED' || caseRow.status === 'REJECTED') {
+    logger.info(
+      { providerReference, caseStatus: caseRow.status, resultStatus: result.status },
+      'Ignoring provider result for an already-settled case'
+    );
+    return caseRow.id;
+  }
+
+  const verifiedAt = new Date();
+  const response = sanitizeProviderResponse(result);
+
+  // Only object-shaped entries are per-check verdicts. A provider may instead
+  // report a bare list of the checks it ran (the simulated one does), which
+  // carries no verdict of its own — the overall result decides that case.
+  const providerChecks = Array.isArray(result.checks)
+    ? result.checks.filter((c) => c && typeof c === 'object' && c.type)
+    : [];
+
+  if (providerChecks.length) {
+    for (const pc of providerChecks) {
+      const existing = caseRow.checks.find((c) => c.type === pc.type);
+      if (existing) {
+        await dbp.verificationCheck.update({
+          where: { id: existing.id },
+          data: {
+            status: pc.passed ? 'PASSED' : 'FAILED',
+            verifiedAt,
+            providerResponse: response
+          }
+        });
+      } else {
+        await dbp.verificationCheck.create({
+          data: {
+            caseId: caseRow.id,
+            type: pc.type,
+            status: pc.passed ? 'PASSED' : 'FAILED',
+            verifiedAt,
+            providerResponse: response
+          }
+        });
+      }
+    }
+  } else {
+    const target = caseRow.checks[0];
+    if (target) {
+      await dbp.verificationCheck.update({
+        where: { id: target.id },
+        data: {
+          status: result.status === 'PASSED' ? 'PASSED' : 'FAILED',
+          verifiedAt,
+          providerResponse: response
+        }
+      });
+    }
+  }
+
+  if (result.status === 'PASSED') {
+    await dbp.verificationCase.update({
+      where: { id: caseRow.id },
+      data: { status: 'VERIFIED' }
+    });
+    // The provider has confirmed the applicant is an adult, so the same
+    // evidence satisfies the separate age gate.
+    await dbp.user.update({
+      where: { id: caseRow.userId },
+      data: { kycStatus: 'VERIFIED', ageVerified: true }
+    });
+    logger.info({ userId: caseRow.userId, caseId: caseRow.id }, 'KYC verified via provider');
+    return caseRow.id;
+  }
+
+  await dbp.verificationCase.update({
+    where: { id: caseRow.id },
+    data: { status: 'REJECTED' }
+  });
+  logger.warn({ userId: caseRow.userId, caseId: caseRow.id }, 'KYC rejected by provider');
+  return caseRow.id;
+};
+
+/**
+ * Runs a verification pass for the player through the injected provider.
+ *
+ * How the result arrives depends on the provider:
+ *
+ * - A synchronous provider (the simulated one) answers inline, so the verdict
+ *   is projected here and returned.
+ * - An asynchronous provider (Dojah) has the player complete the check on the
+ *   provider's own widget and decides later. The case is persisted as PENDING
+ *   along with the reference that identifies it, and the verdict arrives on a
+ *   webhook that is matched by that reference. Returning PENDING is what keeps
+ *   a request timeout from looking like a rejection.
  */
 export const startVerification = async (
   userId,
-  { providerName = 'simulated', type = 'ID_DOCUMENT' } = {},
+  { providerName = process.env.KYC_PROVIDER || 'simulated', type = 'ID_DOCUMENT' } = {},
   { dbp = prisma, provider } = {}
 ) => {
   provider = provider ?? createKycProvider(providerName);
@@ -191,17 +308,50 @@ export const startVerification = async (
   });
   if (inFlight) throw new KycInProgressError();
 
-  const caseRow = await dbp.verificationCase.create({
-    data: { userId, status: 'STARTED', provider: providerName }
-  });
-  const check = await dbp.verificationCheck.create({
-    data: { caseId: caseRow.id, type }
-  });
+  const isAsync = provider.mode === 'async';
+
+  // The reference must be persisted before any result can arrive: for an async
+  // provider the webhook that carries the verdict knows only this value.
+  let caseRow;
+  let check;
+  let started;
+  try {
+    started = await provider.start(userId, { type });
+    caseRow = await dbp.verificationCase.create({
+      data: {
+        userId,
+        status: isAsync ? 'PENDING' : 'STARTED',
+        provider: started.provider ?? providerName,
+        providerReference: started.providerReference ?? null
+      }
+    });
+    check = await dbp.verificationCheck.create({
+      data: { caseId: caseRow.id, type }
+    });
+  } catch (err) {
+    if (err instanceof KycProviderError || err?.name === 'KycProviderError') {
+      throw new KycRejectedError('The verification provider could not complete the check.');
+    }
+    throw err;
+  }
+
+  if (isAsync) {
+    logger.info(
+      { userId, caseId: caseRow.id, provider: providerName },
+      'KYC started; awaiting provider webhook'
+    );
+    return {
+      status: 'PENDING',
+      caseId: caseRow.id,
+      checkId: check.id,
+      providerReference: caseRow.providerReference,
+      widgetUrl: started?.widgetUrl ?? null
+    };
+  }
 
   let result;
   try {
-    const started = await provider.start(userId, { type });
-    result = await provider.getResult(started.providerReference);
+    result = await provider.getResult(caseRow.providerReference);
   } catch (err) {
     if (err instanceof KycProviderError || err?.name === 'KycProviderError') {
       await dbp.verificationCheck.update({
@@ -218,35 +368,27 @@ export const startVerification = async (
   }
 
   if (result?.status === 'PASSED') {
-    await dbp.verificationCheck.update({
-      where: { id: check.id },
-      data: {
-        status: 'PASSED',
-        verifiedAt: new Date(),
-        providerResponse: sanitizeProviderResponse(result)
-      }
-    });
-    await dbp.verificationCase.update({
-      where: { id: caseRow.id },
-      data: { status: 'VERIFIED' }
-    });
-    await dbp.user.update({
-      where: { id: userId },
-      data: { kycStatus: 'VERIFIED', ageVerified: true }
-    });
-    logger.info({ userId, caseId: caseRow.id, checkId: check.id }, 'KYC verified via provider');
+    await applyVerificationResult(
+      { providerReference: caseRow.providerReference, result, caseRow: { ...caseRow, checks: [{ id: check.id, type }] } },
+      { dbp }
+    );
     return { status: 'VERIFIED', caseId: caseRow.id, checkId: check.id };
   }
 
-  await dbp.verificationCheck.update({
-    where: { id: check.id },
-    data: { status: 'FAILED', providerResponse: sanitizeProviderResponse(result) }
-  });
-  await dbp.verificationCase.update({
-    where: { id: caseRow.id },
-    data: { status: 'REJECTED' }
-  });
-  logger.warn({ userId, caseId: caseRow.id }, 'KYC rejected by provider');
+  if (result?.status === 'PENDING') {
+    // A synchronous provider that has not settled yet: leave the case open
+    // rather than recording a verdict nobody reached.
+    await dbp.verificationCase.update({
+      where: { id: caseRow.id },
+      data: { status: 'PENDING' }
+    });
+    return { status: 'PENDING', caseId: caseRow.id, checkId: check.id };
+  }
+
+  await applyVerificationResult(
+      { providerReference: caseRow.providerReference, result, caseRow: { ...caseRow, checks: [{ id: check.id, type }] } },
+      { dbp }
+    );
   throw new KycRejectedError();
 };
 
