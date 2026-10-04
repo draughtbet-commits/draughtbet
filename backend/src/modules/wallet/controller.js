@@ -258,6 +258,15 @@ walletRouter.post('/deposit-intent', requireAuth, async (req, res, next) => {
             replayed: true
           });
         }
+        // The winning row was already terminal, so there is nothing to replay
+        // and nothing safe to return. Ask the client for a fresh quote rather
+        // than surfacing a raw unique-constraint error.
+        return res.status(409).json({
+          error: {
+            code: 'DEPOSIT_RETRY_REQUIRED',
+            message: 'That deposit attempt is no longer valid. Please request new deposit terms.'
+          }
+        });
       }
       throw createErr;
     }

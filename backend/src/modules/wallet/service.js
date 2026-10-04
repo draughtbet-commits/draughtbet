@@ -129,12 +129,30 @@ export const createDepositIntent = async (userId, amountMinorUnits, gateway, ema
 /**
  * Replay lookup for a deposit create carrying a client Idempotency-Key. Returns
  * the original intent when the key was used before, null otherwise.
+ *
+ * A FAILED intent is deliberately NOT replayable. The enum documents it as
+ * "provider initiation reported an error; no checkout was exposed", so there is
+ * no checkout to hand back — replaying it returned `authorizationUrl: null` and
+ * left the client permanently stuck on that quote with "secure checkout is not
+ * available". Retrying after a provider outage has to be able to start over, so
+ * the dead row releases its key and the caller creates a fresh intent.
  */
 export const findDepositIntentByClientKey = async (userId, clientIdempotencyKey) => {
   if (clientIdempotencyKey === undefined || clientIdempotencyKey === null) return null;
-  return await prisma.depositIntent.findUnique({
+  const intent = await prisma.depositIntent.findUnique({
     where: { userId_clientIdempotencyKey: { userId, clientIdempotencyKey } }
   });
+  if (!intent) return null;
+  if (intent.status !== 'FAILED') return intent;
+
+  // Retire the key on the dead row instead of deleting it: the intent stays
+  // queryable for support and the ledger, but the unique key is free for the
+  // retry.
+  await prisma.depositIntent.update({
+    where: { id: intent.id },
+    data: { clientIdempotencyKey: `${clientIdempotencyKey}:superseded:${intent.id}` }
+  });
+  return null;
 };
 
 /**

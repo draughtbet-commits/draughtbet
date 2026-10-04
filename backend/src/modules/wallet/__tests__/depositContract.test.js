@@ -255,6 +255,21 @@ describe('deposit checkout — client Idempotency-Key replay (contract §6 / dec
     expect(createDepositIntent).toHaveBeenCalledTimes(1);
   });
 
+  it('asks for a re-quote when a P2002 race leaves nothing replayable', async () => {
+    // The winning row was already terminal, so there is no checkout to replay.
+    // Surfacing the raw unique-constraint error would leak a Prisma code to the
+    // client, so the response is a clean conflict instead.
+    findDepositIntentByClientKey.mockResolvedValue(null);
+    createDepositIntent.mockRejectedValue(Object.assign(new Error('unique violation'), { code: 'P2002' }));
+
+    const res = await doCheckout().set('idempotency-key', 'checkout_key_abcdef12');
+    expect(res.status).toBe(409);
+    expect(res.body.error).toMatchObject({
+      code: 'DEPOSIT_RETRY_REQUIRED',
+      message: 'That deposit attempt is no longer valid. Please request new deposit terms.'
+    });
+  });
+
   it('marks the intent FAILED and returns 503 when the provider checkout fails', async () => {
     findDepositIntentByClientKey.mockResolvedValue(null);
     createDepositIntent.mockResolvedValue({ id: 'intent-3', amountMinorUnits: 5000n });
