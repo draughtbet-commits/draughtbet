@@ -50,5 +50,7 @@ flutter {
 }
 
 dependencies {
-    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
+    // 2.1.5+ is required by the Dojah KYC SDK AAR metadata; 2.1.4 fails
+    // :app:checkDebugAarMetadata.
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")
 }
