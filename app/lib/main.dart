@@ -8,6 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:go_router/go_router.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'providers/eligibility_provider.dart';
 import 'providers/match_flow_provider.dart';
 import 'router/app_router.dart';
 import 'services/socket_service.dart';
@@ -141,13 +142,15 @@ class ChallengeInboxBridge extends ConsumerStatefulWidget {
       _ChallengeInboxBridgeState();
 }
 
-class _ChallengeInboxBridgeState extends ConsumerState<ChallengeInboxBridge> {
+class _ChallengeInboxBridgeState extends ConsumerState<ChallengeInboxBridge>
+    with WidgetsBindingObserver {
   StreamSubscription<Map<String, dynamic>>? _subscription;
   final Set<String> _handled = <String>{};
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _subscription = socketService.onNotification.listen((data) {
       if (data['type'] != 'MATCH_CHALLENGE') return;
       final matchId = data['matchId']?.toString();
@@ -168,7 +171,18 @@ class _ChallengeInboxBridgeState extends ConsumerState<ChallengeInboxBridge> {
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Re-read the server-owned restriction when the app comes back to the
+    // foreground. A reinstatement that happened while the app was backgrounded
+    // would otherwise leave the banner up until the next cold start.
+    if (state == AppLifecycleState.resumed) {
+      ref.read(eligibilityProvider.notifier).refreshCanonical();
+    }
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _subscription?.cancel();
     super.dispose();
   }

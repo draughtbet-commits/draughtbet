@@ -2,6 +2,7 @@ import express from 'express';
 import prisma from '../../utils/db.js';
 import { requireAuth } from '../../middleware/auth.js';
 import { AuthService } from '../auth/service.js';
+import { resolveOpenAccountCases } from '../support/service.js';
 import { getIO } from '../../sockets/index.js';
 import logger from '../../utils/logger.js';
 import { PaystackGateway } from '../payment/PaystackGateway.js';
@@ -27,6 +28,7 @@ import {
   getUserRoles
 } from '../rbac/service.js';
 import { recordAdminAction } from '../audit/service.js';
+import { NotificationService } from '../notification/service.js';
 import { AdminMfaService } from '../mfa/service.js';
 import { adminMfaRateLimiter } from '../../middleware/rateLimit.js';
 import { requireIdempotencyKey } from '../../middleware/idempotency.js';
@@ -190,8 +192,69 @@ async function setStatus(req, res, next, banned) {
 
     const user = await AuthService.setAccountStatus(targetId, banned);
 
+    const auditRow = await audit(req, banned ? 'user.ban' : 'user.unban', {
+      targetType: 'user',
+      targetId,
+      metadata: { action: banned ? 'ban' : 'unban' }
+    });
+
+    // Only a real transition tells the player anything. Re-issuing the same
+    // status is a no-op for them and must not spam their notifications.
+    if (target.isBanned !== banned) {
+      const type = banned ? 'ACCOUNT_SUSPENDED' : 'ACCOUNT_REINSTATED';
+      await NotificationService.create(
+        targetId,
+        type,
+        banned ? 'Account suspended' : 'Account reinstated',
+        banned
+          ? 'Your account is restricted. Deposits, withdrawals and play are paused while we review it. You can still sign in and open a support case to appeal.'
+          : 'Your account is active again. Deposits, withdrawals and play are available to you once more.',
+        banned ? '/profile/settings/account-restricted' : '/profile',
+        null,
+        // Keyed on the audit row so one admin action yields exactly one notice,
+        // while a later re-suspension is free to notify again. Falling back to
+        // the request id keeps the key unique if the audit write came back
+        // empty -- a missing audit row must never cost the player their notice,
+        // let alone turn a completed action into a 500.
+        `notify:${targetId}:${type}:${auditRow?.id ?? req.id}`
+      );
+
+// Reinstating the account settles the appeal that prompted it, so the
+        // player's Profile must stop showing an open case they no longer need
+        // to chase. Never let a bookkeeping slip mask the reinstatement.
+        if (!banned) {
+          try {
+            await resolveOpenAccountCases(targetId, {
+              note: 'Account reinstated'
+            });
+          } catch (err) {
+            logger.error(
+              { err, targetId },
+              'Failed to resolve account appeals on reinstatement'
+            );
+          }
+        }
+
+        // The banner and every money/play gate read this flag, so push it
+        // straight to the open app instead of making the player background and
+        // foreground to discover the change. Delivered directly rather than via
+        // the outbox: a missed push must never delay the authoritative state.
+      //
+      // Emitted BEFORE the sockets are severed below -- a ban disconnects the
+      // account's sockets, so pushing afterwards would reach nobody.
+      try {
+        getIO().to(`user:${targetId}`).emit('account_status', {
+          isBanned: banned,
+          type
+        });
+      } catch (_) {
+        // Socket layer not running; the next status poll still converges.
+      }
+    }
+
     // Disconnect any live sockets so a banned session stops emitting and
-    // stops receiving the account's events. Socket.IO may not be
+    // stops receiving the account's events. Runs after the push above so the
+    // player still learns why they were dropped. Socket.IO may not be
     // initialized in HTTP-only/test environments; that must not fail the ban.
     if (banned) {
       try {
@@ -200,12 +263,6 @@ async function setStatus(req, res, next, banned) {
         // Socket layer not running; the DB flag + refresh revocation still hold.
       }
     }
-
-    await audit(req, banned ? 'user.ban' : 'user.unban', {
-      targetType: 'user',
-      targetId,
-      metadata: { action: banned ? 'ban' : 'unban' }
-    });
 
     res.json({ user, message: REVOCATION_MESSAGES[banned ? 'ban' : 'unban'] });
   } catch (err) {

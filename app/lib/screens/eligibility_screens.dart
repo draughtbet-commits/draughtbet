@@ -145,7 +145,23 @@ class _AccountRestrictedScreenState
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       ref.read(supportProvider.notifier).load();
+      // Re-read the server before trusting anything on this screen: a
+      // reinstatement can land while the player is looking at it.
+      ref.read(eligibilityProvider.notifier).refreshCanonical();
     });
+  }
+
+  /// Leaves the restriction screen once the account is known to be active.
+  ///
+  /// Deliberately waits for a real answer rather than treating "not loaded yet"
+  /// as "not banned", so a player who deep-links here is never bounced off
+  /// before we know what the server says.
+  void _leaveIfReinstated(VerificationSnapshot? verification) {
+    if (!mounted || verification == null || verification.isBanned) return;
+    // Rendered outside the app's router (golden/visual harness), there is
+    // nowhere to navigate to and nothing to correct.
+    if (GoRouter.maybeOf(context) == null) return;
+    context.go('/profile');
   }
 
   /// The player's own open appeal case, if they raised one. Showing their real
@@ -156,62 +172,72 @@ class _AccountRestrictedScreenState
   }
 
   @override
-  Widget build(BuildContext context) => _EligibilityScaffold(
-    title: 'ACCOUNT RESTRICTED',
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        const SizedBox(height: 36),
-        const _EligibilityHero(
-          icon: LucideIcons.lockKeyhole,
-          color: AppColors.valueAccent,
-        ),
-        const SizedBox(height: 24),
-        Text(
-          'ACCOUNT RESTRICTED',
-          textAlign: TextAlign.center,
-          style: AppTypography.heading2,
-        ),
-        const SizedBox(height: 10),
-        Text(
-          'Your account is currently restricted while it is reviewed.',
-          textAlign: TextAlign.center,
-          style: AppTypography.bodyLarge.copyWith(
-            color: AppColors.textSecondary,
+  Widget build(BuildContext context) {
+    final verification = ref.watch(eligibilityProvider).verification;
+    ref.listen<EligibilityState>(eligibilityProvider, (_, next) {
+      _leaveIfReinstated(next.verification);
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _leaveIfReinstated(verification);
+    });
+
+    return _EligibilityScaffold(
+      title: 'ACCOUNT RESTRICTED',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const SizedBox(height: 36),
+          const _EligibilityHero(
+            icon: LucideIcons.lockKeyhole,
+            color: AppColors.valueAccent,
           ),
-        ),
-        const SizedBox(height: 24),
-        FlowCard(
-          child: Row(
-            children: [
-              Expanded(
-                child: Text('Case reference', style: AppTypography.bodySmall),
-              ),
-              Text(_caseReference, style: AppTypography.bodyMedium),
-            ],
+          const SizedBox(height: 24),
+          Text(
+            'ACCOUNT RESTRICTED',
+            textAlign: TextAlign.center,
+            style: AppTypography.heading2,
           ),
-        ),
-        const SizedBox(height: 16),
-        const Text(
-          'No money or play action will be attempted while this restriction '
-          'is active. You can still sign in and open a support case to appeal.',
-          textAlign: TextAlign.center,
-          style: AppTypography.bodySmall,
-        ),
-        const SizedBox(height: 24),
-        PrimaryActionButton(
-          label: 'Contact support',
-          icon: LucideIcons.messageSquareWarning,
-          onPressed: () => context.go('/support?type=account'),
-        ),
-        const SizedBox(height: 10),
-        SecondaryActionButton(
-          label: 'Go to Home',
-          onPressed: () => context.go('/home'),
-        ),
-      ],
-    ),
-  );
+          const SizedBox(height: 10),
+          Text(
+            'Your account is currently restricted while it is reviewed.',
+            textAlign: TextAlign.center,
+            style: AppTypography.bodyLarge.copyWith(
+              color: AppColors.textSecondary,
+            ),
+          ),
+          const SizedBox(height: 24),
+          FlowCard(
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text('Case reference', style: AppTypography.bodySmall),
+                ),
+                Text(_caseReference, style: AppTypography.bodyMedium),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+          const Text(
+            'No money or play action will be attempted while this restriction '
+            'is active. You can still sign in and open a support case to appeal.',
+            textAlign: TextAlign.center,
+            style: AppTypography.bodySmall,
+          ),
+          const SizedBox(height: 24),
+          PrimaryActionButton(
+            label: 'Contact support',
+            icon: LucideIcons.messageSquareWarning,
+            onPressed: () => context.go('/support?type=account'),
+          ),
+          const SizedBox(height: 10),
+          SecondaryActionButton(
+            label: 'Go to Home',
+            onPressed: () => context.go('/home'),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _EligibilityScaffold extends StatelessWidget {

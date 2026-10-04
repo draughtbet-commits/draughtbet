@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -47,9 +49,61 @@ class EligibilityNotifier extends StateNotifier<EligibilityState> {
   EligibilityNotifier(
     this._gateway, {
     EligibilityState initialState = const EligibilityState(),
-  }) : super(initialState);
+    void Function(bool isBanned)? onAccountStatus,
+    Duration reconcileInterval = const Duration(seconds: 30),
+  }) : _onAccountStatus = onAccountStatus,
+       _reconcileInterval = reconcileInterval,
+       super(initialState);
 
   final EligibilityGateway _gateway;
+  final Duration _reconcileInterval;
+  Timer? _reconcileTimer;
+
+  /// Begins periodically re-reading the server-owned restriction flag.
+  ///
+  /// The socket cannot be trusted to carry this change: a suspension severs
+  /// the connection and the handshake then refuses the banned account, so
+  /// there may be no live channel at all until the ban is lifted. Reconciling
+  /// from the owner of the state -- rather than from a screen -- also means a
+  /// reinstatement lands no matter which route the player happens to be on.
+  void startReconciling() {
+    if (_reconcileTimer != null) return;
+    _reconcileTimer = Timer.periodic(_reconcileInterval, (_) {
+      if (!mounted) return;
+      unawaited(refreshCanonical());
+    });
+  }
+
+  /// Lets the shell clear a dismissed restriction the moment an admin
+  /// reinstates the account, so lifting a ban does not need a reinstall or a
+  /// manual refresh to become visible.
+  final void Function(bool isBanned)? _onAccountStatus;
+
+  /// Applies a pushed account-status change without a round trip.
+  ///
+  /// The server is authoritative here: it pushed the new flag over the socket
+  /// in the same action that wrote it. Returns whether the visible state
+  /// changed, so the caller can decide to re-announce or clear.
+  bool applyPushedAccountStatus(bool isBanned) {
+    final current = state.verification?.isBanned ?? false;
+    if (current == isBanned) return false;
+    // Keep every other field: a push carries only the flag, and dropping the
+    // KYC status here would make the banner's own refresh look like a
+    // verification reset.
+    final verification = state.verification?.copyWith(isBanned: isBanned);
+    state = state.copyWith(
+      phase: state.phase == EligibilityLoadPhase.initial
+          ? EligibilityLoadPhase.ready
+          : state.phase,
+      verification: verification ??
+          VerificationSnapshot(
+            status: VerificationStatus.notRequired,
+            isBanned: isBanned,
+          ),
+    );
+    _onAccountStatus?.call(isBanned);
+    return true;
+  }
 
   Future<bool> refreshCanonical() async {
     if (state.phase == EligibilityLoadPhase.loading) return false;
@@ -218,11 +272,22 @@ class EligibilityNotifier extends StateNotifier<EligibilityState> {
   }
 
   void clearDecision() => state = state.copyWith(clearDecision: true);
+
+  @override
+  void dispose() {
+    _reconcileTimer?.cancel();
+    super.dispose();
+  }
 }
 
 final eligibilityProvider =
     StateNotifierProvider<EligibilityNotifier, EligibilityState>(
-      (ref) => EligibilityNotifier(ref.watch(eligibilityGatewayProvider)),
+      (ref) {
+        final notifier = EligibilityNotifier(
+          ref.watch(eligibilityGatewayProvider),
+        )..startReconciling();
+        return notifier;
+      },
     );
 
 EligibilityDecision? eligibilityDecisionFromDio(DioException error) =>

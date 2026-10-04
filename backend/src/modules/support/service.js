@@ -322,8 +322,51 @@ export const transitionSupportCase = async (
   return toView(updated);
 };
 
+/// Closes out the player's open ACCOUNT appeals when an admin reinstates them.
+///
+/// Reinstating the account *is* the outcome the appeal was asking for, so
+/// leaving the case sitting in "open" misreports the state to the player on
+/// their Profile and keeps the open-case quota occupied. Only ACCOUNT cases
+/// are touched: a payment or KYC case is a separate thread and may still need
+/// answering.
+export const resolveOpenAccountCases = async (
+  userId,
+  { note = null } = {},
+  { dbp = prisma } = {}
+) => {
+  const open = await dbp.supportCase.findMany({
+    where: { userId, type: 'ACCOUNT', status: { in: PLAYER_OPEN_STATUSES } },
+    select: { id: true }
+  });
+  if (open.length === 0) return [];
+
+  const now = new Date();
+  const message =
+    note?.trim()?.slice(0, 2000) ??
+    'Account reinstated, so this appeal no longer needs a response';
+
+  return dbp.$transaction(async (tx) => {
+    for (const { id } of open) {
+      await tx.supportCase.update({
+        where: { id },
+        data: { status: 'RESOLVED', closedAt: now, updatedAt: now }
+      });
+      await tx.supportCaseEvent.create({
+        data: {
+          supportCaseId: id,
+          eventType: 'STATUS_CHANGED',
+          message
+        }
+      });
+    }
+    logger.info({ userId, cases: open.length }, 'Resolved account appeals on reinstatement');
+    return open.map(({ id }) => toView({ id, status: 'RESOLVED' }));
+  });
+};
+
 export default {
   openSupportCase,
+  resolveOpenAccountCases,
   listMySupportCases,
   getMySupportCase,
   addUserMessageToSupportCase,

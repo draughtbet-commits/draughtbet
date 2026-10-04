@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../providers/eligibility_provider.dart';
+import '../services/socket_service.dart';
 import '../theme/colors.dart';
 
 /// Dismissible account-restriction banner.
@@ -21,6 +24,8 @@ class RestrictedBanner extends ConsumerStatefulWidget {
 class _RestrictedBannerState extends ConsumerState<RestrictedBanner> {
   bool _dismissed = false;
   bool _requested = false;
+  StreamSubscription<bool>? _statusSub;
+  StreamSubscription<SocketConnectionPhase>? _phaseSub;
 
   @override
   void initState() {
@@ -38,6 +43,38 @@ class _RestrictedBannerState extends ConsumerState<RestrictedBanner> {
         ref.read(eligibilityProvider.notifier).refreshCanonical();
       }
     });
+
+    // A suspension or reinstatement is pushed by the admin action itself, so
+    // the banner appears and clears while the app is open. Without this the
+    // player keeps staring at a stale banner until they restart the app.
+    _statusSub = socketService.onAccountStatus.listen(_onAccountStatus);
+
+    // A suspension severs the account's sockets and the handshake refuses a
+    // banned user, so the client cannot reconnect until the ban is lifted and
+    // the push below would have nowhere to land. Re-reading the server on every
+    // (re)connect is what actually clears the banner in that sequence.
+    _phaseSub = socketService.onConnectionPhase.listen((phase) {
+      if (phase == SocketConnectionPhase.connected) {
+        ref.read(eligibilityProvider.notifier).refreshCanonical();
+      }
+    });
+  }
+
+  void _onAccountStatus(bool isBanned) {
+    if (!mounted) return;
+    ref.read(eligibilityProvider.notifier).applyPushedAccountStatus(isBanned);
+    if (!isBanned && _dismissed) {
+      // Lift the ban: drop the dismissed flag so a later suspension is
+      // announced again rather than arriving silently.
+      setState(() => _dismissed = false);
+    }
+  }
+
+  @override
+  void dispose() {
+    _statusSub?.cancel();
+    _phaseSub?.cancel();
+    super.dispose();
   }
 
   @override

@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../models/support_case.dart';
+import '../providers/eligibility_provider.dart';
 import '../providers/support_provider.dart';
 import '../theme/colors.dart';
 import '../theme/typography.dart';
@@ -86,6 +87,17 @@ class _SupportScreenState extends ConsumerState<SupportScreen> {
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(supportProvider);
+
+    // A reinstatement resolves the player's appeal server-side, so the list on
+    // screen is stale the moment it happens. Reload rather than leaving an
+    // open case behind that nobody is going to answer.
+    ref.listen<EligibilityState>(eligibilityProvider, (previous, next) {
+      final wasBanned = previous?.verification?.isBanned ?? false;
+      final isBanned = next.verification?.isBanned ?? false;
+      if (wasBanned && !isBanned) {
+        ref.read(supportProvider.notifier).load();
+      }
+    });
 
     return Scaffold(
       backgroundColor: AppColors.background,

@@ -63,6 +63,14 @@ class VerificationSnapshot {
   /// than a dead end.
   final bool isBanned;
 
+  VerificationSnapshot copyWith({bool? isBanned}) => VerificationSnapshot(
+    status: status,
+    caseId: caseId,
+    updatedAt: updatedAt,
+    checks: checks,
+    isBanned: isBanned ?? this.isBanned,
+  );
+
   bool get isInFlight => switch (status) {
     VerificationStatus.started ||
     VerificationStatus.pending ||

@@ -25,6 +25,7 @@ const {
   SUPPORT_CASE_STATUSES,
   openSupportCase,
   listMySupportCases,
+  resolveOpenAccountCases,
   getMySupportCase,
   closeMySupportCase,
   SupportCaseError,
@@ -33,7 +34,7 @@ const {
 } = await import('../service.js');
 
 const tx = {
-  supportCase: { create: jest.fn(), update: jest.fn() },
+  supportCase: { create: jest.fn(), update: jest.fn(), findMany: jest.fn() },
   supportCaseEvent: { create: jest.fn() }
 };
 
@@ -165,6 +166,55 @@ describe('openSupportCase', () => {
       openSupportCase('user-1', { type: 'ACCOUNT', subject: 'Restricted' })
     ).rejects.toBeInstanceOf(SupportCaseOpenLimitError);
     expect(tx.supportCase.create).not.toHaveBeenCalled();
+  });
+});
+
+describe('resolveOpenAccountCases', () => {
+  test('resolves only the open ACCOUNT appeals and records why', async () => {
+    mockPrisma.supportCase.findMany.mockResolvedValue([
+      { id: 'appeal-1' },
+      { id: 'appeal-2' }
+    ]);
+    mockPrisma.$transaction.mockImplementation((fn) => fn(tx));
+
+    const rows = await resolveOpenAccountCases('user-1', {
+      note: 'Account reinstated'
+    });
+
+    // Only the player's open ACCOUNT cases: a PAYMENT or KYC thread is a
+    // separate conversation and must survive the reinstatement.
+    expect(mockPrisma.supportCase.findMany).toHaveBeenCalledWith({
+      where: {
+        userId: 'user-1',
+        type: 'ACCOUNT',
+        status: { in: ['OPEN', 'IN_PROGRESS', 'WAITING_USER'] }
+      },
+      select: { id: true }
+    });
+    expect(tx.supportCase.update).toHaveBeenCalledTimes(2);
+    expect(tx.supportCase.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'appeal-1' },
+        data: expect.objectContaining({ status: 'RESOLVED' })
+      })
+    );
+    expect(tx.supportCaseEvent.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        supportCaseId: 'appeal-2',
+        eventType: 'STATUS_CHANGED',
+        message: 'Account reinstated'
+      })
+    });
+    expect(rows).toHaveLength(2);
+  });
+
+  test('does nothing when the player has no open appeal', async () => {
+    mockPrisma.supportCase.findMany.mockResolvedValue([]);
+
+    const rows = await resolveOpenAccountCases('user-1');
+
+    expect(rows).toEqual([]);
+    expect(mockPrisma.$transaction).not.toHaveBeenCalled();
   });
 });
 

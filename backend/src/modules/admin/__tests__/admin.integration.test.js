@@ -236,6 +236,55 @@ describeIntegration('Admin v2 (real PostgreSQL + Redis)', () => {
     expect(unban.status).toBe(200);
   });
 
+  it('tells the player when their account is suspended, and again when reinstated', async () => {
+    const token = await tokenFor(support.id);
+
+    const ban = await request(app)
+      .patch(`/api/v1/admin/users/${player2.id}/ban`)
+      .set(auth(token));
+    expect(ban.status).toBe(200);
+
+    const suspension = await prisma.notification.findFirst({
+      where: { userId: player2.id, type: 'ACCOUNT_SUSPENDED' },
+      orderBy: { createdAt: 'desc' }
+    });
+    expect(suspension).not.toBeNull();
+    // The notice must point somewhere useful, not just announce the problem.
+    expect(suspension.link).toBe('/profile/settings/account-restricted');
+
+    const unban = await request(app)
+      .patch(`/api/v1/admin/users/${player2.id}/unban`)
+      .set(auth(token));
+    expect(unban.status).toBe(200);
+
+    const reinstatement = await prisma.notification.findFirst({
+      where: { userId: player2.id, type: 'ACCOUNT_REINSTATED' },
+      orderBy: { createdAt: 'desc' }
+    });
+    expect(reinstatement).not.toBeNull();
+  });
+
+  it('does not re-notify when the status is re-issued unchanged', async () => {
+    const token = await tokenFor(support.id);
+
+    await request(app).patch(`/api/v1/admin/users/${player2.id}/unban`).set(auth(token));
+    const afterFirst = await prisma.notification.count({
+      where: { userId: player2.id, type: 'ACCOUNT_REINSTATED' }
+    });
+
+    // Second unban on an already-active account changes nothing for the
+    // player, so it must not pile up another notice.
+    const repeat = await request(app)
+      .patch(`/api/v1/admin/users/${player2.id}/unban`)
+      .set(auth(token));
+    expect(repeat.status).toBe(200);
+
+    const afterSecond = await prisma.notification.count({
+      where: { userId: player2.id, type: 'ACCOUNT_REINSTATED' }
+    });
+    expect(afterSecond).toBe(afterFirst);
+  });
+
   it('lets RISK_COMPLIANCE approve a pending KYC case end to end', async () => {
     const vc = await prisma.verificationCase.create({
       data: {

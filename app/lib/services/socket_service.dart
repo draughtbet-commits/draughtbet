@@ -100,6 +100,8 @@ class SocketService {
       StreamController<Map<String, dynamic>>.broadcast();
   final _notificationController =
       StreamController<Map<String, dynamic>>.broadcast();
+  final _accountStatusController =
+      StreamController<bool>.broadcast();
   final _drawOfferController =
       StreamController<Map<String, dynamic>>.broadcast();
   final _drawResponseController =
@@ -152,6 +154,12 @@ class SocketService {
       _walletUpdatedController.stream;
   Stream<Map<String, dynamic>> get onNotification =>
       _notificationController.stream;
+
+  /// Emits the new banned state whenever an admin suspends or reinstates the
+  /// account. The restriction banner and every money/play gate read that flag,
+  /// so this is what makes a suspension or reinstatement show up immediately
+  /// instead of on the next cold start.
+  Stream<bool> get onAccountStatus => _accountStatusController.stream;
   Stream<Map<String, dynamic>> get onDrawOffer => _drawOfferController.stream;
   Stream<Map<String, dynamic>> get onDrawResponse =>
       _drawResponseController.stream;
@@ -582,6 +590,12 @@ class SocketService {
     _socket!.on('notification', (data) {
       if (data is Map) {
         _notificationController.add(Map<String, dynamic>.from(data));
+      }
+    });
+
+    _socket!.on('account_status', (data) {
+      if (data is Map && data['isBanned'] is bool) {
+        _accountStatusController.add(data['isBanned'] as bool);
       }
     });
 
