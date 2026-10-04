@@ -1,16 +1,104 @@
 import 'dart:async';
+import 'dart:ui';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:go_router/go_router.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'providers/match_flow_provider.dart';
 import 'router/app_router.dart';
 import 'services/socket_service.dart';
 import 'theme/app_theme.dart';
+import 'theme/colors.dart';
+import 'theme/typography.dart';
+
+/// Retained so the forced semantics tree outlives the first frame.
+SemanticsHandle? semanticsHandle;
+
+/// Keeps framework internals off the screen. Full details still go to logcat
+/// for engineers, but the user only ever sees a plain retry panel instead of
+/// Flutter's error box, which renders the exception text and stack.
+void installErrorBoundary() {
+  final previousOnError = FlutterError.onError;
+  FlutterError.onError = (details) {
+    previousOnError?.call(details);
+    debugPrint(
+      'UNCAUGHT ${details.exceptionAsString()}\n'
+      '${details.library ?? 'flutter'}\n${details.stack}',
+    );
+  };
+
+  PlatformDispatcher.instance.onError = (error, stack) {
+    debugPrint('UNCAUGHT ASYNC $error\n$stack');
+    return true;
+  };
+
+  ErrorWidget.builder = (details) => _UnexpectedErrorPanel(
+        onRetry: () => FlutterError.resetErrorCount(),
+      );
+}
+
+class _UnexpectedErrorPanel extends StatelessWidget {
+  const _UnexpectedErrorPanel({required this.onRetry});
+
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return ColoredBox(
+      color: AppColors.background,
+      child: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(
+                LucideIcons.triangleAlert,
+                size: 44,
+                color: AppColors.danger,
+              ),
+              const SizedBox(height: 20),
+              Text(
+                'Something went wrong',
+                textAlign: TextAlign.center,
+                style: AppTypography.heading3,
+              ),
+              const SizedBox(height: 10),
+              Text(
+                'We could not load this page. Your balance and account are '
+                'unaffected. Please try again.',
+                textAlign: TextAlign.center,
+                style: AppTypography.bodyMedium
+                    .copyWith(color: AppColors.textSecondary),
+              ),
+              const SizedBox(height: 28),
+              FilledButton(
+                onPressed: onRetry,
+                child: const Text('Try again'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  installErrorBoundary();
+  // Forces the semantics tree on so `uiautomator dump` can see Flutter widgets,
+  // which is what lets an external driver (and the screen recorders) tap real
+  // controls. It costs real frame time, so release builds skip it. The handle
+  // must be retained: if it is garbage collected, Flutter disposes of the
+  // semantics tree and every widget disappears from the dump again.
+  if (kDebugMode || kProfileMode) {
+    semanticsHandle = SemanticsBinding.instance.ensureSemantics();
+  }
 
   // Load environment variables (will fail if .env is missing, which is expected before setup)
   try {

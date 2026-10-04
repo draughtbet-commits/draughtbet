@@ -4,4 +4,8 @@
          to allow setting breakpoints, to provide hot reload, etc.
     -->
     <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- The dev backend and the local Paystack stand-in are plain HTTP on
+         10.0.2.2, and a WebView applies the platform cleartext policy even
+         though the app's own dart:io traffic does not. Debug/profile only. -->
+    <application android:usesCleartextTraffic="true" />
 </manifest>
