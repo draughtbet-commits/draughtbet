@@ -116,6 +116,10 @@ export const kycStatusView = (user) => {
   const latest = user.verificationCases?.[0] ?? null;
   return {
     kycStatus: user.kycStatus,
+    // A ban restricts activity, not access: the user still authenticates and
+    // reads this payload so the client can show a dismissible restricted
+    // banner instead of silently failing every action later.
+    isBanned: user.isBanned ?? false,
     case: latest
       ? {
           id: latest.id,
@@ -140,6 +144,7 @@ export const getKycStatus = async (userId, { dbp = prisma } = {}) => {
     select: {
       id: true,
       kycStatus: true,
+      isBanned: true,
       verificationCases: {
         orderBy: { updatedAt: 'desc' },
         take: 1,

@@ -148,8 +148,10 @@ authRouter.post('/login', authRateLimiter, requireAppVersion, async (req, res, n
     if (err && err.name === 'ZodError') {
       return res.status(400).json({ errors: err.errors || err.issues });
     }
-    // Return a generic 401 for bad credentials / banned users
-    if (err.message === 'Invalid credentials' || err.message === 'Account suspended') {
+    // Return a generic 401 for bad credentials. A banned account is NOT rejected
+    // here — it authenticates normally and is blocked per-action by the
+    // eligibility gate.
+    if (err.message === 'Invalid credentials') {
       return res.status(401).json({ error: err.message });
     }
     next(err);
@@ -203,7 +205,7 @@ authRouter.post('/refresh', authRateLimiter, requireAppVersion, async (req, res,
     });
     res.json(tokens);
   } catch (err) {
-    if (err.message === 'Invalid or expired refresh token' || err.message === 'Account suspended') {
+    if (err.message === 'Invalid or expired refresh token') {
       return res.status(401).json({ error: err.message });
     }
     next(err);

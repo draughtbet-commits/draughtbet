@@ -147,6 +147,29 @@ describe('verification service', () => {
     expect(view.case.status).toBe('VERIFIED');
     expect(view.case.checks[0]).toMatchObject({ type: 'ID_DOCUMENT', status: 'PASSED' });
   });
+
+  // The client needs the ban in the status payload so it can show a
+  // dismissible banner; a banned user still signs in and reads this.
+  it('surfaces isBanned so the client can render the restricted banner', async () => {
+    mockPrisma.user.findUnique.mockResolvedValue({
+      id: 'u1',
+      kycStatus: 'VERIFIED',
+      isBanned: true,
+      verificationCases: []
+    });
+    const view = await getKycStatus('u1');
+    expect(view.isBanned).toBe(true);
+  });
+
+  it('defaults isBanned to false when the server omits it', async () => {
+    mockPrisma.user.findUnique.mockResolvedValue({
+      id: 'u1',
+      kycStatus: 'VERIFIED',
+      verificationCases: []
+    });
+    const view = await getKycStatus('u1');
+    expect(view.isBanned).toBe(false);
+  });
 });
 
 describe('verification admin review', () => {

@@ -325,13 +325,15 @@ describe('Auth System', () => {
   });
 
   describe('POST /auth/login', () => {
-    it('should reject login if isBanned is true', async () => {
+    it('should still authenticate a banned account (ban gates activity, not access)', async () => {
+      const hash = await bcrypt.hash('StrongPassword1', 1);
       mockPrisma.user.findUnique.mockResolvedValueOnce({
         id: 'user-id',
         email: 'banned@example.com',
         isBanned: true,
-        passwordHash: 'hash'
+        passwordHash: hash
       });
+      mockPrisma.userSession.create.mockResolvedValueOnce({ id: 'session-id' });
 
       const res = await request(app)
         .post('/api/v1/auth/login')
@@ -340,8 +342,9 @@ describe('Auth System', () => {
           password: 'StrongPassword1'
         });
 
-      expect(res.status).toBe(401);
-      expect(res.body.error).toBe('Account suspended');
+      expect(res.status).toBe(200);
+      expect(res.body.accessToken).toBeDefined();
+      expect(res.body.refreshToken).toBeDefined();
     });
 
     it('should issue tokens on successful login', async () => {
@@ -434,17 +437,18 @@ describe('Auth System', () => {
       expect(mockRedis.set).not.toHaveBeenCalled();
     });
 
-    it('refuses to refresh for a banned account and mints no new token', async () => {
+    it('still refreshes for a banned account (ban gates activity, not access)', async () => {
       mockRedis.eval.mockResolvedValueOnce(1);
       mockPrisma.user.findUnique.mockResolvedValueOnce({ id: 'user-id', isBanned: true });
+      mockPrisma.userSession.update.mockResolvedValueOnce({ id: 'session-id' });
+      mockPrisma.userSession.create.mockResolvedValueOnce({ id: 'session-id' });
 
       const res = await request(app)
         .post('/api/v1/auth/refresh')
         .send({ userId: 'user-id', refreshToken: 'old-token' });
 
-      expect(res.status).toBe(401);
-      expect(res.body.error).toBe('Account suspended');
-      expect(mockRedis.set).not.toHaveBeenCalled();
+      expect(res.status).toBe(200);
+      expect(res.body.accessToken).toBeDefined();
     });
 
     it('should refuse to refresh for a deleted account', async () => {

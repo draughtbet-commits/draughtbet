@@ -269,4 +269,47 @@ describe('EligibilityService', () => {
       expect(report.error.code).toBe('INVALID_ACTION');
     });
   });
+
+  // A ban restricts ACTIVITY, not ACCESS. These pin that contract: every gated
+  // money/play entry point refuses a banned account with a 403, so auth can
+  // keep letting the user sign in and read their balance.
+  describe('banned account activity gating', () => {
+    const bannedUser = () => baseUser({ isBanned: true });
+
+    it('blocks money IN (deposit) with AccountRestrictedError', async () => {
+      mockPrisma.user.findUnique.mockResolvedValue(bannedUser());
+      await expect(service.canDeposit('user-1', 500000)).rejects.toMatchObject({
+        name: 'AccountRestrictedError',
+      });
+    });
+
+    it('blocks money OUT (withdraw) with AccountRestrictedError', async () => {
+      mockPrisma.user.findUnique.mockResolvedValue(bannedUser());
+      await expect(service.canWithdraw('user-1')).rejects.toMatchObject({
+        name: 'AccountRestrictedError',
+      });
+    });
+
+    it('blocks play (stake) with AccountRestrictedError', async () => {
+      mockPrisma.user.findUnique.mockResolvedValue(bannedUser());
+      await expect(
+        service.canJoinMatch('user-1', { stakeMinorUnits: 500000 })
+      ).rejects.toMatchObject({ name: 'AccountRestrictedError' });
+    });
+
+    it('reports 403 for every gated action', async () => {
+      mockPrisma.user.findUnique.mockResolvedValue(bannedUser());
+      for (const action of ['DEPOSIT', 'WITHDRAW', 'PLAY']) {
+        const report = await service.explain('user-1', { action });
+        expect(report).toMatchObject({ allowed: false, status: 403 });
+        expect(report.error.code).toBe('AccountRestrictedError');
+      }
+    });
+
+    it('is checked before the deposit limit, so a banned user cannot add money even under the ceiling', async () => {
+      mockPrisma.user.findUnique.mockResolvedValue(bannedUser());
+      const report = await service.explain('user-1', { action: 'DEPOSIT', amountMinorUnits: 100 });
+      expect(report.error.code).toBe('AccountRestrictedError');
+    });
+  });
 });

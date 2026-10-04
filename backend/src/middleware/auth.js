@@ -15,7 +15,12 @@ export const requireAuth = async (req, res, next) => {
       where: { id: payload.userId },
       select: { id: true, email: true, tier: true, isBanned: true, isAdmin: true }
     });
-    if (!user || user.isBanned) {
+    // A ban restricts ACTIVITY, not access. Rejecting the token here would lock
+    // the user out of their own balance and support path, which is exactly the
+    // behaviour the per-action eligibility gate exists to prevent. Banned
+    // accounts authenticate normally; money and play are refused downstream by
+    // assertEligibleForMoney / the lifecycle and callout gates (403).
+    if (!user) {
       return res.status(401).json({ error: 'Invalid or expired token' });
     }
     req.user = user;

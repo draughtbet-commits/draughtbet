@@ -168,10 +168,10 @@ const user = await prisma.$transaction(async (tx) => {
       throw new Error('Invalid credentials');
     }
 
-    if (user.isBanned) {
-      throw new Error('Account suspended');
-    }
-
+    // A ban restricts ACTIVITY, not access. The user must still be able to sign
+    // in to read the reason, reach support and see their balance. Every gated
+    // money/play action is blocked by assertEligibleForMoney instead, which
+    // throws AccountRestrictedError (403).
     const valid = await bcrypt.compare(password, user.passwordHash);
     if (!valid) {
       throw new Error('Invalid credentials');
@@ -334,17 +334,17 @@ const user = await prisma.$transaction(async (tx) => {
       }
     }
 
-    // A banned or deleted account must never mint a fresh access token from a
-    // refresh token, even though the refresh endpoint is not authenticated.
+    // A deleted account must never mint a fresh access token from a refresh
+    // token, even though the refresh endpoint is not authenticated. A BANNED
+    // account deliberately still refreshes: revoking here would silently lock
+    // the user out mid-session and recreate the ban-as-lockout behaviour that
+    // activity gating exists to prevent.
     const user = await prisma.user.findUnique({
       where: { id: userId },
       select: { id: true, isBanned: true }
     });
     if (!user) {
       throw new Error('Invalid or expired refresh token');
-    }
-    if (user.isBanned) {
-      throw new Error('Account suspended');
     }
 
     // Legit rotation: supersede the old row; the next token keeps the family.
