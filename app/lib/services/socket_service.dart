@@ -43,6 +43,54 @@ class SocketService {
   int _handshakeRecoveryAttempts = 0;
   static const _maxHandshakeRecoveries = 3;
 
+  /// Retry loop for a socket the *server* dropped, as opposed to one that
+  /// merely lost its connection.
+  ///
+  /// socket.io treats a server-initiated disconnect as final and stops
+  /// reconnecting on its own, which is right for a normal sign-out but wrong
+  /// for a suspension: the admin action severs the socket and the handshake
+  /// then refuses a banned account, so the client would sit silent forever and
+  /// the player would get no live play, no clock and no notifications until
+  /// they force-quit the app. Retrying on a capped backoff is what lets the
+  /// socket come back by itself the moment the ban is lifted.
+  Timer? _severedReconnectTimer;
+  int _severedReconnectAttempts = 0;
+
+  /// True while the loop above is the thing keeping the socket alive, so a
+  /// refused handshake can hand control back to it instead of stalling.
+  bool _severedLoopActive = false;
+  static const _baseSeveredReconnectDelay = Duration(seconds: 5);
+  static const _maxSeveredReconnectDelay = Duration(seconds: 30);
+
+  void _scheduleSeveredReconnect() {
+    if (_disposed) return;
+    // A null socket means we are signed out; login() builds a fresh one.
+    final socket = _socket;
+    if (socket == null || socket.connected) return;
+
+    _severedReconnectTimer?.cancel();
+    final exponent = _severedReconnectAttempts.clamp(0, 3);
+    final delay = Duration(
+      milliseconds: (_baseSeveredReconnectDelay.inMilliseconds *
+              (1 << exponent))
+          .clamp(
+            _baseSeveredReconnectDelay.inMilliseconds,
+            _maxSeveredReconnectDelay.inMilliseconds,
+          ),
+    );
+    _severedReconnectAttempts++;
+    _severedLoopActive = true;
+    _severedReconnectTimer = Timer(delay, () {
+      if (_disposed) return;
+      final current = _socket;
+      if (current == null || current.connected) return;
+      // The access token has almost certainly lapsed while we were cut off,
+      // so make sure the handshake carries a current one.
+      unawaited(_refreshSocketAuth());
+      current.connect();
+    });
+  }
+
   /// Upper bound on how early the access token is refreshed.
   ///
   /// Recovery used to be purely reactive: the token was only replaced after
@@ -379,6 +427,9 @@ class SocketService {
 
     _socket!.onConnect((_) {
       _connectionPhaseController.add(SocketConnectionPhase.connected);
+      _severedReconnectAttempts = 0;
+      _severedLoopActive = false;
+      _severedReconnectTimer?.cancel();
       _scheduleProactiveRefresh();
       // Membership does not survive a reconnect, and the first join at cold
       // start is dropped before the socket exists. Re-issue it.
@@ -396,6 +447,7 @@ class SocketService {
 
     _socket!.onDisconnect((_) {
       _connectionPhaseController.add(SocketConnectionPhase.disconnected);
+      _scheduleSeveredReconnect();
     });
     _socket!.onReconnectAttempt((_) {
       // socket.io replays the token captured at connect time on every attempt,
@@ -419,6 +471,10 @@ class SocketService {
         return;
       }
       _connectionPhaseController.add(SocketConnectionPhase.failed);
+      // Still banned, most likely: the handshake is refused until an admin
+      // lifts the restriction. Keep the loop running so the socket returns by
+      // itself once it is.
+      if (_severedLoopActive) _scheduleSeveredReconnect();
     });
     _socket!.onReconnectError((_) {
       _connectionPhaseController.add(SocketConnectionPhase.failed);
@@ -774,11 +830,15 @@ class SocketService {
   void disconnect() {
     final socket = _socket;
     _socket = null;
+    _severedReconnectTimer?.cancel();
+    _severedReconnectAttempts = 0;
+    _severedLoopActive = false;
     socket?.dispose();
   }
 
   void dispose() {
     _disposed = true;
+    _severedReconnectTimer?.cancel();
     _proactiveRefreshTimer?.cancel();
     _matchFoundController.close();
     _gameStateController.close();
