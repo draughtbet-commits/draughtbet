@@ -8,12 +8,21 @@ const mockPrisma = {
   verificationCase: {
     create: jest.fn(),
     update: jest.fn(),
-    findFirst: jest.fn()
+    // Verdict settling is a conditional update, so a retry or a duplicate
+    // delivery cannot re-open an already-settled attempt.
+    updateMany: jest.fn(async () => ({ count: 1 })),
+    findFirst: jest.fn(),
+    findMany: jest.fn(async () => []),
+    count: jest.fn(async () => 0),
+    findUnique: jest.fn()
   },
   verificationCheck: {
     create: jest.fn(),
-    update: jest.fn()
-  }
+    update: jest.fn(),
+    updateMany: jest.fn(async () => ({ count: 1 }))
+  },
+  // Cases, checks and the player's kycStatus move together or not at all.
+  $transaction: jest.fn(async (fn) => fn(mockPrisma))
 };
 
 jest.unstable_mockModule('../../../utils/db.js', () => ({
@@ -55,6 +64,8 @@ class FakePassProvider {
 describe('verification service', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockPrisma.$transaction.mockImplementation(async (fn) => fn(mockPrisma));
+    mockPrisma.verificationCase.updateMany.mockResolvedValue({ count: 1 });
     mockPrisma.user.findUnique.mockResolvedValue({
       id: 'u1',
       kycStatus: 'NONE'
@@ -78,10 +89,12 @@ describe('verification service', () => {
     const result = await startVerification('u1', {}, { provider: new FakePassProvider() });
 
     expect(result).toEqual({ status: 'VERIFIED', caseId: 'case-1', checkId: 'check-1' });
-    expect(mockPrisma.verificationCase.update).toHaveBeenCalledWith({
-      where: { id: 'case-1' },
-      data: { status: 'VERIFIED' }
-    });
+    expect(mockPrisma.verificationCase.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ id: 'case-1' }),
+        data: expect.objectContaining({ status: 'VERIFIED' })
+      })
+    );
     expect(mockPrisma.verificationCheck.update).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({ status: 'PASSED' })
@@ -98,10 +111,12 @@ describe('verification service', () => {
       startVerification('u1', {}, { provider: new FakePassProvider('FAILED') })
     ).rejects.toThrow(KycRejectedError);
 
-    expect(mockPrisma.verificationCase.update).toHaveBeenCalledWith({
-      where: { id: 'case-1' },
-      data: { status: 'REJECTED' }
-    });
+    expect(mockPrisma.verificationCase.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ id: 'case-1' }),
+        data: expect.objectContaining({ status: 'REJECTED' })
+      })
+    );
     expect(mockPrisma.verificationCheck.update).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({ status: 'FAILED' })
@@ -182,7 +197,6 @@ describe('verification admin review', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    mockPrisma.$transaction = jest.fn();
     mockPrisma.$transaction.mockImplementation(async (cb) => cb(mockPrisma));
     mockPrisma.verificationCase.findUnique = jest.fn().mockResolvedValue(openCase);
     mockPrisma.verificationCase.findMany = jest.fn();

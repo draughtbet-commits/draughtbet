@@ -88,7 +88,9 @@ class EligibilityNotifier extends StateNotifier<EligibilityState> {
     Duration interval = const Duration(seconds: 3),
     Duration timeout = const Duration(minutes: 10),
   }) async {
-    _pendingPoll?.cancel();
+    // Replacing a wait: finish the one being dropped, or its caller waits
+    // forever on a future with nothing left driving it.
+    cancelVerdictWait();
     final deadline = DateTime.now().add(timeout);
     final completer = Completer<VerificationStatus?>();
 
@@ -97,30 +99,27 @@ class EligibilityNotifier extends StateNotifier<EligibilityState> {
       // would hang for good.
       if (completer.isCompleted) return;
       if (!mounted) {
-        _pendingPoll = null;
-        completer.complete(null);
+        _settle(completer, null);
         return;
       }
       if (DateTime.now().isAfter(deadline)) {
-        _pendingPoll = null;
-        if (!completer.isCompleted) completer.complete(null);
+        _settle(completer, null);
         return;
       }
       try {
         final snapshot = await _gateway.fetchVerificationStatus();
         // The player navigated away or signed out mid-wait.
         if (!mounted) {
-          _pendingPoll = null;
-          if (!completer.isCompleted) completer.complete(null);
+          _settle(completer, null);
           return;
         }
-        if (snapshot != null) {
-          state = state.copyWith(phase: EligibilityLoadPhase.ready, verification: snapshot);
-        }
+        // Deliberately does not write `state`. The reconcile timer owns that
+        // field app-wide; two writers with no ordering between them would let a
+        // slow response overwrite a newer status and briefly show a passed
+        // player as still processing.
         final status = snapshot?.status;
         if (status != null && !_isAwaiting(status)) {
-          _pendingPoll = null;
-          if (!completer.isCompleted) completer.complete(status);
+          _settle(completer, status);
           return;
         }
       } catch (_) {
@@ -130,6 +129,11 @@ class EligibilityNotifier extends StateNotifier<EligibilityState> {
       if (!completer.isCompleted) _pendingPoll = Timer(interval, poll);
     }
 
+    // Remember the live completer so replacing or cancelling this wait can
+    // finish it. Cancelling the timer alone would leave an earlier caller
+    // awaiting a future nothing would ever complete.
+    _activeWait = completer;
+
     // Checked immediately, not after one interval: the provider's webhook may
     // already have landed while the player was still in the capture widget, and
     // there is no reason to keep them on a processing screen for that.
@@ -137,16 +141,29 @@ class EligibilityNotifier extends StateNotifier<EligibilityState> {
     return completer.future;
   }
 
+  Completer<VerificationStatus?>? _activeWait;
+
   /// Statuses that mean the provider has not finished deciding yet.
   static bool _isAwaiting(VerificationStatus status) =>
       status == VerificationStatus.started ||
       status == VerificationStatus.pending ||
       status == VerificationStatus.underReview;
 
-  /// Stops any in-flight wait, e.g. when the player leaves the flow.
+  /// Ends the current wait, completing it as unsettled.
   void cancelVerdictWait() {
     _pendingPoll?.cancel();
+    final wait = _activeWait;
     _pendingPoll = null;
+    _activeWait = null;
+    if (wait != null && !wait.isCompleted) wait.complete(null);
+  }
+
+  /// Single exit point: stops the timer, clears the handle, completes once.
+  void _settle(Completer<VerificationStatus?> completer, VerificationStatus? status) {
+    _pendingPoll?.cancel();
+    _pendingPoll = null;
+    _activeWait = null;
+    if (!completer.isCompleted) completer.complete(status);
   }
 
   /// Lets the shell clear a dismissed restriction the moment an admin
@@ -357,7 +374,7 @@ class EligibilityNotifier extends StateNotifier<EligibilityState> {
   @override
   void dispose() {
     _reconcileTimer?.cancel();
-    _pendingPoll?.cancel();
+    cancelVerdictWait();
     super.dispose();
   }
 }

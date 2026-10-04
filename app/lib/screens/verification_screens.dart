@@ -347,7 +347,14 @@ Future<void> _continue(BuildContext context, WidgetRef ref) async {
   ) async {
     final messenger = ScaffoldMessenger.maybeOf(context);
     try {
-      await DojahKyc.launch(widgetId, referenceId: result.providerReference);
+      // The SDK reports failure by returning an error *string*, and on some
+      // paths never returns at all, so a throw is not the only way this can go
+      // wrong. A bounded wait keeps a hung plugin from stranding the player on
+      // this screen with a case the server has already opened.
+      await DojahKyc.launch(
+        widgetId,
+        referenceId: result.providerReference,
+      ).timeout(const Duration(minutes: 15));
     } catch (_) {
       // The case is still open, so the player can be sent back to retry rather
       // than being shown a failure the provider never reported.

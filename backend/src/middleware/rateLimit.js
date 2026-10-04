@@ -210,6 +210,17 @@ export const verificationRateLimiter = limiterFor({
   message: 'Too many verification requests, please try again after a minute',
 });
 
+/// Webhooks are mounted before every other limiter so a provider is never
+/// throttled alongside player traffic, but that also leaves them open to anyone
+/// who can reach the host. This caps unauthenticated write attempts per source
+/// without getting in a real provider's way.
+export const webhookRateLimiter = limiterFor({
+  prefix: 'http:webhook:',
+  windowMs: 60 * 1000,
+  max: process.env.NODE_ENV === 'test' ? 1000 : 120,
+  message: 'Too many webhook requests'
+});
+
 export const supportRateLimiter = limiterFor({
   prefix: 'http:support:',
   windowMs: 60 * 1000,

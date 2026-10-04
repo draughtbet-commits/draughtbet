@@ -1,7 +1,11 @@
 import prisma from '../../utils/db.js';
 import logger from '../../utils/logger.js';
 import { KycRequiredError } from '../../services/eligibilityService.js';
-import { createKycProvider, KycProviderError } from './providerAdapter.js';
+import {
+  createKycProvider,
+  ASYNC_KYC_PROVIDERS,
+  KycProviderError,
+} from './providerAdapter.js';
 
 export class KycAlreadyVerifiedError extends Error {
   constructor(message = 'KYC verification is already complete') {
@@ -114,6 +118,12 @@ export const maskName = (name) => {
 
 export const kycStatusView = (user) => {
   const latest = user.verificationCases?.[0] ?? null;
+  // A standing verification outranks whatever the newest attempt says. Only the
+  // provider result that granted it, or an explicit revocation, may undo it --
+  // so a stale pending or rejected attempt must never be reported as the
+  // current state, which would tell a verified player they are not verified
+  // while the server keeps honouring their verification.
+  const isVerified = user.kycStatus === 'VERIFIED';
   return {
     kycStatus: user.kycStatus,
     // A ban restricts activity, not access: the user still authenticates and
@@ -123,7 +133,7 @@ export const kycStatusView = (user) => {
     case: latest
       ? {
           id: latest.id,
-          status: latest.status,
+          status: isVerified ? 'VERIFIED' : latest.status,
           provider: latest.provider,
           createdAt: latest.createdAt,
           updatedAt: latest.updatedAt,
@@ -146,7 +156,9 @@ export const getKycStatus = async (userId, { dbp = prisma } = {}) => {
       kycStatus: true,
       isBanned: true,
       verificationCases: {
-        orderBy: { updatedAt: 'desc' },
+        // Newest *attempt*. Ordering by updatedAt would let a late webhook on an
+        // old case present it as the current one.
+        orderBy: { createdAt: 'desc' },
         take: 1,
         include: { checks: true }
       }
@@ -156,6 +168,19 @@ export const getKycStatus = async (userId, { dbp = prisma } = {}) => {
   return kycStatusView(user);
 };
 
+/// How long an unsettled asynchronous attempt is still worth waiting on.
+///
+/// A provider can drop a webhook, and the player has no way to unstick it, so an
+/// attempt that has gone quiet this long is retired. Generous enough to cover a
+/// slow review, short enough that a player is never locked out for long.
+const VERIFICATION_ATTEMPT_TTL_MS = Number(process.env.KYC_ATTEMPT_TTL_MS || 24 * 60 * 60 * 1000);
+
+/// Statuses that mean the provider has not finished deciding.
+const IN_FLIGHT_CASE_STATUSES = ['STARTED', 'PENDING', 'UNDER_REVIEW'];
+
+/// Settling one of these is final for a provider verdict.
+const TERMINAL_CASE_STATUSES = ['VERIFIED', 'REJECTED', 'EXPIRED'];
+
 /**
  * Projects a provider verdict onto the VerificationCase, its checks and the
  * User.kycStatus compatibility column.
@@ -163,13 +188,22 @@ export const getKycStatus = async (userId, { dbp = prisma } = {}) => {
  * This is the single place a provider result becomes a decision, so the inline
  * (synchronous provider) path and the webhook path cannot drift apart.
  *
- * Terminal case statuses are sticky. A replayed or out-of-order delivery must
- * never walk a VERIFIED case back to REJECTED. Admin review is a deliberate
- * override and lives in approve/rejectVerificationCase, which is unaffected.
+ * The whole projection runs in one transaction, because the case status and
+ * User.kycStatus are not two independent facts: kycStatus is what the
+ * withdrawal gate reads, so a case recorded as VERIFIED beside a user still
+ * marked NONE would show the player "verified" while every withdrawal was
+ * refused, and the reverse would grant withdrawal rights nobody granted.
+ *
+ * The transition is claimed with a conditional update rather than a
+ * read-then-write. Two deliveries of the same verification can arrive together
+ * -- "ongoing" then "completed" are different payloads with different dedupe
+ * keys -- and only the delivery that actually moves the case out of a pending
+ * state is allowed to write a verdict. That is what makes re-applying a
+ * delivery harmless, and it is why the caller can safely retry one.
  *
  * Returns the case id, or null when no case owns this provider reference (an
- * unknown reference is not an error — the provider may have been handed one by
- * a different system).
+ * unknown reference is not an error — the provider may have been handed one by a
+ * different system).
  */
 export const applyVerificationResult = async (
   { providerReference, result, caseRow: knownCase },
@@ -190,7 +224,7 @@ export const applyVerificationResult = async (
     return null;
   }
 
-  if (caseRow.status === 'VERIFIED' || caseRow.status === 'REJECTED') {
+  if (TERMINAL_CASE_STATUSES.includes(caseRow.status)) {
     logger.info(
       { providerReference, caseStatus: caseRow.status, resultStatus: result.status },
       'Ignoring provider result for an already-settled case'
@@ -200,73 +234,87 @@ export const applyVerificationResult = async (
 
   const verifiedAt = new Date();
   const response = sanitizeProviderResponse(result);
+  const settledStatus = result.status === 'PASSED' ? 'VERIFIED' : 'REJECTED';
 
-  // Only object-shaped entries are per-check verdicts. A provider may instead
-  // report a bare list of the checks it ran (the simulated one does), which
-  // carries no verdict of its own — the overall result decides that case.
+  // Only object-shaped entries with a type we can actually store are per-check
+  // verdicts. An unknown type is dropped rather than written: the column is a
+  // database enum, and one unrecognised value would abort the transaction and
+  // with it the whole verdict.
   const providerChecks = Array.isArray(result.checks)
-    ? result.checks.filter((c) => c && typeof c === 'object' && c.type)
+    ? result.checks.filter((c) => c && typeof c === 'object' && VERIFICATION_CHECK_TYPES.includes(c.type))
     : [];
 
-  if (providerChecks.length) {
-    for (const pc of providerChecks) {
-      const existing = caseRow.checks.find((c) => c.type === pc.type);
-      if (existing) {
-        await dbp.verificationCheck.update({
-          where: { id: existing.id },
+  return dbp.$transaction(async (tx) => {
+    // Claim the transition. Exactly one concurrent delivery can match, so a
+    // duplicate or out-of-order verdict cannot overwrite the settled state.
+    const { count } = await tx.verificationCase.updateMany({
+      where: { id: caseRow.id, status: { in: IN_FLIGHT_CASE_STATUSES } },
+      data: { status: settledStatus }
+    });
+    if (count !== 1) {
+      logger.info(
+        { providerReference, caseId: caseRow.id },
+        'Verification case was settled by another delivery; ignoring this one'
+      );
+      return caseRow.id;
+    }
+
+    if (providerChecks.length) {
+      for (const pc of providerChecks) {
+        const existing = caseRow.checks.find((c) => c.type === pc.type);
+        if (existing) {
+          await tx.verificationCheck.update({
+            where: { id: existing.id },
+            data: {
+              status: pc.passed ? 'PASSED' : 'FAILED',
+              verifiedAt,
+              providerResponse: response
+            }
+          });
+        } else {
+          await tx.verificationCheck.create({
+            data: {
+              caseId: caseRow.id,
+              type: pc.type,
+              status: pc.passed ? 'PASSED' : 'FAILED',
+              verifiedAt,
+              providerResponse: response
+            }
+          });
+        }
+      }
+    } else {
+      // No breakdown: the single check created at start carries the verdict.
+      const target = caseRow.checks[0];
+      if (target) {
+        await tx.verificationCheck.update({
+          where: { id: target.id },
           data: {
-            status: pc.passed ? 'PASSED' : 'FAILED',
-            verifiedAt,
-            providerResponse: response
-          }
-        });
-      } else {
-        await dbp.verificationCheck.create({
-          data: {
-            caseId: caseRow.id,
-            type: pc.type,
-            status: pc.passed ? 'PASSED' : 'FAILED',
+            status: settledStatus === 'VERIFIED' ? 'PASSED' : 'FAILED',
             verifiedAt,
             providerResponse: response
           }
         });
       }
     }
-  } else {
-    const target = caseRow.checks[0];
-    if (target) {
-      await dbp.verificationCheck.update({
-        where: { id: target.id },
-        data: {
-          status: result.status === 'PASSED' ? 'PASSED' : 'FAILED',
-          verifiedAt,
-          providerResponse: response
-        }
+
+    if (settledStatus === 'VERIFIED') {
+      // The provider has confirmed the applicant is an adult, so the same
+      // evidence satisfies the separate age gate.
+      await tx.user.update({
+        where: { id: caseRow.userId },
+        data: { kycStatus: 'VERIFIED', ageVerified: true }
       });
+      logger.info({ userId: caseRow.userId, caseId: caseRow.id }, 'KYC verified via provider');
+    } else {
+      // Deliberately does not touch kycStatus: a rejection says nothing about
+      // whether an earlier verification still stands, and clearing it here
+      // would let a retried attempt revoke a player who is already verified.
+      logger.warn({ userId: caseRow.userId, caseId: caseRow.id }, 'KYC rejected by provider');
     }
-  }
 
-  if (result.status === 'PASSED') {
-    await dbp.verificationCase.update({
-      where: { id: caseRow.id },
-      data: { status: 'VERIFIED' }
-    });
-    // The provider has confirmed the applicant is an adult, so the same
-    // evidence satisfies the separate age gate.
-    await dbp.user.update({
-      where: { id: caseRow.userId },
-      data: { kycStatus: 'VERIFIED', ageVerified: true }
-    });
-    logger.info({ userId: caseRow.userId, caseId: caseRow.id }, 'KYC verified via provider');
     return caseRow.id;
-  }
-
-  await dbp.verificationCase.update({
-    where: { id: caseRow.id },
-    data: { status: 'REJECTED' }
   });
-  logger.warn({ userId: caseRow.userId, caseId: caseRow.id }, 'KYC rejected by provider');
-  return caseRow.id;
 };
 
 /**
@@ -284,9 +332,12 @@ export const applyVerificationResult = async (
  */
 export const startVerification = async (
   userId,
-  { providerName = process.env.KYC_PROVIDER || 'simulated', type = 'ID_DOCUMENT' } = {},
+  { providerName = process.env.KYC_PROVIDER, type = 'ID_DOCUMENT' } = {},
   { dbp = prisma, provider } = {}
 ) => {
+  // No implicit default. The simulated provider approves every applicant, so
+  // falling back to it when the variable is missing would hand out verified
+  // accounts -- and withdrawal rights -- on any deployment that forgot to set it.
   provider = provider ?? createKycProvider(providerName);
 
   if (!VERIFICATION_CHECK_TYPES.includes(type)) {
@@ -300,14 +351,6 @@ export const startVerification = async (
   if (!user) throw new KycRequiredError('Account not found');
   if (user.kycStatus === 'VERIFIED') throw new KycAlreadyVerifiedError();
 
-  const inFlight = await dbp.verificationCase.findFirst({
-    where: {
-      userId,
-      status: { in: ['STARTED', 'PENDING', 'UNDER_REVIEW'] }
-    }
-  });
-  if (inFlight) throw new KycInProgressError();
-
   const isAsync = provider.mode === 'async';
 
   // The reference must be persisted before any result can arrive: for an async
@@ -315,19 +358,44 @@ export const startVerification = async (
   let caseRow;
   let check;
   let started;
+
+  // The guard and the insert are one serialisable transaction. Checked
+  // separately they race: two requests in the same second both see no live case
+  // and both create one, leaving a second attempt that no webhook will ever
+  // match and that then blocks every later retry.
   try {
-    started = await provider.start(userId, { type });
-    caseRow = await dbp.verificationCase.create({
-      data: {
-        userId,
-        status: isAsync ? 'PENDING' : 'STARTED',
-        provider: started.provider ?? providerName,
-        providerReference: started.providerReference ?? null
-      }
-    });
-    check = await dbp.verificationCheck.create({
-      data: { caseId: caseRow.id, type }
-    });
+    await dbp.$transaction(
+      async (tx) => {
+        const inFlight = await tx.verificationCase.findFirst({
+          where: {
+            userId,
+            status: { in: IN_FLIGHT_CASE_STATUSES },
+            // A live attempt stops counting once it has expired. Without this a
+            // dropped webhook would lock the player out of starting again, and
+            // so out of withdrawals, with no way back short of an admin.
+            OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }]
+          }
+        });
+        if (inFlight) throw new KycInProgressError();
+
+        started = await provider.start(userId, { type });
+        caseRow = await tx.verificationCase.create({
+          data: {
+            userId,
+            status: isAsync ? 'PENDING' : 'STARTED',
+            provider: started.provider ?? providerName,
+            providerReference: started.providerReference ?? null,
+            expiresAt: isAsync
+              ? new Date(Date.now() + VERIFICATION_ATTEMPT_TTL_MS)
+              : null
+          }
+        });
+        check = await tx.verificationCheck.create({
+          data: { caseId: caseRow.id, type }
+        });
+      },
+      { isolationLevel: 'Serializable' }
+    );
   } catch (err) {
     if (err instanceof KycProviderError || err?.name === 'KycProviderError') {
       throw new KycRejectedError('The verification provider could not complete the check.');
@@ -669,4 +737,73 @@ export const listCaseDocuments = async (caseId, { dbp = prisma } = {}) => {
     orderBy: { uploadedAt: 'asc' }
   });
   return { case: { id: vc.id, userId: vc.userId, status: vc.status }, documents: rows.map(toDocumentView) };
+};
+/**
+ * Retires verification attempts that will never be settled.
+ *
+ * A provider can drop a webhook, and a player who never completes the widget
+ * leaves one behind. Either way the attempt sits in a pending status forever,
+ * the in-flight guard then refuses every new attempt, and because kycStatus
+ * gates withdrawals the player is locked out of their own money with no route
+ * back. Expiring it is what makes the flow recoverable.
+ *
+ * Before giving up we ask the provider directly. The webhook is the fast path,
+ * not the only one, so a delivery that was merely lost is still honoured rather
+ * than thrown away.
+ *
+ * Idempotent and safe to re-run: the update only touches rows still pending, so
+ * a concurrent verdict already claimed the transition first and is left alone.
+ */
+export const expireStaleVerificationCases = async ({
+  dbp = prisma,
+  providerFactory = createKycProvider
+} = {}) => {
+  const stale = await dbp.verificationCase.findMany({
+    where: {
+      status: { in: IN_FLIGHT_CASE_STATUSES },
+      expiresAt: { lte: new Date() }
+    },
+    select: { id: true, provider: true, providerReference: true },
+    take: 100
+  });
+  if (!stale.length) return { expired: 0, recovered: 0 };
+
+  let expired = 0;
+  let recovered = 0;
+
+  for (const row of stale) {
+    // Ask the provider *before* retiring the attempt. Once this marks the case
+    // EXPIRED the verdict can no longer be applied, so a provider that did
+    // answer in time would be thrown away and the player would have to start
+    // over. Restricted to asynchronous providers on purpose: the simulated one
+    // answers PASSED to anything and would hand out withdrawal rights to a
+    // player who was never checked.
+    if (row.providerReference && ASYNC_KYC_PROVIDERS.includes(row.provider)) {
+      try {
+        const result = await providerFactory(row.provider).getResult(row.providerReference);
+        if (result?.status && result.status !== 'PENDING') {
+          await applyVerificationResult(
+            { providerReference: row.providerReference, result },
+            { dbp }
+          );
+          recovered += 1;
+          continue;
+        }
+      } catch (err) {
+        // The provider being unreachable must not stop the sweep; the attempt is
+        // still retired below, which is the outcome that unblocks the player.
+        logger.warn({ err, caseId: row.id }, 'Could not recover a stale verification attempt');
+      }
+    }
+
+    // A settled case is never expired, whatever the clock says.
+    const { count } = await dbp.verificationCase.updateMany({
+      where: { id: row.id, status: { in: IN_FLIGHT_CASE_STATUSES } },
+      data: { status: 'EXPIRED' }
+    });
+    if (count === 1) expired += 1;
+  }
+
+  if (expired) logger.info({ expired, recovered }, 'Expired stale verification attempts');
+  return { expired, recovered };
 };

@@ -596,8 +596,16 @@ model VerificationCase {
   provider    String?                // e.g. "dojah", "flutterwave-kyc"
   /// The provider's handle for this attempt (Dojah: the reference_id we
   /// generate). Persisted at start so an asynchronous webhook -- which knows
-  /// nothing but this value -- can be matched back to its case.
-  providerReference String?
+  /// nothing but this value -- can be matched back to its case. Unique because
+  /// one reference means exactly one attempt: a webhook that resolved to two
+  /// cases could settle an unrelated player. Nullable, so synchronous attempts
+  /// that never needed a handle are unaffected.
+  providerReference String?                @unique
+  /// When an unsettled attempt stops being waited on. A provider can drop a
+  /// webhook, and a player must not be locked out of withdrawals forever
+  /// because of it: past this point the attempt is retired and a new one may be
+  /// started.
+  expiresAt   DateTime?
   metadata    Json?
   createdAt   DateTime               @default(now())
   updatedAt   DateTime               @updatedAt

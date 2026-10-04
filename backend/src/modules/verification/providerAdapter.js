@@ -244,10 +244,30 @@ const PROVIDERS = {
   dojah: () => new DojahKycProvider()
 };
 
-export const createKycProvider = (name = process.env.KYC_PROVIDER || 'simulated') => {
-  // The simulated provider approves anyone who calls it. If that ever becomes
-  // the production setting, every player would be waved through verification,
-  // so it is refused outright rather than left to a config mistake.
+/// Providers whose verdict arrives out of band, and which may therefore be
+/// asked about an attempt that is still pending.
+///
+/// Deliberately not "every provider that exists": the simulated provider answers
+/// PASSED to anything, so polling it would settle an abandoned attempt as
+/// verified and hand out withdrawal rights to a player who was never checked.
+export const ASYNC_KYC_PROVIDERS = Object.freeze(['dojah']);
+
+/**
+ * Builds the configured provider.
+ *
+ * There is deliberately no default. The simulated provider approves every
+ * applicant, so falling back to it when KYC_PROVIDER is unset would hand out
+ * verified accounts -- and the withdrawal rights that come with them -- on any
+ * deployment that simply forgot to configure it. Failing closed instead means a
+ * misconfigured environment cannot verify anyone, which is recoverable; the
+ * other direction is not.
+ */
+export const createKycProvider = (name = process.env.KYC_PROVIDER) => {
+  if (!name) {
+    throw new KycProviderError('KYC_PROVIDER is not configured');
+  }
+  // Belt and braces: a simulated provider must never be reachable in production
+  // even if it is named there explicitly.
   if (name === 'simulated' && process.env.NODE_ENV === 'production') {
     throw new KycProviderError(
       'KYC_PROVIDER is "simulated" in production, which would approve every applicant'

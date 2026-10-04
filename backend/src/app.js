@@ -9,7 +9,8 @@ import {
   adminRateLimiter,
   withdrawalRateLimiter,
   depositRateLimiter,
-  verificationRateLimiter,
+verificationRateLimiter,
+  webhookRateLimiter,
   saferPlayRateLimiter,
   walletRateLimiter,
   matchRateLimiter,
@@ -82,7 +83,7 @@ if (process.env.APP_ENFORCE_TLS === 'true') {
 
 // Mount webhooks BEFORE express.json() so they get raw Buffer bodies for HMAC verification
 app.use(requestIdMiddleware);
-app.use('/webhooks', webhookRouter);
+app.use('/webhooks', webhookRateLimiter, webhookRouter);
 app.use('/webhooks', verificationWebhookRouter);
 
 app.use(express.json());

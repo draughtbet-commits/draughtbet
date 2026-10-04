@@ -6,11 +6,18 @@ const mockPrisma = {
   verificationCase: {
     create: jest.fn(),
     update: jest.fn(),
+    // The service settles a verdict with a conditional update so two concurrent
+    // deliveries cannot both win. Defaults to "matched one row".
+    updateMany: jest.fn(async () => ({ count: 1 })),
     findFirst: jest.fn(),
+    findMany: jest.fn(async () => []),
     findUnique: jest.fn()
   },
   verificationCheck: { create: jest.fn(), update: jest.fn() },
-  verificationWebhookEvent: { create: jest.fn(), updateMany: jest.fn() }
+  verificationWebhookEvent: { create: jest.fn(), updateMany: jest.fn() },
+  // The service writes the case, its checks and the player together, so the
+  // transaction has to be modelled or nothing here would ever run.
+  $transaction: jest.fn(async (fn) => fn(mockPrisma))
 };
 
 jest.unstable_mockModule('../../../utils/db.js', () => ({ default: mockPrisma }));
@@ -242,8 +249,8 @@ describe('async verification flow', () => {
     expect(result.widgetUrl).toContain('reference_id=');
     // Nothing is decided, so nothing about the player changes.
     expect(mockPrisma.user.update).not.toHaveBeenCalled();
-    expect(mockPrisma.verificationCase.update).not.toHaveBeenCalledWith(
-      expect.objectContaining({ data: { status: 'REJECTED' } })
+    expect(mockPrisma.verificationCase.updateMany).not.toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ status: 'REJECTED' }) })
     );
   });
 
@@ -285,10 +292,12 @@ describe('applyVerificationResult', () => {
     });
 
     expect(caseId).toBe('case-1');
-    expect(mockPrisma.verificationCase.update).toHaveBeenCalledWith({
-      where: { id: 'case-1' },
-      data: { status: 'VERIFIED' }
-    });
+    expect(mockPrisma.verificationCase.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ id: 'case-1' }),
+        data: expect.objectContaining({ status: 'VERIFIED' })
+      })
+    );
     expect(mockPrisma.user.update).toHaveBeenCalledWith({
       where: { id: 'u1' },
       data: { kycStatus: 'VERIFIED', ageVerified: true }
@@ -313,10 +322,12 @@ describe('applyVerificationResult', () => {
       result: { status: 'FAILED', checks: [{ type: 'ID_DOCUMENT', passed: false }] }
     });
 
-    expect(mockPrisma.verificationCase.update).toHaveBeenCalledWith({
-      where: { id: 'case-1' },
-      data: { status: 'REJECTED' }
-    });
+    expect(mockPrisma.verificationCase.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ id: 'case-1' }),
+        data: expect.objectContaining({ status: 'REJECTED' })
+      })
+    );
     expect(mockPrisma.user.update).not.toHaveBeenCalled();
   });
 
@@ -345,29 +356,37 @@ describe('applyVerificationResult', () => {
       result: { status: 'FAILED' }
     });
 
-    expect(mockPrisma.verificationCase.update).not.toHaveBeenCalled();
+    expect(mockPrisma.verificationCase.updateMany).not.toHaveBeenCalled();
     expect(mockPrisma.user.update).not.toHaveBeenCalled();
   });
 });
 
 describe('webhook dedupe', () => {
-  it('treats a retried identical delivery as the same event', () => {
-    const args = {
-      provider: 'dojah',
-      providerReference: 'dbt-abc',
-      eventType: 'verification.completed',
-      payloadHash: 'hash-1'
-    };
-    expect(makeVerificationDedupeKey(args)).toBe(makeVerificationDedupeKey(args));
+  it('treats a retried delivery as the same event even if the bytes differ', () => {
+    const base = { provider: 'dojah', providerReference: 'dbt-abc' };
+    expect(
+      makeVerificationDedupeKey({ ...base, eventType: 'verification.completed' })
+    ).toBe(
+      makeVerificationDedupeKey({
+        ...base,
+        eventType: 'verification.completed',
+        payloadHash: 'reformatted-by-a-retry'
+      })
+    );
   });
 
   it('keeps distinct events for the same verification apart', () => {
-    const base = { provider: 'dojah', providerReference: 'dbt-abc', payloadHash: 'hash-1' };
+    const base = { provider: 'dojah', providerReference: 'dbt-abc' };
     expect(makeVerificationDedupeKey({ ...base, eventType: 'a' })).not.toBe(
       makeVerificationDedupeKey({ ...base, eventType: 'b' })
     );
-    expect(makeVerificationDedupeKey({ ...base, eventType: 'a', payloadHash: 'h2' })).not.toBe(
-      makeVerificationDedupeKey({ ...base, eventType: 'a' })
+    // A second reference is a different attempt and must not be swallowed.
+    expect(makeVerificationDedupeKey({ ...base, eventType: 'a' })).not.toBe(
+      makeVerificationDedupeKey({
+        provider: 'dojah',
+        providerReference: 'dbt-other',
+        eventType: 'a'
+      })
     );
   });
 });
@@ -379,8 +398,16 @@ describe('provider selection', () => {
     process.env = originalEnv;
   });
 
-  it('defaults to the simulated provider', () => {
+  it('fails closed rather than simulating a check nobody performed', () => {
     delete process.env.KYC_PROVIDER;
+    // Falling back to the simulated provider here would approve players and hand
+    // out withdrawal rights on a misconfigured deployment.
+    expect(() => createKycProvider()).toThrow(KycProviderError);
+    expect(() => createKycProvider()).toThrow(/not configured/);
+  });
+
+  it('still offers the simulated provider when it is asked for explicitly', () => {
+    process.env.KYC_PROVIDER = 'simulated';
     expect(createKycProvider()).toBeInstanceOf(SimulatedKycProvider);
   });
 

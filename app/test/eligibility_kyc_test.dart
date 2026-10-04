@@ -399,6 +399,49 @@ void main() {
     });
   });
 
+
+    test('cancelling a wait completes the future without leaving it hanging', () async {
+      final gateway = _FakeGateway()
+        ..verification = const VerificationSnapshot(status: VerificationStatus.pending);
+      final notifier = EligibilityNotifier(gateway);
+
+      final waiter = notifier.awaitVerificationVerdict(
+        interval: const Duration(milliseconds: 5),
+        timeout: const Duration(seconds: 1),
+      );
+      // Let one poll attempt run, then cancel.
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      notifier.cancelVerdictWait();
+      final settled = await waiter;
+
+      expect(settled, isNull);
+      notifier.dispose();
+    });
+
+    test('replacing a wait cancels the previous one', () async {
+      final gateway = _FakeGateway()
+        ..verification = const VerificationSnapshot(status: VerificationStatus.pending);
+      final notifier = EligibilityNotifier(gateway);
+
+      final first = notifier.awaitVerificationVerdict(
+        interval: const Duration(milliseconds: 5),
+        timeout: const Duration(seconds: 1),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 8));
+      final second = notifier.awaitVerificationVerdict(
+        interval: const Duration(milliseconds: 5),
+        timeout: const Duration(seconds: 1),
+      );
+      final firstSettled = await first;
+      notifier.cancelVerdictWait();
+      final secondSettled = await second;
+
+      expect(firstSettled, isNull);
+      expect(secondSettled, isNull);
+      notifier.dispose();
+    });
+
+
   group('verification screens', () {
     final states = <VerificationStatus, String>{
       VerificationStatus.notRequired: 'VERIFICATION REQUIRED',

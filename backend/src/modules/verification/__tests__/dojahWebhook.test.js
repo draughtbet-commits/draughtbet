@@ -77,17 +77,42 @@ describe('Dojah webhook endpoint', () => {
     );
   });
 
-  it('rejects an invalid signature and applies nothing', async () => {
+  it('rejects an invalid signature without writing anything', async () => {
     const res = await post(completedEvent(), { signature: 'deadbeef' });
 
     expect(res.status).toBe(401);
     // Nothing may be applied on an unauthenticated delivery.
     expect(mockApplyVerificationResult).not.toHaveBeenCalled();
-    expect(mockPrisma.verificationWebhookEvent.updateMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({ processingStatus: 'REJECTED', errorCode: 'INVALID_SIGNATURE' })
-      })
-    );
+    // And nothing is persisted either. An endpoint anyone can reach would
+    // otherwise let an unauthenticated caller grow this table without limit.
+    expect(mockPrisma.verificationWebhookEvent.create).not.toHaveBeenCalled();
+  });
+
+  it('refuses a delivery that is not a raw signed body', async () => {
+    // Malformed requests used to reach the hasher and crash with a 500, which
+    // is both a free error and a signal that the route is reachable.
+    const res = await request(app)
+      .post('/webhooks/dojah')
+      .set('content-type', 'application/json')
+      .set('x-dojah-signature', 'deadbeef')
+      .send('{"broken');
+
+    expect(res.status).toBe(400);
+    expect(mockPrisma.verificationWebhookEvent.create).not.toHaveBeenCalled();
+  });
+
+  it('refuses a delivery whose reference is missing or the wrong shape', async () => {
+    const noRef = await post(completedEvent({ reference_id: undefined }));
+    expect(noRef.status).toBe(400);
+
+    const emptyRef = await post(completedEvent({ reference_id: '' }));
+    expect(emptyRef.status).toBe(400);
+
+    const longRef = await post(completedEvent({ reference_id: 'x'.repeat(500) }));
+    expect(longRef.status).toBe(400);
+
+    // None of them may be applied, however well signed they are.
+    expect(mockApplyVerificationResult).not.toHaveBeenCalled();
   });
 
   it('rejects a body signed with a different secret', async () => {
@@ -117,15 +142,19 @@ describe('Dojah webhook endpoint', () => {
     expect(mockApplyVerificationResult).not.toHaveBeenCalled();
   });
 
-  it('acknowledges a retried delivery without applying it twice', async () => {
+  it('acknowledges a retried delivery and re-applies it', async () => {
     const uniqueViolation = Object.assign(new Error('Unique constraint failed'), { code: 'P2002' });
     mockPrisma.verificationWebhookEvent.create.mockRejectedValue(uniqueViolation);
 
     const res = await post(completedEvent());
 
-    // A non-2xx would make Dojah retry forever; the result is already applied.
+    // A non-2xx would make Dojah retry forever, so a duplicate is still a 200.
     expect(res.status).toBe(200);
-    expect(mockApplyVerificationResult).not.toHaveBeenCalled();
+    // Re-applying is deliberate. Skipping on duplicate meant that a delivery
+    // which failed with a 500 after the row was written was remembered as done
+    // and never processed again -- the player's verdict was lost permanently.
+    // Settling a verdict twice is a no-op at the data layer; losing it is not.
+    expect(mockApplyVerificationResult).toHaveBeenCalled();
   });
 
   it('does not downgrade an in-flight verification', async () => {
