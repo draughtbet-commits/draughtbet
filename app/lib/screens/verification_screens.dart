@@ -542,9 +542,8 @@ class _ChoiceTile extends StatelessWidget {
 }
 
 class _InlineMessage extends StatelessWidget {
-  const _InlineMessage(this.message, {this.icon = LucideIcons.info});
+  const _InlineMessage(this.message);
   final String message;
-  final IconData icon;
 
   @override
   Widget build(BuildContext context) => FlowCard(
@@ -552,7 +551,7 @@ class _InlineMessage extends StatelessWidget {
     child: Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Icon(icon, color: AppColors.valueAccent, size: 19),
+        const Icon(LucideIcons.info, color: AppColors.valueAccent, size: 19),
         const SizedBox(width: 10),
         Expanded(child: Text(message, style: AppTypography.bodySmall)),
       ],

@@ -527,7 +527,7 @@ class MatchReceiptData {
       }
       if (pick == null) {
         final rows = receipts.whereType<Map>().map((m) {
-          return Map<String, dynamic>.from(m as Map<dynamic, dynamic>);
+          return Map<String, dynamic>.from(m);
         }).toList();
         for (final row in rows) {
           final result = row['result']?.toString().toUpperCase();
