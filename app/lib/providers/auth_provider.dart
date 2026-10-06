@@ -232,6 +232,14 @@ class AuthNotifier extends StateNotifier<AuthState> {
   }
 }
 
+/// Secure storage access for screens that need stored identity (the signed-in
+/// user id, the active match) without constructing their own instance. Tests
+/// override this to supply a fixed id, because the underlying platform channel
+/// never resolves under `flutter test`.
+final secureStorageProvider = Provider<SecureStorageService>(
+  (ref) => SecureStorageService(),
+);
+
 final authProvider = StateNotifierProvider<AuthNotifier, AuthState>((ref) {
   return AuthNotifier(ref.watch(apiClientProvider), SecureStorageService());
 });

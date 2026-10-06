@@ -14,8 +14,10 @@ import 'package:draughts_arena/services/match_flow_gateway.dart';
 import 'package:draughts_arena/services/settlement_gateway.dart';
 import 'package:draughts_arena/services/socket_service.dart';
 import 'package:draughts_arena/services/withdrawal_gateway.dart';
+import 'package:draughts_arena/providers/auth_provider.dart';
 import 'package:draughts_arena/services/api_client.dart';
 import 'package:draughts_arena/screens/results_screen.dart';
+import 'package:draughts_arena/services/secure_storage.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -66,6 +68,17 @@ class RecordingAdapter implements HttpClientAdapter {
 }
 
 String wireUrl(RequestOptions request) => '${request.baseUrl}${request.path}';
+
+/// Supplies a fixed signed-in id. [SecureStorageService] reads a platform
+/// channel that never answers under `flutter test`, so the real one hangs.
+class FixedSecureStorage extends SecureStorageService {
+  FixedSecureStorage(this.userIdValue);
+
+  final String userIdValue;
+
+  @override
+  Future<String?> get userId async => userIdValue;
+}
 
 void main() {
   group('PR4 match V2 contract', () {
@@ -199,6 +212,48 @@ void main() {
       expect(find.text('₦3,600'), findsOneWidget);
       expect(find.text('Payout'), findsOneWidget);
       expect(find.text('Winnings'), findsNothing);
+    });
+
+    testWidgets('history names the opponent through the player directory', (
+      tester,
+    ) async {
+      final (dio, adapter) = client();
+      adapter.enqueue({
+        'data': [
+          {
+            'matchId': 'mat_1',
+            'playerLightId': 'usr_me',
+            'playerDarkId': 'usr_opp',
+            'outcome': 'WON',
+            'stakeMinor': 200000,
+            'payoutMinor': 360000,
+          },
+        ],
+      });
+      adapter.enqueue({
+        'data': {'player': {'id': 'usr_opp', 'username': 'dark_handle'}},
+      });
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            apiClientProvider.overrideWithValue(dio),
+            backendContractProvider.overrideWithValue(v2),
+            secureStorageProvider.overrideWithValue(
+              FixedSecureStorage('usr_me'),
+            ),
+          ],
+          child: const MaterialApp(home: ResultsScreen()),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        wireUrl(adapter.requests.last),
+        'https://api.example.test/api/v1/players/usr_opp',
+      );
+      expect(find.text('vs dark_handle'), findsOneWidget);
+      expect(find.text('Opponent unavailable'), findsNothing);
     });
 
     test('reads the immutable receipt without deriving the winner', () async {

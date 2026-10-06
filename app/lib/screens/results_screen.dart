@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -5,8 +7,9 @@ import 'package:intl/intl.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../config/backend_contract.dart';
 import '../models/dispute.dart';
+import '../providers/auth_provider.dart';
+import '../providers/player_discovery_provider.dart';
 import '../services/api_client.dart';
-import '../services/secure_storage.dart';
 import '../theme/colors.dart';
 import '../theme/typography.dart';
 
@@ -18,12 +21,15 @@ class ResultsScreen extends ConsumerStatefulWidget {
 }
 
 class _ResultsScreenState extends ConsumerState<ResultsScreen> {
-  final SecureStorageService _storage = SecureStorageService();
   bool _isLoading = true;
   String? _error;
   List<dynamic> _matches = [];
   String? _currentUserId;
   bool _usingV2 = false;
+  // V2 /me/matches carries player ids only, so opponent handles are resolved
+  // through the public player directory. '' marks a lookup that failed so the
+  // row does not refetch on every rebuild.
+  final Map<String, String> _opponentNames = {};
 
   @override
   void initState() {
@@ -40,7 +46,14 @@ class _ResultsScreenState extends ConsumerState<ResultsScreen> {
 
       final contract = ref.read(backendContractProvider);
       _usingV2 = contract.isV2;
-      _currentUserId = _usingV2 ? null : await _storage.userId;
+      if (!_usingV2) {
+        // The legacy contract derives the result from the winner id, so the
+        // identity is needed before the list renders. V2 carries an outcome on
+        // every row and only needs the id to name the opponent, which is
+        // resolved after the list is on screen.
+        _currentUserId = await ref.read(secureStorageProvider).userId;
+      }
+      _opponentNames.clear();
       final dio = ref.read(apiClientProvider);
       final res = await dio.get(_usingV2 ? '/me/matches' : '/matches/history');
 
@@ -53,6 +66,7 @@ class _ResultsScreenState extends ConsumerState<ResultsScreen> {
             _matches = matches;
             _isLoading = false;
           });
+          unawaited(_resolveOpponentNames());
         }
       } else {
         if (mounted) {
@@ -78,6 +92,56 @@ class _ResultsScreenState extends ConsumerState<ResultsScreen> {
     final amt = parsed / 100;
     final format = NumberFormat.currency(symbol: '₦', decimalDigits: 0);
     return format.format(amt);
+  }
+
+  String? _opponentIdOf(Map<String, dynamic> match) {
+    final me = _currentUserId;
+    if (me == null || me.isEmpty) return null;
+    final lightId = match['playerLightId']?.toString();
+    final darkId = match['playerDarkId']?.toString();
+    if (lightId == me) return darkId;
+    if (darkId == me) return lightId;
+    return null;
+  }
+
+  String _opponentLabel(String? opponentId) {
+    final name = opponentId == null ? null : _opponentNames[opponentId];
+    if (name == null || name.isEmpty) return 'Opponent unavailable';
+    return name;
+  }
+
+  Future<void> _resolveOpponentNames() async {
+    if (!_usingV2) return;
+    if (_currentUserId == null || _currentUserId!.isEmpty) {
+      try {
+        _currentUserId = await ref.read(secureStorageProvider).userId;
+      } catch (_) {
+        return;
+      }
+    }
+    if (_currentUserId == null || _currentUserId!.isEmpty) return;
+    final missing = <String>{};
+    for (final raw in _matches) {
+      if (raw is! Map) continue;
+      final id = _opponentIdOf(Map<String, dynamic>.from(raw));
+      if (id != null && id.isNotEmpty && !_opponentNames.containsKey(id)) {
+        missing.add(id);
+      }
+    }
+    if (missing.isEmpty) return;
+
+    final gateway = ref.read(playerGatewayProvider);
+    final resolved = <String, String>{};
+    for (final id in missing) {
+      try {
+        final player = await gateway.fetchProfile(id);
+        resolved[id] = player?.name ?? '';
+      } catch (_) {
+        resolved[id] = '';
+      }
+    }
+    if (!mounted || resolved.isEmpty) return;
+    setState(() => _opponentNames.addAll(resolved));
   }
 
   @override
@@ -185,8 +249,10 @@ class _ResultsScreenState extends ConsumerState<ResultsScreen> {
                 final bool isLight =
                     lightPlayerId != null && lightPlayerId == _currentUserId;
                 // S17: the history API exposes only the public handle — never the email.
+                // V2 /me/matches carries ids only, so the handle is resolved
+                // through the player directory (still a public handle).
                 final String opponentName = _usingV2
-                    ? 'Opponent unavailable'
+                    ? _opponentLabel(_opponentIdOf(m))
                     : isLight
                     ? (darkPlayer?['username'] as String? ?? 'Opponent')
                     : (lightPlayer?['username'] as String? ?? 'Opponent');
