@@ -72,9 +72,10 @@ openMatchRouter.get('/', requireAuth, async (req, res, next) => {
   }
 });
 
-// Pass legacy single-segment routes through to the match router (mounted
-// after this one): historical outcomes belong to the old surface.
-openMatchRouter.get('/history', (req, res, next) => next());
+// Legacy single-segment routes (notably GET /history) are handed to the match
+// router, mounted after this one. The hand-off has to happen from the /:id
+// handler below: a next() at this level would resume at the next layer of THIS
+// router, which is /:id itself, so a standalone "pass-through" here is a no-op.
 
 // The create body uses `stakeMinor`; the shared stake middleware reads
 // `stakeMinorUnits`, so remap first, then validate the remaining terms.
@@ -376,6 +377,9 @@ openMatchRouter.get('/active', requireAuth, async (req, res, next) => {
 });
 
 openMatchRouter.get('/:id', requireAuth, async (req, res, next) => {
+  // GET /history belongs to the legacy match router mounted after this one.
+  // This is the last layer of this router, so next() exits to it.
+  if (req.params.id === 'history') return next();
   try {
     const snapshot = await buildLifecycleSnapshot(prisma, req.params.id, req.user.id);
     res.json({ data: snapshot });
