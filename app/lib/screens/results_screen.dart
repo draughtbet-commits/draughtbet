@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../config/backend_contract.dart';
+import '../models/dispute.dart';
 import '../services/api_client.dart';
 import '../services/secure_storage.dart';
 import '../theme/colors.dart';
@@ -40,9 +42,7 @@ class _ResultsScreenState extends ConsumerState<ResultsScreen> {
       _usingV2 = contract.isV2;
       _currentUserId = _usingV2 ? null : await _storage.userId;
       final dio = ref.read(apiClientProvider);
-      final res = await dio.get(
-        _usingV2 ? '/me/matches' : '/matches/history',
-      );
+      final res = await dio.get(_usingV2 ? '/me/matches' : '/matches/history');
 
       if (res.statusCode == 200 && res.data is Map) {
         final matches = _usingV2
@@ -213,111 +213,144 @@ class _ResultsScreenState extends ConsumerState<ResultsScreen> {
                   resultIcon = LucideIcons.circleHelp;
                 }
 
-                return Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: AppColors.surface1,
+                final matchId = m['id']?.toString() ?? '';
+                return Semantics(
+                  button: true,
+                  label: 'Report match against $opponentName',
+                  child: InkWell(
                     borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: isWinner
-                          ? AppColors.gold500.withValues(alpha: 0.4)
-                          : (isDraw || !isDefeat
-                                ? AppColors.borderDim
-                                : AppColors.danger.withValues(alpha: 0.3)),
-                    ),
-                  ),
-                  child: Row(
-                    children: [
-                      // Result Icon Circle
-                      CircleAvatar(
-                        radius: 22,
-                        backgroundColor: isWinner
-                            ? AppColors.gold500.withValues(alpha: 0.15)
-                            : (isDraw || !isDefeat
-                                  ? AppColors.surface3
-                                  : AppColors.danger.withValues(alpha: 0.15)),
-                        child: Icon(resultIcon, color: statusColor, size: 20),
-                      ),
-                      const SizedBox(width: 16),
-                      // Match details
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: [
-                                Text(
-                                  resultText,
-                                  style: AppTypography.labelBold.copyWith(
-                                    color: statusColor,
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                if (tier != null) ...[
-                                  const SizedBox(width: 8),
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 6,
-                                      vertical: 2,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: AppColors.surface3,
-                                      borderRadius: BorderRadius.circular(4),
-                                    ),
-                                    child: Text(
-                                      tier,
-                                      style: AppTypography.bodySmall.copyWith(
-                                        fontSize: 10,
-                                        fontWeight: FontWeight.bold,
-                                        color: AppColors.textSecondary,
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ],
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              'vs $opponentName',
-                              style: AppTypography.bodyMedium,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              endedAt == null
-                                  ? 'Date unavailable'
-                                  : DateFormat(
-                                      'MMM d, y • h:mm a',
-                                    ).format(endedAt.toLocal()),
-                              style: AppTypography.bodySmall,
-                            ),
-                          ],
-                        ),
-                      ),
-                      // Stake Amount
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.end,
-                        children: [
-                          Text(
-                            _formatNaira(stake),
-                            style: AppTypography.labelBold.copyWith(
-                              color: isWinner
-                                  ? AppColors.gold500
-                                  : AppColors.textPrimary,
-                              fontSize: 16,
+                    onTap: matchId.isEmpty
+                        ? null
+                        : () => context.push(
+                            '/profile/report-match',
+                            extra: DisputeMatchSummary(
+                              matchId: matchId,
+                              opponentName: opponentName,
+                              playedAt: endedAt,
                             ),
                           ),
-                          const SizedBox(height: 2),
-                          Text(
-                            isWinner ? 'Payout' : 'Stake',
-                            style: AppTypography.bodySmall.copyWith(
-                              fontSize: 11,
+                    child: Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: AppColors.surface1,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: isWinner
+                              ? AppColors.gold500.withValues(alpha: 0.4)
+                              : (isDraw || !isDefeat
+                                    ? AppColors.borderDim
+                                    : AppColors.danger.withValues(alpha: 0.3)),
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          // Result Icon Circle
+                          CircleAvatar(
+                            radius: 22,
+                            backgroundColor: isWinner
+                                ? AppColors.gold500.withValues(alpha: 0.15)
+                                : (isDraw || !isDefeat
+                                      ? AppColors.surface3
+                                      : AppColors.danger.withValues(
+                                          alpha: 0.15,
+                                        )),
+                            child: Icon(
+                              resultIcon,
+                              color: statusColor,
+                              size: 20,
                             ),
+                          ),
+                          const SizedBox(width: 16),
+                          // Match details
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Text(
+                                      resultText,
+                                      style: AppTypography.labelBold.copyWith(
+                                        color: statusColor,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    if (tier != null) ...[
+                                      const SizedBox(width: 8),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 6,
+                                          vertical: 2,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: AppColors.surface3,
+                                          borderRadius: BorderRadius.circular(
+                                            4,
+                                          ),
+                                        ),
+                                        child: Text(
+                                          tier,
+                                          style: AppTypography.bodySmall
+                                              .copyWith(
+                                                fontSize: 10,
+                                                fontWeight: FontWeight.bold,
+                                                color: AppColors.textSecondary,
+                                              ),
+                                        ),
+                                      ),
+                                    ],
+                                  ],
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  'vs $opponentName',
+                                  style: AppTypography.bodyMedium,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  endedAt == null
+                                      ? 'Date unavailable'
+                                      : DateFormat(
+                                          'MMM d, y • h:mm a',
+                                        ).format(endedAt.toLocal()),
+                                  style: AppTypography.bodySmall,
+                                ),
+                              ],
+                            ),
+                          ),
+                          // Stake Amount
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: [
+                              Text(
+                                _formatNaira(stake),
+                                style: AppTypography.labelBold.copyWith(
+                                  color: isWinner
+                                      ? AppColors.gold500
+                                      : AppColors.textPrimary,
+                                  fontSize: 16,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                isWinner ? 'Payout' : 'Stake',
+                                style: AppTypography.bodySmall.copyWith(
+                                  fontSize: 11,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(width: 5),
+                          const Icon(
+                            LucideIcons.chevronRight,
+                            color: AppColors.textMuted,
+                            size: 18,
                           ),
                         ],
                       ),
-                    ],
+                    ),
                   ),
                 );
               },

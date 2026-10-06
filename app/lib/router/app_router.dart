@@ -40,6 +40,8 @@ import '../screens/support_screen.dart';
 import '../screens/verification_screens.dart';
 import '../models/eligibility.dart';
 import '../models/support_case.dart';
+import '../models/dispute.dart';
+import '../screens/dispute_screens.dart';
 import '../widgets/main_layout.dart';
 
 /// Root navigator, used to host full-screen interstitials outside MainLayout's
@@ -158,6 +160,31 @@ final appRouterProvider = Provider<GoRouter>((ref) {
             builder: (context, state) => const ResultsScreen(),
           ),
           GoRoute(
+            path: '/profile/report-match',
+            builder: (context, state) => ReportMatchScreen(
+              match: state.extra is DisputeMatchSummary
+                  ? state.extra! as DisputeMatchSummary
+                  : null,
+            ),
+          ),
+          GoRoute(
+            path: '/profile/dispute-reason',
+            builder: (context, state) => const DisputeReasonScreen(),
+          ),
+          GoRoute(
+            path: '/profile/add-evidence',
+            builder: (context, state) => const AddEvidenceScreen(),
+          ),
+          GoRoute(
+            path: '/profile/dispute-submitted',
+            builder: (context, state) => const DisputeSubmittedScreen(),
+          ),
+          GoRoute(
+            path: '/profile/dispute-status',
+            builder: (context, state) =>
+                DisputeStatusScreen(disputeId: state.uri.queryParameters['id']),
+          ),
+          GoRoute(
             path: '/profile',
             builder: (context, state) => const SettingsScreen(),
           ),
@@ -209,23 +236,27 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           ),
           GoRoute(
             path: '/profile/verification/processing',
-            builder: (context, state) =>
-                const VerificationStatusScreen(status: VerificationStatus.pending),
+            builder: (context, state) => const VerificationStatusScreen(
+              status: VerificationStatus.pending,
+            ),
           ),
           GoRoute(
             path: '/profile/verification/successful',
-            builder: (context, state) =>
-                const VerificationStatusScreen(status: VerificationStatus.verified),
+            builder: (context, state) => const VerificationStatusScreen(
+              status: VerificationStatus.verified,
+            ),
           ),
           GoRoute(
             path: '/profile/verification/rejected',
-            builder: (context, state) =>
-                const VerificationStatusScreen(status: VerificationStatus.rejected),
+            builder: (context, state) => const VerificationStatusScreen(
+              status: VerificationStatus.rejected,
+            ),
           ),
           GoRoute(
             path: '/profile/verification/expired',
-            builder: (context, state) =>
-                const VerificationStatusScreen(status: VerificationStatus.expired),
+            builder: (context, state) => const VerificationStatusScreen(
+              status: VerificationStatus.expired,
+            ),
           ),
           GoRoute(
             path: '/profile/settings/deposit-limits',
@@ -233,7 +264,8 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           ),
           GoRoute(
             path: '/profile/settings/stake-limits',
-            builder: (context, state) => const LimitEditorScreen(deposit: false),
+            builder: (context, state) =>
+                const LimitEditorScreen(deposit: false),
           ),
           GoRoute(
             path: '/profile/settings/take-a-break',
@@ -726,7 +758,6 @@ VerificationCheckType _verificationType(String? raw) =>
       (type) => type.wireValue == raw,
       orElse: () => VerificationCheckType.idDocument,
     );
-
 
 /// Pure form of the auth gate so the redirect above can log both the requested
 /// location and where it resolved to.

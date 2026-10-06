@@ -4,10 +4,12 @@ import 'dart:typed_data';
 import 'package:dio/dio.dart';
 import 'package:draughts_arena/config/backend_contract.dart';
 import 'package:draughts_arena/models/deposit_flow.dart';
+import 'package:draughts_arena/models/dispute.dart';
 import 'package:draughts_arena/models/game_state.dart';
 import 'package:draughts_arena/models/match_flow.dart';
 import 'package:draughts_arena/models/withdrawal_flow.dart';
 import 'package:draughts_arena/services/deposit_gateway.dart';
+import 'package:draughts_arena/services/dispute_gateway.dart';
 import 'package:draughts_arena/services/match_flow_gateway.dart';
 import 'package:draughts_arena/services/settlement_gateway.dart';
 import 'package:draughts_arena/services/socket_service.dart';
@@ -22,9 +24,10 @@ const v2 = BackendContractConfig(BackendContractMode.v2);
 
 class RecordingAdapter implements HttpClientAdapter {
   final requests = <RequestOptions>[];
-  final _responses = <Object>[];
+  final _responses = <(int, Object)>[];
 
-  void enqueue(Object response) => _responses.add(response);
+  void enqueue(Object response, {int status = 200}) =>
+      _responses.add((status, response));
 
   @override
   Future<ResponseBody> fetch(
@@ -38,9 +41,10 @@ class RecordingAdapter implements HttpClientAdapter {
         'No response queued for ${options.method} ${options.path}',
       );
     }
+    final (status, response) = _responses.removeAt(0);
     return ResponseBody.fromString(
-      jsonEncode(_responses.removeAt(0)),
-      200,
+      jsonEncode(response),
+      status,
       headers: {
         Headers.contentTypeHeader: ['application/json'],
       },
@@ -371,10 +375,7 @@ void main() {
         Map<String, dynamic>.from(adapter.requests[1].data as Map),
         containsPair('amountMinorUnits', 2000000),
       );
-      expect(
-        adapter.requests[1].data as Map,
-        isNot(contains('amountMinor')),
-      );
+      expect(adapter.requests[1].data as Map, isNot(contains('amountMinor')));
       expect(
         adapter.requests[1].headers['Idempotency-Key'],
         'withdrawal-key-1',
@@ -436,5 +437,98 @@ void main() {
         throwsA(anything),
       );
     });
+  });
+
+  group('PR11 dispute V2 contract', () {
+    final match = DisputeMatchSummary(matchId: 'mat_9', opponentName: 'Otto');
+
+    test(
+      'submits on the documented player route with an idempotency key',
+      () async {
+        final (dio, adapter) = client();
+        // The backend answers 201 with a flat body and no timestamps.
+        adapter.enqueue({
+          'disputeId': 'd3f1a2b4-5678-4cde-9012-3456789abcde',
+          'status': 'OPEN',
+          'matchId': 'mat_9',
+          'category': 'SUSPECTED_CHEATING',
+        });
+
+        final submitted = await BackendDisputeGateway(dio).submit(
+          match: match,
+          reason: DisputeReason.suspectedCheating,
+          details: 'They used an engine.',
+        );
+
+        final request = adapter.requests.single;
+        expect(request.method, 'POST');
+        expect(
+          wireUrl(request),
+          'https://api.example.test/api/v1/matches/mat_9/disputes',
+        );
+        final idempotencyKey = request.headers['Idempotency-Key']?.toString();
+        expect(idempotencyKey, matches(RegExp(r'^[A-Za-z0-9._:-]{8,128}$')));
+        expect(request.data, {
+          'category': 'SUSPECTED_CHEATING',
+          'message': 'They used an engine.',
+        });
+        expect(submitted?.id, 'd3f1a2b4-5678-4cde-9012-3456789abcde');
+        expect(submitted?.status, DisputeStatus.open);
+        expect(submitted?.matchId, 'mat_9');
+      },
+    );
+
+    test(
+      'sends the reason label as the message when details are blank',
+      () async {
+        final (dio, adapter) = client();
+        adapter.enqueue({
+          'disputeId': 'd3f1a2b4-5678-4cde-9012-3456789abcde',
+          'status': 'OPEN',
+          'matchId': 'mat_9',
+          'category': 'SUSPECTED_CHEATING',
+        });
+
+        await BackendDisputeGateway(dio).submit(
+          match: match,
+          reason: DisputeReason.suspectedCheating,
+          details: '   ',
+        );
+
+        expect(adapter.requests.single.data, {
+          'category': 'SUSPECTED_CHEATING',
+          'message': 'Suspected cheating',
+        });
+      },
+    );
+
+    test(
+      'surfaces the backend rejection code as a player-facing message',
+      () async {
+        final (dio, adapter) = client();
+        adapter.enqueue({
+          'error': {
+            'code': 'DISPUTE_WINDOW_EXPIRED',
+            'message': 'Reporting window closed',
+          },
+          'status': 409,
+        }, status: 409);
+
+        await expectLater(
+          BackendDisputeGateway(dio).submit(
+            match: match,
+            reason: DisputeReason.incorrectResult,
+            details: 'Score was wrong.',
+          ),
+          throwsA(
+            isA<DisputeContractError>().having(
+              (error) => error.message,
+              'message',
+              'The reporting window for this match has closed.',
+            ),
+          ),
+        );
+      },
+    );
   });
 }
