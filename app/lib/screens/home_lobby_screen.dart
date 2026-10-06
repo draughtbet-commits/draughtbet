@@ -14,6 +14,7 @@ import '../widgets/balance_card.dart';
 import '../widgets/flow_widgets.dart';
 import '../widgets/lobby_header.dart';
 import '../widgets/notification_bell.dart';
+import '../widgets/results_shortcut.dart';
 
 class HomeLobbyScreen extends ConsumerStatefulWidget {
   const HomeLobbyScreen({super.key});
@@ -69,7 +70,11 @@ class _HomeLobbyScreenState extends ConsumerState<HomeLobbyScreen> {
         toolbarHeight: 64,
         titleSpacing: 16,
         title: const LobbyHeader(),
-        actions: const [NotificationBell(), SizedBox(width: 8)],
+        actions: const [
+          ResultsShortcut(),
+          NotificationBell(),
+          SizedBox(width: 8),
+        ],
       ),
       body: FlowPage(
         child: Column(
