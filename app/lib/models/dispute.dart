@@ -44,6 +44,26 @@ class DisputeMatchSummary {
   final DateTime? playedAt;
 }
 
+/// A durable pointer from a confirmed submission to the server case, kept
+/// so the status screen can be reopened after the flow's in-memory state is
+/// gone. Persisted in secure storage, never treated as server truth.
+class DisputeCaseRef {
+  const DisputeCaseRef({required this.matchId, required this.disputeId});
+
+  final String matchId;
+  final String disputeId;
+
+  Map<String, dynamic> toJson() => {'matchId': matchId, 'disputeId': disputeId};
+
+  static DisputeCaseRef? tryFromJson(dynamic value) {
+    if (value is! Map) return null;
+    final matchId = value['matchId']?.toString().trim() ?? '';
+    final disputeId = value['disputeId']?.toString().trim() ?? '';
+    if (matchId.isEmpty || disputeId.isEmpty) return null;
+    return DisputeCaseRef(matchId: matchId, disputeId: disputeId);
+  }
+}
+
 class DisputeTimelineItem {
   const DisputeTimelineItem({
     required this.label,

@@ -1,7 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/dispute.dart';
 import '../services/dispute_gateway.dart';
+import '../services/secure_storage.dart';
+import 'auth_provider.dart';
 
 enum DisputeLoadPhase {
   initial,
@@ -53,10 +57,15 @@ class DisputeState {
 }
 
 class DisputeNotifier extends StateNotifier<DisputeState> {
-  DisputeNotifier(this._gateway, {DisputeState initial = const DisputeState()})
-    : super(initial);
+  DisputeNotifier(
+    this._gateway, {
+    SecureStorageService? storage,
+    DisputeState initial = const DisputeState(),
+  }) : _storage = storage,
+       super(initial);
 
   final DisputeGateway _gateway;
+  final SecureStorageService? _storage;
 
   void start(DisputeMatchSummary match) {
     state = DisputeState(phase: DisputeLoadPhase.drafting, match: match);
@@ -117,6 +126,10 @@ class DisputeNotifier extends StateNotifier<DisputeState> {
         dispute: dispute,
         clearMessage: true,
       );
+      final storage = _storage;
+      if (storage != null) {
+        unawaited(_remember(storage, dispute));
+      }
       return true;
     } on DisputeContractError catch (error) {
       // The gateway already turned the server's rejection into a message
@@ -135,14 +148,35 @@ class DisputeNotifier extends StateNotifier<DisputeState> {
     }
   }
 
-  Future<bool> refreshStatus([String? disputeId]) async {
+  Future<bool> refreshStatus(
+    String? disputeId, {
+    String? matchId,
+  }) async {
     if (state.busy) return false;
     final id = disputeId ?? state.dispute?.id;
-    final matchId = state.dispute?.matchId;
+    var resolvedMatchId = matchId ?? state.dispute?.matchId;
+    // Reopening the status screen (e.g. from a match result card) has no
+    // in-memory case, so look the match up from the stored submission ref.
+    if ((resolvedMatchId == null || resolvedMatchId.isEmpty) &&
+        id != null &&
+        id.isNotEmpty &&
+        _storage != null) {
+      try {
+        final refs = await _storage.loadDisputeRefs();
+        for (final entry in refs) {
+          if (entry.disputeId == id) {
+            resolvedMatchId = entry.matchId;
+            break;
+          }
+        }
+      } catch (_) {
+        // A storage read failure must not make the refresh appear to crash.
+      }
+    }
     if (id == null ||
         id.isEmpty ||
-        matchId == null ||
-        matchId.isEmpty ||
+        resolvedMatchId == null ||
+        resolvedMatchId.isEmpty ||
         !_gateway.statusContractAvailable) {
       state = state.copyWith(
         phase: DisputeLoadPhase.unavailable,
@@ -156,7 +190,7 @@ class DisputeNotifier extends StateNotifier<DisputeState> {
     );
     try {
       final dispute = await _gateway.fetchStatus(
-        matchId: matchId,
+        matchId: resolvedMatchId,
         disputeId: id,
       );
       if (dispute == null || dispute.id != id) {
@@ -182,8 +216,24 @@ class DisputeNotifier extends StateNotifier<DisputeState> {
   }
 
   void clear() => state = const DisputeState();
+
+  Future<void> _remember(
+    SecureStorageService storage,
+    DisputeCaseData dispute,
+  ) async {
+    try {
+      await storage.storeDisputeRef(
+        DisputeCaseRef(matchId: dispute.matchId, disputeId: dispute.id),
+      );
+    } catch (_) {
+      // Storage must never make a confirmed submission look failed.
+    }
+  }
 }
 
 final disputeProvider = StateNotifierProvider<DisputeNotifier, DisputeState>(
-  (ref) => DisputeNotifier(ref.watch(disputeGatewayProvider)),
+  (ref) => DisputeNotifier(
+    ref.watch(disputeGatewayProvider),
+    storage: ref.watch(secureStorageProvider),
+  ),
 );

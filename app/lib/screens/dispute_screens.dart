@@ -406,11 +406,13 @@ class DisputeSubmittedScreen extends ConsumerWidget {
 class DisputeStatusScreen extends ConsumerStatefulWidget {
   const DisputeStatusScreen({
     this.disputeId,
+    this.matchId,
     this.autoRefresh = true,
     super.key,
   });
 
   final String? disputeId;
+  final String? matchId;
   final bool autoRefresh;
 
   @override
@@ -425,7 +427,9 @@ class _DisputeStatusScreenState extends ConsumerState<DisputeStatusScreen> {
     if (widget.autoRefresh) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
-          ref.read(disputeProvider.notifier).refreshStatus(widget.disputeId);
+          ref
+              .read(disputeProvider.notifier)
+              .refreshStatus(widget.disputeId, matchId: widget.matchId);
         }
       });
     }
@@ -443,7 +447,7 @@ class _DisputeStatusScreenState extends ConsumerState<DisputeStatusScreen> {
           message: state.message ?? 'Dispute status is not available.',
           onRetry: () => ref
               .read(disputeProvider.notifier)
-              .refreshStatus(widget.disputeId),
+              .refreshStatus(widget.disputeId, matchId: widget.matchId),
         ),
       );
     }
@@ -536,7 +540,7 @@ class _DisputeStatusScreenState extends ConsumerState<DisputeStatusScreen> {
                 ? null
                 : () => ref
                       .read(disputeProvider.notifier)
-                      .refreshStatus(dispute.id),
+                      .refreshStatus(dispute.id, matchId: dispute.matchId),
           ),
           const SizedBox(height: 8),
           SecondaryActionButton(

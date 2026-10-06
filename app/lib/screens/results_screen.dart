@@ -30,6 +30,9 @@ class _ResultsScreenState extends ConsumerState<ResultsScreen> {
   // through the public player directory. '' marks a lookup that failed so the
   // row does not refetch on every rebuild.
   final Map<String, String> _opponentNames = {};
+  // Match id -> stored case ref for submissions, so a reported row becomes a
+  // "View status" entry instead of a dead "Report match" tap.
+  final Map<String, DisputeCaseRef> _reportedDisputes = {};
 
   @override
   void initState() {
@@ -67,6 +70,7 @@ class _ResultsScreenState extends ConsumerState<ResultsScreen> {
             _isLoading = false;
           });
           unawaited(_resolveOpponentNames());
+          unawaited(_loadReportedDisputes());
         }
       } else {
         if (mounted) {
@@ -83,6 +87,20 @@ class _ResultsScreenState extends ConsumerState<ResultsScreen> {
           _isLoading = false;
         });
       }
+    }
+  }
+
+  Future<void> _loadReportedDisputes() async {
+    try {
+      final refs = await ref.read(secureStorageProvider).loadDisputeRefs();
+      if (!mounted || refs.isEmpty) return;
+      setState(() {
+        _reportedDisputes
+          ..clear()
+          ..addEntries(refs.map((entry) => MapEntry(entry.matchId, entry)));
+      });
+    } catch (_) {
+      // A storage read must never block the results list from rendering.
     }
   }
 
@@ -279,14 +297,23 @@ class _ResultsScreenState extends ConsumerState<ResultsScreen> {
                   resultIcon = LucideIcons.circleHelp;
                 }
 
-                final matchId = m['id']?.toString() ?? '';
+                final matchId =
+                    m['id']?.toString() ?? m['matchId']?.toString() ?? '';
+                final DisputeCaseRef? reported = _reportedDisputes[matchId];
                 return Semantics(
                   button: true,
-                  label: 'Report match against $opponentName',
+                  label: reported == null
+                      ? 'Report match against $opponentName'
+                      : 'View dispute status for match against $opponentName',
                   child: InkWell(
                     borderRadius: BorderRadius.circular(12),
                     onTap: matchId.isEmpty
                         ? null
+                        : reported != null
+                        ? () => context.push(
+                            '/profile/dispute-status'
+                            '?id=${reported.disputeId}&match=$matchId',
+                          )
                         : () => context.push(
                             '/profile/report-match',
                             extra: DisputeMatchSummary(
@@ -383,6 +410,16 @@ class _ResultsScreenState extends ConsumerState<ResultsScreen> {
                                         ).format(endedAt.toLocal()),
                                   style: AppTypography.bodySmall,
                                 ),
+                                if (reported != null) ...[
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    'Reported · View status',
+                                    style: AppTypography.bodySmall.copyWith(
+                                      fontSize: 11,
+                                      color: AppColors.gold500,
+                                    ),
+                                  ),
+                                ],
                               ],
                             ),
                           ),

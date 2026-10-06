@@ -72,12 +72,16 @@ String wireUrl(RequestOptions request) => '${request.baseUrl}${request.path}';
 /// Supplies a fixed signed-in id. [SecureStorageService] reads a platform
 /// channel that never answers under `flutter test`, so the real one hangs.
 class FixedSecureStorage extends SecureStorageService {
-  FixedSecureStorage(this.userIdValue);
+  FixedSecureStorage(this.userIdValue, {this.disputeRefs = const []});
 
   final String userIdValue;
+  final List<DisputeCaseRef> disputeRefs;
 
   @override
   Future<String?> get userId async => userIdValue;
+
+  @override
+  Future<List<DisputeCaseRef>> loadDisputeRefs() async => disputeRefs;
 }
 
 void main() {
@@ -254,6 +258,55 @@ void main() {
       );
       expect(find.text('vs dark_handle'), findsOneWidget);
       expect(find.text('Opponent unavailable'), findsNothing);
+    });
+
+    testWidgets('a reported match row becomes a view-status entry', (
+      tester,
+    ) async {
+      final (dio, adapter) = client();
+      adapter.enqueue({
+        'data': [
+          {
+            'matchId': 'mat_1',
+            'playerLightId': 'usr_me',
+            'playerDarkId': 'usr_opp',
+            'outcome': 'LOST',
+            'stakeMinor': 200000,
+          },
+        ],
+      });
+      adapter.enqueue({
+        'data': {'player': {'id': 'usr_opp', 'username': 'dark_handle'}},
+      });
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            apiClientProvider.overrideWithValue(dio),
+            backendContractProvider.overrideWithValue(v2),
+            secureStorageProvider.overrideWithValue(
+              FixedSecureStorage(
+                'usr_me',
+                disputeRefs: const [
+                  DisputeCaseRef(matchId: 'mat_1', disputeId: 'drp_1'),
+                ],
+              ),
+            ),
+          ],
+          child: const MaterialApp(home: ResultsScreen()),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Reported · View status'), findsOneWidget);
+      final semantics = tester.ensureSemantics();
+      expect(
+        find.bySemanticsLabel(
+          RegExp('View dispute status for match against dark_handle'),
+        ),
+        findsOneWidget,
+      );
+      semantics.dispose();
     });
 
     test('reads the immutable receipt without deriving the winner', () async {

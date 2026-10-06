@@ -183,8 +183,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           ),
           GoRoute(
             path: '/profile/dispute-status',
-            builder: (context, state) =>
-                DisputeStatusScreen(disputeId: state.uri.queryParameters['id']),
+            builder: (context, state) => DisputeStatusScreen(
+              disputeId: state.uri.queryParameters['id'],
+              matchId: state.uri.queryParameters['match'],
+            ),
           ),
           GoRoute(
             path: '/profile/notifications',

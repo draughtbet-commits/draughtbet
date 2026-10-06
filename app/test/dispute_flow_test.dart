@@ -5,6 +5,7 @@ import 'package:draughts_arena/models/dispute.dart';
 import 'package:draughts_arena/providers/dispute_provider.dart';
 import 'package:draughts_arena/screens/dispute_screens.dart';
 import 'package:draughts_arena/services/dispute_gateway.dart';
+import 'package:draughts_arena/services/secure_storage.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -62,6 +63,28 @@ class _FakeGateway implements DisputeGateway {
   }) {
     submitCount++;
     return pendingSubmit?.future ?? Future.value(result);
+  }
+}
+
+class _MemoryDisputeStorage extends SecureStorageService {
+  _MemoryDisputeStorage([List<DisputeCaseRef> refs = const []])
+    : refs = [...refs];
+
+  List<DisputeCaseRef> refs;
+
+  @override
+  Future<List<DisputeCaseRef>> loadDisputeRefs() async => List.unmodifiable(
+    refs,
+  );
+
+  @override
+  Future<void> storeDisputeRef(DisputeCaseRef ref) async {
+    refs = [
+      for (final entry in refs)
+        if (entry.matchId != ref.matchId && entry.disputeId != ref.disputeId)
+          entry,
+      ref,
+    ];
   }
 }
 
@@ -209,6 +232,31 @@ void main() {
       expect(notifier.state.phase, DisputeLoadPhase.unavailable);
     },
   );
+
+  test('a confirmed submission is remembered in secure storage', () async {
+    final gateway = _FakeGateway(result: _case);
+    final storage = _MemoryDisputeStorage();
+    final notifier = DisputeNotifier(gateway, storage: storage)
+      ..start(_match)
+      ..selectReason(DisputeReason.suspectedCheating);
+    expect(await notifier.submit(), isTrue);
+    await pumpEventQueue();
+    final stored = storage.refs.single;
+    expect(stored.matchId, 'match-214567');
+    expect(stored.disputeId, 'DRP89231');
+  });
+
+  test('status refresh recovers the match from the stored ref', () async {
+    final gateway = _FakeGateway(result: _case);
+    final storage = _MemoryDisputeStorage([
+      const DisputeCaseRef(matchId: 'match-214567', disputeId: 'DRP89231'),
+    ]);
+    final notifier = DisputeNotifier(gateway, storage: storage);
+    expect(await notifier.refreshStatus('DRP89231'), isTrue);
+    expect(gateway.fetchCount, 1);
+    expect(notifier.state.dispute?.matchId, 'match-214567');
+    expect(notifier.state.dispute?.status, DisputeStatus.underReview);
+  });
 
   testWidgets('report and reason screens navigate through the approved flow', (
     tester,

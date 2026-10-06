@@ -1,4 +1,8 @@
+import 'dart:convert';
+
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+
+import '../models/dispute.dart';
 
 /// Central wrapper around [FlutterSecureStorage].
 ///
@@ -19,6 +23,7 @@ class SecureStorageService {
   // persist the id. The old reference key is kept only to clear on logout.
   static const _activeWithdrawalIdKey = 'active_withdrawal_id';
   static const _activeWithdrawalReferenceKey = 'active_withdrawal_reference';
+  static const _submittedDisputesKey = 'submitted_disputes';
 
   final FlutterSecureStorage _storage;
 
@@ -30,6 +35,31 @@ class SecureStorageService {
       _storage.read(key: _activeDepositReferenceKey);
   Future<String?> get activeWithdrawalId =>
       _storage.read(key: _activeWithdrawalIdKey);
+
+  Future<List<DisputeCaseRef>> loadDisputeRefs() async {
+    final raw = await _storage.read(key: _submittedDisputesKey);
+    if (raw == null || raw.isEmpty) return const [];
+    final parsed = jsonDecode(raw);
+    if (parsed is! List) return const [];
+    return parsed
+        .map(DisputeCaseRef.tryFromJson)
+        .whereType<DisputeCaseRef>()
+        .toList(growable: false);
+  }
+
+  Future<void> storeDisputeRef(DisputeCaseRef ref) async {
+    final existing = await loadDisputeRefs();
+    final next = <DisputeCaseRef>[
+      for (final entry in existing)
+        if (entry.matchId != ref.matchId && entry.disputeId != ref.disputeId)
+          entry,
+      ref,
+    ];
+    await _storage.write(
+      key: _submittedDisputesKey,
+      value: jsonEncode([for (final entry in next) entry.toJson()]),
+    );
+  }
 
   Future<void> setAccessToken(String token) =>
       _storage.write(key: _accessTokenKey, value: token);
@@ -70,6 +100,7 @@ class SecureStorageService {
     await _storage.delete(key: _activeDepositReferenceKey);
     await _storage.delete(key: _activeWithdrawalIdKey);
     await _storage.delete(key: _activeWithdrawalReferenceKey);
+    await _storage.delete(key: _submittedDisputesKey);
   }
 
   Future<String?> read({required String key}) => _storage.read(key: key);
