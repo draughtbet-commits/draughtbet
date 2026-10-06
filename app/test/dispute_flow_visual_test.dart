@@ -40,7 +40,10 @@ class _VisualGateway implements DisputeGateway {
   bool get statusContractAvailable => true;
 
   @override
-  Future<DisputeCaseData?> fetchStatus(String disputeId) async => result;
+  Future<DisputeCaseData?> fetchStatus({
+    required String matchId,
+    required String disputeId,
+  }) async => result;
 
   @override
   Future<DisputeCaseData?> submit({

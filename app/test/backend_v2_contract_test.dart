@@ -585,5 +585,43 @@ void main() {
         );
       },
     );
+
+    test(
+      'reads the participant status back on the documented route',
+      () async {
+        final (dio, adapter) = client();
+        adapter.enqueue({
+          'dispute': {
+            'id': 'd3f1a2b4-5678-4cde-9012-3456789abcde',
+            'matchId': 'mat_9',
+            'status': 'UNDER_REVIEW',
+            'reason': 'They used an engine.',
+            'category': 'SUSPECTED_CHEATING',
+            'resolution': null,
+            'createdAt': '2026-09-28T20:03:00.000Z',
+            'updatedAt': '2026-09-28T22:17:00.000Z',
+          },
+        });
+
+        final seen = await BackendDisputeGateway(dio).fetchStatus(
+          matchId: 'mat_9',
+          disputeId: 'd3f1a2b4-5678-4cde-9012-3456789abcde',
+        );
+
+        final request = adapter.requests.single;
+        expect(request.method, 'GET');
+        expect(
+          wireUrl(request),
+          'https://api.example.test/api/v1/matches/mat_9'
+          '/disputes/d3f1a2b4-5678-4cde-9012-3456789abcde',
+        );
+        expect(seen?.id, 'd3f1a2b4-5678-4cde-9012-3456789abcde');
+        expect(seen?.matchId, 'mat_9');
+        expect(seen?.status, DisputeStatus.underReview);
+        expect(seen?.reason, 'They used an engine.');
+        expect(seen?.createdAt, DateTime.utc(2026, 9, 28, 20, 3));
+        expect(seen?.updatedAt, DateTime.utc(2026, 9, 28, 22, 17));
+      },
+    );
   });
 }

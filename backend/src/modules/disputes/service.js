@@ -108,6 +108,19 @@ export const addDisputeEvidence = async (caseId, { type, url, description = null
   });
 };
 
+export const getParticipantDispute = async ({ matchId, disputeId, userId }) => {
+  const dispute = await prisma.disputeCase.findUnique({
+    where: { id: disputeId },
+    include: { evidence: { orderBy: { uploadedAt: 'asc' } } }
+  });
+  // A wrong id, a case on a different match, or a case you did not raise all
+  // answer 404 so one player cannot probe another's report.
+  if (!dispute || dispute.matchId !== matchId || dispute.raisedBy !== userId) {
+    throw new DisputeCaseNotFoundError();
+  }
+  return dispute;
+};
+
 export const raiseDispute = async (matchId, userId, { category = null, message, evidence = [] }) => {
   const match = await prisma.match.findUnique({
     where: { id: matchId },

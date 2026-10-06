@@ -46,7 +46,10 @@ class _FakeGateway implements DisputeGateway {
   bool get statusContractAvailable => statusAvailable;
 
   @override
-  Future<DisputeCaseData?> fetchStatus(String disputeId) async {
+  Future<DisputeCaseData?> fetchStatus({
+    required String matchId,
+    required String disputeId,
+  }) async {
     fetchCount++;
     return result;
   }
@@ -142,10 +145,10 @@ void main() {
     );
   });
 
-  test('production gateway exposes submit but not status', () {
+  test('production gateway exposes submit and status reads', () {
     final gateway = BackendDisputeGateway(Dio());
     expect(gateway.playerContractAvailable, isTrue);
-    expect(gateway.statusContractAvailable, isFalse);
+    expect(gateway.statusContractAvailable, isTrue);
   });
 
   test('missing contract never claims that a dispute was submitted', () async {
@@ -190,7 +193,7 @@ void main() {
   });
 
   test(
-    'status refresh fails closed while no player status route exists',
+    'status refresh fails closed while the status contract is unavailable',
     () async {
       final gateway = _FakeGateway(result: _case, statusAvailable: false);
       final notifier = DisputeNotifier(

@@ -228,3 +228,72 @@ describe('POST /matches/:matchId/disputes (participant raise)', () => {
     expect(noKey.body.error.code).toBe('IDEMPOTENCY_KEY_REQUIRED');
   });
 });
+
+describe('GET /matches/:matchId/disputes/:disputeId (participant status read)', () => {
+  const OWNED = {
+    id: 'dc1',
+    matchId: 'm1',
+    raisedBy: 'u1',
+    category: 'TECHNICAL_RESULT',
+    reason: 'Wrong winner was recorded',
+    status: 'UNDER_REVIEW',
+    resolution: null,
+    createdAt: new Date('2026-09-28T20:03:00Z'),
+    updatedAt: new Date('2026-09-28T22:17:00Z'),
+    evidence: []
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockPrisma.disputeCase.findUnique.mockResolvedValue({ ...OWNED });
+  });
+
+  it('returns the raiser their own case with evidence', async () => {
+    const token = await tokenFor('u1');
+
+    const res = await request(app).get('/api/v1/matches/m1/disputes/dc1').set('Authorization', `Bearer ${token}`);
+
+    expect(res.status).toBe(200);
+    expect(mockPrisma.disputeCase.findUnique).toHaveBeenCalledWith({
+      where: { id: 'dc1' },
+      include: { evidence: { orderBy: { uploadedAt: 'asc' } } }
+    });
+    expect(res.body.dispute).toMatchObject({
+      id: 'dc1',
+      matchId: 'm1',
+      status: 'UNDER_REVIEW',
+      reason: 'Wrong winner was recorded',
+      evidence: []
+    });
+  });
+
+  it('refuses a case the caller did not raise', async () => {
+    mockPrisma.disputeCase.findUnique.mockResolvedValue({ ...OWNED, raisedBy: 'u2' });
+    const token = await tokenFor('u3');
+
+    const res = await request(app).get('/api/v1/matches/m1/disputes/dc1').set('Authorization', `Bearer ${token}`);
+
+    expect(res.status).toBe(404);
+    expect(res.body.error.code).toBe('DISPUTE_NOT_FOUND');
+  });
+
+  it('refuses a case on a different match than the URL claims', async () => {
+    mockPrisma.disputeCase.findUnique.mockResolvedValue({ ...OWNED, matchId: 'm-other' });
+    const token = await tokenFor('u1');
+
+    const res = await request(app).get('/api/v1/matches/m1/disputes/dc1').set('Authorization', `Bearer ${token}`);
+
+    expect(res.status).toBe(404);
+    expect(res.body.error.code).toBe('DISPUTE_NOT_FOUND');
+  });
+
+  it('answers 404 for an unknown dispute id', async () => {
+    mockPrisma.disputeCase.findUnique.mockResolvedValue(null);
+    const token = await tokenFor('u1');
+
+    const res = await request(app).get('/api/v1/matches/m1/disputes/ghost').set('Authorization', `Bearer ${token}`);
+
+    expect(res.status).toBe(404);
+    expect(res.body.error.code).toBe('DISPUTE_NOT_FOUND');
+  });
+});

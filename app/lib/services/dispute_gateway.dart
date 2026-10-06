@@ -9,8 +9,8 @@ abstract interface class DisputeGateway {
   /// The player submit route is served by the backend.
   bool get playerContractAvailable;
 
-  /// A player-facing dispute status read. Until the backend ships one this
-  /// stays false so the status screen never claims a contract it cannot use.
+  /// A player-facing dispute status read, served by the backend's
+  /// GET /api/v1/matches/:matchId/disputes/:disputeId route.
   bool get statusContractAvailable;
 
   Future<DisputeCaseData?> submit({
@@ -19,7 +19,10 @@ abstract interface class DisputeGateway {
     required String details,
   });
 
-  Future<DisputeCaseData?> fetchStatus(String disputeId);
+  Future<DisputeCaseData?> fetchStatus({
+    required String matchId,
+    required String disputeId,
+  });
 }
 
 /// Raised when the server rejects a dispute submit. The message is already
@@ -42,11 +45,10 @@ class BackendDisputeGateway implements DisputeGateway {
   @override
   bool get playerContractAvailable => true;
 
-  // The only dispute read is the admin DISPUTES_MANAGE list, which a player
-  // cannot call, so status refresh stays unavailable until a player route
-  // exists.
+  // The player status read is served by the backend on the same match-scoped
+  // surface as the submit route.
   @override
-  bool get statusContractAvailable => false;
+  bool get statusContractAvailable => true;
 
   @override
   Future<DisputeCaseData?> submit({
@@ -80,7 +82,22 @@ class BackendDisputeGateway implements DisputeGateway {
   }
 
   @override
-  Future<DisputeCaseData?> fetchStatus(String disputeId) async => null;
+  Future<DisputeCaseData?> fetchStatus({
+    required String matchId,
+    required String disputeId,
+  }) async {
+    try {
+      final response = await _dio.get<dynamic>(
+        '/matches/${Uri.encodeComponent(matchId)}'
+        '/disputes/${Uri.encodeComponent(disputeId)}',
+      );
+      return DisputeCaseData.tryFromServer(response.data);
+    } on DioException {
+      // A transport or 4xx/5xx read leaves the status screen on its
+      // fail-closed state; the provider decides how to phrase that.
+      return null;
+    }
+  }
 
   String _submitFailureMessage(DioException error) {
     // A transport failure has no response body to read a code from.

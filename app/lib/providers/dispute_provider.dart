@@ -138,7 +138,12 @@ class DisputeNotifier extends StateNotifier<DisputeState> {
   Future<bool> refreshStatus([String? disputeId]) async {
     if (state.busy) return false;
     final id = disputeId ?? state.dispute?.id;
-    if (id == null || id.isEmpty || !_gateway.statusContractAvailable) {
+    final matchId = state.dispute?.matchId;
+    if (id == null ||
+        id.isEmpty ||
+        matchId == null ||
+        matchId.isEmpty ||
+        !_gateway.statusContractAvailable) {
       state = state.copyWith(
         phase: DisputeLoadPhase.unavailable,
         message: 'Dispute status is temporarily unavailable.',
@@ -150,7 +155,10 @@ class DisputeNotifier extends StateNotifier<DisputeState> {
       clearMessage: true,
     );
     try {
-      final dispute = await _gateway.fetchStatus(id);
+      final dispute = await _gateway.fetchStatus(
+        matchId: matchId,
+        disputeId: id,
+      );
       if (dispute == null || dispute.id != id) {
         state = state.copyWith(
           phase: DisputeLoadPhase.unavailable,

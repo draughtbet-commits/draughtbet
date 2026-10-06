@@ -13,6 +13,7 @@ import {
   addDisputeEvidence,
   raiseDispute,
   decideDispute,
+  getParticipantDispute,
   DisputeCaseNotFoundError,
   DisputeCaseNotReviewableError,
   DisputeNotEligibleError,
@@ -218,6 +219,22 @@ disputeUserRouter.post('/:matchId/disputes', requireIdempotencyKey({ scope: 'use
     }
     if (error instanceof DuplicateDisputeError || error?.name === 'DuplicateDisputeError') {
       return res.status(409).json({ error: { code: 'DUPLICATE_DISPUTE', message: error.message } });
+    }
+    next(error);
+  }
+});
+
+disputeUserRouter.get('/:matchId/disputes/:disputeId', async (req, res, next) => {
+  try {
+    const dispute = await getParticipantDispute({
+      matchId: req.params.matchId,
+      disputeId: req.params.disputeId,
+      userId: req.user.id
+    });
+    res.json({ dispute });
+  } catch (error) {
+    if (error instanceof DisputeCaseNotFoundError || error?.name === 'DisputeCaseNotFoundError') {
+      return res.status(404).json({ error: { code: 'DISPUTE_NOT_FOUND', message: error.message } });
     }
     next(error);
   }
