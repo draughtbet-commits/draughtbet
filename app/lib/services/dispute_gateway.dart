@@ -23,6 +23,15 @@ abstract interface class DisputeGateway {
     required String matchId,
     required String disputeId,
   });
+
+  /// Reconciles a locally remembered submission ref against the server.
+  /// `true` the case still exists, `false` it was cleared/not found, `null`
+  /// when the server could not be reached (keep the ref rather than prune on
+  /// a transient network blip).
+  Future<bool?> caseExists({
+    required String matchId,
+    required String disputeId,
+  });
 }
 
 /// Raised when the server rejects a dispute submit. The message is already
@@ -95,6 +104,23 @@ class BackendDisputeGateway implements DisputeGateway {
     } on DioException {
       // A transport or 4xx/5xx read leaves the status screen on its
       // fail-closed state; the provider decides how to phrase that.
+      return null;
+    }
+  }
+
+  @override
+  Future<bool?> caseExists({
+    required String matchId,
+    required String disputeId,
+  }) async {
+    try {
+      final response = await _dio.get<dynamic>(
+        '/matches/${Uri.encodeComponent(matchId)}'
+        '/disputes/${Uri.encodeComponent(disputeId)}',
+      );
+      return response.statusCode == 200;
+    } on DioException catch (error) {
+      if (error.response?.statusCode == 404) return false;
       return null;
     }
   }

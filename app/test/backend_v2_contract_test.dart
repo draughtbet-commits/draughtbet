@@ -80,8 +80,53 @@ class FixedSecureStorage extends SecureStorageService {
   @override
   Future<String?> get userId async => userIdValue;
 
+  DisputeCaseRef? savedRef;
+  bool dropRefs = false;
+
   @override
-  Future<List<DisputeCaseRef>> loadDisputeRefs() async => disputeRefs;
+  Future<List<DisputeCaseRef>> loadDisputeRefs() async =>
+      dropRefs ? const [] : disputeRefs;
+
+  @override
+  Future<void> storeDisputeRef(DisputeCaseRef ref) async {
+    savedRef = ref;
+  }
+
+  @override
+  Future<void> saveDisputeRefs(List<DisputeCaseRef> refs) async {
+    dropRefs = true;
+  }
+}
+
+class _StubDisputeGateway implements DisputeGateway {
+  _StubDisputeGateway({this.exists = true});
+
+  final bool exists;
+
+  @override
+  bool get playerContractAvailable => true;
+
+  @override
+  bool get statusContractAvailable => true;
+
+  @override
+  Future<DisputeCaseData?> submit({
+    required DisputeMatchSummary match,
+    required DisputeReason reason,
+    required String details,
+  }) async => null;
+
+  @override
+  Future<DisputeCaseData?> fetchStatus({
+    required String matchId,
+    required String disputeId,
+  }) async => null;
+
+  @override
+  Future<bool?> caseExists({
+    required String matchId,
+    required String disputeId,
+  }) async => exists;
 }
 
 void main() {
@@ -292,6 +337,7 @@ void main() {
                 ],
               ),
             ),
+            disputeGatewayProvider.overrideWithValue(_StubDisputeGateway()),
           ],
           child: const MaterialApp(home: ResultsScreen()),
         ),
@@ -307,6 +353,50 @@ void main() {
         findsOneWidget,
       );
       semantics.dispose();
+    });
+
+    testWidgets('a cleared server case no longer leaves a reported row', (
+      tester,
+    ) async {
+      final storage = FixedSecureStorage(
+        'usr_me',
+        disputeRefs: const [
+          DisputeCaseRef(matchId: 'mat_1', disputeId: 'drp_1'),
+        ],
+      );
+      final (dio, adapter) = client();
+      adapter.enqueue({
+        'data': [
+          {
+            'matchId': 'mat_1',
+            'playerLightId': 'usr_me',
+            'playerDarkId': 'usr_opp',
+            'outcome': 'LOST',
+            'stakeMinor': 200000,
+          },
+        ],
+      });
+      adapter.enqueue({
+        'data': {'player': {'id': 'usr_opp', 'username': 'dark_handle'}},
+      });
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            apiClientProvider.overrideWithValue(dio),
+            backendContractProvider.overrideWithValue(v2),
+            secureStorageProvider.overrideWithValue(storage),
+            disputeGatewayProvider.overrideWithValue(
+              _StubDisputeGateway(exists: false),
+            ),
+          ],
+          child: const MaterialApp(home: ResultsScreen()),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Reported · View status'), findsNothing);
+      expect(storage.dropRefs, isTrue);
     });
 
     test('reads the immutable receipt without deriving the winner', () async {

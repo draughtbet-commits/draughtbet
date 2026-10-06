@@ -56,6 +56,12 @@ class _FakeGateway implements DisputeGateway {
   }
 
   @override
+  Future<bool?> caseExists({
+    required String matchId,
+    required String disputeId,
+  }) async => result != null;
+
+  @override
   Future<DisputeCaseData?> submit({
     required DisputeMatchSummary match,
     required DisputeReason reason,
@@ -85,6 +91,11 @@ class _MemoryDisputeStorage extends SecureStorageService {
           entry,
       ref,
     ];
+  }
+
+  @override
+  Future<void> saveDisputeRefs(List<DisputeCaseRef> refs) async {
+    this.refs = [...refs];
   }
 }
 

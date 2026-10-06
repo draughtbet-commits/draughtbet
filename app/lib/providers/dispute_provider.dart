@@ -154,6 +154,16 @@ class DisputeNotifier extends StateNotifier<DisputeState> {
   }) async {
     if (state.busy) return false;
     final id = disputeId ?? state.dispute?.id;
+    // The provider holds a single case. Landing on a status screen for a
+    // different report must not keep showing whoever was last displayed, so
+    // reset before the fetch (a 404 should render "not found", not the
+    // previous case).
+    if (disputeId != null &&
+        disputeId.isNotEmpty &&
+        state.dispute?.id != null &&
+        state.dispute!.id != disputeId) {
+      state = DisputeState(phase: DisputeLoadPhase.refreshing);
+    }
     var resolvedMatchId = matchId ?? state.dispute?.matchId;
     // Reopening the status screen (e.g. from a match result card) has no
     // in-memory case, so look the match up from the stored submission ref.
@@ -194,7 +204,7 @@ class DisputeNotifier extends StateNotifier<DisputeState> {
         disputeId: id,
       );
       if (dispute == null || dispute.id != id) {
-        state = state.copyWith(
+        state = const DisputeState(
           phase: DisputeLoadPhase.unavailable,
           message: 'The server did not return a valid dispute status.',
         );
@@ -207,7 +217,7 @@ class DisputeNotifier extends StateNotifier<DisputeState> {
       );
       return true;
     } catch (_) {
-      state = state.copyWith(
+      state = const DisputeState(
         phase: DisputeLoadPhase.error,
         message: 'Dispute status could not be refreshed.',
       );

@@ -46,6 +46,12 @@ class _VisualGateway implements DisputeGateway {
   }) async => result;
 
   @override
+  Future<bool?> caseExists({
+    required String matchId,
+    required String disputeId,
+  }) async => result != null;
+
+  @override
   Future<DisputeCaseData?> submit({
     required DisputeMatchSummary match,
     required DisputeReason reason,

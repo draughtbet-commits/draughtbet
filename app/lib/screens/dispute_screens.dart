@@ -426,11 +426,19 @@ class _DisputeStatusScreenState extends ConsumerState<DisputeStatusScreen> {
     super.initState();
     if (widget.autoRefresh) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) {
-          ref
-              .read(disputeProvider.notifier)
-              .refreshStatus(widget.disputeId, matchId: widget.matchId);
+        if (!mounted) return;
+        final scope = ref.read(disputeProvider);
+        // A single shared case is held globally; a screen opened for a
+        // different report must not show whoever was last displayed while the
+        // fetch runs (or drop the refresh because the old one was in flight).
+        if (widget.disputeId != null &&
+            widget.disputeId!.isNotEmpty &&
+            scope.dispute?.id != widget.disputeId) {
+          ref.read(disputeProvider.notifier).clear();
         }
+        ref
+            .read(disputeProvider.notifier)
+            .refreshStatus(widget.disputeId, matchId: widget.matchId);
       });
     }
   }

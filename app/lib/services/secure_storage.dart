@@ -55,11 +55,16 @@ class SecureStorageService {
           entry,
       ref,
     ];
-    await _storage.write(
-      key: _submittedDisputesKey,
-      value: jsonEncode([for (final entry in next) entry.toJson()]),
-    );
+    await saveDisputeRefs(next);
   }
+
+  /// Replaces the whole remembered-submission list (used when the server has
+  /// dropped a case so a stale "Reported" row stops lingering on the results).
+  Future<void> saveDisputeRefs(List<DisputeCaseRef> refs) =>
+      _storage.write(
+        key: _submittedDisputesKey,
+        value: jsonEncode([for (final entry in refs) entry.toJson()]),
+      );
 
   Future<void> setAccessToken(String token) =>
       _storage.write(key: _accessTokenKey, value: token);

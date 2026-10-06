@@ -10,6 +10,7 @@ import '../models/dispute.dart';
 import '../providers/auth_provider.dart';
 import '../providers/player_discovery_provider.dart';
 import '../services/api_client.dart';
+import '../services/dispute_gateway.dart';
 import '../theme/colors.dart';
 import '../theme/typography.dart';
 
@@ -94,10 +95,36 @@ class _ResultsScreenState extends ConsumerState<ResultsScreen> {
     try {
       final refs = await ref.read(secureStorageProvider).loadDisputeRefs();
       if (!mounted || refs.isEmpty) return;
+      // Prune refs whose case no longer exists server-side (e.g. the admin or
+      // QA cleared it) so a dead "Reported · View status" row does not linger.
+      // A network failure keeps the ref so a transient blip never erases a
+      // submission the user still wants to follow up.
+      final gateway = ref.read(disputeGatewayProvider);
+      var pruned = false;
+      final surviving = <DisputeCaseRef>[];
+      for (final entry in refs) {
+        if (entry.disputeId.isEmpty || entry.matchId.isEmpty) {
+          pruned = true;
+          continue;
+        }
+        if (await gateway.caseExists(
+              matchId: entry.matchId,
+              disputeId: entry.disputeId,
+            ) ==
+            false) {
+          pruned = true;
+          continue;
+        }
+        surviving.add(entry);
+      }
+      if (pruned) {
+        await ref.read(secureStorageProvider).saveDisputeRefs(surviving);
+      }
+      if (!mounted) return;
       setState(() {
         _reportedDisputes
           ..clear()
-          ..addEntries(refs.map((entry) => MapEntry(entry.matchId, entry)));
+          ..addEntries(surviving.map((entry) => MapEntry(entry.matchId, entry)));
       });
     } catch (_) {
       // A storage read must never block the results list from rendering.
