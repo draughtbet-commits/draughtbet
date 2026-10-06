@@ -9,10 +9,21 @@ export class KycProviderError extends Error {
 }
 
 /**
+ * Outcomes SIMULATED_KYC_RESULT may request. `pending` leaves the case open
+ * the way a real provider would, which is what makes the in-review UI and the
+ * admin approve/reject paths reachable without a live provider.
+ */
+export const SIMULATED_KYC_OUTCOMES = Object.freeze({
+  pass: 'PASSED',
+  fail: 'FAILED',
+  pending: 'PENDING'
+});
+
+/**
  * Deterministic in-memory KYC provider. No real verification happens: the
  * adapter interface is the contract a real provider must implement, and the
  * SIMULATED_KYC_RESULT env var drives the outcome so tests and the verify
- * harness can exercise both the PASSED and FAILED paths.
+ * harness can exercise the PASSED, FAILED and still-in-flight paths.
  *
  * It answers inline, so it is the one provider that legitimately reports a
  * result from `start()`. Real providers are asynchronous and declare
@@ -20,7 +31,15 @@ export class KycProviderError extends Error {
  */
 export class SimulatedKycProvider {
   constructor({ result = process.env.SIMULATED_KYC_RESULT || 'pass' } = {}) {
-    this.result = result === 'fail' ? 'FAILED' : 'PASSED';
+    const outcome = SIMULATED_KYC_OUTCOMES[String(result).toLowerCase()];
+    // An unrecognised value throws rather than defaulting: a typo in
+    // SIMULATED_KYC_RESULT must not silently verify everyone.
+    if (!outcome) {
+      throw new KycProviderError(
+        `Unknown SIMULATED_KYC_RESULT "${result}" (expected ${Object.keys(SIMULATED_KYC_OUTCOMES).join(', ')})`
+      );
+    }
+    this.result = outcome;
   }
 
   get mode() {

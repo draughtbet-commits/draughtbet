@@ -448,10 +448,12 @@ export const startVerification = async (
 
   if (result?.status === 'PENDING') {
     // A synchronous provider that has not settled yet: leave the case open
-    // rather than recording a verdict nobody reached.
+    // rather than recording a verdict nobody reached. It still gets an expiry,
+    // because the in-flight guard ignores attempts with a null expiresAt
+    // forever, so a stalled one would lock the player out of retrying.
     await dbp.verificationCase.update({
       where: { id: caseRow.id },
-      data: { status: 'PENDING' }
+      data: { status: 'PENDING', expiresAt: new Date(Date.now() + VERIFICATION_ATTEMPT_TTL_MS) }
     });
     return { status: 'PENDING', caseId: caseRow.id, checkId: check.id };
   }

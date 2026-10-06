@@ -59,6 +59,23 @@ describe('DojahKycProvider', () => {
     expect(new SimulatedKycProvider().mode).toBe('sync');
   });
 
+  it.each([
+    ['pass', 'PASSED'],
+    ['fail', 'FAILED'],
+    ['pending', 'PENDING']
+  ])('drives the simulated outcome from SIMULATED_KYC_RESULT=%s', async (value, expected) => {
+    const provider = new SimulatedKycProvider({ result: value });
+    const started = await provider.start('user-1');
+
+    expect((await provider.getResult(started.providerReference)).status).toBe(expected);
+  });
+
+  it('rejects an unrecognised SIMULATED_KYC_RESULT instead of verifying', async () => {
+    // Defaulting here would approve everyone on a typo, which is the one
+    // outcome the simulated provider must never produce by accident.
+    expect(() => new SimulatedKycProvider({ result: 'pased' })).toThrow(/SIMULATED_KYC_RESULT/);
+  });
+
   it('mints an opaque reference and a widget URL without calling Dojah', async () => {
     const fetchSpy = jest.spyOn(global, 'fetch');
     const provider = new DojahKycProvider();
