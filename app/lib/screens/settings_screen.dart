@@ -19,9 +19,6 @@ class SettingsScreen extends ConsumerStatefulWidget {
 class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   final SecureStorageService _storage = SecureStorageService();
   String _version = '';
-  bool _pushEnabled = true;
-  bool _soundEnabled = true;
-  bool _loadedPrefs = false;
 
   // Account info
   String? _email;
@@ -30,24 +27,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   @override
   void initState() {
     super.initState();
-    _loadPrefs();
     _loadVersion();
     _loadProfile();
-  }
-
-  Future<void> _loadPrefs() async {
-    try {
-      final push = await _storage.read(key: 'pref_push_notifications');
-      final sound = await _storage.read(key: 'pref_sound');
-      if (!mounted) return;
-      setState(() {
-        _pushEnabled = push == null ? true : push == 'true';
-        _soundEnabled = sound == null ? true : sound == 'true';
-        _loadedPrefs = true;
-      });
-    } catch (_) {
-      if (mounted) setState(() => _loadedPrefs = true);
-    }
   }
 
   Future<void> _loadVersion() async {
@@ -73,19 +54,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     } catch (_) {
       // Keep account section minimal if the call fails.
     }
-  }
-
-  Future<void> _togglePush(bool value) async {
-    setState(() => _pushEnabled = value);
-    await _storage.write(
-      key: 'pref_push_notifications',
-      value: value.toString(),
-    );
-  }
-
-  Future<void> _toggleSound(bool value) async {
-    setState(() => _soundEnabled = value);
-    await _storage.write(key: 'pref_sound', value: value.toString());
   }
 
   String get _tierLabel => switch (_tier) {
@@ -295,33 +263,28 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               onTap: () => context.push('/support'),
             ),
             _sectionLabel('Notifications'),
-            if (_loadedPrefs) ...[
-              _tile(
-                icon: LucideIcons.bell,
-                title: 'Push notifications',
-                subtitle: 'Match, wallet and result alerts',
-                trailing: Switch(
-                  value: _pushEnabled,
-                  onChanged: _togglePush,
-                  activeThumbColor: AppColors.gold500,
-                  inactiveThumbColor: AppColors.textMuted,
-                  inactiveTrackColor: AppColors.surface3,
-                ),
+            _tile(
+              icon: LucideIcons.inbox,
+              title: 'Notification centre',
+              subtitle: 'Match, wallet, dispute and account updates',
+              trailing: const Icon(
+                LucideIcons.chevronRight,
+                color: AppColors.textMuted,
               ),
-              const SizedBox(height: 8),
-              _tile(
-                icon: LucideIcons.volume2,
-                title: 'Sound',
-                subtitle: 'Play sounds for alerts',
-                trailing: Switch(
-                  value: _soundEnabled,
-                  onChanged: _toggleSound,
-                  activeThumbColor: AppColors.gold500,
-                  inactiveThumbColor: AppColors.textMuted,
-                  inactiveTrackColor: AppColors.surface3,
-                ),
+              onTap: () => context.push('/profile/notifications'),
+            ),
+            const SizedBox(height: 8),
+            _tile(
+              icon: LucideIcons.slidersHorizontal,
+              title: 'Notification preferences',
+              subtitle: 'Choose optional alerts for this device',
+              trailing: const Icon(
+                LucideIcons.chevronRight,
+                color: AppColors.textMuted,
               ),
-            ],
+              onTap: () => context.push('/profile/notification-preferences'),
+            ),
+            const SizedBox(height: 8),
             _sectionLabel('Legal'),
             _tile(
               icon: LucideIcons.scrollText,

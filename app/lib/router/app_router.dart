@@ -42,6 +42,8 @@ import '../models/eligibility.dart';
 import '../models/support_case.dart';
 import '../models/dispute.dart';
 import '../screens/dispute_screens.dart';
+import '../models/app_notification.dart';
+import '../screens/notification_screens.dart';
 import '../widgets/main_layout.dart';
 
 /// Root navigator, used to host full-screen interstitials outside MainLayout's
@@ -183,6 +185,23 @@ final appRouterProvider = Provider<GoRouter>((ref) {
             path: '/profile/dispute-status',
             builder: (context, state) =>
                 DisputeStatusScreen(disputeId: state.uri.queryParameters['id']),
+          ),
+          GoRoute(
+            path: '/profile/notifications',
+            builder: (context, state) => const NotificationsScreen(),
+          ),
+          GoRoute(
+            path: '/profile/notification-details',
+            redirect: (context, state) => state.extra is AppNotification
+                ? null
+                : '/profile/notifications',
+            builder: (context, state) => NotificationDetailsScreen(
+              notification: state.extra! as AppNotification,
+            ),
+          ),
+          GoRoute(
+            path: '/profile/notification-preferences',
+            builder: (context, state) => const NotificationPreferencesScreen(),
           ),
           GoRoute(
             path: '/profile',
