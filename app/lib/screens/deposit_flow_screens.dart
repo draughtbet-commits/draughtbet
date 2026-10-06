@@ -107,7 +107,13 @@ class _AddMoneyScreenState extends ConsumerState<AddMoneyScreen> {
               onFieldSubmitted: (_) => loading ? null : _continue(),
             ),
             const SizedBox(height: 18),
-            _VerifiedValueCard(state: state),
+            ValueListenableBuilder<TextEditingValue>(
+              valueListenable: _amountController,
+              builder: (context, value, _) => _VerifiedValueCard(
+                state: state,
+                requestedAmount: _minorUnits(value.text),
+              ),
+            ),
             if (state.error != null) ...[
               const SizedBox(height: 12),
               _InlineNotice(
@@ -138,9 +144,14 @@ class _AddMoneyScreenState extends ConsumerState<AddMoneyScreen> {
 }
 
 class _VerifiedValueCard extends StatelessWidget {
-  const _VerifiedValueCard({required this.state});
+  const _VerifiedValueCard({required this.state, required this.requestedAmount});
 
   final DepositFlowState state;
+
+  /// The amount currently parsed from the field. A quote is only valid for
+  /// the amount it was issued against, so a mismatch drops back to the
+  /// placeholder instead of showing terms for a different amount.
+  final int? requestedAmount;
 
   @override
   Widget build(BuildContext context) {
@@ -148,7 +159,7 @@ class _VerifiedValueCard extends StatelessWidget {
     // Nothing is server-verified until the quote lands, so never show fee or
     // total placeholders: the backend quotes 0 bps and fails closed on any
     // non-zero schedule, so these rows would only ever read as noise.
-    if (quote == null) {
+    if (quote == null || quote.amountMinorUnits != requestedAmount) {
       return const FlowCard(
         child: Text(
           'Verified deposit terms appear here once you continue.',

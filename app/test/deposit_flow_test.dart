@@ -334,6 +334,45 @@ void main() {
     expect(gateway.quoteCalls, 0);
   });
 
+  testWidgets('quote card tracks the amount field instead of going stale', (
+    tester,
+  ) async {
+    setPhoneViewport(tester);
+    final gateway = FakeDepositGateway(quote: depositQuoteFixture);
+    final notifier = SeededDepositNotifier(
+      gateway,
+      MemoryRecoveryStore(),
+      depositState(quote: depositQuoteFixture),
+    );
+    await tester.pumpWidget(depositApp(const AddMoneyScreen(), notifier));
+
+    // A quote for 2000.00 must not render against an empty field.
+    expect(find.text('Deposit amount'), findsNothing);
+    expect(find.text('Total'), findsNothing);
+    expect(
+      find.text('Verified deposit terms appear here once you continue.'),
+      findsOneWidget,
+    );
+
+    // The fixture quotes 200000 minor units, so "2000" is the matching amount.
+    await tester.enterText(
+      find.byKey(const ValueKey('deposit-amount-field')),
+      '2000',
+    );
+    await tester.pump();
+    expect(find.text('Deposit amount'), findsOneWidget);
+    expect(find.text('Total'), findsOneWidget);
+
+    // Changing it invalidates the quote again.
+    await tester.enterText(
+      find.byKey(const ValueKey('deposit-amount-field')),
+      '1000',
+    );
+    await tester.pump();
+    expect(find.text('Deposit amount'), findsNothing);
+    expect(find.text('Total'), findsNothing);
+  });
+
   testWidgets('payment methods render only server-provided values', (
     tester,
   ) async {
