@@ -4,6 +4,7 @@ import { requireIdempotencyKey } from '../../middleware/idempotency.js';
 import { PERMISSIONS } from '../rbac/permissions.js';
 import { requirePermission, hasPermission } from '../rbac/service.js';
 import { auditFromRequest } from '../audit/service.js';
+import { NotificationService } from '../notification/service.js';
 import { parsePagination } from '../../utils/pagination.js';
 import { parseMinorUnits } from '../wallet/service.js';
 import {
@@ -203,6 +204,14 @@ disputeUserRouter.post('/:matchId/disputes', requireIdempotencyKey({ scope: 'use
       message: message.trim(),
       evidence
     });
+    await NotificationService.create(
+      req.user.id,
+      'DISPUTE_SUBMITTED',
+      'Dispute Submitted',
+      `Your report for match ${created.matchId.slice(0, 8)} was received and is under review.`,
+      `/profile/dispute-status?id=${created.id}&match=${created.matchId}`,
+      created.matchId
+    );
     res.status(201).json({
       disputeId: created.id,
       status: created.status,

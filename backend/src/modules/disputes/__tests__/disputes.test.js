@@ -57,11 +57,15 @@ jest.unstable_mockModule('../../audit/service.js', () => ({
   auditFromRequest: jest.fn().mockResolvedValue({ id: 'log-1' }),
   AUDIT_OUTCOMES: ['SUCCESS', 'FAILURE', 'DENIED']
 }));
+jest.unstable_mockModule('../../notification/service.js', () => ({
+  NotificationService: { create: jest.fn().mockResolvedValue({ id: 'n1' }) }
+}));
 
 const { default: express } = await import('express');
 const { default: request } = await import('supertest');
 const { disputeUserRouter } = await import('../controller.js');
 const { AuthService } = await import('../../auth/service.js');
+const { NotificationService } = await import('../../notification/service.js');
 
 const app = express();
 app.use(express.json());
@@ -145,6 +149,14 @@ describe('POST /matches/:matchId/disputes (participant raise)', () => {
       data: expect.objectContaining({ matchId: 'm1', raisedBy: 'u1', category: 'TECHNICAL_RESULT', reason: 'Wrong winner was recorded' })
     });
     expect(mockPrisma.disputeEvidence.create).toHaveBeenCalledTimes(2);
+    expect(NotificationService.create).toHaveBeenCalledWith(
+      'u1',
+      'DISPUTE_SUBMITTED',
+      'Dispute Submitted',
+      expect.stringContaining('m1'),
+      expect.stringMatching(/^\/profile\/dispute-status\?id=dc1&match=m1$/),
+      'm1'
+    );
   });
 
   it('rejects a non-participant with DISPUTE_NOT_ELIGIBLE', async () => {

@@ -1,5 +1,6 @@
 import prisma from '../../utils/db.js';
 import { AdminService } from '../admin/service.js';
+import { NotificationService } from '../notification/service.js';
 
 // Dispute lifecycle. Two entry points share this service:
 //   1. Participant raise: POST /matches/:matchId/disputes (window + eligibility
@@ -219,6 +220,22 @@ export const decideDispute = async (caseId, callerId, { status, resolution, resu
     }
     return { updated, correction };
   });
+
+  // Notify the raiser once the decision is recorded (dedupe is by user+match+type,
+  // so a retried adjustment that already recorded the decision stays silent).
+  const updatedCase = decidedResult.updated;
+  if (updatedCase.raisedBy && updatedCase.matchId) {
+    const notified =
+      status === 'RESOLVED' ? 'DISPUTE_RESOLVED' : 'DISPUTE_DISMISSED';
+    await NotificationService.create(
+      updatedCase.raisedBy,
+      notified,
+      status === 'RESOLVED' ? 'Dispute Resolved' : 'Dispute Dismissed',
+      `Dispute ${caseId.slice(0, 8)} for match ${updatedCase.matchId.slice(0, 8)} ${status === 'RESOLVED' ? 'was resolved' : 'was dismissed'}: ${resolutionText}`,
+      `/profile/dispute-status?id=${caseId}&match=${updatedCase.matchId}`,
+      updatedCase.matchId
+    );
+  }
 
   // 2. Optional money correction — SEPARATE balanced transaction, idempotent
   //    per reference so a failed run is safely retriable.

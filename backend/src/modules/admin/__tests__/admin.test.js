@@ -165,11 +165,15 @@ jest.unstable_mockModule('../../audit/service.js', () => ({
   auditPagination: jest.fn(() => ({ page: 1, limit: 20 })),
   AUDIT_OUTCOMES: ['SUCCESS', 'FAILURE', 'DENIED']
 }));
+jest.unstable_mockModule('../../notification/service.js', () => ({
+  NotificationService: { create: jest.fn().mockResolvedValue({ id: 'n1' }) }
+}));
 
 const { default: express } = await import('express');
 const { default: request } = await import('supertest');
 const { adminRouter } = await import('../controller.js');
 const { AuthService } = await import('../../auth/service.js');
+const { NotificationService } = await import('../../notification/service.js');
 
 const app = express();
 app.use(express.json());
@@ -502,7 +506,13 @@ describe('admin disputes', () => {
   it('decides an open dispute with an audit row', async () => {
     const token = await asRole('SUPPORT');
     mockPrisma.disputeCase.findUnique.mockResolvedValue({ id: 'd1', status: 'OPEN' });
-    mockPrisma.disputeCase.update.mockResolvedValue({ id: 'd1', status: 'RESOLVED', decidedBy: 'caller' });
+    mockPrisma.disputeCase.update.mockResolvedValue({
+      id: 'd1',
+      matchId: 'm1',
+      raisedBy: 'u-raiser',
+      status: 'RESOLVED',
+      decidedBy: 'caller'
+    });
 
     const res = await request(app)
       .post('/api/v1/admin/disputes/d1/decision')
@@ -517,6 +527,14 @@ describe('admin disputes', () => {
     });
     expect(auditModule.recordAdminAction).toHaveBeenCalledWith(
       expect.objectContaining({ action: 'dispute.decide' })
+    );
+    expect(NotificationService.create).toHaveBeenCalledWith(
+      'u-raiser',
+      'DISPUTE_RESOLVED',
+      'Dispute Resolved',
+      expect.stringContaining('Refund issued'),
+      expect.stringMatching(/^\/profile\/dispute-status\?id=d1&match=m1$/),
+      'm1'
     );
   });
 
