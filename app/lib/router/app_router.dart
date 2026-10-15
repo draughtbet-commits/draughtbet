@@ -33,6 +33,7 @@ import '../screens/withdrawal_flow_screens.dart';
 import '../screens/settings_screen.dart';
 import '../screens/results_screen.dart';
 import '../screens/game_move_history_screen.dart';
+import '../services/google_auth_service.dart';
 import '../services/socket_service.dart';
 import 'lifecycle_routes.dart';
 import '../screens/eligibility_screens.dart';
@@ -96,7 +97,11 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(
         path: '/register',
-        builder: (context, state) => const RegisterScreen(),
+        builder: (context, state) => RegisterScreen(
+          google: state.extra is GoogleSignupArgs
+              ? state.extra! as GoogleSignupArgs
+              : null,
+        ),
       ),
       // Deliberately a top-level route, not a ShellRoute child. It is a
       // full-screen interstitial that must sit above MainLayout, and giving a

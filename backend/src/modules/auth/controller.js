@@ -25,7 +25,11 @@ const registerSchema = z.object({
     .min(8)
     .regex(/[A-Z]/, 'Password must contain at least one uppercase letter')
     .regex(/[a-z]/, 'Password must contain at least one lowercase letter')
-    .regex(/[0-9]/, 'Password must contain at least one digit'),
+    .regex(/[0-9]/, 'Password must contain at least one digit')
+    .optional(),
+  // Present only for Google sign-up, where the verified token replaces the
+  // password. The refine below requires one or the other.
+  googleIdToken: z.string().min(10).optional(),
   dateOfBirth: z.string().refine((val) => {
     const dob = new Date(val);
     const today = new Date();
@@ -44,7 +48,19 @@ const registerSchema = z.object({
     os: z.string().optional(),
     appVersion: z.string().optional()
   }).optional()
-}).refine((d) => d.email || d.phone, { message: 'Email or phone is required' });
+}).refine((d) => d.email || d.phone, { message: 'Email or phone is required' })
+  .refine((d) => d.googleIdToken || d.password, { message: 'Password is required', path: ['password'] });
+
+const googleLoginSchema = z.object({
+  idToken: z.string().min(10),
+  fingerprintHash: z.string().optional(),
+  fcmToken: z.string().optional(),
+  deviceInfo: z.object({
+    model: z.string().optional(),
+    os: z.string().optional(),
+    appVersion: z.string().optional()
+  }).optional()
+});
 
 const loginSchema = z.object({
   email: z.string().email().optional(),
@@ -106,7 +122,8 @@ authRouter.post('/register', authRateLimiter, requireAppVersion, async (req, res
       dateOfBirth: data.dateOfBirth,
       fingerprintHash: data.fingerprintHash,
       countryCode: data.countryCode,
-      geoBinding: data.geoBinding
+      geoBinding: data.geoBinding,
+      googleIdToken: data.googleIdToken
     });
     // Auto-login: issue tokens in the same call so the app can skip the
     // separate sign-in step after account creation.
@@ -129,7 +146,39 @@ authRouter.post('/register', authRateLimiter, requireAppVersion, async (req, res
     if (err.message === 'Account already exists') {
       return res.status(409).json({ error: 'An account with this email, phone or username already exists' });
     }
+    if (err.message === 'Google email mismatch') {
+      return res.status(400).json({ error: 'The Google account email does not match the email provided' });
+    }
+    if (err.name === 'GoogleAuthError') {
+      return res.status(err.status || 401).json({ error: err.message, code: err.code });
+    }
     // Let global error handler log unexpected errors securely
+    next(err);
+  }
+});
+
+// Sign-in with a Google ID token. An existing account logs in and receives
+// tokens; an unknown email gets `registered: false` plus the profile so the
+// client can finish registration (which still enforces date of birth + geo).
+authRouter.post('/google', authRateLimiter, requireAppVersion, async (req, res, next) => {
+  try {
+    const data = googleLoginSchema.parse(req.body);
+    const result = await AuthService.loginWithGoogle({
+      idToken: data.idToken,
+      fingerprintHash: data.fingerprintHash,
+      fcmToken: data.fcmToken,
+      ip: req.ip,
+      userAgent: req.get('user-agent'),
+      deviceInfo: data.deviceInfo
+    });
+    res.json(result);
+  } catch (err) {
+    if (err && err.name === 'ZodError') {
+      return res.status(400).json({ errors: err.errors || err.issues });
+    }
+    if (err.name === 'GoogleAuthError') {
+      return res.status(err.status || 401).json({ error: err.message, code: err.code });
+    }
     next(err);
   }
 });

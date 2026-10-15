@@ -8,10 +8,17 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../providers/auth_provider.dart';
 import '../services/auth_check_service.dart';
 import '../services/geo_service.dart';
+import '../services/google_auth_service.dart';
 import '../theme/colors.dart';
 
 class RegisterScreen extends ConsumerStatefulWidget {
-  const RegisterScreen({super.key});
+  const RegisterScreen({super.key, this.google});
+
+  /// Present when the player arrived from "Continue with Google" with a fresh
+  /// email. The identity is already verified, so the form prefills the email
+  /// and name and drops the password fields; date of birth, address, phone and
+  /// the terms/age confirmations are still collected here.
+  final GoogleSignupArgs? google;
 
   @override
   ConsumerState<RegisterScreen> createState() => _RegisterScreenState();
@@ -47,6 +54,22 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
   String? _countryCode;
   String? _geoBinding;
   Timer? _availabilityDebounce;
+
+  bool get _googleMode => widget.google != null;
+
+  @override
+  void initState() {
+    super.initState();
+    final google = widget.google;
+    if (google != null) {
+      if (google.email != null && google.email!.isNotEmpty) {
+        _emailController.text = google.email!;
+      }
+      if (google.fullName != null && google.fullName!.isNotEmpty) {
+        _fullNameController.text = google.fullName!;
+      }
+    }
+  }
 
   @override
   void dispose() {
@@ -210,10 +233,13 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
       address: _addressController.text.trim().isEmpty
           ? null
           : _addressController.text.trim(),
-      password: _passwordController.text,
+      // A Google sign-up carries no password; the verified id token stands in
+      // for it and the backend stores a random hash instead.
+      password: _googleMode ? null : _passwordController.text,
       dateOfBirth: _dateOfBirth!,
       countryCode: _countryCode,
       geoBinding: _geoBinding,
+      googleIdToken: widget.google?.idToken,
     );
     if (ok) {
       // Auto-login succeeded: tokens are stored, so land straight on the app.
@@ -360,6 +386,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                   controller: _emailController,
                   keyboardType: TextInputType.emailAddress,
                   autocorrect: false,
+                  readOnly: _googleMode,
                   onChanged: (v) => _scheduleAvailabilityCheck(
                     'email',
                     v,
@@ -397,6 +424,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                 TextFormField(
                   controller: _fullNameController,
                   autocorrect: false,
+                  readOnly: _googleMode,
                   style: GoogleFonts.inter(
                     fontSize: 15,
                     fontWeight: FontWeight.w400,
@@ -484,122 +512,128 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                   _phoneTaken,
                   'This phone number is already registered.',
                 ),
-                const SizedBox(height: 16),
-                TextFormField(
-                  controller: _passwordController,
-                  obscureText: _obscurePassword,
-                  style: GoogleFonts.inter(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w400,
-                    color: AppColors.textPrimary,
-                  ),
-                  onChanged: (_) {
-                    setState(() {});
-                    if (_confirmController.text.isNotEmpty) {
-                      _confirmFieldKey.currentState?.validate();
-                    }
-                  },
-                  decoration: _decoration(
-                    label: 'Password',
-                    hint: 'Enter your password',
-                    prefixIcon: const Icon(
-                      LucideIcons.lock,
-                      color: AppColors.textMuted,
-                      size: 20,
+                if (!_googleMode) ...[
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    controller: _passwordController,
+                    obscureText: _obscurePassword,
+                    style: GoogleFonts.inter(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w400,
+                      color: AppColors.textPrimary,
                     ),
-                    suffixIcon: IconButton(
-                      icon: Icon(
-                        _obscurePassword ? LucideIcons.eye : LucideIcons.eyeOff,
+                    onChanged: (_) {
+                      setState(() {});
+                      if (_confirmController.text.isNotEmpty) {
+                        _confirmFieldKey.currentState?.validate();
+                      }
+                    },
+                    decoration: _decoration(
+                      label: 'Password',
+                      hint: 'Enter your password',
+                      prefixIcon: const Icon(
+                        LucideIcons.lock,
                         color: AppColors.textMuted,
                         size: 20,
                       ),
-                      onPressed: () {
-                        setState(() => _obscurePassword = !_obscurePassword);
-                      },
+                      suffixIcon: IconButton(
+                        icon: Icon(
+                          _obscurePassword
+                              ? LucideIcons.eye
+                              : LucideIcons.eyeOff,
+                          color: AppColors.textMuted,
+                          size: 20,
+                        ),
+                        onPressed: () {
+                          setState(() => _obscurePassword = !_obscurePassword);
+                        },
+                      ),
                     ),
+                    validator: (value) {
+                      if (value == null || value.isEmpty) {
+                        return 'Enter a password';
+                      }
+                      if (value.length < 8) {
+                        return 'At least 8 characters';
+                      }
+                      if (!RegExp(r'[A-Z]').hasMatch(value)) {
+                        return 'Needs an uppercase letter';
+                      }
+                      if (!RegExp(r'[a-z]').hasMatch(value)) {
+                        return 'Needs a lowercase letter';
+                      }
+                      if (!RegExp(r'[0-9]').hasMatch(value)) {
+                        return 'Needs a number';
+                      }
+                      return null;
+                    },
                   ),
-                  validator: (value) {
-                    if (value == null || value.isEmpty) {
-                      return 'Enter a password';
-                    }
-                    if (value.length < 8) {
-                      return 'At least 8 characters';
-                    }
-                    if (!RegExp(r'[A-Z]').hasMatch(value)) {
-                      return 'Needs an uppercase letter';
-                    }
-                    if (!RegExp(r'[a-z]').hasMatch(value)) {
-                      return 'Needs a lowercase letter';
-                    }
-                    if (!RegExp(r'[0-9]').hasMatch(value)) {
-                      return 'Needs a number';
-                    }
-                    return null;
-                  },
-                ),
-                if (showStrength) ...[
-                  const SizedBox(height: 8),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      LinearProgressIndicator(
-                        value: strength / 4,
-                        minHeight: 4,
-                        backgroundColor: AppColors.surface3,
-                        valueColor: AlwaysStoppedAnimation<Color>(
-                          _strengthColor(strength),
+                  if (showStrength) ...[
+                    const SizedBox(height: 8),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        LinearProgressIndicator(
+                          value: strength / 4,
+                          minHeight: 4,
+                          backgroundColor: AppColors.surface3,
+                          valueColor: AlwaysStoppedAnimation<Color>(
+                            _strengthColor(strength),
+                          ),
                         ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        '${_strengthLabel(strength)} — use 8+ chars with upper, lower and a number',
-                        style: GoogleFonts.inter(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w400,
-                          color: _strengthColor(strength),
+                        const SizedBox(height: 4),
+                        Text(
+                          '${_strengthLabel(strength)} — use 8+ chars with upper, lower and a number',
+                          style: GoogleFonts.inter(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w400,
+                            color: _strengthColor(strength),
+                          ),
                         ),
+                      ],
+                    ),
+                  ],
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    key: _confirmFieldKey,
+                    controller: _confirmController,
+                    obscureText: _obscureConfirm,
+                    // Only this field validates live (against the password);
+                    autovalidateMode: AutovalidateMode.onUserInteraction,
+                    style: GoogleFonts.inter(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w400,
+                      color: AppColors.textPrimary,
+                    ),
+                    decoration: _decoration(
+                      label: 'Confirm password',
+                      hint: 'Re-enter your password',
+                      prefixIcon: const Icon(
+                        LucideIcons.lock,
+                        color: AppColors.textMuted,
+                        size: 20,
                       ),
-                    ],
+                      suffixIcon: IconButton(
+                        icon: Icon(
+                          _obscureConfirm
+                              ? LucideIcons.eye
+                              : LucideIcons.eyeOff,
+                          color: AppColors.textMuted,
+                          size: 20,
+                        ),
+                        onPressed: () {
+                          setState(() => _obscureConfirm = !_obscureConfirm);
+                        },
+                      ),
+                    ),
+                    validator: (value) {
+                      if (value != _passwordController.text) {
+                        return 'Passwords do not match';
+                      }
+                      return null;
+                    },
                   ),
                 ],
-                const SizedBox(height: 16),
-                TextFormField(
-                  key: _confirmFieldKey,
-                  controller: _confirmController,
-                  obscureText: _obscureConfirm,
-                  // Only this field validates live (against the password);
-                  autovalidateMode: AutovalidateMode.onUserInteraction,
-                  style: GoogleFonts.inter(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w400,
-                    color: AppColors.textPrimary,
-                  ),
-                  decoration: _decoration(
-                    label: 'Confirm password',
-                    hint: 'Re-enter your password',
-                    prefixIcon: const Icon(
-                      LucideIcons.lock,
-                      color: AppColors.textMuted,
-                      size: 20,
-                    ),
-                    suffixIcon: IconButton(
-                      icon: Icon(
-                        _obscureConfirm ? LucideIcons.eye : LucideIcons.eyeOff,
-                        color: AppColors.textMuted,
-                        size: 20,
-                      ),
-                      onPressed: () {
-                        setState(() => _obscureConfirm = !_obscureConfirm);
-                      },
-                    ),
-                  ),
-                  validator: (value) {
-                    if (value != _passwordController.text) {
-                      return 'Passwords do not match';
-                    }
-                    return null;
-                  },
-                ),
                 const SizedBox(height: 16),
                 TextFormField(
                   readOnly: true,

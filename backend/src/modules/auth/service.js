@@ -16,6 +16,7 @@ import {
   VerificationChallengeError
 } from './verificationChallengeService.js';
 import { getDeliveryProvider } from './deliveryProvider.js';
+import { verifyGoogleIdToken } from './googleProvider.js';
 
 let prisma = _prisma;
 let redis = _redis;
@@ -93,7 +94,7 @@ export class AuthService {
     redis = mockRedis;
   }
 
-  static async register({ email, phone, username, fullName, address, password, dateOfBirth, fingerprintHash, countryCode, geoBinding }) {
+  static async register({ email, phone, username, fullName, address, password, dateOfBirth, fingerprintHash, countryCode, geoBinding, googleIdToken }) {
     // Geo evidence gate: a registration must carry the country the server
     // resolved (POST /auth/geo-locate) plus the opaque binding that proves it.
     if (!countryCode) {
@@ -112,8 +113,22 @@ export class AuthService {
     const dob = new Date(dateOfBirth);
     const ageVerified = computeAge(dob) >= 18;
 
+    // A Google sign-up still has to pass the geo/age gates above (Google does
+    // not supply either), but it replaces the password: the identity is proven
+    // by the verified Google token, so email ownership is already established.
+    let googleProfile = null;
+    if (googleIdToken) {
+      googleProfile = await verifyGoogleIdToken(googleIdToken);
+      if (email && email.trim().toLowerCase() !== googleProfile.email) {
+        throw new Error('Google email mismatch');
+      }
+      email = googleProfile.email;
+    }
+
     try {
-      const passwordHash = await bcrypt.hash(password, 12);
+      // Google accounts have no password; give them an unguessable random one
+      // so password login stays impossible until they set one via recovery.
+      const passwordHash = await bcrypt.hash(password ?? crypto.randomBytes(32).toString('hex'), 12);
 
 const user = await prisma.$transaction(async (tx) => {
       const newUser = await tx.user.create({
@@ -121,12 +136,14 @@ const user = await prisma.$transaction(async (tx) => {
           email,
           phone: normalizePhone(phone),
           username,
-          fullName,
+          fullName: fullName ?? googleProfile?.name ?? null,
           address,
           passwordHash,
           dateOfBirth: dob,
           isBanned: false, // Explicit requirement
           ageVerified,
+          emailVerified: Boolean(googleProfile),
+          googleId: googleProfile?.sub,
           countryCode: countryCode.toUpperCase(),
           eligibility: {
             create: {
@@ -218,6 +235,67 @@ const user = await prisma.$transaction(async (tx) => {
     }
 
     return this.issueTokens(user.id, { ip, userAgent, deviceInfo });
+  }
+
+  /**
+   * Sign-in via a verified Google ID token.
+   *
+   * Two outcomes, distinguished by `registered`:
+   *  - an account already exists for the Google email -> issue tokens (login)
+   *  - no account -> return the profile so the app can finish registration
+   *    (date of birth + geo evidence are still required by compliance)
+   *
+   * The Google identity is linked onto the existing row so a returning Google
+   * user is recognised by `sub`, not merely by an email a user could change.
+   */
+  static async loginWithGoogle({ idToken, fingerprintHash, fcmToken = null, ip = null, userAgent = null, deviceInfo = null } = {}) {
+    const profile = await verifyGoogleIdToken(idToken);
+
+    const user = await prisma.user.findFirst({
+      where: { email: { equals: profile.email, mode: 'insensitive' } }
+    });
+
+    if (!user) {
+      return {
+        registered: false,
+        profile: { email: profile.email, fullName: profile.name, picture: profile.picture }
+      };
+    }
+
+    // Link the Google identity the first time this account uses it, and mark
+    // the email verified because Google has proven ownership of it. Best-effort:
+    // a sub already owned by another row (P2002) must not block a valid login.
+    const update = {};
+    if (!user.googleId) update.googleId = profile.sub;
+    if (!user.emailVerified) update.emailVerified = true;
+    if (Object.keys(update).length) {
+      try {
+        await prisma.user.update({ where: { id: user.id }, data: update });
+      } catch (err) {
+        if (!(err && err.code === 'P2002')) throw err;
+        logger.warn({ userId: user.id }, 'Google identity already linked to another account; continuing login by email');
+      }
+    }
+
+    if (fingerprintHash) {
+      const existingDevice = await prisma.deviceFingerprint.findFirst({
+        where: { userId: user.id, fingerprintHash }
+      });
+      if (existingDevice) {
+        await prisma.deviceFingerprint.update({
+          where: { id: existingDevice.id },
+          data: { lastSeen: new Date() }
+        });
+      } else {
+        await prisma.deviceFingerprint.create({ data: { userId: user.id, fingerprintHash } });
+      }
+    }
+    if (fcmToken) {
+      await prisma.user.update({ where: { id: user.id }, data: { fcmToken } });
+    }
+
+    const tokens = await this.issueTokens(user.id, { ip, userAgent, deviceInfo });
+    return { registered: true, ...tokens };
   }
 
   static async checkAvailability(type, value) {

@@ -55,16 +55,17 @@ class AuthInterceptor extends QueuedInterceptor {
     required this.storage,
     required this.onSessionExpired,
     TokenRefresher? refresher,
-  }) : refresher = refresher ??
-            TokenRefresher(
-              storage: storage,
-              // Isolated from the app-wide [Dio] so a refresh round-trip cannot
-              // deadlock the QueuedInterceptor chain (an inner error on the same
-              // interceptor would await the very request blocked on it). Shares
-              // the transport adapter and base options, carries no
-              // AuthInterceptor of its own.
-              dio: Dio(dio.options)..httpClientAdapter = dio.httpClientAdapter,
-            );
+  }) : refresher =
+           refresher ??
+           TokenRefresher(
+             storage: storage,
+             // Isolated from the app-wide [Dio] so a refresh round-trip cannot
+             // deadlock the QueuedInterceptor chain (an inner error on the same
+             // interceptor would await the very request blocked on it). Shares
+             // the transport adapter and base options, carries no
+             // AuthInterceptor of its own.
+             dio: Dio(dio.options)..httpClientAdapter = dio.httpClientAdapter,
+           );
 
   final Dio dio;
   final SecureStorageService storage;
@@ -80,6 +81,7 @@ class AuthInterceptor extends QueuedInterceptor {
   static const _authPaths = <String>{
     '/auth/login',
     '/auth/register',
+    '/auth/google',
     '/auth/refresh',
     '/auth/logout',
     '/auth/geo-locate',

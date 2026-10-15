@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../services/api_client.dart';
+import '../services/google_auth_service.dart';
 import '../services/secure_storage.dart';
 import '../services/socket_service.dart';
 
@@ -107,16 +108,90 @@ class AuthNotifier extends StateNotifier<AuthState> {
     }
   }
 
+  /// Exchanges a Google id token for an app session.
+  ///
+  /// The backend answers with either a full session (an existing account) or a
+  /// verified profile for an unknown email, which the caller routes to the
+  /// registration form so the player can supply date of birth and accept the
+  /// terms before the account is created.
+  Future<GoogleAuthResult> loginWithGoogle(
+    String idToken, {
+    String? fcmToken,
+  }) async {
+    try {
+      state = state.copyWith(isLoading: true, error: null);
+      final response = await _dio.post(
+        '/auth/google',
+        data: {
+          'idToken': idToken,
+          if (fcmToken != null && fcmToken.isNotEmpty) 'fcmToken': fcmToken,
+        },
+      );
+
+      final data = response.data is Map
+          ? Map<String, dynamic>.from(response.data as Map)
+          : const <String, dynamic>{};
+
+      if (data['registered'] == true) {
+        final accessToken = data['accessToken'] as String?;
+        final refreshToken = data['refreshToken'] as String?;
+        if (accessToken == null || refreshToken == null) {
+          state = state.copyWith(
+            isLoading: false,
+            error: 'Google sign-in failed',
+          );
+          return const GoogleAuthResult(
+            status: GoogleAuthStatus.failure,
+            error: 'Google sign-in failed',
+          );
+        }
+        await _storage.setAccessToken(accessToken);
+        await _storage.setRefreshToken(refreshToken);
+        final userId = _extractUserId(accessToken);
+        if (userId != null) await _storage.setUserId(userId);
+        socketService.disconnect();
+        unawaited(socketService.initSocket().catchError((_) {}));
+        state = state.copyWith(isAuthenticated: true, isLoading: false);
+        return const GoogleAuthResult(status: GoogleAuthStatus.authenticated);
+      }
+
+      final profile = data['profile'];
+      final profileMap = profile is Map
+          ? Map<String, dynamic>.from(profile)
+          : const <String, dynamic>{};
+      state = state.copyWith(isLoading: false, error: null);
+      return GoogleAuthResult(
+        status: GoogleAuthStatus.requiresRegistration,
+        profile: GoogleProfile(
+          email: profileMap['email']?.toString(),
+          fullName: profileMap['fullName']?.toString(),
+          picture: profileMap['picture']?.toString(),
+        ),
+      );
+    } on DioException catch (e) {
+      final message = _errorMessage(e, fallback: 'Google sign-in failed');
+      state = state.copyWith(isLoading: false, error: message);
+      return GoogleAuthResult(status: GoogleAuthStatus.failure, error: message);
+    } catch (e) {
+      state = state.copyWith(isLoading: false, error: 'Google sign-in failed');
+      return const GoogleAuthResult(
+        status: GoogleAuthStatus.failure,
+        error: 'Google sign-in failed',
+      );
+    }
+  }
+
   Future<bool> register({
     String? email,
     String? phone,
     String? username,
     String? fullName,
     String? address,
-    required String password,
+    String? password,
     required DateTime dateOfBirth,
     String? countryCode,
     String? geoBinding,
+    String? googleIdToken,
   }) async {
     try {
       state = state.copyWith(isLoading: true, error: null);
@@ -131,11 +206,16 @@ class AuthNotifier extends StateNotifier<AuthState> {
             'fullName': fullName.trim(),
           if (address != null && address.trim().isNotEmpty)
             'address': address.trim(),
-          'password': password,
+          // A Google sign-up has no password; the backend accepts the id token
+          // instead (and stores a random hash so password login stays closed).
+          if (password != null && password.isNotEmpty) 'password': password,
+          if (googleIdToken != null && googleIdToken.isNotEmpty)
+            'googleIdToken': googleIdToken,
           'dateOfBirth': dateOfBirth.toIso8601String(),
           if (countryCode != null && countryCode.isNotEmpty)
             'countryCode': countryCode,
-          if (geoBinding != null && geoBinding.isNotEmpty) 'geoBinding': geoBinding,
+          if (geoBinding != null && geoBinding.isNotEmpty)
+            'geoBinding': geoBinding,
           'fingerprintHash': 'dev_device',
         },
       );

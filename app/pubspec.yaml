@@ -31,6 +31,7 @@ dependencies:
   shared_preferences: ^2.3.2
   flutter_local_notifications: ^18.0.1
   dojah_kyc_sdk_flutter: ^0.1.17
+  google_sign_in: ^7.2.0
 dev_dependencies:
   flutter_test:
     sdk: flutter

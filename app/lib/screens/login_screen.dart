@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../providers/auth_provider.dart';
+import '../services/google_auth_service.dart';
 import '../theme/colors.dart';
 import 'password_recovery_screen.dart';
 
@@ -39,6 +40,52 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     if (ok) {
       context.go('/home');
     }
+  }
+
+  Future<void> _signInWithGoogle() async {
+    final google = ref.read(googleAuthServiceProvider);
+    String? idToken;
+    try {
+      idToken = await google.signIn();
+    } on GoogleSignInUnavailableException catch (e) {
+      if (!mounted) return;
+      _showMessage(e.message);
+      return;
+    } catch (_) {
+      if (!mounted) return;
+      _showMessage('Google sign-in failed. Please try again.');
+      return;
+    }
+    // A null token means the user dismissed the account picker.
+    if (idToken == null || !mounted) return;
+
+    final result = await ref
+        .read(authProvider.notifier)
+        .loginWithGoogle(idToken);
+    if (!mounted) return;
+    switch (result.status) {
+      case GoogleAuthStatus.authenticated:
+        context.go('/home');
+      case GoogleAuthStatus.requiresRegistration:
+        context.go(
+          '/register',
+          extra: GoogleSignupArgs(
+            idToken: idToken,
+            email: result.profile?.email,
+            fullName: result.profile?.fullName,
+            picture: result.profile?.picture,
+          ),
+        );
+      case GoogleAuthStatus.failure:
+        // The error banner is driven by authState.error.
+        break;
+    }
+  }
+
+  void _showMessage(String message) {
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 
   InputDecoration _decoration({
@@ -274,7 +321,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   width: double.infinity,
                   height: 52,
                   child: OutlinedButton(
-                    onPressed: () {},
+                    onPressed: authState.isLoading ? null : _signInWithGoogle,
                     style: OutlinedButton.styleFrom(
                       backgroundColor: AppColors.voidBg,
                       foregroundColor: AppColors.textPrimary,

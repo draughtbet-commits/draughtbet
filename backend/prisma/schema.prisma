@@ -24,6 +24,7 @@ model User {
   kycStatus         KycStatus @default(NONE)
   emailVerified     Boolean  @default(false)
   phoneVerified     Boolean  @default(false)
+  googleId          String?  @unique // Google account `sub` claim; null for password-only accounts
   countryCode       String?  // ISO 3166-1 alpha-2, from the server-side geo evidence at registration
   dateOfBirth       DateTime? // persisted claimed date of birth; ageVerified is derived from it
   fcmToken          String?  // Firebase Cloud Messaging token for push notifications

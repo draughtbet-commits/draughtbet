@@ -196,14 +196,32 @@ To make shareable links work end-to-end:
    (the router already accepts `/matches/<id>/join`-style API paths, so a URL
    → route mapping is straightforward).
 
-## 11. Third-party sign-in (currently a stub)
+## 11. Google Sign-In
 
-"Continue with Google" is rendered on the login screen
-(`app/lib/screens/login_screen.dart:293-300`) but is UI-only: no
-`google_sign_in` package, no backend token-verification endpoint, no OAuth
-client IDs. If enabled it needs: Google Cloud OAuth clients (Android + Web),
-authorized JavaScript origins / redirect URIs for the domain, and the Android
-SHA-1 fingerprint.
+Implemented end to end. The app runs the native flow (`google_sign_in` 7.x,
+`app/lib/services/google_auth_service.dart`), forwards the OpenID Connect id
+token to `POST /api/v1/auth/google`, and the backend verifies the token's
+signature against Google's JWKS (`backend/src/modules/auth/googleProvider.js`)
+before creating a session or returning the verified profile so the player can
+finish registration (`/register`, prefilled from `GoogleSignupArgs`).
+
+**Client IDs (Google Cloud OAuth) — operator action:**
+
+- **Web** client → `GOOGLE_SERVER_CLIENT_ID` (app). Required: it is what makes
+  Android return an id token. Its project must also contain the Android client.
+- **Android** client → matched by package name + signing SHA-1 (no id needed in
+  the app). Package: `com.draughtbet.draughts_arena`.
+  - Current release signs with the **Android Debug** cert
+    (`app/android/app/build.gradle.kts:37`), SHA-1
+    `74:D5:DE:F1:5D:D7:8A:E8:EB:AE:23:22:18:B5:6E:BC:4D:25:8C:23`.
+  - Register the **upload/Play** SHA-1 too once a real signing key replaces the
+    debug one, otherwise production sign-in breaks after the first Play release.
+- **iOS** (when built) client id → `GOOGLE_CLIENT_ID` (app) + the reversed
+  client id as a URL scheme in `Info.plist`.
+
+**Backend:** `GOOGLE_CLIENT_ID` must equal the **Web** client id (the id token
+audience). Missing/blank → `POST /auth/google` fails closed with
+`503 GOOGLE_AUTH_UNAVAILABLE`.
 
 ## 12. Store compliance URLs (not present in code)
 
@@ -225,6 +243,10 @@ URL is shown or recorded.
 # --- public host ---
 # app/.env
 BACKEND_URL=https://api.draughtbet.com/api/v1
+# Google Sign-In: Web client id (Android also needs the Android client, matched
+# by package name + signing SHA-1). Pass via --dart-define for release builds.
+GOOGLE_SERVER_CLIENT_ID=<web-client>.apps.googleusercontent.com
+GOOGLE_CLIENT_ID=                       # iOS only
 
 # --- backend ---
 NODE_ENV=production
@@ -247,6 +269,10 @@ OTP_DELIVERY=email
 EMAIL_API_URL=https://api.resend.com/emails
 EMAIL_API_KEY=re_...
 EMAIL_FROM=Draught Bet <no-reply@draughtbet.com>
+
+# --- google sign-in (backend) ---
+# Must equal the app's GOOGLE_SERVER_CLIENT_ID (the id-token audience).
+GOOGLE_CLIENT_ID=<web-client>.apps.googleusercontent.com
 
 # --- kyc ---
 KYC_PROVIDER=dojah
