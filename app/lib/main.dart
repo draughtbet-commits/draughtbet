@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:ui';
 
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart';
@@ -8,9 +10,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:go_router/go_router.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'providers/auth_provider.dart';
 import 'providers/eligibility_provider.dart';
 import 'providers/match_flow_provider.dart';
 import 'router/app_router.dart';
+import 'services/api_client.dart';
+import 'services/fcm_service.dart';
+import 'services/push_registration.dart';
 import 'services/socket_service.dart';
 import 'theme/app_theme.dart';
 import 'theme/colors.dart';
@@ -108,6 +114,16 @@ void main() async {
     debugPrint("No .env file found. Proceeding with default config.");
   }
 
+  // Firebase powers offline push. Without google-services.json the init throws;
+  // that is expected on a dev build and simply leaves push unavailable — the
+  // socket path keeps working.
+  try {
+    await Firebase.initializeApp();
+    FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
+  } catch (e) {
+    debugPrint("Firebase not configured. Push disabled: $e");
+  }
+
   runApp(const ProviderScope(child: DraughtsArenaApp()));
 }
 
@@ -123,9 +139,55 @@ class DraughtsArenaApp extends ConsumerWidget {
       themeMode: ThemeMode.dark, // Enforce Dark Mode First
       darkTheme: AppTheme.dark,
       routerConfig: router,
-      builder: (context, child) =>
-          ChallengeInboxBridge(child: child ?? const SizedBox.shrink()),
+      builder: (context, child) => PushRegistrationBridge(
+        child: ChallengeInboxBridge(child: child ?? const SizedBox.shrink()),
+      ),
     );
+  }
+}
+
+/// Registers the device's push token with the backend once a session is live,
+/// and re-registers when FCM rotates it. Kept off the auth notifier so unit
+/// tests never touch the Firebase/notification platform channels; nothing runs
+/// until the player is authenticated.
+class PushRegistrationBridge extends ConsumerStatefulWidget {
+  const PushRegistrationBridge({super.key, required this.child});
+
+  final Widget child;
+
+  @override
+  ConsumerState<PushRegistrationBridge> createState() =>
+      _PushRegistrationBridgeState();
+}
+
+class _PushRegistrationBridgeState
+    extends ConsumerState<PushRegistrationBridge> {
+  bool _registered = false;
+
+  Future<void> _register() async {
+    if (_registered) return;
+    _registered = true;
+    // Wire the refresh callback once, so a rotated token replaces the stored one.
+    fcmService.onTokenRefresh = (_) {
+      _registered = false;
+      unawaited(_register());
+    };
+    await registerDevicePushToken(ref.read(apiClientProvider));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    ref.listen<AuthState>(authProvider, (previous, next) {
+      if (!next.isAuthenticated) {
+        // Reset so the next sign-in re-registers (possibly a new account).
+        _registered = false;
+        return;
+      }
+      if (!(previous?.isAuthenticated ?? false)) {
+        unawaited(_register());
+      }
+    });
+    return widget.child;
   }
 }
 

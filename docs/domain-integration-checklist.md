@@ -162,19 +162,38 @@ domain.
 
 ## 8. Push notifications (Firebase / FCM)
 
-Status: **declared but not integrated**.
+Status: **integrated in code — operator steps remain**.
 
-- App: `firebase_messaging` and `firebase_core` in `app/pubspec.yaml`, but no
-  `google-services.json` (Android) / `GoogleService-Info.plist` (iOS) and no
-  `firebase_options.dart`.
-- Backend: `PUSH_TOKEN_ENCRYPTION_KEY` **is** wired —
-  `backend/src/modules/me/pushTokenService.js:23` encrypts tokens on register
-  (32-byte hex required), but **no code sends FCM messages**, and
-  `FIREBASE_SERVICE_ACCOUNT_KEY` (present in `.env`/`.env.example`) is not read
-  anywhere in `backend/src`.
-- Integration: create the Firebase project, register Android package
-  `com.draughtbet.draughts_arena` (+ release SHA-1), add the service-account
-  key, implement the sender, set `PUSH_TOKEN_ENCRYPTION_KEY`.
+Code (done):
+
+- App: `firebase_core` / `firebase_messaging`; `Firebase.initializeApp()` in
+  `app/lib/main.dart` (guarded — a build with no `google-services.json` runs with
+  push disabled). `app/lib/services/fcm_service.dart` requests permission, reads
+  the device token and surfaces foreground messages; the token is registered by
+  `PushRegistrationBridge` (`main.dart`) via `POST /me/push-tokens`
+  (`app/lib/services/push_registration.dart`) on every sign-in and on token
+  rotation. Android needs `POST_NOTIFICATIONS` (added) and the default channel
+  meta-data (added). The Google Services Gradle plugin is applied **only when
+  `app/android/app/google-services.json` exists** (`app/build.gradle.kts`), so
+  dev builds keep working.
+- Backend: senders in `backend/src/services/pushService.js` (credential-certs
+  `firebase-admin` from `FIREBASE_SERVICE_ACCOUNT_KEY` — raw JSON or base64),
+  wired into the outbox drainer's offline branch (`jobs/outboxDrainer.js`); dead
+  tokens are auto-revoked. `PUSH_TOKEN_ENCRYPTION_KEY` (32-byte hex) encrypts
+  tokens at rest (`modules/me/pushTokenService.js`).
+
+Operator steps (Firebase Console + Render):
+
+1. Create the Firebase project; add an **Android** app with package
+   `com.draughtbet.draughts_arena` and the signing SHA-1
+   (`74:D5:DE:F1:5D:D7:8A:E8:EB:AE:23:22:18:B5:6E:BC:4D:25:8C:23` today; add the
+   Play/upload SHA-1 once a real signing key exists).
+2. Download `google-services.json` → `app/android/app/google-services.json`.
+   (iOS, when built: `GoogleService-Info.plist` + `firebase_options.dart`.)
+3. Project settings → Service accounts → **Generate new private key**; set its
+   JSON (or its base64) as `FIREBASE_SERVICE_ACCOUNT_KEY` on the backend.
+4. Set `PUSH_TOKEN_ENCRYPTION_KEY` (`openssl rand -hex 32`) on the backend.
+5. Rebuild the APK so the generated resources are bundled.
 
 ## 9. Reverse geocoder
 
@@ -292,8 +311,8 @@ DOJAH_SECRET_KEY=...
 DOJAH_WIDGET_ID=...
 
 # --- push ---
-FIREBASE_SERVICE_ACCOUNT_KEY={...}   # currently unread by backend code
-PUSH_TOKEN_ENCRYPTION_KEY=<32-byte hex>
+FIREBASE_SERVICE_ACCOUNT_KEY={...}   # service-account JSON (or base64); enables FCM sends
+PUSH_TOKEN_ENCRYPTION_KEY=<32-byte hex>   # openssl rand -hex 32
 
 # --- optional ---
 REVERSE_GEOCODER_URL=https://nominatim.openstreetmap.org/reverse
@@ -308,7 +327,8 @@ MIN_APP_VERSION=<floor>   # or SUPPORTED_APP_VERSIONS=<allowlist>
 3. `app/lib` — localhost fallbacks (`token_refresher.dart:29/47`,
    `api_client.dart:39`, `socket_service.dart:401`) must not survive in release.
 4. Deep-link handling in Dart (if https links are wanted) + assetlinks/AASA.
-5. FCM sender on the backend (tokens are already encrypted on store).
+5. ~~FCM sender on the backend~~ — done (`services/pushService.js`, wired into
+   the outbox drainer; still needs `google-services.json` + `FIREBASE_SERVICE_ACCOUNT_KEY`).
 6. Privacy/terms pages linked from the app.
 
 ## Source references

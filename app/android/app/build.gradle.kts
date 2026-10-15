@@ -4,6 +4,13 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+// Firebase config is optional: the plugin (and generated resources) only apply
+// when the operator has dropped in google-services.json. Until then the app
+// builds and runs with push disabled.
+if (file("google-services.json").exists()) {
+    apply(plugin = "com.google.gms.google-services")
+}
+
 android {
     namespace = "com.draughtbet.draughts_arena"
     compileSdk = flutter.compileSdkVersion

@@ -4,6 +4,7 @@ import prisma from '../utils/db.js';
 import logger from '../utils/logger.js';
 import { getIO } from '../sockets/index.js';
 import { getUserLedgerProjections } from '../services/ledgerService.js';
+import { sendToUser, isPushConfigured } from '../services/pushService.js';
 import {
   OUTBOX_LEASE_MS,
   OUTBOX_MAX_ATTEMPTS,
@@ -89,9 +90,25 @@ export const deliverEvent = async (event) => {
       createdAt: p.createdAt
     });
     if (!sockets || sockets.length === 0) {
-      // Offline fallback is mocked until real FCM exists (same contract as the
-      // old NotificationService: saved to DB + best-effort push logged).
-      logger.info({ userId: p.userId, type: p.type, notificationId: p.notificationId }, '[MOCK FCM] Sent push notification to offline user');
+      // Offline fallback: the player has no live socket, so deliver a push to
+      // their registered devices. Best-effort — `sendToUser` never throws, so a
+      // push failure cannot park the outbox event; the DB row is the source of
+      // truth and the socket push is the live path.
+      if (isPushConfigured()) {
+        const summary = await sendToUser(p.userId, {
+          title: p.title,
+          body: p.message,
+          data: {
+            notificationId: p.notificationId,
+            type: p.type,
+            link: p.link ?? '',
+            matchId: p.matchId ?? ''
+          }
+        });
+        logger.info({ userId: p.userId, type: p.type, notificationId: p.notificationId, ...summary }, 'Offline push delivered');
+      } else {
+        logger.info({ userId: p.userId, type: p.type, notificationId: p.notificationId }, 'Push skipped (FCM not configured) for offline user');
+      }
     }
     return;
   }
