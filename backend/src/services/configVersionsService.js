@@ -66,8 +66,10 @@ export async function resolveActiveConfigVersion(client) {
 }
 
 /**
- * Boot seed: makes sure an active RulesetVersion and an active
- * PlatformConfigVersion exist once. Idempotent — later boots are no-ops.
+ * Boot seed: makes sure the PlatformSettings singleton exists and that an
+ * active RulesetVersion and an active PlatformConfigVersion exist once.
+ * Idempotent — later boots are no-ops. Runs on a fresh database too, so a
+ * newly provisioned deployment is playable without a manual seed step.
  */
 export async function ensureActiveConfigVersions() {
   const hasRuleset = await prisma.rulesetVersion.count({ where: { active: true } });
@@ -84,18 +86,37 @@ export async function ensureActiveConfigVersions() {
     logger.info('Seeded active RulesetVersion draughts-x1-w');
   }
 
+  // The PlatformSettings singleton is a schema-default row, not seeded by any
+  // migration: a fresh database has the table but no row, while production
+  // reads it with findUniqueOrThrow (tier enforcement, matchmaking, wallet).
+  // Create it with defaults before anything downstream — including the config
+  // snapshot below — depends on it. upsert keeps re-boots a no-op and is safe
+  // if two instances boot at once.
+  const existingSettings = await prisma.platformSettings.findUnique({ where: { id: 'singleton' } });
+  const settings =
+    existingSettings ??
+    (await prisma.platformSettings.upsert({
+      where: { id: 'singleton' },
+      update: {},
+      create: { id: 'singleton' }
+    }));
+  if (!existingSettings) {
+    logger.info('Seeded PlatformSettings singleton with schema defaults');
+  }
+
   const hasConfig = await prisma.platformConfigVersion.count({ where: { activeTo: null } });
   if (hasConfig === 0) {
-    const settings = await prisma.platformSettings.findUnique({ where: { id: 'singleton' } });
-    if (settings) {
-      const values = snapshotOf(settings);
-      await prisma.platformConfigVersion.create({
-        data: { version: 'v1', values, checksum: checksumOf(values) }
-      });
-      logger.info('Seeded active PlatformConfigVersion v1');
-    }
+    const values = snapshotOf(settings);
+    await prisma.platformConfigVersion.create({
+      data: { version: 'v1', values, checksum: checksumOf(values) }
+    });
+    logger.info('Seeded active PlatformConfigVersion v1');
   }
-  return { rulesetSeed: hasRuleset === 0, configSeed: hasConfig === 0 };
+  return {
+    rulesetSeed: hasRuleset === 0,
+    settingsSeed: !existingSettings,
+    configSeed: hasConfig === 0
+  };
 }
 
 /**

@@ -9,7 +9,7 @@ const mockPrisma = {
     update: jest.fn(),
     create: jest.fn()
   },
-  platformSettings: { findUnique: jest.fn(), update: jest.fn() }
+  platformSettings: { findUnique: jest.fn(), update: jest.fn(), upsert: jest.fn() }
 };
 
 jest.unstable_mockModule('../../utils/db.js', () => ({ default: mockPrisma }));
@@ -41,6 +41,7 @@ describe('configVersionsService', () => {
     jest.clearAllMocks();
     mockPrisma.$transaction.mockImplementation(async (cb) => cb(mockPrisma));
     mockPrisma.platformSettings.findUnique.mockResolvedValue(SETTINGS);
+    mockPrisma.platformSettings.upsert.mockResolvedValue(SETTINGS);
   });
 
   it('seeds the active ruleset and config version once on a fresh DB', async () => {
@@ -49,7 +50,8 @@ describe('configVersionsService', () => {
 
     const result = await ensureActiveConfigVersions();
 
-    expect(result).toEqual({ rulesetSeed: true, configSeed: true });
+    expect(result).toEqual({ rulesetSeed: true, settingsSeed: false, configSeed: true });
+    expect(mockPrisma.platformSettings.upsert).not.toHaveBeenCalled();
     expect(mockPrisma.rulesetVersion.create).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ id: 'draughts-x1-w', active: true }) })
     );
@@ -69,9 +71,36 @@ describe('configVersionsService', () => {
 
     const result = await ensureActiveConfigVersions();
 
-    expect(result).toEqual({ rulesetSeed: false, configSeed: false });
+    expect(result).toEqual({ rulesetSeed: false, settingsSeed: false, configSeed: false });
     expect(mockPrisma.rulesetVersion.create).not.toHaveBeenCalled();
     expect(mockPrisma.platformConfigVersion.create).not.toHaveBeenCalled();
+  });
+
+  it('creates the settings singleton with schema defaults on a fresh DB', async () => {
+    mockPrisma.rulesetVersion.count.mockResolvedValue(1);
+    mockPrisma.platformConfigVersion.count.mockResolvedValue(0);
+    // No singleton row yet: the fresh database has the table but no data.
+    mockPrisma.platformSettings.findUnique.mockResolvedValue(null);
+    mockPrisma.platformSettings.upsert.mockResolvedValue(SETTINGS);
+
+    const result = await ensureActiveConfigVersions();
+
+    expect(result).toEqual({ rulesetSeed: false, settingsSeed: true, configSeed: true });
+    expect(mockPrisma.platformSettings.upsert).toHaveBeenCalledWith({
+      where: { id: 'singleton' },
+      update: {},
+      create: { id: 'singleton' }
+    });
+    // The config snapshot is taken from the row that was just created, so a
+    // fresh deployment still gets its active v1 config version.
+    expect(mockPrisma.platformConfigVersion.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          version: 'v1',
+          values: expect.objectContaining({ commissionPercent: 10, amateurStakeMinP: '50000' })
+        })
+      })
+    );
   });
 
   it('updates the singleton, closes the active version and appends a new snapshot', async () => {
