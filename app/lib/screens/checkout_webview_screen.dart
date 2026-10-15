@@ -6,6 +6,23 @@ import '../widgets/flow_widgets.dart';
 
 enum CheckoutExit { returned }
 
+/// The provider redirects to the backend return page when the player leaves
+/// hosted checkout; that page then bounces to the app scheme below. Catching
+/// either navigation lets checkout close the moment the player is done, instead
+/// of leaving them staring at a provider page.
+const String checkoutReturnScheme = 'draughts';
+const String checkoutReturnPathSuffix = '/payments/return';
+
+/// True when [url] is the checkout-return navigation (app scheme or the
+/// backend return page). This is a signal to leave checkout only — it is never
+/// treated as proof of payment.
+bool isCheckoutReturnNavigation(String url) {
+  final uri = Uri.tryParse(url);
+  if (uri == null) return false;
+  if (uri.scheme == checkoutReturnScheme) return true;
+  return uri.path.endsWith(checkoutReturnPathSuffix);
+}
+
 class CheckoutWebviewScreen extends StatefulWidget {
   final Uri authorizationUrl;
 
@@ -19,6 +36,16 @@ class _CheckoutWebviewScreenState extends State<CheckoutWebviewScreen> {
   late final WebViewController _controller;
   bool _loading = true;
   bool _loadFailed = false;
+  bool _returning = false;
+
+  /// Closes checkout exactly once. Returning is only a signal to stop the
+  /// checkout flow — it is never treated as proof of payment; the caller
+  /// re-reads authoritative status from the API.
+  void _completeReturn() {
+    if (_returning || !mounted) return;
+    _returning = true;
+    Navigator.of(context).pop(CheckoutExit.returned);
+  }
 
   @override
   void initState() {
@@ -29,9 +56,13 @@ class _CheckoutWebviewScreenState extends State<CheckoutWebviewScreen> {
       ..setNavigationDelegate(
         NavigationDelegate(
           onNavigationRequest: (NavigationRequest request) {
-            // A provider URL is never evidence of payment success. Every
-            // navigation remains inside checkout until the user returns to
-            // the app, which then reads authoritative status from the API.
+            // A provider URL is never evidence of payment success, but a
+            // navigation back to our return URL (or the app scheme) does mean
+            // checkout is over — so leave and let the API decide.
+            if (isCheckoutReturnNavigation(request.url)) {
+              _completeReturn();
+              return NavigationDecision.prevent;
+            }
             return NavigationDecision.navigate;
           },
           onPageStarted: (_) {
@@ -78,7 +109,7 @@ class _CheckoutWebviewScreenState extends State<CheckoutWebviewScreen> {
         title: Text('Complete Payment', style: AppTypography.heading3),
         leading: IconButton(
           icon: const Icon(Icons.close, color: AppColors.textPrimary),
-          onPressed: () => Navigator.of(context).pop(CheckoutExit.returned),
+          onPressed: _completeReturn,
         ),
       ),
       body: _loadFailed

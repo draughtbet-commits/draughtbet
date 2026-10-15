@@ -107,6 +107,14 @@ Notes:
   3-D Secure redirect the player returns to our checkout instead of dead-ending
   on Paystack's page. Unset → omitted (no hardcoded domain). Originally raised
   as P2: `docs/backend-handoffs/2026-09-27-deposit-production-readiness.md:75-82`.
+- Set it to the backend's public return page,
+  `https://api.draughtbet.com/api/v1/payments/return`
+  (`backend/src/modules/payment/returnRouter.js`). That page bounces to the app
+  scheme `draughts://app/payment/callback`; the checkout WebView
+  (`app/lib/screens/checkout_webview_screen.dart`) intercepts either navigation
+  and closes checkout automatically, then re-reads status from the API. The page
+  makes no success claim. Without this, players are left on a provider page and
+  must close checkout by hand.
 
 ### Gateway API bases
 
@@ -260,7 +268,7 @@ ADMIN_MFA_ENFORCED=true
 # --- payments (per environment; keep test and live apart) ---
 PAYSTACK_SECRET_KEY=sk_live_...
 PAYSTACK_API_BASE=https://api.paystack.co
-PAYSTACK_CALLBACK_URL=https://draughtbet.com/payment/callback   # 3-D Secure return
+PAYSTACK_CALLBACK_URL=https://api.draughtbet.com/api/v1/payments/return   # 3-D Secure return
 FLUTTERWAVE_SECRET_KEY=FLWSECK_LIVE-...
 FLUTTERWAVE_SECRET_HASH=<hash>
 FLUTTERWAVE_API_BASE=https://api.flutterwave.com
