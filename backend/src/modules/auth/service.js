@@ -11,6 +11,8 @@ import {
   verifyVerificationChallenge,
   CONTACT_VERIFY_PURPOSES,
   RESET_PURPOSE,
+  OTP_TTL_SECONDS,
+  RESEND_AFTER_SECONDS,
   VerificationChallengeError
 } from './verificationChallengeService.js';
 import { getDeliveryProvider } from './deliveryProvider.js';
@@ -64,6 +66,22 @@ function normalizePhone(phone) {
   const digits = phone.replace(/\D/g, '');
   if (digits.length < 6) return phone; // not a plausible phone, keep as-is
   return `+${digits}`;
+}
+
+// Masks the identifier a user typed so the recovery screen can echo it back
+// ("w*****@example.com" / "****1234") without the response revealing whether
+// the account exists. Derived purely from the request, so it leaks nothing.
+function maskContact(identifier) {
+  const value = (identifier ?? '').trim();
+  if (value.includes('@')) {
+    const [local, domain] = value.split('@');
+    const head = local.slice(0, 1);
+    const stars = '*'.repeat(Math.max(local.length - 1, 1));
+    return `${head}${stars}@${domain}`;
+  }
+  const digits = value.replace(/\D/g, '');
+  if (digits.length > 4) return `${'*'.repeat(digits.length - 4)}${digits.slice(-4)}`;
+  return value;
 }
 
 export class AuthService {
@@ -494,33 +512,49 @@ const user = await prisma.$transaction(async (tx) => {
   }
 
   /**
-   * Starts a password reset. Always answers `{accepted: true}` (no account
+   * Starts a password reset. Always answers `accepted: true` (no account
    * enumeration); if an account exists for the identifier a PASSWORD_RESET
-   * challenge is issued. Consumers must use a dedicated limiter to stop code
-   * spraying.
+   * challenge is issued and its challengeId returned so the client can complete
+   * the reset. Unknown/banned identifiers (and delivery failures) get an
+   * indistinguishable decoy challengeId that no challenge backs. Consumers must
+   * use a dedicated limiter to stop code spraying.
    */
   static async forgotPassword({ identifier, dbp = prisma, deliver, generate } = {}) {
-    const where = identifier.includes('@')
-      ? { email: identifier.trim().toLowerCase() }
-      : { phone: normalizePhone(identifier) };
+    const trimmed = identifier.trim();
+    const where = trimmed.includes('@')
+      ? { email: trimmed.toLowerCase() }
+      : { phone: normalizePhone(trimmed) };
     const account = await dbp.user.findUnique({ where, select: { id: true, isBanned: true } });
+    const maskedContact = maskContact(trimmed);
     if (account && !account.isBanned) {
       try {
-        await createVerificationChallenge(account.id, RESET_PURPOSE, {
+        const challenge = await createVerificationChallenge(account.id, RESET_PURPOSE, {
           dbp,
           generate,
-          destination: identifier,
+          destination: trimmed,
           deliver: this.selectDeliver({ deliver })
         });
+        // The reset screen needs the challengeId to complete the flow. Returning
+        // it does NOT weaken anti-enumeration: the unknown-account branch below
+        // returns an identical shape, so responses stay indistinguishable.
+        return { accepted: true, maskedContact, ...challenge };
       } catch (err) {
-        // Anti-enumeration: the public answer is ALWAYS `{accepted:true}` even
-        // when delivery is unavailable/failed (a 503 here would reveal which
+        // Anti-enumeration: the public answer is ALWAYS accepted, even when
+        // delivery is unavailable/failed (a 503 here would reveal which
         // identifiers are real accounts). The failure surfaces loudly in logs
         // instead. Verification-path callers still get the fail-closed 503.
-        logger.error({ userId: account.id, identifier, error: err.message, name: err.name }, 'Password-reset OTP delivery failed; code not sent');
+        logger.error({ userId: account.id, identifier: trimmed, error: err.message, name: err.name }, 'Password-reset OTP delivery failed; code not sent');
       }
     }
-    return { accepted: true };
+    // Unknown / banned account, or delivery failed: answer with a decoy that has
+    // the same shape but is never persisted, so /auth/reset-password rejects it.
+    return {
+      accepted: true,
+      maskedContact,
+      challengeId: uuidv4(),
+      expiresInSeconds: OTP_TTL_SECONDS,
+      resendAfterSeconds: RESEND_AFTER_SECONDS
+    };
   }
 
   /**

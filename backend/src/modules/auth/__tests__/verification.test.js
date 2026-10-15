@@ -257,7 +257,13 @@ describe('POST /auth/forgot-password', () => {
       .send({ identifier: 'test@example.com' });
 
     expect(res.status).toBe(200);
-    expect(res.body.data).toEqual({ accepted: true });
+    expect(res.body.data).toEqual({
+      accepted: true,
+      maskedContact: 't***@example.com',
+      challengeId: 'reset-1',
+      expiresInSeconds: 300,
+      resendAfterSeconds: 60
+    });
     expect(mockPrisma.verificationChallenge.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({ userId: 'user-id', type: 'PASSWORD_RESET' })
@@ -273,7 +279,16 @@ describe('POST /auth/forgot-password', () => {
       .send({ identifier: 'nobody@example.com' });
 
     expect(res.status).toBe(200);
-    expect(res.body.data).toEqual({ accepted: true });
+    expect(res.body.data).toMatchObject({
+      accepted: true,
+      maskedContact: 'n*****@example.com',
+      expiresInSeconds: 300,
+      resendAfterSeconds: 60
+    });
+    // Same response shape as a known account, but the challengeId is an
+    // unpersisted decoy so no OTP is sent and reset-password rejects it.
+    expect(typeof res.body.data.challengeId).toBe('string');
+    expect(res.body.data.challengeId.length).toBeGreaterThan(0);
     expect(mockPrisma.verificationChallenge.create).not.toHaveBeenCalled();
   });
 });

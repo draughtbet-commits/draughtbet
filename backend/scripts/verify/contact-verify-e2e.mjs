@@ -11,7 +11,6 @@
 //   node scripts/verify/contact-verify-e2e.mjs [baseUrl]
 import Redis from 'ioredis';
 import crypto from 'crypto';
-import pg from 'pg';
 
 const BASE_URL = process.argv[2] || 'http://127.0.0.1:4399';
 if (!process.env.REDIS_URL) {
@@ -139,29 +138,18 @@ const forgot = await request('/api/v1/auth/forgot-password', {
 check('forgot-password 200 accepted', forgot.status === 200 && forgot.body?.data?.accepted === true,
   `${forgot.status} ${JSON.stringify(forgot.body)}`);
 
-// Read the reset challenge straight from the DB: mailbox keys are keyed by
-// challengeId which we cannot guess, and a Redis scan cannot tell the verify
-// challenge from the reset one.
-const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
-const { rows: [userRow] } = await pool.query(
-  `SELECT id FROM "User" WHERE email = $1 LIMIT 1`,
-  [email]
-);
-const { rows: [resetRow] } = await pool.query(
-  `SELECT id AS "challengeId"
-     FROM "VerificationChallenge"
-    WHERE "userId" = $1 AND type = 'PASSWORD_RESET'
-    ORDER BY "createdAt" DESC
-    LIMIT 1`,
-  [userRow?.id]
-);
-const resetCode = await redis.get(`dev:otp-mail:${resetRow?.challengeId}`);
-check('reset challenge row created (PASSWORD_RESET)', Boolean(resetRow?.challengeId));
+// The response now carries the reset challengeId (and masked contact), so the
+// client can complete the flow without out-of-band knowledge. The code itself
+// is still read from the dev mailbox keyed by that challengeId.
+const resetChallengeId = forgot.body?.data?.challengeId;
+const resetCode = await redis.get(`dev:otp-mail:${resetChallengeId}`);
+check('forgot-password returns a challengeId', Boolean(resetChallengeId), JSON.stringify(forgot.body?.data));
+check('forgot-password echoes a masked contact', /^[^*]\*+@/.test(forgot.body?.data?.maskedContact ?? ''), JSON.stringify(forgot.body?.data));
 check('reset code stashed in mailbox', Boolean(resetCode && /^\d{6}$/.test(resetCode)), `code=${resetCode}`);
 
 const reset = await request('/api/v1/auth/reset-password', {
   method: 'POST',
-  body: JSON.stringify({ challengeId: resetRow.challengeId, code: resetCode, newPassword: password2 })
+  body: JSON.stringify({ challengeId: resetChallengeId, code: resetCode, newPassword: password2 })
 });
 check('reset-password 200 {reset, sessionsRevoked}', reset.status === 200 && reset.body?.data?.reset === true && reset.body?.data?.sessionsRevoked === true,
   `${reset.status} ${JSON.stringify(reset.body)}`);

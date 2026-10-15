@@ -6,6 +6,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../providers/auth_provider.dart';
 import '../theme/colors.dart';
+import 'password_recovery_screen.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key});
@@ -187,7 +188,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 Align(
                   alignment: Alignment.centerRight,
                   child: TextButton(
-                    onPressed: () {},
+                    onPressed: () => context.push(PasswordRecoveryScreen.route),
                     child: Text(
                       'Forgot password?',
                       style: GoogleFonts.inter(

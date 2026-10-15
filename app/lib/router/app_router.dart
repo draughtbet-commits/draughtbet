@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 import '../providers/auth_provider.dart';
 import '../screens/login_screen.dart';
 import '../screens/register_screen.dart';
+import '../screens/password_recovery_screen.dart';
 import '../screens/landing_page.dart';
 import '../screens/home_lobby_screen.dart';
 import '../screens/match_screen.dart';
@@ -68,7 +69,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
     redirect: (context, state) {
       final isLoggedIn = ref.read(authProvider).isAuthenticated;
       final location = state.matchedLocation;
-      final isAuthRoute = location == '/login' || location == '/register';
+      final isAuthRoute =
+          location == '/login' ||
+          location == '/register' ||
+          location == PasswordRecoveryScreen.route;
       final isPublicRoute = location == LandingPage.route;
 
       // Authenticated users never see onboarding or the auth forms.
@@ -86,6 +90,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         builder: (context, state) => const LandingPage(),
       ),
       GoRoute(path: '/login', builder: (context, state) => const LoginScreen()),
+      GoRoute(
+        path: PasswordRecoveryScreen.route,
+        builder: (context, state) => const PasswordRecoveryScreen(),
+      ),
       GoRoute(
         path: '/register',
         builder: (context, state) => const RegisterScreen(),
