@@ -212,6 +212,11 @@ class MatchState {
       recoveryPhase: recoveryPhase ?? this.recoveryPhase,
     );
   }
+
+  /// The served game has ended (settling or settled); the match is no longer
+  /// playable even though the result/receipt flow may still be running.
+  bool get isMatchOver =>
+      gameState?.status == 'settling' || gameState?.status == 'completed';
 }
 
 class MatchNotifier extends StateNotifier<MatchState> {
@@ -538,19 +543,29 @@ class MatchNotifier extends StateNotifier<MatchState> {
         final opponentId = currentUserId == current.player1
             ? current.player2
             : current.player1;
-        final result =
-            MatchResultViewData.tryFromServer(
-              data,
-              fallbackOpponent: MatchPlayer(id: opponentId, name: 'Opponent'),
-            ) ??
-            (currentUserId == null || matchId == null
-                ? null
-                : MatchResultViewData.tryFromActiveMatchEnded(
-                    data,
-                    matchId: matchId,
-                    currentUserId: currentUserId,
-                    opponentId: opponentId,
-                  ));
+        final isBroadcastOutcome = data['winnerId'] != null;
+        final result = isBroadcastOutcome
+            ? (currentUserId == null || matchId == null
+                  ? null
+                  : MatchResultViewData.tryFromActiveMatchEnded(
+                      data,
+                      matchId: matchId,
+                      currentUserId: currentUserId,
+                      opponentId: opponentId,
+                    ))
+            : MatchResultViewData.tryFromServer(
+                data,
+                fallbackOpponent:
+                    MatchPlayer(id: opponentId, name: 'Opponent'),
+              );
+
+        if (result == null && state.authoritativeResult != null) {
+          // The winning settle emits match_ended (money fields) followed by a
+          // money-less match.finished retransmission. Deriving nothing here is
+          // expected — never overwrite the authoritative result already set.
+          return;
+        }
+
         state = state.copyWith(
           gameState: current.copyWith(
             status: result == null ? 'settling' : 'completed',

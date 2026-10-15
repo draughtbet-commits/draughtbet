@@ -29,6 +29,16 @@ class _HomeLobbyScreenState extends ConsumerState<HomeLobbyScreen> {
   @override
   void initState() {
     super.initState();
+    // A match is played on a route pushed over the shell, so this home screen
+    // stays alive the whole time. When the match reaches a terminal state, the
+    // OPEN/FUNDED/READY entry it once held in activeMatches is stale — refresh
+    // the authoritative list so the ended match never lingers on Home.
+    ref.listenManual(matchProvider, (previous, next) {
+      if (previous?.currentMatchId != null &&
+          next.gameState?.status == 'completed') {
+        ref.read(matchFlowProvider.notifier).loadActiveMatches();
+      }
+    });
     Future.microtask(() {
       ref.read(profileProvider.notifier).load();
       ref.read(matchFlowProvider.notifier).loadArena();
@@ -62,7 +72,8 @@ class _HomeLobbyScreenState extends ConsumerState<HomeLobbyScreen> {
     final flow = ref.watch(matchFlowProvider);
     final actionPending = flow.actionPhase == MatchActionPhase.submitting;
     final hasActiveMatches = flow.activeMatches.isNotEmpty;
-    final hasStartedMatch = matchState.currentMatchId != null;
+    final hasStartedMatch =
+        matchState.currentMatchId != null && !matchState.isMatchOver;
 
     return Scaffold(
       backgroundColor: AppColors.background,

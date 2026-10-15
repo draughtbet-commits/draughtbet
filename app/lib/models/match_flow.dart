@@ -306,11 +306,19 @@ class MatchResultViewData {
     final resultBody = body['result'] is Map
         ? Map<String, dynamic>.from(body['result'] as Map)
         : body;
+    // A broadcast terminal event (match_ended / match.finished) always carries
+    // a winnerId and its `result`/`outcome` describes the GAME outcome, not the
+    // local player's result — a bare `result: 'WIN'` would otherwise map every
+    // participant to VICTORY. Per-user derivation must come from winnerId, so
+    // this parser refuses broadcast payloads.
+    final isBroadcastOutcome = body.containsKey('winnerId');
     final kind = _parseResultKind(
       resultBody['kind'] ??
           resultBody['resultKind'] ??
           resultBody['outcome'] ??
-          (body['result'] is String ? body['result'] : null),
+          (body['result'] is String && !isBroadcastOutcome
+              ? body['result']
+              : null),
     );
     final opponentBody = resultBody['opponent'];
     if (kind == null) return null;

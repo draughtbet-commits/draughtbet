@@ -32,7 +32,7 @@ class _BalanceCardState extends ConsumerState<BalanceCard> {
         ? '₦••••••'
         : unavailable
         ? 'Unavailable'
-        : _formatNaira(profileState.profile?.walletBalanceMinorUnits ?? 0);
+        : _formatNaira(walletState.projection?.availableMinorUnits ?? 0);
     final locked = walletState.projection?.lockedMinorUnits;
 
     return Container(

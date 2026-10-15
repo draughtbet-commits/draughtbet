@@ -65,6 +65,52 @@ void main() {
     expect(parsed, isNull);
   });
 
+  test('broadcast match_ended/match.finished is not a per-user victory', () {
+    // The backend emits a winnerId broadcast whose `result: 'WIN'` describes the
+    // GAME outcome. Parsing it as the local player's kind would show VICTORY to
+    // both players; per-user derivation must come from winnerId alone.
+    final wonBroadcast = MatchResultViewData.tryFromServer({
+      'matchId': 'DB241567',
+      'result': 'WIN',
+      'terminalReason': 'NO_LEGAL_MOVES',
+      'winnerId': 'player-1',
+      'settlementStatus': 'settled',
+    });
+    final lostBroadcast = MatchResultViewData.tryFromServer({
+      'matchId': 'DB241567',
+      'result': 'WIN',
+      'terminalReason': 'NO_LEGAL_MOVES',
+      'winnerId': 'player-1',
+      'settlementStatus': 'settled',
+    });
+
+    expect(wonBroadcast, isNull);
+    expect(lostBroadcast, isNull);
+  });
+
+  test('winnerId broadcast still derives the local result per user', () {
+    final payload = {
+      'winnerId': 'player-1',
+      'reason': 'NO_LEGAL_MOVES',
+      'payout': '1800000',
+    };
+    final winner = MatchResultViewData.tryFromActiveMatchEnded(
+      payload,
+      matchId: 'DB241567',
+      currentUserId: 'player-1',
+      opponentId: 'player-2',
+    );
+    final loser = MatchResultViewData.tryFromActiveMatchEnded(
+      payload,
+      matchId: 'DB241567',
+      currentUserId: 'player-2',
+      opponentId: 'player-1',
+    );
+
+    expect(winner?.kind, ResultKind.victory);
+    expect(loser?.kind, ResultKind.defeat);
+  });
+
   test('server parser accepts explicit result and preserves exact amounts', () {
     final parsed = MatchResultViewData.tryFromServer({
       'result': {

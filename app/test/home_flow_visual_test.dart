@@ -5,6 +5,7 @@ import 'package:draughts_arena/providers/match_flow_provider.dart';
 import 'package:draughts_arena/providers/match_provider.dart';
 import 'package:draughts_arena/providers/notification_provider.dart';
 import 'package:draughts_arena/providers/profile_provider.dart';
+import 'package:draughts_arena/models/wallet_read.dart';
 import 'package:draughts_arena/providers/wallet_provider.dart';
 import 'package:draughts_arena/screens/arena_screen.dart';
 import 'package:draughts_arena/screens/create_match_screen.dart';
@@ -54,7 +55,15 @@ Widget _captureApp(
         (ref) => fixtures.StaticNotificationNotifier(),
       ),
       walletProvider.overrideWith(
-        (ref) => fixtures.StaticWalletNotifier(const WalletState()),
+        (ref) => fixtures.StaticWalletNotifier(
+          const WalletState(
+            projection: WalletProjection(
+              availableMinorUnits: 3245000,
+              currency: 'NGN',
+              lockedMinorUnits: 0,
+            ),
+          ),
+        ),
       ),
     ],
     child: MaterialApp(
@@ -118,7 +127,15 @@ Widget _captureShellApp({
         (ref) => fixtures.StaticNotificationNotifier(),
       ),
       walletProvider.overrideWith(
-        (ref) => fixtures.StaticWalletNotifier(const WalletState()),
+        (ref) => fixtures.StaticWalletNotifier(
+          const WalletState(
+            projection: WalletProjection(
+              availableMinorUnits: 3245000,
+              currency: 'NGN',
+              lockedMinorUnits: 0,
+            ),
+          ),
+        ),
       ),
     ],
     child: MaterialApp.router(
