@@ -1,8 +1,8 @@
 import 'dart:convert';
 
 import 'package:dio/dio.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
 
+import '../config/backend_url.dart';
 import 'secure_storage.dart';
 
 /// A fresh token pair from `POST /auth/refresh`.
@@ -40,12 +40,7 @@ class TokenRefresher {
 
   /// `BACKEND_URL` is used verbatim. It already carries the `/api/v1` prefix,
   /// so appending that prefix here is what produced the doubled path.
-  static String resolveBaseUrl() {
-    final configured = dotenv.isInitialized
-        ? dotenv.env['BACKEND_URL']?.trim() ?? ''
-        : '';
-    return configured.isNotEmpty ? configured : 'http://localhost:3000';
-  }
+  static String resolveBaseUrl() => resolveBackendUrl();
 
   final SecureStorageService storage;
   final Dio _dio;

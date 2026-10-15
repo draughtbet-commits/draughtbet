@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
+import '../config/backend_url.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:socket_io_client/socket_io_client.dart' as socket_io;
 import '../config/backend_contract.dart';
@@ -398,7 +398,7 @@ class SocketService {
       throw Exception('Cannot initialize socket without JWT token');
     }
 
-    final backendUrl = dotenv.env['BACKEND_URL'] ?? 'http://localhost:3000';
+    final backendUrl = resolveBackendUrl();
     final appVersion = (await PackageInfo.fromPlatform()).version;
     _appVersion = appVersion;
 

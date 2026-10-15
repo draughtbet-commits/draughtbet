@@ -2,8 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:dio/dio.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../config/backend_url.dart';
 import 'secure_storage.dart';
 import 'token_refresher.dart';
 
@@ -28,15 +28,10 @@ class SessionExpiryBus {
 /// provider).
 final apiClientProvider = Provider<Dio>((ref) {
   final storage = SecureStorageService();
-  final configuredBackendUrl = dotenv.isInitialized
-      ? dotenv.env['BACKEND_URL']?.trim() ?? ''
-      : '';
 
   final dio = Dio(
     BaseOptions(
-      baseUrl: configuredBackendUrl.isNotEmpty
-          ? configuredBackendUrl
-          : 'http://localhost:3000',
+      baseUrl: resolveBackendUrl(),
       connectTimeout: const Duration(seconds: 15),
       receiveTimeout: const Duration(seconds: 15),
     ),
