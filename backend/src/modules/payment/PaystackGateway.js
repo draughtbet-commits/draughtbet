@@ -12,6 +12,11 @@ export class PaystackGateway extends PaymentGateway {
     // Overridable so a staging box or a local drive can point the gateway at a
     // stand-in provider without a code change. Defaults to the live API.
     this.apiBase = (process.env.PAYSTACK_API_BASE || 'https://api.paystack.co').replace(/\/+$/, '');
+    // Where the provider returns the player after a 3-D Secure redirect. Without
+    // it, a completed card charge leaves the WebView on Paystack's own page
+    // instead of coming back to our checkout screen. Env-driven (per environment)
+    // and omitted entirely when unset so nothing is hardcoded in the binary.
+    this.callbackUrl = (process.env.PAYSTACK_CALLBACK_URL || '').trim();
   }
 
   /**
@@ -63,6 +68,10 @@ export class PaystackGateway extends PaymentGateway {
       // verified against the stored intent instead of an arbitrary provider ref.
       if (reference) {
         payload.reference = reference;
+      }
+      // Send the player back to our checkout screen after the 3-D Secure step.
+      if (this.callbackUrl) {
+        payload.callback_url = this.callbackUrl;
       }
 
       const data = await this.fetchWithRetry(`${this.apiBase}/transaction/initialize`, {

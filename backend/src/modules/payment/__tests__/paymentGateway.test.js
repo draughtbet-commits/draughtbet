@@ -12,6 +12,7 @@ describe('Payment Gateways', () => {
     let gateway;
     beforeEach(() => {
       process.env.PAYSTACK_SECRET_KEY = 'test_secret_key';
+      delete process.env.PAYSTACK_CALLBACK_URL;
       gateway = new PaystackGateway();
     });
 
@@ -54,6 +55,32 @@ describe('Payment Gateways', () => {
       expect(body.reference).toBe('paystack-intent-ref');
       expect(body.metadata.userId).toBe('user123');
       expect(result.reference).toBe('paystack-intent-ref');
+    });
+
+    it('omits callback_url when PAYSTACK_CALLBACK_URL is not configured', async () => {
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ status: true, data: { authorization_url: 'https://paystack.link/x', reference: 'paystack-intent-ref' } })
+      });
+
+      await gateway.initiatePayment(125000, 'user123', 'test@test.com', 'paystack-intent-ref');
+
+      const body = JSON.parse(global.fetch.mock.calls[0][1].body);
+      expect(body).not.toHaveProperty('callback_url');
+    });
+
+    it('sends the configured PAYSTACK_CALLBACK_URL so 3-D Secure returns to our checkout', async () => {
+      process.env.PAYSTACK_CALLBACK_URL = 'https://draughtbet.com/payment/callback';
+      const gw = new PaystackGateway();
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ status: true, data: { authorization_url: 'https://paystack.link/x', reference: 'paystack-intent-ref' } })
+      });
+
+      await gw.initiatePayment(125000, 'user123', 'test@test.com', 'paystack-intent-ref');
+
+      const body = JSON.parse(global.fetch.mock.calls[0][1].body);
+      expect(body.callback_url).toBe('https://draughtbet.com/payment/callback');
     });
 
     it('verifyPayoutStatus maps the provider transfer state to a verdict', async () => {

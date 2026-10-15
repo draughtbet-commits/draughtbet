@@ -100,12 +100,13 @@ Notes:
   and should be read from an env var (e.g. `FLUTTERWAVE_REDIRECT_URL`)
   rather than hardcoded.
 
-### Paystack — missing callback entirely
+### Paystack — callback URL (implemented)
 
-- `backend/src/modules/payment/PaystackGateway.js:52-89`
-  (`initiatePayment`) sends no `callback_url`, so after a 3-D Secure redirect
-  the player lands on a dead end. Documented as P2 with fix direction:
-  `docs/backend-handoffs/2026-09-27-deposit-production-readiness.md:75-82`.
+- `backend/src/modules/payment/PaystackGateway.js` `initiatePayment` now sends
+  `callback_url` read from `PAYSTACK_CALLBACK_URL` (constructor), so after a
+  3-D Secure redirect the player returns to our checkout instead of dead-ending
+  on Paystack's page. Unset → omitted (no hardcoded domain). Originally raised
+  as P2: `docs/backend-handoffs/2026-09-27-deposit-production-readiness.md:75-82`.
 
 ### Gateway API bases
 
@@ -259,6 +260,7 @@ ADMIN_MFA_ENFORCED=true
 # --- payments (per environment; keep test and live apart) ---
 PAYSTACK_SECRET_KEY=sk_live_...
 PAYSTACK_API_BASE=https://api.paystack.co
+PAYSTACK_CALLBACK_URL=https://draughtbet.com/payment/callback   # 3-D Secure return
 FLUTTERWAVE_SECRET_KEY=FLWSECK_LIVE-...
 FLUTTERWAVE_SECRET_HASH=<hash>
 FLUTTERWAVE_API_BASE=https://api.flutterwave.com
@@ -293,8 +295,8 @@ MIN_APP_VERSION=<floor>   # or SUPPORTED_APP_VERSIONS=<allowlist>
 ## Code changes implied by this audit
 
 1. `FlutterwaveGateway.js:62` — env-var the redirect URL (placeholder domain today).
-2. `PaystackGateway.js:initiatePayment` — add a `callback_url` from env
-   (P2 in the deposit production-readiness handoff).
+2. ~~`PaystackGateway.js:initiatePayment` — add a `callback_url` from env~~ —
+   done (`PAYSTACK_CALLBACK_URL`).
 3. `app/lib` — localhost fallbacks (`token_refresher.dart:29/47`,
    `api_client.dart:39`, `socket_service.dart:401`) must not survive in release.
 4. Deep-link handling in Dart (if https links are wanted) + assetlinks/AASA.
