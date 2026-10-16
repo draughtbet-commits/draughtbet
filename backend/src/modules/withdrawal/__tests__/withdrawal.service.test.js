@@ -121,6 +121,14 @@ const setupRequestDefaults = () => {
   mockPrisma.ledgerEntry.create.mockResolvedValue({ id: 'le-1' });
   mockPrisma.withdrawal.create.mockImplementation(({ data }) => ({ id: 'wd-1', ...data }));
   mockPrisma.outboxEvent.create.mockResolvedValue({ id: 'ob-1' });
+  mockPrisma.notification.create.mockResolvedValue({
+    id: 'notif-1',
+    userId: 'user-1',
+    type: 'WITHDRAWAL_PENDING',
+    title: 'Withdrawal Requested',
+    message: 'pending',
+    link: '/wallet'
+  });
 };
 
 describe('WithdrawalService — request/reserve path', () => {
@@ -150,6 +158,17 @@ describe('WithdrawalService — request/reserve path', () => {
     );
     expect(mockPrisma.outboxEvent.create).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ eventType: 'wallet.updated' }) })
+    );
+    // "Request received" notice created + enqueued in the same tx.
+    expect(mockPrisma.notification.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        userId: 'user-1',
+        type: 'WITHDRAWAL_PENDING',
+        message: expect.stringContaining('₦1000.00')
+      })
+    });
+    expect(mockPrisma.outboxEvent.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ eventType: 'notification' }) })
     );
   });
 

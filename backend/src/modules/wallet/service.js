@@ -524,6 +524,82 @@ export const processDepositWebhook = async ({ reference, amountMinorUnits, curre
   }
 };
 
+/**
+ * Idempotently process a FAILED deposit charge webhook (Paystack charge.failed /
+ * Flutterwave failed charge), verified against the stored intent.
+ *
+ * A failure says nothing was credited, but the player should still be told the
+ * payment did not go through (the checkout may have closed on them). The intent
+ * is parked FAILED — the same terminal state the stale sweep uses — so a
+ * late-arriving success webhook can still credit it exactly once (the credit CAS
+ * accepts PENDING|FAILED); should that happen the player simply also receives the
+ * success notice, which is the truth.
+ *
+ * Returns:
+ *   { handled: true,  alreadyApplied: false, intent } — newly parked + notified
+ *   { handled: false, alreadyApplied: true }          — already terminal
+ *   { handled: false, reason: UNKNOWN_REFERENCE | GATEWAY_MISMATCH | USER_MISMATCH }
+ */
+export const processDepositFailure = async ({ reference, gateway, userId = null }) => {
+  if (!reference) return { handled: false, reason: 'UNKNOWN_REFERENCE' };
+
+  try {
+    return await prisma.$transaction(async (tx) => {
+      const intent = await tx.depositIntent.findUnique({ where: { reference } });
+      if (!intent) {
+        logger.warn({ reference, gateway }, 'Failed-deposit webhook ignored: unknown reference');
+        return { handled: false, reason: 'UNKNOWN_REFERENCE' };
+      }
+      // A success that already landed wins: never tell the player it failed.
+      if (intent.status === 'COMPLETED') {
+        return { handled: false, alreadyApplied: true, intent };
+      }
+      // Already parked (stale sweep or an earlier failure event) — idempotent.
+      if (intent.status === 'FAILED') {
+        return { handled: false, alreadyApplied: true, intent };
+      }
+      if (intent.gateway !== gateway) {
+        logger.warn({ reference }, 'Failed-deposit webhook rejected: gateway does not match intent');
+        return { handled: false, reason: 'GATEWAY_MISMATCH' };
+      }
+      if (userId && intent.userId !== userId) {
+        logger.warn({ reference }, 'Failed-deposit webhook rejected: user does not match intent');
+        return { handled: false, reason: 'USER_MISMATCH' };
+      }
+
+      // CAS: only a still-PENDING intent is parked here, so exactly one caller
+      // creates the notification even under duplicate delivery.
+      const { count } = await tx.depositIntent.updateMany({
+        where: { id: intent.id, status: 'PENDING' },
+        data: { status: 'FAILED' }
+      });
+      if (count !== 1) {
+        return { handled: false, alreadyApplied: true, intent };
+      }
+
+      const amountMajor = `${intent.amountMinorUnits / 100n}.${(intent.amountMinorUnits % 100n).toString().padStart(2, '0')}`;
+      const notif = await tx.notification.create({
+        data: {
+          userId: intent.userId,
+          type: 'DEPOSIT_FAILED',
+          title: 'Deposit Not Completed',
+          message: `Your deposit of ₦${amountMajor} was not completed. You have not been charged; you can try again from your wallet.`,
+          link: '/wallet'
+        }
+      });
+      await enqueueNotificationDelivery(tx, notif, {
+        dedupeKey: `notify:deposit-failed:${intent.id}`
+      });
+
+      logger.info({ reference, gateway }, 'Failed deposit webhook processed against stored intent');
+      return { handled: true, alreadyApplied: false, intent };
+    });
+  } catch (error) {
+    logger.error({ error, reference, gateway }, 'Failed to process failed-deposit webhook');
+    throw error;
+  }
+};
+
 export const getWalletBalance = async (userId) => {
   const wallet = await prisma.wallet.findUnique({
     where: { userId },

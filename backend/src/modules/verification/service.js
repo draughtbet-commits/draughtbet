@@ -6,6 +6,29 @@ import {
   ASYNC_KYC_PROVIDERS,
   KycProviderError,
 } from './providerAdapter.js';
+import { sendEmail } from '../../services/emailService.js';
+import { kycVerifiedEmail, kycRejectedEmail } from '../../services/emailTemplates.js';
+
+/**
+ * Best-effort KYC outcome mail. Looks up the applicant's address and sends the
+ * verified/rejected template; never throws so a mail failure cannot fail the
+ * verification transition that already committed.
+ */
+const sendKycOutcomeEmail = async (userId, status, { reason = null } = {}) => {
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { email: true, fullName: true }
+    });
+    if (!user?.email) return;
+    const template = status === 'VERIFIED'
+      ? kycVerifiedEmail({ name: user.fullName })
+      : kycRejectedEmail({ name: user.fullName, reason });
+    await sendEmail({ to: user.email, ...template });
+  } catch (err) {
+    logger.warn({ err, userId, status }, 'KYC outcome email failed (non-blocking)');
+  }
+};
 
 export class KycAlreadyVerifiedError extends Error {
   constructor(message = 'KYC verification is already complete') {
@@ -244,7 +267,8 @@ export const applyVerificationResult = async (
     ? result.checks.filter((c) => c && typeof c === 'object' && VERIFICATION_CHECK_TYPES.includes(c.type))
     : [];
 
-  return dbp.$transaction(async (tx) => {
+  let settled = false;
+  const caseId = await dbp.$transaction(async (tx) => {
     // Claim the transition. Exactly one concurrent delivery can match, so a
     // duplicate or out-of-order verdict cannot overwrite the settled state.
     const { count } = await tx.verificationCase.updateMany({
@@ -258,6 +282,7 @@ export const applyVerificationResult = async (
       );
       return caseRow.id;
     }
+    settled = true;
 
     if (providerChecks.length) {
       for (const pc of providerChecks) {
@@ -315,6 +340,12 @@ export const applyVerificationResult = async (
 
     return caseRow.id;
   });
+
+  // Only the delivery that actually settled the case emails the applicant.
+  if (settled) {
+    await sendKycOutcomeEmail(caseRow.userId, settledStatus);
+  }
+  return caseId;
 };
 
 /**
@@ -545,12 +576,12 @@ export const approveVerificationCase = async (
   caseId,
   { adminId = null, note = null, dbp = prisma } = {}
 ) => {
-  return dbp.$transaction(async (tx) => {
+  const result = await dbp.$transaction(async (tx) => {
     const vc = await tx.verificationCase.findUnique({ where: { id: caseId } });
     if (!vc) throw new VerificationCaseNotFoundError();
     if (vc.status === 'VERIFIED') {
       logger.info({ caseId, adminId }, 'KYC approve replayed on already-verified case');
-      return { case: vc, replayed: true };
+      return { case: vc, replayed: true, userId: vc.userId };
     }
     if (!REVIEWABLE_CASE_STATUSES.includes(vc.status)) {
       throw new VerificationCaseNotReviewableError();
@@ -573,8 +604,13 @@ export const approveVerificationCase = async (
       data: { kycStatus: 'VERIFIED', ageVerified: true }
     });
     logger.info({ caseId, adminId, userId: vc.userId }, 'KYC case approved by admin');
-    return { case: updated, replayed: false };
+    return { case: updated, replayed: false, userId: vc.userId };
   });
+
+  if (!result.replayed) {
+    await sendKycOutcomeEmail(result.userId, 'VERIFIED');
+  }
+  return { case: result.case, replayed: result.replayed };
 };
 
 /**
@@ -586,11 +622,11 @@ export const rejectVerificationCase = async (
   caseId,
   { adminId = null, reason = null, dbp = prisma } = {}
 ) => {
-  return dbp.$transaction(async (tx) => {
+  const result = await dbp.$transaction(async (tx) => {
     const vc = await tx.verificationCase.findUnique({ where: { id: caseId } });
     if (!vc) throw new VerificationCaseNotFoundError();
     if (vc.status === 'REJECTED') {
-      return { case: vc, replayed: true };
+      return { case: vc, replayed: true, userId: vc.userId };
     }
     if (!REVIEWABLE_CASE_STATUSES.includes(vc.status) && vc.status !== 'VERIFIED') {
       throw new VerificationCaseNotReviewableError();
@@ -616,8 +652,13 @@ export const rejectVerificationCase = async (
       data: { kycStatus: 'PENDING' }
     });
     logger.info({ caseId, adminId, userId: vc.userId, reason }, 'KYC case rejected by admin');
-    return { case: updated, replayed: false };
+    return { case: updated, replayed: false, userId: vc.userId };
   });
+
+  if (!result.replayed) {
+    await sendKycOutcomeEmail(result.userId, 'REJECTED', { reason });
+  }
+  return { case: result.case, replayed: result.replayed };
 };
 
 // ---------------------------------------------------------------------------

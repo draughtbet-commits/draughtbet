@@ -4,6 +4,9 @@ const mockPrisma = {
   outboxEvent: {
     findMany: jest.fn(),
     updateMany: jest.fn()
+  },
+  user: {
+    findUnique: jest.fn()
   }
 };
 
@@ -16,6 +19,9 @@ jest.unstable_mockModule('../../services/outboxService.js', () => ({
   OUTBOX_MAX_ATTEMPTS: 5,
   OUTBOX_BATCH_SIZE: 50
 }));
+
+const sendEmailMock = jest.fn();
+jest.unstable_mockModule('../../services/emailService.js', () => ({ sendEmail: sendEmailMock }));
 
 const emitMock = jest.fn();
 const toMock = jest.fn().mockReturnValue({ emit: emitMock });
@@ -71,6 +77,7 @@ const fixedStart = new Date('2026-01-02T00:00:00Z');
 beforeEach(() => {
   jest.clearAllMocks();
   mockPrisma.outboxEvent.updateMany.mockResolvedValue({ count: 1 });
+  sendEmailMock.mockResolvedValue({ delivered: true, skipped: false });
 });
 
 describe('processOutboxDrainer', () => {
@@ -217,5 +224,39 @@ describe('deliverEvent', () => {
 
   it('throws on an unknown eventType so the row is parked, not spun', async () => {
     await expect(deliverEvent(event({ eventType: 'mystery' }))).rejects.toThrow(/unknown eventType/);
+  });
+
+  it('emails email-worthy notifications to the recipient', async () => {
+    fetchSocketsMock.mockResolvedValue([{ id: 'sock-1' }]);
+    mockPrisma.user.findUnique.mockResolvedValue({ email: 'ada@example.com', fullName: 'Ada' });
+
+    await deliverEvent(notification());
+
+    expect(mockPrisma.user.findUnique).toHaveBeenCalledWith({
+      where: { id: 'user-1' },
+      select: { email: true, fullName: true }
+    });
+    expect(sendEmailMock).toHaveBeenCalledWith(
+      expect.objectContaining({ to: 'ada@example.com', subject: expect.stringContaining('Deposit Complete') })
+    );
+  });
+
+  it('does not email real-time-only notifications', async () => {
+    fetchSocketsMock.mockResolvedValue([{ id: 'sock-1' }]);
+    const liveOnly = notification();
+    liveOnly.payload = { ...liveOnly.payload, type: 'MATCH_ENDED_WIN' };
+
+    await deliverEvent(liveOnly);
+
+    expect(sendEmailMock).not.toHaveBeenCalled();
+    expect(mockPrisma.user.findUnique).not.toHaveBeenCalled();
+  });
+
+  it('swallows an email failure so the notification still settles', async () => {
+    fetchSocketsMock.mockResolvedValue([{ id: 'sock-1' }]);
+    mockPrisma.user.findUnique.mockResolvedValue({ email: 'ada@example.com', fullName: 'Ada' });
+    sendEmailMock.mockRejectedValueOnce(new Error('smtp down'));
+
+    await expect(deliverEvent(notification())).resolves.toBeUndefined();
   });
 });

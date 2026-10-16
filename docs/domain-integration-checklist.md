@@ -127,7 +127,7 @@ Secrets per environment: `PAYSTACK_SECRET_KEY` (`sk_test_`/`sk_live_`),
 `FLUTTERWAVE_SECRET_KEY`, `FLUTTERWAVE_SECRET_HASH`
 (`.../2026-09-27-deposit-production-readiness.md:116-126`).
 
-## 6. Email (OTP delivery + password reset)
+## 6. Email (OTP delivery + transactional)
 
 Delivery providers are selected from `OTP_DELIVERY`
 (`backend/src/modules/auth/deliveryProvider.js:143-153`):
@@ -139,8 +139,24 @@ Delivery providers are selected from `OTP_DELIVERY`
 | `EMAIL_API_KEY` | `deliveryProvider.js:58` | provider key |
 | `EMAIL_FROM` | `deliveryProvider.js:58` | e.g. `Draught Bet <no-reply@draughtbet.com>` |
 
+The same `EMAIL_*` trio also drives **transactional mail** via
+`backend/src/services/emailService.js` (Resend `POST /emails` shape),
+templated in `backend/src/services/emailTemplates.js`:
+
+| Event | Template | Wired at |
+|---|---|---|
+| Sign-up (email + Google) | `welcomeEmail` | `modules/auth/service.js` `register` |
+| Password reset | `passwordChangedEmail` | `modules/auth/service.js` `resetPassword` |
+| Money + account status (`DEPOSIT_CONFIRMED`, `DEPOSIT_FAILED`, `WITHDRAWAL_PENDING`, `WITHDRAWAL_CONFIRMED`, `WITHDRAWAL_REFUNDED`, `ACCOUNT_SUSPENDED`, `ACCOUNT_REINSTATED`) | `notificationEmail` | `jobs/outboxDrainer.js` (mirrors the in-app notification) |
+| KYC verified / rejected | `kycVerifiedEmail` / `kycRejectedEmail` | `modules/verification/service.js` |
+
+Unlike OTP, transactional sends are **best-effort**: an unset config or a
+provider failure is logged and swallowed so it can never fail (or delay) the
+action that triggered it. Real-time game events (challenges, match results) are
+deliberately **not** emailed — push/in-app only.
+
 Supporting domain work: DNS for the sending domain — SPF, DKIM, DMARC —
-otherwise OTP and password-reset mail lands in spam or is rejected.
+otherwise OTP and transactional mail lands in spam or is rejected.
 
 Note: `reset-password`/`verify` flows do **not** embed links today (the code is
 typed into the app), so no reset deep-link URL is required — only the sender

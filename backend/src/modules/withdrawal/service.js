@@ -216,6 +216,22 @@ export class WithdrawalService {
           dedupeKey: `wallet:withdrawal:${withdrawal.id}`
         });
 
+        // "Request received" notice + its durable delivery event, atomic with the
+        // reservation. The player is told the payout is pending review; the
+        // confirmed/returned notices follow once the payout resolves.
+        const pendingNotif = await tx.notification.create({
+          data: {
+            userId,
+            type: 'WITHDRAWAL_PENDING',
+            title: 'Withdrawal Requested',
+            message: `Your withdrawal request of ₦${RELATIVE_TO_MAJOR_UNITS(amount)} has been received and is pending review.`,
+            link: '/wallet'
+          }
+        });
+        await enqueueNotificationDelivery(tx, pendingNotif, {
+          dedupeKey: `notify:withdrawal-requested:${withdrawal.id}`
+        });
+
         logger.info({ withdrawalId: withdrawal.id, userId, amount: amount.toString() }, 'Withdrawal requested and reserved');
         return toPayload(withdrawal);
       });

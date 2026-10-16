@@ -17,6 +17,8 @@ import {
 } from './verificationChallengeService.js';
 import { getDeliveryProvider } from './deliveryProvider.js';
 import { verifyGoogleIdToken } from './googleProvider.js';
+import { sendEmail } from '../../services/emailService.js';
+import { welcomeEmail, passwordChangedEmail } from '../../services/emailTemplates.js';
 
 let prisma = _prisma;
 let redis = _redis;
@@ -176,6 +178,10 @@ const user = await prisma.$transaction(async (tx) => {
       await ensureUserAccounts(tx, newUser.id, 'NGN');
       return newUser;
     });
+
+      // Welcome mail is a best-effort side channel: never awaited, never able to
+      // fail (or delay) a completed registration.
+      void sendEmail({ to: user.email, ...welcomeEmail({ name: user.fullName }) });
 
       return user;
     } catch (err) {
@@ -653,6 +659,10 @@ const user = await prisma.$transaction(async (tx) => {
     });
     const revoked = await this.revokeAllRefreshTokens(user.id);
     await this.recordSecurityEvent(user.id, 'PASSWORD_CHANGED', { via: 'reset' }, ip, userAgent);
+    // Best-effort security alert; must not fail or delay the completed reset.
+    if (user.email) {
+      void sendEmail({ to: user.email, ...passwordChangedEmail() });
+    }
     return { reset: true, sessionsRevoked: true };
   }
 

@@ -33,6 +33,11 @@ jest.unstable_mockModule('../../../utils/logger.js', () => ({
   default: { info: jest.fn(), warn: jest.fn(), error: jest.fn() }
 }));
 
+const sendEmailMock = jest.fn().mockResolvedValue({ delivered: true, skipped: false });
+jest.unstable_mockModule('../../../services/emailService.js', () => ({
+  sendEmail: sendEmailMock
+}));
+
 const {
   startVerification,
   getKycStatus,
@@ -255,6 +260,25 @@ describe('verification admin review', () => {
     expect(mockPrisma.user.update).not.toHaveBeenCalled();
   });
 
+  it('emails the applicant when an admin approves verification', async () => {
+    mockPrisma.user.findUnique.mockResolvedValue({ email: 'ada@example.com', fullName: 'Ada' });
+
+    await approveVerificationCase('case-admin', { adminId: 'admin-1', dbp: mockPrisma });
+
+    expect(sendEmailMock).toHaveBeenCalledWith(
+      expect.objectContaining({ to: 'ada@example.com', subject: expect.stringContaining('identity verification is complete') })
+    );
+  });
+
+  it('does not email on a replayed approve', async () => {
+    mockPrisma.verificationCase.findUnique.mockResolvedValue({ ...openCase, status: 'VERIFIED' });
+    mockPrisma.user.findUnique.mockResolvedValue({ email: 'ada@example.com', fullName: 'Ada' });
+
+    await approveVerificationCase('case-admin', { dbp: mockPrisma });
+
+    expect(sendEmailMock).not.toHaveBeenCalled();
+  });
+
   it('approve rejects a missing or non-reviewable case', async () => {
     mockPrisma.verificationCase.findUnique.mockResolvedValueOnce(null);
     await expect(
@@ -306,6 +330,16 @@ describe('verification admin review', () => {
 
     expect(out.replayed).toBe(true);
     expect(mockPrisma.user.update).not.toHaveBeenCalled();
+  });
+
+  it('emails the applicant when an admin rejects verification', async () => {
+    mockPrisma.user.findUnique.mockResolvedValue({ email: 'ada@example.com', fullName: 'Ada' });
+
+    await rejectVerificationCase('case-admin', { adminId: 'admin-1', reason: 'blurred doc', dbp: mockPrisma });
+
+    expect(sendEmailMock).toHaveBeenCalledWith(
+      expect.objectContaining({ to: 'ada@example.com', text: expect.stringContaining('blurred doc') })
+    );
   });
 });
 

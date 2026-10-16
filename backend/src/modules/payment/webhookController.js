@@ -1,5 +1,5 @@
 import express from 'express';
-import { processDepositWebhook, parseDecimalMajorToMinor } from '../wallet/service.js';
+import { processDepositWebhook, processDepositFailure, parseDecimalMajorToMinor } from '../wallet/service.js';
 import { PaystackGateway } from './PaystackGateway.js';
 import { FlutterwaveGateway } from './FlutterwaveGateway.js';
 import { WithdrawalService } from '../withdrawal/service.js';
@@ -109,6 +109,25 @@ webhookRouter.post('/paystack', async (req, res) => {
       return respond(res, outcome);
     }
 
+    if (payload.event === 'charge.failed') {
+      // A failed collection: nothing was credited, but the player is told the
+      // payment did not go through. Verified against the stored intent; unknown
+      // references are acknowledged without a notice.
+      const data = payload.data;
+      const failure = await processDepositFailure({
+        reference: data.reference,
+        gateway: 'PAYSTACK',
+        userId: data.metadata?.userId ?? null
+      });
+      const outcome = failure.handled
+        ? { status: 'PROCESSED' }
+        : failure.alreadyApplied
+          ? { status: 'IGNORED_DUPLICATE' }
+          : { status: 'REJECTED', errorCode: failure.reason };
+      await finalize({ provider: 'PAYSTACK', dedupeKey }, outcome);
+      return respond(res, outcome);
+    }
+
     if (payload.event?.startsWith('transfer.')) {
       // Payout transfer events. Only a PROCESSING withdrawal transitions; a
       // duplicated terminal callback is acknowledged without any money move.
@@ -193,6 +212,24 @@ webhookRouter.post('/flutterwave', async (req, res) => {
       });
 
       const outcome = await handleDepositResult(res, result, userId);
+      await finalize({ provider: 'FLUTTERWAVE', dedupeKey }, outcome);
+      return respond(res, outcome);
+    }
+
+    if (payload.event === 'charge.completed' && payload.data.status === 'failed') {
+      // A failed collection: nothing credited, player told it did not go
+      // through. Same intent-verified, idempotent handling as the success path.
+      const data = payload.data;
+      const failure = await processDepositFailure({
+        reference: data.tx_ref,
+        gateway: 'FLUTTERWAVE',
+        userId: data.meta?.userId ?? null
+      });
+      const outcome = failure.handled
+        ? { status: 'PROCESSED' }
+        : failure.alreadyApplied
+          ? { status: 'IGNORED_DUPLICATE' }
+          : { status: 'REJECTED', errorCode: failure.reason };
       await finalize({ provider: 'FLUTTERWAVE', dedupeKey }, outcome);
       return respond(res, outcome);
     }

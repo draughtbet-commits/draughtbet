@@ -5,11 +5,48 @@ import logger from '../utils/logger.js';
 import { getIO } from '../sockets/index.js';
 import { getUserLedgerProjections } from '../services/ledgerService.js';
 import { sendToUser, isPushConfigured } from '../services/pushService.js';
+import { sendEmail } from '../services/emailService.js';
+import { notificationEmail } from '../services/emailTemplates.js';
 import {
   OUTBOX_LEASE_MS,
   OUTBOX_MAX_ATTEMPTS,
   OUTBOX_BATCH_SIZE
 } from '../services/outboxService.js';
+
+// Notification types that also warrant an email (a record the player can keep,
+// or an out-of-app alert). Real-time game events (challenges, results) stay
+// in-app/push only — emailing them would be noise.
+export const EMAIL_NOTIFICATION_TYPES = new Set([
+  'DEPOSIT_CONFIRMED',
+  'DEPOSIT_FAILED',
+  'WITHDRAWAL_PENDING',
+  'WITHDRAWAL_CONFIRMED',
+  'WITHDRAWAL_REFUNDED',
+  'ACCOUNT_SUSPENDED',
+  'ACCOUNT_REINSTATED'
+]);
+
+/**
+ * Best-effort email mirror of an in-app notification. Never throws: the outbox
+ * event must settle on socket/push success regardless of mail delivery, so a
+ * lookup or provider failure is logged and swallowed.
+ */
+const emailNotificationIfWarranted = async (p) => {
+  if (!EMAIL_NOTIFICATION_TYPES.has(p.type)) return;
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: p.userId },
+      select: { email: true, fullName: true }
+    });
+    if (!user?.email) return;
+    await sendEmail({
+      to: user.email,
+      ...notificationEmail({ name: user.fullName, title: p.title, message: p.message })
+    });
+  } catch (err) {
+    logger.warn({ err, userId: p.userId, type: p.type }, 'Notification email failed (non-blocking)');
+  }
+};
 
 // Outbox drainer: publishes PENDING OutboxEvent rows and marks them SENT.
 //
@@ -110,6 +147,9 @@ export const deliverEvent = async (event) => {
         logger.info({ userId: p.userId, type: p.type, notificationId: p.notificationId }, 'Push skipped (FCM not configured) for offline user');
       }
     }
+    // Email is independent of online state: send it whether or not the player
+    // had a live socket.
+    await emailNotificationIfWarranted(p);
     return;
   }
 

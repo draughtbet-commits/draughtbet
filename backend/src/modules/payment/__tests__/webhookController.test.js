@@ -7,6 +7,7 @@ process.env.FLUTTERWAVE_SECRET_HASH = 'flw_test_hash';
 const ioMock = { to: jest.fn().mockReturnThis(), emit: jest.fn() };
 
 const mockProcessDepositWebhook = jest.fn();
+const mockProcessDepositFailure = jest.fn();
 const mockParseDecimal = jest.fn((v) => {
   const s = String(v);
   const m = /^(\d+)(?:\.(\d{1,2}))?$/.exec(s);
@@ -16,6 +17,7 @@ const mockParseDecimal = jest.fn((v) => {
 
 jest.unstable_mockModule('../../wallet/service.js', () => ({
   processDepositWebhook: mockProcessDepositWebhook,
+  processDepositFailure: mockProcessDepositFailure,
   parseDecimalMajorToMinor: mockParseDecimal,
   parseMinorUnits: jest.fn(),
   parseIdempotencyKey: jest.fn()
@@ -75,6 +77,7 @@ describe('webhookController (S08: credit only from verified stored intents)', ()
   beforeEach(() => {
     jest.clearAllMocks();
     ioMock.to.mockReturnThis();
+    mockProcessDepositFailure.mockResolvedValue({ handled: false, reason: 'UNKNOWN_REFERENCE' });
   });
 
   it('Paystack: a valid, correctly-signed event credits once and acknowledges with 200', async () => {
@@ -159,6 +162,20 @@ describe('webhookController (S08: credit only from verified stored intents)', ()
   });
 
   it('Paystack: an unknown event type is ignored', async () => {
+    const payload = { ...paystackEvent(), event: 'customer.identification.success' };
+    const res = await request(app)
+      .post('/paystack')
+      .set('x-paystack-signature', paystackSig(payload))
+      .send(payload);
+
+    expect(res.status).toBe(200);
+    expect(mockProcessDepositWebhook).not.toHaveBeenCalled();
+    expect(mockProcessDepositFailure).not.toHaveBeenCalled();
+  });
+
+  it('Paystack: a charge.failed event notifies via processDepositFailure and never credits', async () => {
+    mockProcessDepositFailure.mockResolvedValue({ handled: true, alreadyApplied: false });
+
     const payload = { ...paystackEvent(), event: 'charge.failed' };
     const res = await request(app)
       .post('/paystack')
@@ -167,6 +184,29 @@ describe('webhookController (S08: credit only from verified stored intents)', ()
 
     expect(res.status).toBe(200);
     expect(mockProcessDepositWebhook).not.toHaveBeenCalled();
+    expect(mockProcessDepositFailure).toHaveBeenCalledWith({
+      reference: 'paystack-intent-ref',
+      gateway: 'PAYSTACK',
+      userId: 'user-1'
+    });
+    expect(recordWebhookResult).toHaveBeenCalledWith(
+      expect.objectContaining({ provider: 'PAYSTACK', processingStatus: 'PROCESSED' })
+    );
+  });
+
+  it('Paystack: a charge.failed for an unknown reference is recorded REJECTED, no notice', async () => {
+    mockProcessDepositFailure.mockResolvedValue({ handled: false, reason: 'UNKNOWN_REFERENCE' });
+
+    const payload = { ...paystackEvent(), event: 'charge.failed' };
+    const res = await request(app)
+      .post('/paystack')
+      .set('x-paystack-signature', paystackSig(payload))
+      .send(payload);
+
+    expect(res.status).toBe(200);
+    expect(recordWebhookResult).toHaveBeenCalledWith(
+      expect.objectContaining({ provider: 'PAYSTACK', processingStatus: 'REJECTED', errorCode: 'UNKNOWN_REFERENCE' })
+    );
   });
 
   it('Paystack: missing userId metadata yields 400 before processing', async () => {
@@ -223,10 +263,12 @@ describe('webhookController (S08: credit only from verified stored intents)', ()
     expect(mockProcessDepositWebhook).not.toHaveBeenCalled();
   });
 
-  it('Flutterwave: a non-successful charge is ignored', async () => {
+  it('Flutterwave: a failed charge notifies via processDepositFailure and never credits', async () => {
+    mockProcessDepositFailure.mockResolvedValue({ handled: true, alreadyApplied: false });
+
     const payload = {
       event: 'charge.completed',
-      data: { tx_ref: 'x', amount: '1.00', currency: 'NGN', status: 'failed', meta: { userId: 'user-1' } }
+      data: { tx_ref: 'flw-intent-ref', amount: '1.00', currency: 'NGN', status: 'failed', meta: { userId: 'user-1' } }
     };
     const res = await request(app)
       .post('/flutterwave')
@@ -235,5 +277,25 @@ describe('webhookController (S08: credit only from verified stored intents)', ()
 
     expect(res.status).toBe(200);
     expect(mockProcessDepositWebhook).not.toHaveBeenCalled();
+    expect(mockProcessDepositFailure).toHaveBeenCalledWith({
+      reference: 'flw-intent-ref',
+      gateway: 'FLUTTERWAVE',
+      userId: 'user-1'
+    });
+  });
+
+  it('Flutterwave: a pending charge is ignored (neither credit nor failure)', async () => {
+    const payload = {
+      event: 'charge.completed',
+      data: { tx_ref: 'x', amount: '1.00', currency: 'NGN', status: 'pending', meta: { userId: 'user-1' } }
+    };
+    const res = await request(app)
+      .post('/flutterwave')
+      .set('verif-hash', process.env.FLUTTERWAVE_SECRET_HASH)
+      .send(payload);
+
+    expect(res.status).toBe(200);
+    expect(mockProcessDepositWebhook).not.toHaveBeenCalled();
+    expect(mockProcessDepositFailure).not.toHaveBeenCalled();
   });
 });

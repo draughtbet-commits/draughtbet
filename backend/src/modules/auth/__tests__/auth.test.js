@@ -45,6 +45,11 @@ jest.unstable_mockModule('../../../utils/db.js', () => ({
   default: mockPrisma
 }));
 
+const sendEmailMock = jest.fn().mockResolvedValue({ delivered: true, skipped: false });
+jest.unstable_mockModule('../../../services/emailService.js', () => ({
+  sendEmail: sendEmailMock
+}));
+
 const { default: app } = await import('../../../app.js');
 const { default: request } = await import('supertest');
 const { AuthService } = await import('../service.js');
@@ -148,6 +153,32 @@ describe('Auth System', () => {
       expect(mockPrisma.$transaction).toHaveBeenCalled();
       // The geo evidence token is consumed on successful registration
       expect(mockRedis.del).toHaveBeenCalledWith('geo:binding:geo-abcdefgh');
+    });
+
+    it('sends a welcome email after successful registration', async () => {
+      mockPrisma.$transaction.mockResolvedValueOnce({
+        id: 'user-id',
+        email: 'new@example.com',
+        fullName: 'New Player'
+      });
+
+      const res = await request(app)
+        .post('/api/v1/auth/register')
+        .send({
+          email: 'new@example.com',
+          password: 'StrongPassword1',
+          dateOfBirth: '2000-01-01',
+          countryCode: 'NG',
+          geoBinding: 'geo-abcdefgh'
+        });
+
+      expect(res.status).toBe(201);
+      expect(sendEmailMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          to: 'new@example.com',
+          subject: expect.stringContaining('Welcome to Draught Bet')
+        })
+      );
     });
 
     it('should register with username/fullName/address/phone/countryCode and normalize phone', async () => {
