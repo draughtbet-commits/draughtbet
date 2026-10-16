@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "244209810650",
+    "project_id": "draughtbet-63971",
+    "storage_bucket": "draughtbet-63971.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:244209810650:android:6e332da71a96c2abfb39e3",
+        "android_client_info": {
+          "package_name": "com.draughtbet.draughts_arena"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBdJ5Ll7EJfoiXC2QylnBEnQ1Wuqo5CE5M"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
