@@ -97,6 +97,23 @@ describe('pushTokenService', () => {
     ).rejects.toBeInstanceOf(PushTokenError);
   });
 
+  it('tolerates surrounding whitespace in PUSH_TOKEN_ENCRYPTION_KEY', async () => {
+    process.env.PUSH_TOKEN_ENCRYPTION_KEY = `  ${KEY}\n`;
+    mockPrisma.devicePushToken.findUnique.mockResolvedValue(null);
+    mockPrisma.devicePushToken.create.mockResolvedValue({
+      id: 'tok-ws', userId: 'u-1', tokenHash: tokenHash('raw'), tokenCiphertext: 'cipher',
+      platform: 'android', active: true, createdAt: new Date(), updatedAt: new Date(), revokedAt: null
+    });
+
+    await expect(
+      registerPushToken('u-1', { token: 'raw', platform: 'android' })
+    ).resolves.toBeTruthy();
+
+    const createCall = mockPrisma.devicePushToken.create.mock.calls[0][0].data;
+    expect(decryptToken(createCall.tokenCiphertext)).toBe('raw');
+    expect(decryptToken(createCall.tokenCiphertext, `${KEY}\n`)).toBe('raw');
+  });
+
   it('lists only metadata for the owner and revokes scoped tokens', async () => {
     mockPrisma.devicePushToken.findMany.mockResolvedValue([
       { id: 'tok-1', platform: 'ios', active: true, createdAt: new Date(), updatedAt: new Date(), revokedAt: null }

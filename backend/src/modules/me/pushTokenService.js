@@ -20,7 +20,7 @@ const SHA256_HEX = /^[0-9a-f]{64}$/;
 const PLATFORMS = Object.freeze(['ios', 'android', 'web']);
 
 const keyFromEnv = () => {
-  const hex = process.env.PUSH_TOKEN_ENCRYPTION_KEY ?? '';
+  const hex = (process.env.PUSH_TOKEN_ENCRYPTION_KEY ?? '').trim();
   if (!SHA256_HEX.test(hex)) {
     throw new PushTokenError('PUSH_TOKEN_ENCRYPTION_KEY must be a 32-byte hex string');
   }
@@ -42,8 +42,9 @@ export const decryptToken = (ciphertext, encryptionKeyHex) => {
   const iv = raw.subarray(0, 12);
   const tag = raw.subarray(12, 28);
   const ct = raw.subarray(28);
-  const key = SHA256_HEX.test(encryptionKeyHex ?? '')
-    ? Buffer.from(encryptionKeyHex, 'hex')
+  const supplied = (encryptionKeyHex ?? '').trim();
+  const key = SHA256_HEX.test(supplied)
+    ? Buffer.from(supplied, 'hex')
     : keyFromEnv();
   const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
   decipher.setAuthTag(tag);
