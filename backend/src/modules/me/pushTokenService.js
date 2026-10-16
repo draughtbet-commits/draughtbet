@@ -61,9 +61,11 @@ const toView = (row) => ({
 });
 
 /**
- * Registers a device push token. Re-registration of the same token reactivates
- * the existing row (idempotent); a token seen on a different account is still
- * tagged to its rightful owner and never exposed.
+ * Registers a device push token. A token is scoped to exactly one owner
+ * (tokenHash is unique), so re-registration reactivates and re-tags the existing
+ * row to the current holder: latest registration wins. This covers both the
+ * idempotent same-owner case and a device that has switched accounts (which
+ * must stop receiving the previous owner's notifications).
  */
 export const registerPushToken = async (
   userId,
@@ -80,10 +82,16 @@ export const registerPushToken = async (
   const tokenHash = sha256Hex(token);
   const existing = await dbp.devicePushToken.findUnique({ where: { tokenHash } });
 
-  if (existing && existing.userId === userId) {
+  if (existing) {
     const updated = await dbp.devicePushToken.update({
       where: { id: existing.id },
-      data: { active: true, revokedAt: null, platform, ...(deviceId ? { deviceId } : {}) }
+      data: {
+        userId,
+        active: true,
+        revokedAt: null,
+        platform,
+        ...(deviceId ? { deviceId } : {})
+      }
     });
     return toView(updated);
   }

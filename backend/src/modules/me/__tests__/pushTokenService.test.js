@@ -85,6 +85,26 @@ describe('pushTokenService', () => {
     expect(view.revokedAt).toBeNull();
   });
 
+  it('re-tags an existing token to a new owner instead of inserting a duplicate', async () => {
+    mockPrisma.devicePushToken.findUnique.mockResolvedValue({
+      id: 'tok-1', userId: 'old-user', platform: 'ios', active: true, revokedAt: null,
+      createdAt: new Date(), updatedAt: new Date(), tokenHash: tokenHash('t'), tokenCiphertext: 'x'
+    });
+    mockPrisma.devicePushToken.update.mockResolvedValue({
+      id: 'tok-1', userId: 'new-user', platform: 'android', active: true, revokedAt: null,
+      createdAt: new Date(), updatedAt: new Date()
+    });
+
+    const view = await registerPushToken('new-user', { token: 't', platform: 'android' });
+
+    expect(mockPrisma.devicePushToken.create).not.toHaveBeenCalled();
+    const updateCall = mockPrisma.devicePushToken.update.mock.calls[0][0];
+    expect(updateCall.where).toEqual({ id: 'tok-1' });
+    expect(updateCall.data.userId).toBe('new-user');
+    expect(updateCall.data.active).toBe(true);
+    expect(view.active).toBe(true);
+  });
+
   it('rejects invalid platforms and a missing encryption key', async () => {
     await expect(
       registerPushToken('u-1', { token: 'x', platform: 'desktop' })
