@@ -5,6 +5,7 @@ import 'package:draughts_arena/providers/match_flow_provider.dart';
 import 'package:draughts_arena/providers/match_provider.dart';
 import 'package:draughts_arena/providers/notification_provider.dart';
 import 'package:draughts_arena/providers/profile_provider.dart';
+import 'package:draughts_arena/models/wallet.dart';
 import 'package:draughts_arena/models/wallet_read.dart';
 import 'package:draughts_arena/providers/wallet_provider.dart';
 import 'package:draughts_arena/screens/arena_screen.dart';
@@ -61,6 +62,12 @@ Widget _captureApp(
               availableMinorUnits: 3245000,
               currency: 'NGN',
               lockedMinorUnits: 0,
+            ),
+            tierLimits: TierLimits(
+              tier: 'MASTER',
+              stakeMin: '50000',
+              stakeMax: '15000000',
+              calloutMax: '15000000',
             ),
           ),
         ),
@@ -133,6 +140,12 @@ Widget _captureShellApp({
               availableMinorUnits: 3245000,
               currency: 'NGN',
               lockedMinorUnits: 0,
+            ),
+            tierLimits: TierLimits(
+              tier: 'MASTER',
+              stakeMin: '50000',
+              stakeMax: '15000000',
+              calloutMax: '15000000',
             ),
           ),
         ),

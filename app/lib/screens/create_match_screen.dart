@@ -2,7 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../models/match_flow.dart';
+import '../models/wallet.dart';
 import '../providers/match_flow_provider.dart';
+import '../providers/profile_provider.dart';
+import '../providers/wallet_provider.dart';
 import '../theme/colors.dart';
 import '../widgets/flow_widgets.dart';
 
@@ -14,9 +17,10 @@ class CreateMatchScreen extends ConsumerStatefulWidget {
 }
 
 class _CreateMatchScreenState extends ConsumerState<CreateMatchScreen> {
-  // MASTER call-out stakes run from 1,000,000 to 15,000,000 minor units, so the
-  // picker offers only values the create endpoint will accept for this tier.
-  int _stake = 1000000;
+  // The picker is driven by the caller's tier range fetched from the server:
+  // this screen creates an OPEN listing, so the create endpoint validates the
+  // stake against the tier's call-out ceiling.
+  int? _stake;
   // The gateway turns this into `timeControlSeconds` for the create endpoint by
   // reading the leading number, so it has to be a real control and not a label.
   static const _timeControl = '10 minutes';
@@ -25,11 +29,47 @@ class _CreateMatchScreenState extends ConsumerState<CreateMatchScreen> {
   // The create endpoint only accepts PUBLIC, PRIVATE or ANYONE.
   static const _visibility = 'Anyone';
 
+  @override
+  void initState() {
+    super.initState();
+    if (ref.read(walletProvider).tierLimits == null) {
+      Future.microtask(
+        () => ref.read(walletProvider.notifier).fetchTierLimits(),
+      );
+    }
+  }
+
+  // Resolves the stake bounds from the server tier limits, falling back to the
+  // per-tier presets (and finally the platform defaults) until they load.
+  (int, int) _resolveLimits(TierLimits? limits) {
+    if (limits != null) {
+      final min = int.tryParse(limits.stakeMin) ?? 50000;
+      final max = int.tryParse(limits.calloutMax) ?? 5000000;
+      return (min, max);
+    }
+    final presets = stakePresetsForTier(
+      ref.read(profileProvider).profile?.tier,
+    );
+    if (presets.isEmpty) return (50000, 5000000);
+    return (
+      presets.reduce((a, b) => a < b ? a : b),
+      presets.reduce((a, b) => a > b ? a : b),
+    );
+  }
+
+  int _clamp(int value, int min, int max) {
+    if (value < min) return min;
+    if (value > max) return max;
+    return value;
+  }
+
   void _review() {
+    final (min, max) = _resolveLimits(ref.read(walletProvider).tierLimits);
+    final stake = _clamp(_stake ?? min, min, max);
     final intent = MatchFlowIntent(
       kind: MatchEntryKind.created,
       terms: MatchTerms(
-        stakeMinorUnits: _stake,
+        stakeMinorUnits: stake,
         timeControl: _timeControl,
         gameType: _gameType,
         board: _board,
@@ -56,6 +96,10 @@ class _CreateMatchScreenState extends ConsumerState<CreateMatchScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final (stakeMin, stakeMax) = _resolveLimits(
+      ref.watch(walletProvider).tierLimits,
+    );
+    final stake = _clamp(_stake ?? stakeMin, stakeMin, stakeMax);
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
@@ -81,18 +125,42 @@ class _CreateMatchScreenState extends ConsumerState<CreateMatchScreen> {
               ),
               const SizedBox(height: 18),
               _fieldLabel('Stake Amount'),
-              DropdownButtonFormField<int>(
-                isExpanded: true,
-                initialValue: _stake,
-                items: const [1000000, 2000000, 5000000, 10000000, 15000000]
-                    .map(
-                      (value) => DropdownMenuItem(
-                        value: value,
-                        child: Text(Money(value).format()),
-                      ),
-                    )
-                    .toList(),
-                onChanged: (value) => setState(() => _stake = value ?? _stake),
+              Text(
+                'Stake: ${Money(stake).format()}',
+                style: TextStyle(
+                  fontFamily: 'Inter',
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.textPrimary,
+                ),
+              ),
+              Slider(
+                value: stake.toDouble(),
+                min: stakeMin.toDouble(),
+                max: stakeMax.toDouble(),
+                divisions: stakeMax > stakeMin
+                    ? ((stakeMax - stakeMin) ~/ 50000).clamp(1, 600)
+                    : 1,
+                onChanged: (value) => setState(() => _stake = value.toInt()),
+              ),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    Money(stakeMin).format(),
+                    style: TextStyle(
+                      fontSize: 10,
+                      color: AppColors.textSecondary,
+                    ),
+                  ),
+                  Text(
+                    Money(stakeMax).format(),
+                    style: TextStyle(
+                      fontSize: 10,
+                      color: AppColors.textSecondary,
+                    ),
+                  ),
+                ],
               ),
               const SizedBox(height: 13),
               _fieldLabel('Time Control'),
@@ -141,7 +209,7 @@ class _CreateMatchScreenState extends ConsumerState<CreateMatchScreen> {
                   children: [
                     _QuoteRow(
                       label: 'Your stake',
-                      value: Money(_stake).format(),
+                      value: Money(stake).format(),
                     ),
                     const _QuoteRow(
                       label: 'Platform fee',
