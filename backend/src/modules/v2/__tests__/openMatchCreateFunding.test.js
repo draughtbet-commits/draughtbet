@@ -71,7 +71,7 @@ jest.unstable_mockModule('../../../modules/match/service.js', () => ({
   transitionMatch
 }));
 
-const { createOpenMatch, createChallengeMatch, fundOpenMatch, InsufficientFundsError } =
+const { createOpenMatch, createChallengeMatch, fundOpenMatch, openMatchListing, InsufficientFundsError } =
   await import('../lifecycleService.js');
 
 const OPEN_MATCH = {
@@ -179,5 +179,60 @@ describe('open-match funding guards', () => {
       expect(transitionMatch).toHaveBeenCalledWith(mockTx, 'm-1', 'EXPIRED');
       expect(mockTx.matchChallenge.updateMany).toHaveBeenCalled();
     });
+  });
+});
+
+describe('open-match listing host stats', () => {
+  // A joiner decides who to play from the listing, so the host's rating and win
+  // rate must ride along with it (same convention as the player directory).
+  const baseMatch = {
+    id: 'm-9',
+    stakeMinorUnits: 100000n,
+    timeControlSeconds: 600,
+    createdAt: new Date(),
+    playerLightId: 'host-1',
+    tier: 'MASTER',
+    participants: [
+      {
+        side: 'LIGHT',
+        user: {
+          id: 'host-1',
+          username: 'Host',
+          displayName: 'Host',
+          avatar: 'avatar_02',
+          tier: 'MASTER',
+          playerStats: { rating: 1780, wins: 6, losses: 3, draws: 1 }
+        }
+      }
+    ]
+  };
+
+  it('exposes the host rating and a rounded win rate over decided games', () => {
+    const listing = openMatchListing(baseMatch);
+    expect(listing.creator.rating).toBe(1780);
+    expect(listing.creator.winRate).toBe(60);
+  });
+
+  it('reports a null win rate before any decided games', () => {
+    const listing = openMatchListing({
+      ...baseMatch,
+      participants: [
+        {
+          side: 'LIGHT',
+          user: { id: 'host-1', username: 'Host', playerStats: { rating: 1200, wins: 0, losses: 0, draws: 0 } }
+        }
+      ]
+    });
+    expect(listing.creator.rating).toBe(1200);
+    expect(listing.creator.winRate).toBeNull();
+  });
+
+  it('leaves rating and win rate null when the host has no stats row', () => {
+    const listing = openMatchListing({
+      ...baseMatch,
+      participants: [{ side: 'LIGHT', user: { id: 'host-1', username: 'Host', tier: 'MASTER' } }]
+    });
+    expect(listing.creator.rating).toBeNull();
+    expect(listing.creator.winRate).toBeNull();
   });
 });

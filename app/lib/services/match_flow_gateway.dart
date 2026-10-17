@@ -351,6 +351,7 @@ OpenMatch? _openMatchFromV2(dynamic value) {
       avatarId: player['avatarId']?.toString() ?? 'avatar_01',
       rank: (player['rank'] ?? player['level'])?.toString(),
       rating: _integer(player['rating']),
+      winRate: _integer(player['winRate']),
     ),
     terms: MatchTerms(
       stakeMinorUnits: stake,

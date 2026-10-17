@@ -41,11 +41,21 @@ class OpenMatchDetailsScreen extends ConsumerWidget {
                         color: AppColors.primaryBright,
                       ),
                     ),
-                    if (match.host.rating != null)
-                      Text(
-                        '★ ${match.host.rating}',
-                        style: AppTypography.bodySmall,
+                    const SizedBox(height: 4),
+                    Text(
+                      [
+                        if (match.host.rating != null)
+                          '★ ${match.host.rating} rating',
+                        if (match.host.winRate != null)
+                          '${match.host.winRate}% win rate',
+                        if (match.host.rating == null &&
+                            match.host.winRate == null)
+                          'New player — no rated games yet',
+                      ].join('   '),
+                      style: AppTypography.bodySmall.copyWith(
+                        color: AppColors.textSecondary,
                       ),
+                    ),
                   ],
                 ),
               ),

@@ -145,6 +145,8 @@ void main() {
               'id': 'usr_2',
               'username': 'KingMoves',
               'level': 'MASTER',
+              'rating': 1780,
+              'winRate': 58,
             },
           },
         ],
@@ -163,6 +165,9 @@ void main() {
       expect(matches.single.id, 'mat_1');
       expect(matches.single.terms.stakeMinorUnits, 200000);
       expect(matches.single.host.name, 'KingMoves');
+      expect(matches.single.host.rank, 'MASTER');
+      expect(matches.single.host.rating, 1780);
+      expect(matches.single.host.winRate, 58);
     });
 
     test(

@@ -51,16 +51,18 @@ class FlowCard extends StatelessWidget {
     this.padding = const EdgeInsets.all(16),
     this.borderColor = AppColors.border,
     this.color = AppColors.surface,
+    this.onTap,
   });
 
   final Widget child;
   final EdgeInsets padding;
   final Color borderColor;
   final Color color;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    final card = Container(
       width: double.infinity,
       padding: padding,
       decoration: BoxDecoration(
@@ -69,6 +71,12 @@ class FlowCard extends StatelessWidget {
         border: Border.all(color: borderColor),
       ),
       child: child,
+    );
+    if (onTap == null) return card;
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onTap,
+      child: card,
     );
   }
 }

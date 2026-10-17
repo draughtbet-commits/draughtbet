@@ -95,7 +95,14 @@ void main() {
     '33_open_match_details': const OpenMatchDetailsScreen(
       match: OpenMatch(
         id: 'callout-1',
-        host: lifecycleOpponent,
+        host: MatchPlayer(
+          id: 'player-2',
+          name: 'KingMoves',
+          avatarId: 'avatar_04',
+          rank: 'MASTER',
+          rating: 1780,
+          winRate: 58,
+        ),
         terms: lifecycleTerms,
       ),
     ),

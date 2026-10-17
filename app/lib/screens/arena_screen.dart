@@ -192,6 +192,7 @@ class _OpenMatchCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final player = match.host;
     return FlowCard(
+      onTap: onJoin,
       padding: const EdgeInsets.all(12),
       child: Row(
         children: [

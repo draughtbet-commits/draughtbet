@@ -678,6 +678,15 @@ const fundOpenMatchTx = async (joinerId, matchId, { tier: joinerTier } = {}) => 
 export const openMatchListing = (match, currency = 'NGN') => {
   const light = match.participants?.find((p) => p.side === 'LIGHT');
   const creator = light?.user ?? match.creator;
+  // Public decision data: a joiner should see how strong the host is before
+  // staking. Same convention as the player directory (`asPublicPlayer`):
+  // winRate is rounded wins over decided games, null until they have played.
+  const stats = creator?.playerStats;
+  const wins = stats?.wins ?? 0;
+  const losses = stats?.losses ?? 0;
+  const draws = stats?.draws ?? 0;
+  const decided = wins + losses + draws;
+  const winRate = decided > 0 ? Math.round((wins * 100) / decided) : null;
   return {
     id: match.id,
     stakeMinor: asInt(match.stakeMinorUnits),
@@ -694,7 +703,8 @@ export const openMatchListing = (match, currency = 'NGN') => {
       displayName: creator?.displayName,
       avatarId: creator?.avatar ?? 'avatar_01',
       rank: creator?.tier ?? match.tier,
-      rating: null
+      rating: stats?.rating ?? null,
+      winRate
     }
   };
 };
@@ -728,7 +738,15 @@ export const listOpenMatches = async (userId) => {
               displayName: true,
               avatar: true,
               tier: true,
-              fullName: true
+              fullName: true,
+              playerStats: {
+                select: {
+                  rating: true,
+                  wins: true,
+                  losses: true,
+                  draws: true
+                }
+              }
             }
           }
         }
