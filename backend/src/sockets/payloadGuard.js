@@ -66,6 +66,17 @@ export const readySchema = z.strictObject({
   actionId
 });
 
+// Resign carries the standard V2 action envelope on `match.resign`, while the
+// legacy `resign` alias sends only `{ matchId }`. Both route to the same
+// handler, so the envelope is optional here — the handler ignores both extra
+// fields today, but a strict `matchIdPayloadSchema` would reject the V2 client
+// outright as an unknown key and leave the caller's resign silently unanswered.
+export const resignSchema = z.strictObject({
+  matchId,
+  actionId: actionId.optional(),
+  expectedStateVersion: z.number().int().min(0).optional()
+});
+
 // V2 draw protocol. `expectedStateVersion` mirrors move.submit: optional on the
 // wire, validated against the authoritative version when present.
 export const drawOfferSchema = z.strictObject({
@@ -120,6 +131,11 @@ export const validateMatchIdPayload = (payload) => {
 export const validateReady = (payload) => {
   if (payloadTooLarge(payload)) return { ok: false };
   return parse(readySchema, payload);
+};
+
+export const validateResign = (payload) => {
+  if (payloadTooLarge(payload)) return { ok: false };
+  return parse(resignSchema, payload);
 };
 
 export const validateDrawOffer = (payload) => {

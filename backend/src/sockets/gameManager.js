@@ -1,6 +1,6 @@
 import redis from '../utils/redis.js';
 import logger from '../utils/logger.js';
-import { validateClockSync, validateMatchIdPayload, validateMoveAttempt, validateMoveSubmit, validateReady, validateDrawOffer, validateDrawRespond } from './payloadGuard.js';
+import { validateClockSync, validateMoveAttempt, validateMoveSubmit, validateReady, validateResign, validateDrawOffer, validateDrawRespond } from './payloadGuard.js';
 import { createInitialBoard, getLegalMoves, applyMove, checkGameEnd, COLOR_WHITE, COLOR_BLACK, isKing } from '../modules/engine/index.js';
 import { settleGame, settleGameDraw, settleGameWithRetry, settleGameDrawWithRetry } from './settlement.js';
 import {
@@ -449,7 +449,7 @@ export const handleResign = async (socket, payload) => {
   const userId = socket.user?.userId;
   if (!userId) return;
 
-  const validated = validateMatchIdPayload(payload);
+  const validated = validateResign(payload);
   if (!validated.ok) {
     socket.emit('error', { message: 'Invalid payload' });
     return;

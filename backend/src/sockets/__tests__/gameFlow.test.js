@@ -271,6 +271,31 @@ describe('complete game smoke', () => {
     expect(mockTo).not.toHaveBeenCalled();
   });
 
+  it('accepts the V2 resign envelope (actionId + expectedStateVersion), not just bare matchId', async () => {
+    const board = buildEndgameBoard();
+    seedMatch('test-match', board, 'white-user', 'black-user');
+
+    const socket = { id: 's7b', user: { userId: 'white-user' }, emit: jest.fn() };
+    await handleResign(socket, {
+      matchId: 'test-match',
+      actionId: 'resign-1760000000000000-1',
+      expectedStateVersion: 0
+    });
+
+    expect(socket.emit).not.toHaveBeenCalled();
+    expect(mockTo).toHaveBeenCalledWith('match:test-match');
+    expect(mockEmit).toHaveBeenCalledWith('match_ended_resign', {
+      winnerId: 'black-user',
+      resignedId: 'white-user'
+    });
+    expect(settlementMocks.settleGameWithRetry).toHaveBeenCalledWith(
+      'test-match',
+      'black-user',
+      'white-user',
+      'resign'
+    );
+  });
+
   it('refuses a move whose turn already expired and forfeits the player on the clock', async () => {
     const board = createInitialBoard();
     const opening = getLegalMoves(board, COLOR_WHITE)[0];
