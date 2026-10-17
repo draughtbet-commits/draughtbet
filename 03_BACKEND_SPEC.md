@@ -134,8 +134,21 @@ Triggers to wire:
 6. `MATCH_ENDED_WIN` / `MATCH_ENDED_LOSS` — with payout amount in the message
 7. `DISCONNECT_WARNING` — grace period running low
 8. `ACCOUNT_SUSPENDED` — admin ban action
+9. `RANK_UP` / `RANK_DOWN` — settlement crossed a rating band (see §Ranking)
 
 - `GET /notifications` (paginated), `PATCH /notifications/:id/read`, `PATCH /notifications/read-all`. Unread count included in `GET /auth/me`.
+
+## Ranking (Elo rating service)
+
+The backend is the sole rating authority — Flutter never computes a rating, delta or rank. The pure maths live in `src/modules/settlement/rating.js`; persistence is `src/modules/settlement/playerStatsService.js`, invoked inside the settlement transaction (`settleMatch`).
+
+- **Ranks** — the agreed three-tier ladder only: `AMATEUR`, `MASTER`, `PRO`. Bands are drawn from `PlatformSettings` (`masterRankMinRating`, `proRankMinRating`); `User.tier` is rating-derived and rewritten on every rank crossing.
+- **Config-driven** — `startingRating` (1200), `provisionalMatchCount` (20), `provisionalKFactor` (40), `establishedKFactor` (24), and the band floors are admin-editable scalars, captured in each `PlatformConfigVersion` snapshot. No threshold is hardcoded in the match service.
+- **Rated vs unrated** — `Match.rated` (default true) marks a fixture. Casual/test/sandbox/cancelled and administrative matches are unrated: they record an audit `RatingEvent` with `rated = false` and a zero delta, and never move rating, stats or tier. Only a settled match with `rated = true` changes rating.
+- **Exactly once** — the rating update runs on the single settlement claim (never on a replay). A retried settlement returns the existing rating summary read back from `RatingEvent`, not a recomputation. Uniqueness on `(userId, matchId, result)` is a second line of defence.
+- **Events** — one immutable `RatingEvent` per player per normal result (`WIN`/`LOSS`/`DRAW`) carrying `previousRank`, `newRank`, `result`, `reason` (`TIMEOUT`/`RESIGNATION`/`DISCONNECT`) and `rated`.
+- **Admin reversal** — a dispute decision that flips a settled winner appends a single compensating `REVERSAL` event per player (`reason = ADMIN_REVERSAL`) that negates the original delta. Originals are never edited or deleted; reversal is idempotent via the same unique constraint.
+- **Exposure** — the rating summary (`previousRating`, `newRating`, `ratingDelta`, `previousRank`, `newRank`, `isRankUp`, `isRankDown`, `isProvisional`, `rated`) rides on `GET /matches/:matchId/receipt` under `ratings[]` and on the socket `match.finished` payload. `RANK_UP` / `RANK_DOWN` notifications are enqueued through the settlement outbox.
 
 ## Security & anti-cheat
 

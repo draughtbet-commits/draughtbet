@@ -7,6 +7,7 @@ const mockPrisma = {
   gameEvent: { findMany: jest.fn() },
   matchSettlement: { findUnique: jest.fn() },
   matchReceipt: { findMany: jest.fn() },
+  ratingEvent: { findMany: jest.fn(async () => []) },
   adminRoleAssignment: { findMany: jest.fn() },
   gameOutbox: { updateMany: jest.fn() }
 };
@@ -186,6 +187,7 @@ describe('match contract HTTP endpoints', () => {
   beforeEach(() => {
     jest.resetAllMocks();
     mockPrisma.adminRoleAssignment.findMany.mockResolvedValue([]);
+    mockPrisma.ratingEvent.findMany.mockResolvedValue([]);
   });
 
   it('GET /matches/:id/receipt returns a settled receipt with derived results', async () => {
@@ -216,6 +218,10 @@ describe('match contract HTTP endpoints', () => {
         createdAt: new Date('2026-06-01T01:00:00Z')
       }
     ]);
+    mockPrisma.ratingEvent.findMany.mockResolvedValue([
+      { userId: 'light-1', result: 'WIN', ratingBefore: 1200, ratingAfter: 1220, delta: 20, previousRank: 'AMATEUR', newRank: 'AMATEUR', rated: true },
+      { userId: 'dark-1', result: 'LOSS', ratingBefore: 1200, ratingAfter: 1180, delta: -20, previousRank: 'AMATEUR', newRank: 'AMATEUR', rated: true }
+    ]);
 
     const res = await request(app).get('/api/v1/matches/m-1/receipt');
     expect(res.status).toBe(200);
@@ -224,6 +230,9 @@ describe('match contract HTTP endpoints', () => {
     expect(res.body.receipts).toHaveLength(2);
     expect(res.body.receipts[0]).toMatchObject({ userId: 'light-1', result: 'WIN', payoutMinorUnits: '9500' });
     expect(res.body.receipts[1]).toMatchObject({ userId: 'dark-1', result: 'LOSS' });
+    // Server-authoritative rating summary rides along with the receipt.
+    expect(res.body.ratings).toHaveLength(2);
+    expect(res.body.ratings[0]).toMatchObject({ userId: 'light-1', newRating: 1220, ratingDelta: 20, rated: true });
   });
 
   it('GET /matches/:id/receipt reports SETTLEMENT_PENDING before settlement', async () => {

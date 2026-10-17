@@ -143,7 +143,43 @@ model PlatformSettings {
   amateurCalloutMaxP BigInt @default(5000000)  // ₦50,000
   masterCalloutMaxP  BigInt @default(15000000) // ₦150,000
   proCalloutMaxP     BigInt @default(30000000) // ₦300,000
+
+  // Official Elo rating config (see 03_BACKEND_SPEC.md §Ranking). Admin-editable
+  // and captured in every PlatformConfigVersion snapshot. Rank bands: AMATEUR is
+  // [0, masterRankMinRating), MASTER is [masterRankMinRating, proRankMinRating),
+  // PRO is [proRankMinRating, ∞). No threshold is hardcoded in the match service.
+  startingRating        Int @default(1200)
+  provisionalMatchCount Int @default(20)   // rated matches before the K settles
+  provisionalKFactor    Int @default(40)
+  establishedKFactor    Int @default(24)
+  masterRankMinRating   Int @default(1400)
+  proRankMinRating      Int @default(1800)
 }
+
+model RatingEvent {
+  id           String   @id @default(uuid())
+  userId       String
+  matchId      String
+  ratingBefore Int
+  ratingAfter  Int
+  delta        Int
+  previousRank Tier
+  newRank      Tier
+  result       RatingResult   // WIN | LOSS | DRAW | REVERSAL
+  reason       RatingReason   // NORMAL | TIMEOUT | RESIGNATION | DISCONNECT | ADMIN_REVERSAL
+  rated        Boolean  @default(true)  // unrated matches record a zero-delta audit row
+  createdAt    DateTime @default(now())
+
+  // At most one normal (WIN/LOSS/DRAW) event and one REVERSAL per player/match,
+  // so a retried settlement or result event can never double-count.
+  @@unique([userId, matchId, result])
+  @@index([matchId])
+  @@index([userId, createdAt])
+}
+
+// Match also carries `rated Boolean @default(true)` for the ranking service.
+// Quick Match and Arena are rated; casual, test, sandbox, cancelled and
+// administrative matches are unrated and never move rating.
 
 model Notification {
   id          String   @id @default(uuid())

@@ -198,6 +198,33 @@ void main() {
           'createdAt': '2026-09-24T16:52:50.033Z',
         },
       ],
+      'ratings': [
+        {
+          'userId': '8b435231-2bbf-41ed-a494-6fa518e05c50',
+          'result': 'WIN',
+          'previousRating': 1390,
+          'newRating': 1402,
+          'ratingDelta': 12,
+          'previousRank': 'AMATEUR',
+          'newRank': 'MASTER',
+          'isRankUp': true,
+          'isRankDown': false,
+          'isProvisional': false,
+          'rated': true,
+        },
+        {
+          'userId': 'a337afdc-0b1d-4d13-893d-41bd796441c6',
+          'result': 'LOSS',
+          'previousRating': 1390,
+          'newRating': 1378,
+          'ratingDelta': -12,
+          'previousRank': 'AMATEUR',
+          'newRank': 'AMATEUR',
+          'isRankUp': false,
+          'isRankDown': false,
+          'rated': true,
+        },
+      ],
     };
 
     final winner = MatchReceiptData.tryFromServer(
@@ -213,6 +240,14 @@ void main() {
     expect(winner.terms!.platformFeeMinorUnits, 200000);
     expect(winner.terms!.totalPrizeMinorUnits, 2000000);
     expect(winner.settledAt.isAfter(DateTime.utc(2026, 9, 24)), isTrue);
+    // The caller's own rating row is selected, never the opponent's.
+    expect(winner.rating, isNotNull);
+    expect(winner.rating!.previousRating, 1390);
+    expect(winner.rating!.newRating, 1402);
+    expect(winner.rating!.ratingDelta, 12);
+    expect(winner.rating!.newRank, 'MASTER');
+    expect(winner.rating!.isRankUp, isTrue);
+    expect(winner.rating!.rated, isTrue);
 
     final loser = MatchReceiptData.tryFromServer(
       body,
@@ -223,6 +258,45 @@ void main() {
     expect(loser.reference, 'rcpt-4f2b48c8-3172-48d7-b595-d2e79e36a989');
     expect(loser.payoutMinorUnits, 0);
     expect(loser.refundMinorUnits, isNull);
+    expect(loser.rating!.ratingDelta, -12);
+    expect(loser.rating!.isRankUp, isFalse);
+  });
+
+  test('receipt parser surfaces an unrated match without moving rating', () {
+    final parsed = MatchReceiptData.tryFromServer({
+      'matchId': 'm-unrated',
+      'status': 'SETTLED',
+      'winnerId': 'player-1',
+      'settledAt': '2026-09-24T16:52:50.029Z',
+      'receipts': [
+        {
+          'reference': 'rcpt-1',
+          'userId': 'player-1',
+          'result': 'WIN',
+          'stakeMinorUnits': '500000',
+          'payoutMinorUnits': '950000',
+          'feeMinorUnits': '50000',
+          'createdAt': '2026-09-24T16:52:50.033Z',
+        },
+      ],
+      'ratings': [
+        {
+          'userId': 'player-1',
+          'result': 'WIN',
+          'previousRating': 1200,
+          'newRating': 1200,
+          'ratingDelta': 0,
+          'previousRank': 'AMATEUR',
+          'newRank': 'AMATEUR',
+          'rated': false,
+        },
+      ],
+    }, currentUserId: 'player-1');
+    expect(parsed, isNotNull);
+    expect(parsed!.rating, isNotNull);
+    expect(parsed.rating!.rated, isFalse);
+    expect(parsed.rating!.ratingDelta, 0);
+    expect(parsed.rating!.newRating, 1200);
   });
 
   test('v2 receipt parser maps a REFUND row to a draw with refund', () {

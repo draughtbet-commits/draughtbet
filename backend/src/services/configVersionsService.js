@@ -16,7 +16,17 @@ export const RULESET_SCALARS = [
   'disconnectGraceSeconds'
 ];
 
-export const INT_SCALARS = ['commissionPercent', 'limitRaiseCoolingHours', 'timeControlSeconds'];
+export const INT_SCALARS = [
+  'commissionPercent',
+  'limitRaiseCoolingHours',
+  'timeControlSeconds',
+  'startingRating',
+  'provisionalMatchCount',
+  'provisionalKFactor',
+  'establishedKFactor',
+  'masterRankMinRating',
+  'proRankMinRating'
+];
 
 export const SETTINGS_SCALARS = [
   ...INT_SCALARS,

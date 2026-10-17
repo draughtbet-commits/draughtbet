@@ -1,6 +1,7 @@
 import prisma from '../../utils/db.js';
 import { AdminService } from '../admin/service.js';
 import { NotificationService } from '../notification/service.js';
+import { reverseMatchRatings } from '../settlement/playerStatsService.js';
 
 // Dispute lifecycle. Two entry points share this service:
 //   1. Participant raise: POST /matches/:matchId/disputes (window + eligibility
@@ -183,7 +184,9 @@ export const raiseDispute = async (matchId, userId, { category = null, message, 
 export const decideDispute = async (caseId, callerId, { status, resolution, resultCorrection = null, moneyAdjustment = null }) => {
   const existing = await prisma.disputeCase.findUnique({
     where: { id: caseId },
-    include: { match: { select: { winnerId: true, endReason: true } } }
+    include: {
+      match: { select: { winnerId: true, endReason: true, playerLightId: true, playerDarkId: true } }
+    }
   });
   if (!existing) throw new DisputeCaseNotFoundError();
   if (!['OPEN', 'UNDER_REVIEW'].includes(existing.status)) {
@@ -204,6 +207,7 @@ export const decideDispute = async (caseId, callerId, { status, resolution, resu
       }
     });
     let correction = null;
+    let ratingReversal = null;
     if (resultCorrection) {
       correction = await tx.matchResultCorrection.create({
         data: {
@@ -217,8 +221,20 @@ export const decideDispute = async (caseId, callerId, { status, resolution, resu
           decidedBy: callerId
         }
       });
+      // If the corrected outcome actually flips the winner (incl. to a draw),
+      // append compensating REVERSAL rating events. The original events are
+      // never edited — reversal is a new immutable row per player, idempotent
+      // via the (userId, matchId, result) unique index.
+      const priorWinner = existing.match?.winnerId ?? null;
+      const correctedWinner = resultCorrection.winnerId ?? null;
+      if (priorWinner !== correctedWinner) {
+        ratingReversal = await reverseMatchRatings(tx, {
+          matchId: existing.matchId,
+          players: [existing.match?.playerLightId, existing.match?.playerDarkId].filter(Boolean)
+        });
+      }
     }
-    return { updated, correction };
+    return { updated, correction, ratingReversal };
   });
 
   // Notify the raiser once the decision is recorded (dedupe is by user+match+type,
@@ -260,6 +276,7 @@ export const decideDispute = async (caseId, callerId, { status, resolution, resu
   return {
     disputeCase: decidedResult.updated,
     correction: decidedResult.correction,
+    ratingReversal: decidedResult.ratingReversal,
     adjustment
   };
 };

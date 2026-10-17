@@ -34,6 +34,10 @@ export const BOARD_OUTCOME_REASONS = new Set([
   'DRAW_25_KING_MOVES'
 ]);
 
+// Ordering of the agreed three-tier ladder, used to derive isRankUp/isRankDown
+// from a rank snapshot. Additive — no additional rank exists without approval.
+const TIER_RANK = { AMATEUR: 0, MASTER: 1, PRO: 2 };
+
 // A settlement is retried up to this many times. Because the claim + posting
 // are transactional and idempotent, the winner is credited exactly once no
 // matter how many attempts run.
@@ -147,8 +151,27 @@ async function loadSettlementOrThrow(tx, matchId) {
  * (a replay returns early), so they are exactly-once by construction; the
  * dedupeKeys keep a genuinely repeated claim from ever stacking a duplicate.
  */
-async function enqueueSettlementEvents(tx, { match, matchId, winnerId, payout }) {
+async function enqueueSettlementEvents(tx, { match, matchId, winnerId, payout, promotions = [] }) {
   const loserId = winnerId === match.playerLightId ? match.playerDarkId : match.playerLightId;
+
+  for (const promo of promotions) {
+    const promoted = promo.isRankUp;
+    const notif = await tx.notification.create({
+      data: {
+        userId: promo.userId,
+        matchId,
+        type: promoted ? 'RANK_UP' : 'RANK_DOWN',
+        title: promoted ? 'Rank Up!' : 'Rank Update',
+        message: promoted
+          ? `You reached ${promo.toRank}. New rating: ${promo.newRating}.`
+          : `You moved to ${promo.toRank}. New rating: ${promo.newRating}.`,
+        link: '/profile'
+      }
+    });
+    await enqueueNotificationDelivery(tx, notif, {
+      dedupeKey: `notify:rank:${matchId}:${promo.userId}:${promo.toRank}`
+    });
+  }
 
   if (winnerId) {
     const winNotif = await tx.notification.create({
@@ -219,7 +242,8 @@ async function readMatch(tx, matchId) {
       stakeMinorUnits: true,
       playerLightId: true,
       playerDarkId: true,
-      settlementCommissionPercent: true
+      settlementCommissionPercent: true,
+      rated: true
     }
   });
 }
@@ -310,17 +334,20 @@ export async function settleMatch(matchId, terminalResult) {
       data: receiptsFor(match, winnerId, settledPayout, settledCommission)
     });
 
-    await applyMatchOutcome(tx, {
+    const outcome = await applyMatchOutcome(tx, {
       matchId,
       players: [match.playerLightId, match.playerDarkId].filter(Boolean),
-      winnerId
+      winnerId,
+      rated: match.rated ?? true,
+      endReason
     });
 
     await enqueueSettlementEvents(tx, {
       match,
       matchId,
       winnerId,
-      payout: settledPayout
+      payout: settledPayout,
+      promotions: outcome?.promotions ?? []
     });
 
     logger.info({ matchId, winnerId: winnerId ?? null, payout: settledPayout.toString(), feeBps }, 'Match settled');
@@ -331,7 +358,8 @@ export async function settleMatch(matchId, terminalResult) {
       payout: settledPayout,
       commission: settledCommission,
       match,
-      settlement
+      settlement,
+      ratings: outcome?.ratings ?? []
     };
   });
 }
@@ -342,8 +370,32 @@ async function replayResponse(tx, matchId, match) {
     payout: settlement.netPayoutMinorUnits,
     commission: 2n * BigInt(match.stakeMinorUnits) - settlement.netPayoutMinorUnits,
     match,
-    settlement
+    settlement,
+    ratings: await loadRatingSummaries(tx, matchId)
   };
+}
+
+// Rebuilds the server-authoritative rating summaries from the immutable
+// RatingEvent rows, so a retried settlement returns the SAME rating result
+// instead of recomputing (or double-applying) one.
+async function loadRatingSummaries(tx, matchId) {
+  const events = await tx.ratingEvent.findMany({
+    where: { matchId },
+    orderBy: { createdAt: 'asc' }
+  });
+  return events.map((e) => ({
+    userId: e.userId,
+    result: e.result,
+    previousRating: e.ratingBefore,
+    newRating: e.ratingAfter,
+    ratingDelta: e.delta,
+    previousRank: e.previousRank,
+    newRank: e.newRank,
+    isRankUp: TIER_RANK[e.newRank] > TIER_RANK[e.previousRank],
+    isRankDown: TIER_RANK[e.newRank] < TIER_RANK[e.previousRank],
+    isProvisional: false,
+    rated: e.rated
+  }));
 }
 
 function reservationsFor(match) {

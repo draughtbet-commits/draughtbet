@@ -54,10 +54,40 @@ const deleteActiveMatchPointer = async (userId, matchId) => {
  * V2 `match.finished` (terminal outcome) and `settlement.completed` (receipt
  * reference) are the contract signals (socket contract v1 lines 28-30).
  */
+const TIER_RANK = { AMATEUR: 0, MASTER: 1, PRO: 2 };
+
+// Best-effort rating summaries for the terminal event. The receipt endpoint is
+// the authoritative read; this just lets the live result screen show the delta
+// without waiting for a refetch.
+async function loadRatingSummaries(matchId) {
+  try {
+    const events = await prisma.ratingEvent.findMany({
+      where: { matchId },
+      orderBy: { createdAt: 'asc' }
+    });
+    return events.map((e) => ({
+      userId: e.userId,
+      result: e.result,
+      previousRating: e.ratingBefore,
+      newRating: e.ratingAfter,
+      ratingDelta: e.delta,
+      previousRank: e.previousRank,
+      newRank: e.newRank,
+      isRankUp: TIER_RANK[e.newRank] > TIER_RANK[e.previousRank],
+      isRankDown: TIER_RANK[e.newRank] < TIER_RANK[e.previousRank],
+      rated: e.rated
+    }));
+  } catch (e) {
+    logger.warn({ e, matchId }, 'loadRatingSummaries failed');
+    return [];
+  }
+}
+
 async function notifyAndCleanupWin(matchId, winnerId, playerLightId, playerDarkId, payout, reason) {
   // Capture the terminal projection version before it is deleted; the outcome
   // event carries it so a client can reconcile its local state.
   const stateVersion = await readStateVersion(matchId);
+  const ratings = await loadRatingSummaries(matchId);
   // Each operation is fault-isolated — one failure doesn't prevent the rest
   try { await redis.del(`match:${matchId}`); } catch (e) { logger.warn({ e, matchId }, 'Redis del match key failed'); }
   await deleteActiveMatchPointer(playerLightId, matchId);
@@ -76,7 +106,8 @@ async function notifyAndCleanupWin(matchId, winnerId, playerLightId, playerDarkI
       terminalReason: reason,
       stateVersion,
       settlementStatus: 'settled',
-      winnerId
+      winnerId,
+      ratings
     });
   } catch (e) {
     logger.warn({ e, matchId }, 'Socket emit after settlement failed');
@@ -91,6 +122,7 @@ async function notifyAndCleanupWin(matchId, winnerId, playerLightId, playerDarkI
  */
 async function notifyAndCleanupDraw(matchId, playerLightId, playerDarkId, refundAmount, reason) {
   const stateVersion = await readStateVersion(matchId);
+  const ratings = await loadRatingSummaries(matchId);
   try { await redis.del(`match:${matchId}`); } catch (e) { logger.warn({ e, matchId }, 'Redis del match key failed'); }
   await deleteActiveMatchPointer(playerLightId, matchId);
   await deleteActiveMatchPointer(playerDarkId, matchId);
@@ -108,7 +140,8 @@ async function notifyAndCleanupDraw(matchId, playerLightId, playerDarkId, refund
       terminalReason: reason,
       stateVersion,
       settlementStatus: 'settled',
-      winnerId: null
+      winnerId: null,
+      ratings
     });
   } catch (e) {
     logger.warn({ e, matchId }, 'Socket emit after draw settlement failed');

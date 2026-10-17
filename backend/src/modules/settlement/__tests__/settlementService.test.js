@@ -16,7 +16,11 @@ const mockPrisma = {
   },
   wallet: { findUnique: jest.fn(() => ({ id: 'wallet-1', currency: 'NGN' })) },
   playerStats: { findUnique: jest.fn(() => null), upsert: jest.fn(async ({ data }) => ({ id: 'ps-1', ...data })) },
-  ratingEvent: { createMany: jest.fn(async ({ data }) => ({ count: data.length })) },
+  ratingEvent: {
+    createMany: jest.fn(async ({ data }) => ({ count: data.length })),
+    findMany: jest.fn(async () => [])
+  },
+  user: { update: jest.fn(async ({ data }) => data) },
   outboxEvent: {
     create: jest.fn(({ data }) => ({ id: 'ob-1', ...data })),
     findUnique: jest.fn(() => null)
@@ -108,17 +112,36 @@ describe('SettlementService', () => {
         data: { status: 'SETTLED' }
       });
 
-      // player stats + rating history (K=32 Elo, 1200 start): equal expectation so
-      // a win moves +16 and a loss -16.
+      // player stats + rating history (provisional K=40, 1200 start): equal
+      // expectation so a win moves +20 and a loss -20. Both ranks stay AMATEUR
+      // (< masterRankMinRating), and the events carry the spec's audit fields.
       expect(mockPrisma.playerStats.upsert).toHaveBeenCalledTimes(2);
       expect(mockPrisma.ratingEvent.createMany).toHaveBeenCalledWith(
         expect.objectContaining({
           data: [
-            expect.objectContaining({ userId: 'player-1', matchId: 'm1', ratingAfter: 1216, delta: 16 }),
-            expect.objectContaining({ userId: 'player-2', matchId: 'm1', ratingAfter: 1184, delta: -16 })
+            expect.objectContaining({
+              userId: 'player-1',
+              matchId: 'm1',
+              ratingAfter: 1220,
+              delta: 20,
+              result: 'WIN',
+              rated: true,
+              previousRank: 'AMATEUR',
+              newRank: 'AMATEUR'
+            }),
+            expect.objectContaining({
+              userId: 'player-2',
+              matchId: 'm1',
+              ratingAfter: 1180,
+              delta: -20,
+              result: 'LOSS',
+              rated: true
+            })
           ]
         })
       );
+      // No rank change -> no tier rewrite, no promotion notification.
+      expect(mockPrisma.user.update).not.toHaveBeenCalled();
 
       // durable delivery events for the drainer: win/loss notifications +
       // winner wallet.updated, atomic with the claim
@@ -167,6 +190,32 @@ describe('SettlementService', () => {
       expect(enqueued.every((e) => e.eventType === 'wallet.updated')).toBe(true);
       expect(enqueued).toContainEqual(expect.objectContaining({ dedupeKey: 'wallet:settle:m1:player-1' }));
       expect(enqueued).toContainEqual(expect.objectContaining({ dedupeKey: 'wallet:settle:m1:player-2' }));
+    });
+  });
+
+  describe('settleMatch — rank promotion', () => {
+    it('rewrites User.tier and enqueues a RANK_UP notification when a band is crossed', async () => {
+      mockPrisma.match.findUnique.mockResolvedValue(activeMatch());
+      mockPrisma.match.updateMany.mockResolvedValue({ count: 1 });
+      mockPrisma.matchSettlement.findUnique.mockResolvedValue(null);
+      mockPrisma.matchSettlement.create.mockResolvedValue({ id: 'set-promo', matchId: 'm1', netPayoutMinorUnits: 180_000n });
+      mockPrisma.platformSettings.findUnique.mockResolvedValue({ masterRankMinRating: 1400, proRankMinRating: 1800 });
+      mockPrisma.playerStats.findUnique.mockImplementation(async ({ where }) =>
+        ({ userId: where.userId, rating: 1390, totalMatches: 30 })
+      );
+
+      const result = await settleMatch('m1', { result: 'WIN', winnerId: 'player-1', loserId: 'player-2', endReason: 'resign' });
+
+      expect(mockPrisma.user.update).toHaveBeenCalledWith({ where: { id: 'player-1' }, data: { tier: 'MASTER' } });
+      expect(result.ratings.find((r) => r.userId === 'player-1')).toMatchObject({
+        previousRank: 'AMATEUR',
+        newRank: 'MASTER',
+        isRankUp: true
+      });
+      const enqueued = mockPrisma.outboxEvent.create.mock.calls.map(([args]) => args.data);
+      expect(enqueued).toContainEqual(
+        expect.objectContaining({ dedupeKey: 'notify:rank:m1:player-1:MASTER' })
+      );
     });
   });
 

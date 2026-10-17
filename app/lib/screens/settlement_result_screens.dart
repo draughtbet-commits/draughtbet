@@ -404,6 +404,10 @@ class _ReceiptBody extends StatelessWidget {
             ],
           ),
         ),
+        if (receipt.rating != null) ...[
+          const SizedBox(height: 12),
+          _RatingCard(rating: receipt.rating!),
+        ],
         const SizedBox(height: 12),
         FlowCard(
           borderColor: AppColors.primaryBright,
@@ -439,6 +443,104 @@ class _ReceiptBody extends StatelessWidget {
           onPressed: () => context.go('/home'),
         ),
       ],
+    );
+  }
+}
+
+class _RatingCard extends StatelessWidget {
+  const _RatingCard({required this.rating});
+
+  final MatchRatingChange rating;
+
+  @override
+  Widget build(BuildContext context) {
+    final delta = rating.ratingDelta;
+    final deltaLabel = delta > 0 ? '+$delta' : '$delta';
+    final deltaColor = delta > 0
+        ? AppColors.primaryBright
+        : delta < 0
+        ? AppColors.danger
+        : AppColors.textSecondary;
+    final title = !rating.rated
+        ? 'UNRATED MATCH'
+        : rating.isRankUp
+        ? 'RANK UP · ${rating.newRank ?? ''}'
+        : rating.isRankDown
+        ? 'RANK DOWN · ${rating.newRank ?? ''}'
+        : 'RATING UPDATE';
+    return FlowCard(
+      borderColor: (rating.isRankUp ? AppColors.valueAccent : AppColors.border),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Icon(
+                rating.isRankUp
+                    ? LucideIcons.trendingUp
+                    : rating.isRankDown
+                    ? LucideIcons.trendingDown
+                    : LucideIcons.gauge,
+                size: 18,
+                color: deltaColor,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  title,
+                  style: AppTypography.labelBold.copyWith(
+                    color: rating.isRankUp
+                        ? AppColors.valueAccent
+                        : AppColors.textPrimary,
+                    letterSpacing: .4,
+                  ),
+                ),
+              ),
+              if (rating.isProvisional)
+                Text(
+                  'Provisional',
+                  style: AppTypography.bodySmall.copyWith(
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Rating',
+                  style: AppTypography.bodySmall,
+                ),
+              ),
+              Text(
+                '${rating.previousRating}  →  ${rating.newRating}',
+                style: AppTypography.labelBold,
+              ),
+              const SizedBox(width: 8),
+              Text(
+                deltaLabel,
+                style: AppTypography.labelBold.copyWith(color: deltaColor),
+              ),
+            ],
+          ),
+          if (rating.newRank != null && rating.previousRank != null) ...[
+            const SizedBox(height: 4),
+            Row(
+              children: [
+                Expanded(
+                  child: Text('Rank', style: AppTypography.bodySmall),
+                ),
+                Text(
+                  '${rating.previousRank}  →  ${rating.newRank}',
+                  style: AppTypography.labelBold,
+                ),
+              ],
+            ),
+          ],
+        ],
+      ),
     );
   }
 }

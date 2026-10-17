@@ -151,6 +151,55 @@ class MatchPlayer {
   final int? level;
 }
 
+/// Server-authoritative rating change for one player in a settled match.
+///
+/// Flutter never computes these values; they are read verbatim from the
+/// receipt/settlement payload. `rated == false` means the match was unrated
+/// (casual/test/sandbox/cancelled) and the rating did not move.
+class MatchRatingChange {
+  const MatchRatingChange({
+    required this.previousRating,
+    required this.newRating,
+    required this.ratingDelta,
+    this.previousRank,
+    this.newRank,
+    this.isRankUp = false,
+    this.isRankDown = false,
+    this.isProvisional = false,
+    this.rated = true,
+  });
+
+  final int previousRating;
+  final int newRating;
+  final int ratingDelta;
+  final String? previousRank;
+  final String? newRank;
+  final bool isRankUp;
+  final bool isRankDown;
+  final bool isProvisional;
+  final bool rated;
+
+  static MatchRatingChange? tryFromServer(Map<dynamic, dynamic> raw) {
+    final json = Map<String, dynamic>.from(raw);
+    final previous = int.tryParse(json['previousRating']?.toString() ?? '');
+    final next = int.tryParse(json['newRating']?.toString() ?? '');
+    if (previous == null || next == null) return null;
+    final delta =
+        int.tryParse(json['ratingDelta']?.toString() ?? '') ?? (next - previous);
+    return MatchRatingChange(
+      previousRating: previous,
+      newRating: next,
+      ratingDelta: delta,
+      previousRank: json['previousRank']?.toString(),
+      newRank: json['newRank']?.toString(),
+      isRankUp: json['isRankUp'] == true,
+      isRankDown: json['isRankDown'] == true,
+      isProvisional: json['isProvisional'] == true,
+      rated: json['rated'] != false,
+    );
+  }
+}
+
 class MatchTerms {
   const MatchTerms({
     required this.stakeMinorUnits,
@@ -490,6 +539,7 @@ class MatchReceiptData {
     this.payoutMinorUnits,
     this.refundMinorUnits,
     this.settlementReference,
+    this.rating,
   });
 
   final String matchId;
@@ -501,6 +551,7 @@ class MatchReceiptData {
   final int? payoutMinorUnits;
   final int? refundMinorUnits;
   final String? settlementReference;
+  final MatchRatingChange? rating;
 
   static MatchReceiptData? tryFromServer(
     Map<dynamic, dynamic> raw, {
@@ -583,6 +634,7 @@ class MatchReceiptData {
         payoutMinorUnits: payout,
         refundMinorUnits: resultLabel == 'REFUND' ? payout : null,
         settlementReference: envelope['settlementReference']?.toString(),
+        rating: _pickRating(envelope['ratings'], currentUserId),
       );
     }
 
@@ -666,8 +718,26 @@ class MatchReceiptData {
         body['refundMinorUnits'] ?? moneyJson['refundMinor'],
       ),
       settlementReference: body['settlementReference']?.toString(),
+      rating: _pickRating(envelope['ratings'], currentUserId),
     );
   }
+}
+
+/// Selects the caller's own rating row from a receipt's `ratings[]`, falling
+/// back to the first row when the caller id is unknown. Returns null when the
+/// server exposes no rating summary (e.g. an unrated or unsettled match).
+MatchRatingChange? _pickRating(dynamic ratings, String? currentUserId) {
+  if (ratings is! List || ratings.isEmpty) return null;
+  final rows = ratings.whereType<Map>().map(Map<String, dynamic>.from).toList();
+  if (rows.isEmpty) return null;
+  if (currentUserId != null && currentUserId.trim().isNotEmpty) {
+    for (final row in rows) {
+      if (row['userId']?.toString().trim() == currentUserId) {
+        return MatchRatingChange.tryFromServer(row);
+      }
+    }
+  }
+  return MatchRatingChange.tryFromServer(rows.first);
 }
 
 ResultKind? _parseResultKind(dynamic value) =>

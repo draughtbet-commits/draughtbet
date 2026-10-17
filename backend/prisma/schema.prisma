@@ -247,6 +247,10 @@ model Match {
   cancelledAt                   DateTime?
   confirmedAt                   DateTime?
   startedAt                     DateTime?
+  // Rated/unrated flag for the Elo ranking service. Quick Match, Arena and
+  // other competitive matches are rated (default); casual, test, sandbox,
+  // cancelled and administrative matches are unrated and never move rating.
+  rated                         Boolean    @default(true)
 
   // Versioned-config lookups (additive — NULL for rows funded before these
   // reference tables existed; the Int snapshot columns above stay authoritative
@@ -409,6 +413,19 @@ model PlatformSettings {
   amateurCalloutMaxP BigInt @default(5000000)  // ₦50,000
   masterCalloutMaxP  BigInt @default(15000000) // ₦150,000
   proCalloutMaxP     BigInt @default(30000000) // ₦300,000
+
+  // ---- Multiplayer ranking (Elo) ------------------------------------------
+  // Elo-style rating service for rated multiplayer matches. Every value is
+  // configuration-driven (admin-editable via the versioned settings path) so
+  // product/legal can approve the numbers without a code change. Rank bands are
+  // expressed as per-rank floors: AMATEUR starts at 0, MASTER at
+  // masterRankMinRating, PRO at proRankMinRating (and runs to infinity).
+  startingRating        Int @default(1200)
+  provisionalMatchCount Int @default(20)   // rated matches before the K settles
+  provisionalKFactor    Int @default(40)
+  establishedKFactor    Int @default(24)
+  masterRankMinRating   Int @default(1400) // AMATEUR is [0, masterRankMinRating)
+  proRankMinRating      Int @default(1800) // MASTER is [master, proRankMinRating)
 
   // ---- Deposit quote policy (server-owned) --------------------------------
   // The client must never invent fees, currency or which gateways exist. It
@@ -1374,10 +1391,39 @@ model RatingEvent {
   ratingBefore Int
   ratingAfter  Int
   delta        Int
+  // Rank snapshot derived from the configured rating bands at the time of the
+  // event (never recomputed later — the bands may change).
+  previousRank Tier     @default(AMATEUR)
+  newRank      Tier     @default(AMATEUR)
+  // WIN/LOSS/DRAW for the normal post-match event; REVERSAL for the single
+  // compensating event an authorized admin reversal may append.
+  result       RatingResult @default(DRAW)
+  reason       RatingReason @default(NORMAL)
+  // Unrated matches record an auditable event with rated=false and a zero
+  // delta; they never change rating or rank.
+  rated        Boolean  @default(true)
   createdAt    DateTime @default(now())
 
-  @@unique([userId, matchId])
+  // At most one normal (WIN/LOSS/DRAW) event and one REVERSAL per player/match,
+  // so a retried settlement or result event can never double-count.
+  @@unique([userId, matchId, result])
   @@index([matchId])
+  @@index([userId, createdAt])
+}
+
+enum RatingResult {
+  WIN
+  LOSS
+  DRAW
+  REVERSAL
+}
+
+enum RatingReason {
+  NORMAL
+  TIMEOUT
+  RESIGNATION
+  DISCONNECT
+  ADMIN_REVERSAL
 }
 
 enum SupportCaseType {

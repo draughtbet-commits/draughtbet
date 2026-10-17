@@ -175,18 +175,33 @@ matchRouter.get('/:matchId/receipt', requireAuth, async (req, res, next) => {
       return res.status(403).json({ error: { code: 'FORBIDDEN', message: 'Not authorized to view this match' } });
     }
 
-    const [settlement, receipts] = await Promise.all([
+    const [settlement, receipts, ratingEvents] = await Promise.all([
       prisma.matchSettlement.findUnique({ where: { matchId } }),
-      prisma.matchReceipt.findMany({ where: { matchId } })
+      prisma.matchReceipt.findMany({ where: { matchId } }),
+      prisma.ratingEvent.findMany({ where: { matchId }, orderBy: { createdAt: 'asc' } })
     ]);
 
     if (receipts.length === 0) {
-      return res.json({ matchId, status: 'SETTLEMENT_PENDING', receipts: [] });
+      return res.json({ matchId, status: 'SETTLEMENT_PENDING', receipts: [], ratings: [] });
     }
 
     const winnerId = settlement?.winnerId ?? match.winnerId ?? null;
     const resultFor = (r) =>
       r.payoutMinorUnits > 0n ? (winnerId === r.userId ? 'WIN' : 'REFUND') : 'LOSS';
+
+    const TIER_RANK = { AMATEUR: 0, MASTER: 1, PRO: 2 };
+    const ratings = ratingEvents.map((e) => ({
+      userId: e.userId,
+      result: e.result,
+      previousRating: e.ratingBefore,
+      newRating: e.ratingAfter,
+      ratingDelta: e.delta,
+      previousRank: e.previousRank,
+      newRank: e.newRank,
+      isRankUp: TIER_RANK[e.newRank] > TIER_RANK[e.previousRank],
+      isRankDown: TIER_RANK[e.newRank] < TIER_RANK[e.previousRank],
+      rated: e.rated
+    }));
 
     res.json({
       matchId,
@@ -202,7 +217,8 @@ matchRouter.get('/:matchId/receipt', requireAuth, async (req, res, next) => {
         payoutMinorUnits: r.payoutMinorUnits.toString(),
         feeMinorUnits: r.feeMinorUnits.toString(),
         createdAt: r.createdAt
-      }))
+      })),
+      ratings
     });
   } catch (err) {
     next(err);
