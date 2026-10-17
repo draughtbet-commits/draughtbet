@@ -3,8 +3,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../models/match_flow.dart';
+import '../models/wallet.dart';
 import '../providers/match_flow_provider.dart';
 import '../providers/profile_provider.dart';
+import '../providers/wallet_provider.dart';
 import '../theme/colors.dart';
 import '../widgets/flow_widgets.dart';
 
@@ -18,59 +20,51 @@ class ArenaScreen extends ConsumerStatefulWidget {
 class _ArenaScreenState extends ConsumerState<ArenaScreen> {
   int? _maxStake;
 
-  /// Filter chips follow the account tier, so a MASTER user is not offered a
-  /// ≤₦2,000 filter that hides every match they are actually eligible for.
-  List<int?> get _stakeFilters {
-    final tier = ref.read(profileProvider).profile?.tier;
-    if (tier == null) return const [null, 100000, 200000, 500000];
-    return [null, ...stakePresetsForTier(tier).reversed];
-  }
-
   @override
   void initState() {
     super.initState();
-    Future.microtask(() => ref.read(matchFlowProvider.notifier).loadArena());
+    Future.microtask(() {
+      ref.read(matchFlowProvider.notifier).loadArena();
+      ref.read(walletProvider.notifier).fetchTierLimits();
+    });
   }
 
-  void _showFilters() {
-    showModalBottomSheet<void>(
+  // Stake bounds come from the server tier limits so a MASTER user is not
+  // offered a ≤₦2,000 filter that hides every match they are eligible for.
+  // Falls back to the per-tier presets until the limits load.
+  (int, int) _resolveStakeLimits(TierLimits? limits) {
+    final tier = ref.read(profileProvider).profile?.tier;
+    if (limits != null && limits.tier.toUpperCase() == (tier ?? '').toUpperCase()) {
+      final min = int.tryParse(limits.stakeMin) ?? 50000;
+      final max = int.tryParse(limits.calloutMax) ?? 5000000;
+      return (min, max);
+    }
+    final presets = stakePresetsForTier(tier);
+    if (presets.isEmpty) return (50000, 5000000);
+    return (
+      presets.reduce((a, b) => a < b ? a : b),
+      presets.reduce((a, b) => a > b ? a : b),
+    );
+  }
+
+  Future<void> _showFilters() async {
+    if (ref.read(walletProvider).tierLimits == null) {
+      await ref.read(walletProvider.notifier).fetchTierLimits();
+    }
+    if (!mounted) return;
+    final (min, max) = _resolveStakeLimits(ref.read(walletProvider).tierLimits);
+    await showModalBottomSheet<void>(
       context: context,
       backgroundColor: AppColors.surface,
       showDragHandle: true,
-      builder: (sheetContext) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Filter matches',
-                style: TextStyle(
-                  fontFamily: 'Sora',
-                  fontSize: 18,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              const SizedBox(height: 16),
-              Wrap(
-                spacing: 8,
-                children: _stakeFilters.map((value) {
-                  return ChoiceChip(
-                    label: Text(
-                      value == null ? 'All stakes' : Money(value).format(),
-                    ),
-                    selected: _maxStake == value,
-                    onSelected: (_) {
-                      setState(() => _maxStake = value);
-                      Navigator.pop(sheetContext);
-                    },
-                  );
-                }).toList(),
-              ),
-            ],
-          ),
-        ),
+      isScrollControlled: true,
+      builder: (_) => _ArenaFilterSheet(
+        min: min,
+        max: max,
+        initial: _maxStake,
+        onApply: (value) {
+          if (mounted) setState(() => _maxStake = value);
+        },
       ),
     );
   }
@@ -107,7 +101,7 @@ class _ArenaScreenState extends ConsumerState<ArenaScreen> {
                 title: 'Open Arena',
                 subtitle: _maxStake == null
                     ? 'Challenge any eligible player'
-                    : 'Stake filter applied',
+                    : 'Showing stakes up to ${Money(_maxStake!).format()}',
                 trailing: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
@@ -283,6 +277,82 @@ class _ArenaSkeleton extends StatelessWidget {
             CircleAvatar(radius: 23, backgroundColor: AppColors.surfaceRaised),
             SizedBox(width: 12),
             Expanded(child: LinearProgressIndicator(minHeight: 8)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ArenaFilterSheet extends StatefulWidget {
+  const _ArenaFilterSheet({
+    required this.min,
+    required this.max,
+    required this.initial,
+    required this.onApply,
+  });
+
+  final int min;
+  final int max;
+  final int? initial;
+  final ValueChanged<int?> onApply;
+
+  @override
+  State<_ArenaFilterSheet> createState() => _ArenaFilterSheetState();
+}
+
+class _ArenaFilterSheetState extends State<_ArenaFilterSheet> {
+  late int _value = widget.initial ?? widget.max;
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'Filter matches',
+                  style: TextStyle(
+                    fontFamily: 'Sora',
+                    fontSize: 18,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                TextButton(
+                  onPressed: () {
+                    widget.onApply(null);
+                    Navigator.pop(context);
+                  },
+                  child: const Text('Show all'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Only show open matches staking up to this amount.',
+              style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
+            ),
+            const SizedBox(height: 16),
+            StakeSlider(
+              value: _value,
+              min: widget.min,
+              max: widget.max,
+              onChanged: (value) {
+                setState(() => _value = value);
+                widget.onApply(value);
+              },
+            ),
+            const SizedBox(height: 16),
+            PrimaryActionButton(
+              label: 'Done',
+              onPressed: () => Navigator.pop(context),
+            ),
           ],
         ),
       ),

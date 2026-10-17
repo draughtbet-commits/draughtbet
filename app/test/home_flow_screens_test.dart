@@ -11,6 +11,7 @@ import 'package:draughts_arena/models/piece.dart';
 import 'package:draughts_arena/providers/match_flow_provider.dart';
 import 'package:draughts_arena/providers/match_provider.dart';
 import 'package:draughts_arena/providers/notification_provider.dart';
+import 'package:draughts_arena/providers/player_discovery_provider.dart';
 import 'package:draughts_arena/providers/profile_provider.dart';
 import 'package:draughts_arena/providers/wallet_provider.dart';
 import 'package:draughts_arena/screens/arena_screen.dart';
@@ -22,7 +23,9 @@ import 'package:draughts_arena/screens/match_result_screen.dart';
 import 'package:draughts_arena/screens/match_room_screen.dart';
 import 'package:draughts_arena/screens/match_screen.dart';
 import 'package:draughts_arena/screens/matchmaking_screen.dart';
+import 'package:draughts_arena/screens/player_discovery_screens.dart';
 import 'package:draughts_arena/services/match_flow_gateway.dart';
+import 'package:draughts_arena/services/player_gateway.dart';
 import 'package:draughts_arena/services/socket_service.dart';
 import 'package:draughts_arena/theme/app_theme.dart';
 import 'package:draughts_arena/widgets/draught_board.dart';
@@ -234,6 +237,23 @@ class StaticWalletNotifier extends WalletNotifier {
 
   @override
   Future<void> loadMoreTransactions({int limit = 20}) async {}
+}
+
+class StubPlayerGateway extends PlayerGateway {
+  StubPlayerGateway() : super(Dio());
+
+  @override
+  Future<MatchPlayer?> fetchProfile(String playerId) async => null;
+}
+
+class ChallengeFlowNotifier extends StaticFlowNotifier {
+  ChallengeFlowNotifier(super.initial);
+
+  @override
+  Future<MatchLifecycleSnapshot?> createChallenge(
+    MatchPlayer target,
+    MatchTerms terms,
+  ) async => null;
 }
 
 GameState gameFixture({
@@ -489,6 +509,98 @@ void main() {
     expect(find.text('Open Arena'), findsOneWidget);
     expect(find.text('KingMoves'), findsOneWidget);
     expect(find.text('JOIN'), findsOneWidget);
+  });
+
+  testWidgets('Arena stake filter uses a slider and narrows the listing', (
+    tester,
+  ) async {
+    const open = OpenMatch(
+      id: 'callout-1',
+      host: opponent,
+      terms: referenceTerms,
+    );
+    await tester.pumpWidget(
+      appFor(
+        const ArenaScreen(),
+        flow: const MatchFlowState(
+          arenaPhase: LoadPhase.ready,
+          openMatches: [open],
+        ),
+      ),
+    );
+    await tester.pump();
+    expect(find.text('KingMoves'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('Filter open matches'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Filter matches'), findsOneWidget);
+    expect(find.text('Show all'), findsOneWidget);
+    final slider = find.byType(Slider);
+    expect(slider, findsOneWidget);
+    final widget = tester.widget<Slider>(slider);
+    expect(widget.min, 50000);
+    expect(widget.max, 15000000);
+
+    // Drag to the minimum: the ₦2,000 match now sits above the filter.
+    await tester.drag(slider, const Offset(-500, 0));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Done'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Filter matches'), findsNothing);
+    expect(find.text('KingMoves'), findsNothing);
+    expect(find.text('Arena is quiet right now'), findsOneWidget);
+  });
+
+  testWidgets('Challenge Player opens a stake slider sheet', (tester) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          profileProvider.overrideWith((ref) => StaticProfileNotifier()),
+          matchFlowProvider.overrideWith(
+            (ref) => ChallengeFlowNotifier(const MatchFlowState()),
+          ),
+          walletProvider.overrideWith(
+            (ref) => StaticWalletNotifier(
+              WalletState(
+                tierLimits: TierLimits(
+                  tier: 'MASTER',
+                  stakeMin: '50000',
+                  stakeMax: '15000000',
+                  calloutMax: '15000000',
+                ),
+              ),
+            ),
+          ),
+          playerGatewayProvider.overrideWith((ref) => StubPlayerGateway()),
+        ],
+        child: MaterialApp(
+          theme: AppTheme.dark,
+          home: const PublicPlayerProfileScreen(player: opponent),
+        ),
+      ),
+    );
+    await tester.pump();
+    expect(find.text('Challenge Player'), findsOneWidget);
+
+    await tester.tap(find.text('Challenge Player'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Challenge stake'), findsOneWidget);
+    final slider = find.byType(Slider);
+    expect(slider, findsOneWidget);
+    final widget = tester.widget<Slider>(slider);
+    expect(widget.min, 50000);
+    expect(widget.max, 15000000);
+    expect(find.textContaining('Send challenge'), findsOneWidget);
+
+    await tester.drag(slider, const Offset(-500, 0));
+    await tester.pumpAndSettle();
+    await tester.tap(find.textContaining('Send challenge'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Challenge stake'), findsNothing);
   });
 
   testWidgets('Create Match exposes required server-backed fields', (

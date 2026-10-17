@@ -3,9 +3,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../models/match_flow.dart';
+import '../models/wallet.dart';
 import '../providers/match_flow_provider.dart';
 import '../providers/player_discovery_provider.dart';
 import '../providers/profile_provider.dart';
+import '../providers/wallet_provider.dart';
 import '../theme/colors.dart';
 import '../theme/typography.dart';
 import '../widgets/flow_widgets.dart';
@@ -185,15 +187,39 @@ class _PublicPlayerProfileScreenState
     }
   }
 
+  // Stake bounds come from the server tier limits (challenges may stake up to
+  // the tier's callout max), falling back to the presets until they load.
+  (int, int) _resolveStakeLimits(TierLimits? limits) {
+    final tier = ref.read(profileProvider).profile?.tier;
+    if (limits != null && limits.tier.toUpperCase() == (tier ?? '').toUpperCase()) {
+      final min = int.tryParse(limits.stakeMin) ?? 50000;
+      final max = int.tryParse(limits.calloutMax) ?? 5000000;
+      return (min, max);
+    }
+    final presets = stakePresetsForTier(tier);
+    if (presets.isEmpty) return (50000, 5000000);
+    return (
+      presets.reduce((a, b) => a < b ? a : b),
+      presets.reduce((a, b) => a > b ? a : b),
+    );
+  }
+
   Future<void> _sendChallenge(MatchPlayer target) async {
     ref.read(profileProvider.notifier).load();
-    final tier = ref.read(profileProvider).profile?.tier;
-    final presets = stakePresetsForTier(tier);
+    if (ref.read(walletProvider).tierLimits == null) {
+      await ref.read(walletProvider.notifier).fetchTierLimits();
+    }
+    if (!mounted) return;
+    final (min, max) = _resolveStakeLimits(ref.read(walletProvider).tierLimits);
     final stake = await showModalBottomSheet<int>(
       context: context,
       isScrollControlled: true,
       backgroundColor: AppColors.surface,
-      builder: (sheetContext) => _ChallengeStakeSheet(presets: presets),
+      builder: (sheetContext) => _ChallengeStakeSheet(
+        min: min,
+        max: max,
+        initial: min,
+      ),
     );
     if (stake == null || !mounted) return;
 
@@ -305,10 +331,23 @@ class _PublicPlayerProfileScreenState
   }
 }
 
-class _ChallengeStakeSheet extends StatelessWidget {
-  const _ChallengeStakeSheet({required this.presets});
+class _ChallengeStakeSheet extends StatefulWidget {
+  const _ChallengeStakeSheet({
+    required this.min,
+    required this.max,
+    required this.initial,
+  });
 
-  final List<int> presets;
+  final int min;
+  final int max;
+  final int initial;
+
+  @override
+  State<_ChallengeStakeSheet> createState() => _ChallengeStakeSheetState();
+}
+
+class _ChallengeStakeSheetState extends State<_ChallengeStakeSheet> {
+  late int _stake = widget.initial;
 
   @override
   Widget build(BuildContext context) {
@@ -327,38 +366,22 @@ class _ChallengeStakeSheet extends StatelessWidget {
               ),
               const SizedBox(height: 8),
               Text(
-                'Pick a preset. The opponent stakes the same amount.',
+                'Drag to set your stake. The opponent stakes the same amount.',
                 textAlign: TextAlign.center,
                 style: AppTypography.bodySmall,
               ),
               const SizedBox(height: 16),
-              for (final stake in presets)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 10),
-                  child: FlowCard(
-                    padding: const EdgeInsets.all(2),
-                    child: Material(
-                      color: AppColors.transparent,
-                      child: ListTile(
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 14,
-                          vertical: 2,
-                        ),
-                        leading: const Icon(LucideIcons.trophy, size: 20),
-                        title: Text(
-                          Money(stake).format(),
-                          style: AppTypography.labelBold,
-                        ),
-                        subtitle: Text(
-                          'You and the opponent each stake this',
-                          style: AppTypography.bodySmall,
-                        ),
-                        trailing: const Icon(LucideIcons.chevronRight),
-                        onTap: () => Navigator.pop(context, stake),
-                      ),
-                    ),
-                  ),
-                ),
+              StakeSlider(
+                value: _stake,
+                min: widget.min,
+                max: widget.max,
+                onChanged: (value) => setState(() => _stake = value),
+              ),
+              const SizedBox(height: 20),
+              PrimaryActionButton(
+                label: 'Send challenge · ${Money(_stake).format()}',
+                onPressed: () => Navigator.pop(context, _stake),
+              ),
             ],
           ),
         ),

@@ -81,6 +81,80 @@ class FlowCard extends StatelessWidget {
   }
 }
 
+/// A single-thumb stake picker over a server-derived [min, max] range in minor
+/// units. Renders the live amount plus both range ends so the player always sees
+/// the bounds they are choosing within. Values snap to [stepMinorUnits]; the
+/// division count is capped so a huge range does not create a jittery track.
+class StakeSlider extends StatelessWidget {
+  const StakeSlider({
+    super.key,
+    required this.value,
+    required this.min,
+    required this.max,
+    required this.onChanged,
+    this.stepMinorUnits = 50000,
+    this.maxDivisions = 600,
+    this.label,
+  });
+
+  final int value;
+  final int min;
+  final int max;
+  final ValueChanged<int> onChanged;
+  final int stepMinorUnits;
+  final int maxDivisions;
+  final String? label;
+
+  @override
+  Widget build(BuildContext context) {
+    // Bounds can invert while tier limits are mid-load; keep the track sane.
+    final lo = min <= max ? min : max;
+    final hi = max >= min ? max : min;
+    final current = value < lo ? lo : (value > hi ? hi : value);
+    final divisions = hi > lo ? ((hi - lo) ~/ stepMinorUnits).clamp(1, maxDivisions) : 1;
+    const valueStyle = TextStyle(
+      fontFamily: 'Inter',
+      fontSize: 13,
+      fontWeight: FontWeight.w600,
+      color: AppColors.textPrimary,
+    );
+    const boundStyle = TextStyle(fontSize: 10, color: AppColors.textSecondary);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (label != null)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 6),
+            child: Text(
+              label!,
+              style: const TextStyle(
+                fontFamily: 'Inter',
+                color: AppColors.textSecondary,
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        Text('Stake: ${Money(current).format()}', style: valueStyle),
+        Slider(
+          value: current.toDouble(),
+          min: lo.toDouble(),
+          max: hi.toDouble(),
+          divisions: divisions,
+          onChanged: (v) => onChanged(v.toInt()),
+        ),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(Money(lo).format(), style: boundStyle),
+            Text(Money(hi).format(), style: boundStyle),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
 class PrimaryActionButton extends StatelessWidget {
   const PrimaryActionButton({
     super.key,
