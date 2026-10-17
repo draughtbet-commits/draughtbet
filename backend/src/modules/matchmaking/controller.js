@@ -5,12 +5,32 @@ import { requireIdempotencyKey } from '../../middleware/idempotency.js';
 import { requireValidStake } from '../../middleware/tierEnforcement.js';
 import { EligibilityService } from '../eligibility/service.js';
 import { hasPreterminalMatchForPlayers } from '../match/service.js';
+import { getLedgerAvailable } from '../../services/ledgerService.js';
+import { InsufficientFundsError } from '../../services/matchService.js';
 import prisma from '../../utils/db.js';
 import redis from '../../utils/redis.js';
 import logger from '../../utils/logger.js';
 
 export const matchmakingRouter = express.Router();
 const eligibilityService = new EligibilityService();
+
+// A zero-/under-funded player who reaches a queue only burns a pairing when the
+// worker later tries to debit both stakes, so their balance is proven up front.
+// Funding re-checks atomically, so this is a courtesy gate, not the guarantee.
+const assertStakeAffordable = async (userId, stakeMinorUnits) => {
+  const wallet = await prisma.wallet.findUnique({
+    where: { userId },
+    select: { currency: true }
+  });
+  const available = await getLedgerAvailable(
+    prisma,
+    userId,
+    wallet?.currency ?? 'NGN'
+  );
+  if (available < BigInt(stakeMinorUnits)) {
+    throw new InsufficientFundsError('Insufficient funds for this stake');
+  }
+};
 
 // Join the matchmaking queue
 matchmakingRouter.post('/join', requireAuth, requireValidStake(false), async (req, res, next) => {
@@ -22,6 +42,7 @@ matchmakingRouter.post('/join', requireAuth, requireValidStake(false), async (re
     // are enforced here so an ineligible player never reaches a queue, and again
     // at funding time inside the atomic debit transaction.
     await eligibilityService.canJoinMatch(userId, { stakeMinorUnits });
+    await assertStakeAffordable(userId, stakeMinorUnits);
 
     // A player may only be in one game at a time. Refuse to enqueue anyone
     // already holding a pre-terminal match (DRAFT/OPEN/FUNDED/READY/IN_PLAY,
@@ -107,6 +128,7 @@ matchmakingRouter.post(
       }
 
       await eligibilityService.canJoinMatch(userId, { stakeMinorUnits: stakeMinor });
+      await assertStakeAffordable(userId, stakeMinor);
       if (await hasPreterminalMatchForPlayers(prisma, [userId])) {
         return res.status(409).json({ error: 'You are already in an active match' });
       }

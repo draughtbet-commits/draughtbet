@@ -65,6 +65,16 @@ export class InsufficientFundsError extends Error {
   }
 }
 
+// Internal marker: the joiner can afford the stake but the listing's creator
+// cannot. It is translated to a plain InsufficientFundsError after the listing
+// is retired, so callers still see a 402.
+class ChallengerFundsUnavailableError extends Error {
+  constructor() {
+    super('Challenger no longer has funds for this match');
+    this.name = 'ChallengerFundsUnavailableError';
+  }
+}
+
 export const OPEN_MATCH_TTL_MS = (() => {
   const raw = Number(process.env.OPEN_MATCH_TTL_MS);
   return Number.isFinite(raw) && raw > 0 ? raw : 15 * 60 * 1000;
@@ -349,7 +359,9 @@ export const markReady = async (client, matchId, userId) => {
 /**
  * Creates an OPEN listing (POST /api/v1/matches). LIGHT = creator; DARK = a
  * transient self placeholder. The stake is NOT reserved until an opponent
- * joins.
+ * joins, but the creator must be able to cover it: a listing the creator could
+ * never fund only wastes an opponent's time (they hit the insufficient-funds
+ * wall at join) and clogs the Arena, so the balance is verified up front.
  */
 export const createOpenMatch = async ({
   creatorId,
@@ -365,7 +377,17 @@ export const createOpenMatch = async ({
       enforceTimeout: true,
       stakeMinorUnits: BigInt(stakeMinorUnits)
     });
-    await lockWalletForUpdate(tx, creatorId);
+    const wallet = await lockWalletForUpdate(tx, creatorId);
+    const available = await getLedgerAvailable(
+      tx,
+      creatorId,
+      wallet.currency ?? currency
+    );
+    if (available < BigInt(stakeMinorUnits)) {
+      throw new InsufficientFundsError(
+        'Insufficient funds to create this match'
+      );
+    }
     return tx.match.create({
       data: {
         id: matchId,
@@ -390,7 +412,8 @@ export const createOpenMatch = async ({
 /**
  * Creates a directed challenge: an OPEN match whose join is reserved for one
  * opponent. The opponent's money eligibility is enforced at join time, so
- * creating a challenge never probes another player's restrictions.
+ * creating a challenge never probes another player's restrictions. Like an
+ * open listing, the challenger must be able to fund their own stake now.
  */
 export const createChallengeMatch = async ({
   creatorId,
@@ -407,7 +430,17 @@ export const createChallengeMatch = async ({
       enforceTimeout: true,
       stakeMinorUnits: BigInt(stakeMinorUnits)
     });
-    await lockWalletForUpdate(tx, creatorId);
+    const wallet = await lockWalletForUpdate(tx, creatorId);
+    const available = await getLedgerAvailable(
+      tx,
+      creatorId,
+      wallet.currency ?? currency
+    );
+    if (available < BigInt(stakeMinorUnits)) {
+      throw new InsufficientFundsError(
+        'Insufficient funds to create this challenge'
+      );
+    }
     return tx.match.create({
       data: {
         id: matchId,
@@ -446,11 +479,46 @@ export const matchesJoinedOpenStatuses = (tx, userId, notMatchId) =>
   });
 
 /**
+ * Retires an OPEN listing whose creator can no longer fund it, so it stops
+ * misleading other players. Best-effort: a failure here must never mask the
+ * original funds error the joiner is owed.
+ */
+const expireUnfundableListing = async (matchId) => {
+  try {
+    await prisma.$transaction(async (tx) => {
+      await transitionMatch(tx, matchId, 'EXPIRED');
+      await tx.matchChallenge.updateMany({
+        where: { matchId, status: 'PENDING' },
+        data: { status: 'EXPIRED' }
+      });
+    });
+  } catch (err) {
+    logger.warn({ err, matchId }, 'Could not expire an unfundable open listing');
+  }
+};
+
+/**
  * Funds an OPEN match when an opponent joins (POST /api/v1/matches/:id/join).
  * One tx: row-lock the listing, run tier/eligibility/occupancy checks, admit
  * the joiner as DARK, reserve both stakes, land FUNDED with activation intent.
  */
-export const fundOpenMatch = async (joinerId, matchId, { tier: joinerTier } = {}) => {
+export const fundOpenMatch = async (joinerId, matchId, options = {}) => {
+  try {
+    return await fundOpenMatchTx(joinerId, matchId, options);
+  } catch (err) {
+    if (err instanceof ChallengerFundsUnavailableError) {
+      // The creator's listing outlived their balance. Retire it and tell the
+      // joiner the truth instead of blaming their own wallet.
+      await expireUnfundableListing(matchId);
+      throw new InsufficientFundsError(
+        'This match is no longer available: the creator no longer has funds'
+      );
+    }
+    throw err;
+  }
+};
+
+const fundOpenMatchTx = async (joinerId, matchId, { tier: joinerTier } = {}) => {
   const funded = await prisma.$transaction(async (tx) => {
     const rows = await tx.$queryRaw`
       SELECT * FROM "Match" WHERE id = ${matchId} FOR UPDATE
@@ -552,8 +620,13 @@ export const fundOpenMatch = async (joinerId, matchId, { tier: joinerTier } = {}
       joinerId,
       wDark.currency ?? 'NGN'
     );
-    if (availableLight < stakeAmount || availableDark < stakeAmount) {
+    if (availableDark < stakeAmount) {
+      // The joiner cannot cover their own side.
       throw new InsufficientFundsError('Insufficient funds for stake');
+    }
+    if (availableLight < stakeAmount) {
+      // The listing's creator cannot cover theirs; attribute it correctly.
+      throw new ChallengerFundsUnavailableError();
     }
 
     await tx.match.update({

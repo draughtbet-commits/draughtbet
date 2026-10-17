@@ -89,6 +89,7 @@ JWT verified on handshake (`socket.handshake.auth.token`). Two room conventions:
 - `GET /callouts/open` — open call-outs the requesting user is tier-eligible to accept.
 - Tier/stake enforcement middleware (`tierEnforcement.js`) runs on every matchmaking and call-out endpoint. Stakes are a **continuous range** per tier: standard play validates against `PlatformSettings.{tier}StakeMinP`–`{tier}StakeMaxP`, and call-outs against `{tier}StakeMinP`–`{tier}CalloutMaxP` (a ceiling of `0` marks a tier call-out ineligible). Empty matchmaking buckets are discovered dynamically via Redis `SCAN` in `matchmakingWorker.js` (no fixed preset list); pairing only ever joins players who chose the **exact same** amount.
 - Call-out expiry — `node-cron` every minute sets `status = EXPIRED` where `expiresAt < now()` and still `OPEN`.
+- **Funds gate**: a player must be able to cover the chosen stake to enter a matchmaking queue/search or to create an open listing (call-out). Creating a listing checks the creator's available balance up front; joining an open match re-checks both wallets atomically, and if the creator has since spent their stake the listing is retired (`EXPIRED`) and the joiner is told the truth (402) instead of being blamed for a shortfall that is not theirs.
 
 ## Wallet & payments (Paystack primary, Flutterwave secondary — NGN, Phase 1)
 

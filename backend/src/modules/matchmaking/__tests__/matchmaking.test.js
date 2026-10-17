@@ -14,6 +14,22 @@ const mockPrisma = {
   },
   platformSettings: {
     findUniqueOrThrow: jest.fn()
+  },
+  wallet: {
+    findUnique: jest.fn()
+  },
+  ledgerAccount: {
+    findMany: jest.fn()
+  },
+  ledgerEntry: {
+    aggregate: jest.fn()
+  },
+  idempotencyRecord: {
+    findUnique: jest.fn(),
+    create: jest.fn(),
+    update: jest.fn(),
+    delete: jest.fn(),
+    deleteMany: jest.fn()
   }
 };
 jest.unstable_mockModule('../../../utils/db.js', () => ({
@@ -64,6 +80,14 @@ describe('Matchmaking smoke', () => {
       proStakeMaxP: 30000000n
     });
     mockPrisma.match.findFirst.mockResolvedValue(null);
+    mockPrisma.wallet.findUnique.mockResolvedValue({ currency: 'NGN' });
+    mockPrisma.ledgerAccount.findMany.mockResolvedValue([{ id: 'acct-1' }]);
+    mockPrisma.ledgerEntry.aggregate.mockResolvedValue({
+      _sum: { amountMinorUnits: 1_000_000n }
+    });
+    mockPrisma.idempotencyRecord.findUnique.mockResolvedValue(null);
+    mockPrisma.idempotencyRecord.create.mockResolvedValue({ id: 'idem-1' });
+    mockPrisma.idempotencyRecord.deleteMany.mockResolvedValue({ count: 0 });
   });
 
   it('joins the queue bucketed by tier and exact stake', async () => {
@@ -133,6 +157,29 @@ describe('Matchmaking smoke', () => {
     const res = await request(app).post('/api/v1/matchmaking/join').send({ stakeMinorUnits: 50000 });
     expect(res.status).toBe(403);
     expect(res.body.error).toContain('Self-exclusion');
+    expect(mockRedis.zadd).not.toHaveBeenCalled();
+  });
+
+  it('blocks a zero-balance player from the queue', async () => {
+    mockPrisma.ledgerEntry.aggregate.mockResolvedValue({
+      _sum: { amountMinorUnits: 0n }
+    });
+    const res = await request(app).post('/api/v1/matchmaking/join').send({ stakeMinorUnits: 50000 });
+    expect(res.status).toBe(402);
+    expect(res.body.error).toContain('Insufficient funds');
+    expect(mockRedis.zadd).not.toHaveBeenCalled();
+  });
+
+  it('blocks an underfunded search from the queue', async () => {
+    mockPrisma.ledgerEntry.aggregate.mockResolvedValue({
+      _sum: { amountMinorUnits: 49999n }
+    });
+    const res = await request(app)
+      .post('/api/v1/matchmaking/search')
+      .set('Idempotency-Key', 'test-search-key-0001')
+      .send({ stakeMinor: 50000, timeControlSeconds: 300 });
+    expect(res.status).toBe(402);
+    expect(res.body.error).toContain('Insufficient funds');
     expect(mockRedis.zadd).not.toHaveBeenCalled();
   });
 
