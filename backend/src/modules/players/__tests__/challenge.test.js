@@ -240,6 +240,24 @@ describe('Player challenge surface', () => {
       expect(lifecycle.createChallengeMatch).not.toHaveBeenCalled();
     });
 
+    it('returns 402 when the challenger cannot afford the stake', async () => {
+      seedUsers(targetRow());
+      lifecycle.matchesJoinedOpenStatuses.mockResolvedValue(null);
+      mockPrisma.matchChallenge.findFirst.mockResolvedValue(null);
+      const fundsError = new Error('Insufficient funds to create this challenge');
+      fundsError.name = 'InsufficientFundsError';
+      lifecycle.createChallengeMatch.mockRejectedValueOnce(fundsError);
+
+      const res = await request(app)
+        .post('/api/v1/players/player-2/challenge')
+        .set(authHeaders)
+        .send(challengePayload());
+
+      expect(res.status).toBe(402);
+      expect(res.body.error).toMatch(/insufficient funds/i);
+      expect(notification.create).not.toHaveBeenCalled();
+    });
+
     it('creates a challenge match and returns its id', async () => {
       seedUsers(targetRow());
       lifecycle.matchesJoinedOpenStatuses.mockResolvedValue(null);

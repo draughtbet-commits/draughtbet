@@ -9,6 +9,7 @@ import { requireAuth } from '../../middleware/auth.js';
 import { requireIdempotencyKey } from '../../middleware/idempotency.js';
 import { requireValidStake } from '../../middleware/tierEnforcement.js';
 import { NotificationService } from '../notification/service.js';
+import { EligibilityService } from '../eligibility/service.js';
 import {
   createChallengeMatch,
   matchesJoinedOpenStatuses,
@@ -24,16 +25,11 @@ const asInt = (value) => {
 };
 
 const errorStatusFor = (err) => {
-  switch (err.name) {
-    case 'TierMismatchError':
-      return 400;
-    case 'MatchNotFoundError':
-      return 404;
-    case 'JoinUnavailableError':
-      return 409;
-    default:
-      return 500;
-  }
+  // A cross-tier challenge is a bad request at this surface (historical
+  // contract); everything else maps through the central domain table so funds
+  // (402) and eligibility (403/422) errors surface accurately instead of 500.
+  if (err?.name === 'TierMismatchError') return 400;
+  return EligibilityService.statusCode(err);
 };
 
 playerChallengeRouter.get('/challenges', requireAuth, async (req, res, next) => {
