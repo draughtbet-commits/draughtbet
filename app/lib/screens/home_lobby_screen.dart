@@ -45,13 +45,31 @@ class _HomeLobbyScreenState extends ConsumerState<HomeLobbyScreen> {
       ref.read(matchFlowProvider.notifier).loadActiveMatches();
       ref.read(matchProvider.notifier).restoreActiveMatch();
       ref.read(walletProvider.notifier).fetchBalance(silent: true);
+      ref.read(walletProvider.notifier).fetchTierLimits();
     });
   }
 
-  List<int> get _stakes =>
-      stakePresetsForTier(ref.read(profileProvider).profile?.tier);
+  int get _stakeMin {
+    final tier = ref.read(profileProvider).profile?.tier;
+    final limits = ref.watch(walletProvider).tierLimits;
+    if (limits != null && limits.tier.toUpperCase() == (tier ?? '').toUpperCase()) {
+      return int.tryParse(limits.stakeMin) ?? 50000;
+    }
+    final presets = stakePresetsForTier(tier);
+    return presets.isNotEmpty ? presets.first : 50000;
+  }
 
-  int get _effectiveStake => _selectedStake ?? _stakes.first;
+  int get _stakeMax {
+    final tier = ref.read(profileProvider).profile?.tier;
+    final limits = ref.watch(walletProvider).tierLimits;
+    if (limits != null && limits.tier.toUpperCase() == (tier ?? '').toUpperCase()) {
+      return int.tryParse(limits.stakeMax) ?? 5000000;
+    }
+    final presets = stakePresetsForTier(tier);
+    return presets.isNotEmpty ? presets.last : 5000000;
+  }
+
+  int get _effectiveStake => _selectedStake ?? _stakeMin;
 
   Future<void> _startQuickMatch() async {
     final intent = MatchFlowIntent(
@@ -207,56 +225,50 @@ class _HomeLobbyScreenState extends ConsumerState<HomeLobbyScreen> {
               ),
             ),
             const SizedBox(height: 10),
-            Row(
-              children: _stakes.map((stake) {
-                final selected = stake == _effectiveStake;
-                return Expanded(
-                  child: Padding(
-                    padding: EdgeInsets.only(
-                      right: stake == _stakes.last ? 0 : 7,
-                    ),
-                    child: Semantics(
-                      button: true,
-                      selected: selected,
-                      label: '${Money(stake).format()} stake',
-                      child: InkWell(
-                        onTap: () => setState(() => _selectedStake = stake),
-                        borderRadius: BorderRadius.circular(9),
-                        child: AnimatedContainer(
-                          duration: const Duration(milliseconds: 140),
-                          height: 42,
-                          alignment: Alignment.center,
-                          decoration: BoxDecoration(
-                            color: selected
-                                ? AppColors.primaryAction.withValues(alpha: .22)
-                                : AppColors.surface,
-                            borderRadius: BorderRadius.circular(9),
-                            border: Border.all(
-                              color: selected
-                                  ? AppColors.primaryBright
-                                  : AppColors.border,
-                              width: selected ? 1.5 : 1,
-                            ),
-                          ),
-                          child: Text(
-                            stake >= 100000
-                                ? '₦${stake ~/ 100000}K'
-                                : '₦${stake ~/ 100}',
-                            style: TextStyle(
-                              fontFamily: 'Inter',
-                              fontSize: 13,
-                              fontWeight: FontWeight.w700,
-                              color: selected
-                                  ? AppColors.primaryBright
-                                  : AppColors.textPrimary,
-                            ),
-                          ),
-                        ),
+            StatefulBuilder(
+              builder: (context, setState) {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Stake: ${Money(_selectedStake ?? _stakeMin).format()}',
+                      style: TextStyle(
+                        fontFamily: 'Inter',
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.textPrimary,
                       ),
                     ),
-                  ),
+                    Slider(
+                      value: ((_selectedStake ?? _stakeMin).toDouble()).clamp(
+                        _stakeMin <= _stakeMax ? _stakeMin.toDouble() : _stakeMax.toDouble(),
+                        _stakeMax >= _stakeMin ? _stakeMax.toDouble() : _stakeMin.toDouble(),
+                      ),
+                      min: _stakeMin <= _stakeMax ? _stakeMin.toDouble() : _stakeMax.toDouble(),
+                      max: _stakeMax >= _stakeMin ? _stakeMax.toDouble() : _stakeMin.toDouble(),
+                      divisions: _stakeMax > _stakeMin ? (((_stakeMax - _stakeMin) ~/ 50000).clamp(1, 50)) : 1,
+                      onChanged: (val) {
+                        setState(() {
+                          _selectedStake = val.toInt();
+                        });
+                      },
+                    ),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          Money(_stakeMin).format(),
+                          style: TextStyle(fontSize: 10, color: AppColors.textSecondary),
+                        ),
+                        Text(
+                          Money(_stakeMax).format(),
+                          style: TextStyle(fontSize: 10, color: AppColors.textSecondary),
+                        ),
+                      ],
+                    ),
+                  ],
                 );
-              }).toList(),
+              },
             ),
             const SizedBox(height: 10),
             Row(

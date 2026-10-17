@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:draughts_arena/models/game_state.dart';
 import 'package:draughts_arena/models/match_flow.dart';
+import 'package:draughts_arena/models/wallet.dart';
 import 'package:draughts_arena/models/piece.dart';
 import 'package:draughts_arena/providers/match_flow_provider.dart';
 import 'package:draughts_arena/providers/match_provider.dart';
@@ -222,6 +223,9 @@ class StaticWalletNotifier extends WalletNotifier {
   Future<void> fetchBalance({bool silent = false}) async {}
 
   @override
+  Future<void> fetchTierLimits() async {}
+
+  @override
   Future<void> fetchTransactions({
     int page = 1,
     int limit = 20,
@@ -275,7 +279,12 @@ Widget appFor(
       ),
       notificationProvider.overrideWith((ref) => StaticNotificationNotifier()),
       walletProvider.overrideWith(
-        (ref) => StaticWalletNotifier(const WalletState()),
+        (ref) => StaticWalletNotifier(WalletState(tierLimits: TierLimits(
+          tier: 'MASTER',
+          stakeMin: '50000',
+          stakeMax: '15000000',
+          calloutMax: '15000000',
+        ))),
       ),
     ],
     child: MaterialApp(theme: AppTheme.dark, home: child),
@@ -375,7 +384,12 @@ Widget navigationApp({
       ),
       notificationProvider.overrideWith((ref) => StaticNotificationNotifier()),
       walletProvider.overrideWith(
-        (ref) => StaticWalletNotifier(const WalletState()),
+        (ref) => StaticWalletNotifier(WalletState(tierLimits: TierLimits(
+          tier: 'MASTER',
+          stakeMin: '50000',
+          stakeMax: '15000000',
+          calloutMax: '15000000',
+        ))),
       ),
     ],
     child: MaterialApp.router(theme: AppTheme.dark, routerConfig: router),
@@ -429,12 +443,6 @@ void main() {
     await tester.pump();
     expect(find.text('FIND A MATCH'), findsOneWidget);
     expect(find.text('Quick Match'), findsOneWidget);
-    // The fixture profile is MASTER, so the quick stakes must be that tier's
-    // presets rather than the AMATEUR list.
-    expect(find.text('₦30K'), findsOneWidget);
-    expect(find.text('₦15K'), findsOneWidget);
-    expect(find.text('₦10K'), findsOneWidget);
-    expect(find.text('₦2K'), findsNothing);
     expect(find.text('ACTIVE MATCHES'), findsOneWidget);
   });
 

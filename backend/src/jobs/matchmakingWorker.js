@@ -5,7 +5,6 @@ import prisma from '../utils/db.js';
 import { getIO } from '../sockets/index.js';
 import { debitStakes, InsufficientFundsError, ActiveMatchError } from '../services/matchService.js';
 import { finalizeMatchActivation } from '../services/gameActivationService.js';
-import { STAKE_PRESETS } from '../middleware/tierEnforcement.js';
 import { NotificationService } from '../modules/notification/service.js';
 import { fundOpenMatch, OPEN_MATCH_TTL_MS } from '../modules/v2/lifecycleService.js';
 
@@ -151,14 +150,68 @@ const seatQueuedPlayersIntoOpenMatches = async (queueKey, tier, stakeMinorUnits)
   }
 };
 
+const QUEUE_KEY_PATTERN = 'queue:*';
+
+/**
+ * Parses a `queue:<tier>:<stakeMinorUnits>` key into its parts.
+ *
+ * Stakes are a free-form range now, so the set of live buckets is unbounded and
+ * cannot be enumerated from a constant. Anything that does not look like a real
+ * bucket (wrong shape, non-numeric stake) is ignored rather than guessed at.
+ */
+const parseQueueKey = (key) => {
+  const parts = key.split(':');
+  if (parts.length !== 3) return null;
+
+  const [, tier, stakeRaw] = parts;
+  if (!tier || !stakeRaw) return null;
+
+  let stakeMinorUnits;
+  try {
+    stakeMinorUnits = BigInt(stakeRaw);
+  } catch {
+    return null;
+  }
+  if (stakeMinorUnits <= 0n) return null;
+
+  return { tier, stakeMinorUnits };
+};
+
+/**
+ * Returns every live matchmaking queue bucket key.
+ *
+ * Empty Redis sorted sets are deleted automatically once their last member is
+ * popped/zrem'd, so a SCAN only ever surfaces buckets that currently have at
+ * least one waiting player. We page through with SCAN (never KEYS) so this stays
+ * cheap regardless of how many keys share the keyspace.
+ */
+const discoverQueueKeys = async () => {
+  const keys = [];
+  let cursor = '0';
+  do {
+    const [nextCursor, batch] = await redis.scan(
+      cursor,
+      'MATCH',
+      QUEUE_KEY_PATTERN,
+      'COUNT',
+      100
+    );
+    cursor = nextCursor;
+    if (batch && batch.length) keys.push(...batch);
+  } while (cursor !== '0');
+  return keys;
+};
+
 export const processMatchmakingQueues = async () => {
   if (isSweeping || !isRedisReady()) return;
   isSweeping = true;
 
   try {
-    for (const [tier, presets] of Object.entries(STAKE_PRESETS)) {
-      for (const stakeMinorUnits of presets) {
-        const queueKey = `queue:${tier}:${stakeMinorUnits.toString()}`;
+    const queueKeys = await discoverQueueKeys();
+    for (const queueKey of queueKeys) {
+      const parsed = parseQueueKey(queueKey);
+      if (!parsed) continue;
+      const { tier, stakeMinorUnits } = parsed;
 
         // Seat waiting players into matches that are already open before trying
         // to pair queue entries with each other.
@@ -250,7 +303,6 @@ export const processMatchmakingQueues = async () => {
           
           logger.info({ p1: player1Id, p2: player2Id, matchId: match.id, tier, stakeMinorUnits: stakeMinorUnits.toString() }, 'Matchmaking pair found and game started');
         }
-      }
     }
   } catch (err) {
     logger.error({ err }, 'Error during matchmaking sweep');

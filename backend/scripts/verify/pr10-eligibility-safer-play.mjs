@@ -36,7 +36,6 @@ import { ensureUserAccounts, postDepositCredit } from '../../src/services/ledger
 import { enforceDepositLimit } from '../../src/modules/saferPlay/service.js';
 import { startVerification, KycRejectedError } from '../../src/modules/verification/service.js';
 import { SimulatedKycProvider } from '../../src/modules/verification/providerAdapter.js';
-import { STAKE_PRESETS } from '../../src/middleware/tierEnforcement.js';
 
 if (!process.env.DATABASE_URL || !process.env.REDIS_URL) {
   throw new Error('DATABASE_URL and REDIS_URL must be set (run with the env overrides, see header)');
@@ -293,9 +292,9 @@ try {
   step('stake limit set on device 1 blocks an over-limit stake on device 2');
   // ---------------------------------------------------------------------
   const D = await createUser({ tier: 'MASTER' });
-  const stakeLimitDesired = STAKE_PRESETS.MASTER[0]; // 1,000,000
-  const overStake = STAKE_PRESETS.MASTER[1]; // 1,500,000
-  const calloutStake = STAKE_PRESETS.MASTER[2]; // 3,000,000
+  const stakeLimitDesired = 1000000n; // ₦10,000 — the self-imposed cap
+  const overStake = 1500000n; // ₦15,000 — valid MASTER stake, above the cap
+  const calloutStake = 3000000n; // ₦30,000 — valid MASTER call-out, above the cap
 
   const setStake = await api('PUT', '/safer-play/stake-limit', { userId: D, body: { amountMinorUnits: stakeLimitDesired.toString() } });
   assert.equal(setStake.status, 200);

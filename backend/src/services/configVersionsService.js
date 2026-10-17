@@ -106,11 +106,15 @@ export async function ensureActiveConfigVersions() {
 
   const hasConfig = await prisma.platformConfigVersion.count({ where: { activeTo: null } });
   if (hasConfig === 0) {
+    // Label from the total count rather than hardcoding 'v1': a migration (or any
+    // out-of-band change) may have closed a prior version, and re-issuing 'v1'
+    // would violate the unique label constraint and crash the boot.
     const values = snapshotOf(settings);
+    const serial = await prisma.platformConfigVersion.count();
     await prisma.platformConfigVersion.create({
-      data: { version: 'v1', values, checksum: checksumOf(values) }
+      data: { version: `v${serial + 1}`, values, checksum: checksumOf(values) }
     });
-    logger.info('Seeded active PlatformConfigVersion v1');
+    logger.info(`Seeded active PlatformConfigVersion v${serial + 1}`);
   }
   return {
     rulesetSeed: hasRuleset === 0,

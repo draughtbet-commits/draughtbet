@@ -87,7 +87,7 @@ JWT verified on handshake (`socket.handshake.auth.token`). Two room conventions:
 - `POST /callouts` — creates `Callout` (status `OPEN`), broadcasts `callout_created` to eligible online users via `getIO().emit`.
 - `POST /callouts/:id/accept` — Uses a strict conditional DB update (`UPDATE "Callout" SET status = 'ACCEPTED' WHERE id = $id AND status = 'OPEN'`) to prevent double-accept races. If successful (rows > 0), it routes through the exact same `debitStakes` logic as regular matchmaking, and broadcasts `match_found`.
 - `GET /callouts/open` — open call-outs the requesting user is tier-eligible to accept.
-- Tier/stake enforcement middleware (`tierEnforcement.js`) runs on every matchmaking and call-out endpoint. **Two different bounds**: standard play validates against explicitly allowed presets and `PlatformSettings.{tier}StakeMinP/MaxP`; call-outs validate against the much higher `PlatformSettings.{tier}CalloutMaxP`.
+- Tier/stake enforcement middleware (`tierEnforcement.js`) runs on every matchmaking and call-out endpoint. Stakes are a **continuous range** per tier: standard play validates against `PlatformSettings.{tier}StakeMinP`–`{tier}StakeMaxP`, and call-outs against `{tier}StakeMinP`–`{tier}CalloutMaxP` (a ceiling of `0` marks a tier call-out ineligible). Empty matchmaking buckets are discovered dynamically via Redis `SCAN` in `matchmakingWorker.js` (no fixed preset list); pairing only ever joins players who chose the **exact same** amount.
 - Call-out expiry — `node-cron` every minute sets `status = EXPIRED` where `expiresAt < now()` and still `OPEN`.
 
 ## Wallet & payments (Paystack primary, Flutterwave secondary — NGN, Phase 1)

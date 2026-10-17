@@ -1,9 +1,9 @@
 import 'package:intl/intl.dart';
 
-/// Matchmaking stake presets, in minor units, mirroring the backend's
-/// `STAKE_PRESETS` per tier. The quick-match and challenge paths reject any
-/// stake outside these lists, so every picker has to follow the account's tier
-/// instead of assuming AMATEUR.
+/// Suggested stake amounts, in minor units, per tier. The backend now accepts
+/// any value inside a tier's [stakeMin, stakeMax] range, so these are only
+/// convenient defaults used where a range has not loaded yet — never a hard
+/// validation list.
 const Map<String, List<int>> kStakePresetsByTier = {
   'PRO': [6000000, 5000000, 3000000],
   'MASTER': [3000000, 1500000, 1000000],

@@ -129,20 +129,20 @@ model PlatformSettings {
   // Values below are placeholder NGN kobo amounts — confirm real Nigeria-market stake bounds
   // with the client before launch; these are proportional estimates from the original GBP
   // wireframe figures (~₦600/£1), not a client-confirmed pricing decision.
+  // Each tier is a continuous min→max range; every tier shares the same ₦500 floor.
   amateurStakeMinP   BigInt @default(50000)    // ₦500
-  amateurStakeMaxP   BigInt @default(1500000)  // ₦15,000
-  masterStakeMinP    BigInt @default(1000000)  // ₦10,000
-  masterStakeMaxP    BigInt @default(3000000)  // ₦30,000
-  proStakeMinP       BigInt @default(3000000)  // ₦30,000
-  proStakeMaxP       BigInt @default(6000000)  // ₦60,000
+  amateurStakeMaxP   BigInt @default(5000000)  // ₦50,000
+  masterStakeMinP    BigInt @default(50000)    // ₦500
+  masterStakeMaxP    BigInt @default(15000000) // ₦150,000
+  proStakeMinP       BigInt @default(50000)    // ₦500
+  proStakeMaxP       BigInt @default(30000000) // ₦300,000
 
-  // Call-out ceilings are DELIBERATELY separate from and higher than the normal stake bounds above.
-  // Per the client's original wireframe: a Master player's normal match stake tops out at ₦30,000,
-  // but that same player is eligible to call out (challenge) for up to a much higher amount.
-  // Do not validate call-out amounts against *StakeMaxP above — use these fields instead.
-  amateurCalloutMaxP BigInt @default(0)         // ₦0 — Amateur is not call-out eligible at all, per wireframe
-  masterCalloutMaxP  BigInt @default(15000000)  // ₦150,000 (placeholder, proportional to original £250 ceiling)
-  proCalloutMaxP     BigInt @default(30000000)  // ₦300,000 (placeholder, proportional to original £500 ceiling)
+  // Call-out ceilings track the per-tier max bounds above; every tier (including
+  // Amateur) can issue/accept a call-out up to its ceiling. A non-zero value is what
+  // marks a tier call-out eligible (tierEnforcement rejects a tier whose ceiling is 0).
+  amateurCalloutMaxP BigInt @default(5000000)  // ₦50,000
+  masterCalloutMaxP  BigInt @default(15000000) // ₦150,000
+  proCalloutMaxP     BigInt @default(30000000) // ₦300,000
 }
 
 model Notification {

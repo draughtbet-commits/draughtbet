@@ -76,6 +76,22 @@ describe('configVersionsService', () => {
     expect(mockPrisma.platformConfigVersion.create).not.toHaveBeenCalled();
   });
 
+  it('appends a new version when a prior one was closed out of band (e.g. by a migration)', async () => {
+    mockPrisma.rulesetVersion.count.mockResolvedValue(1);
+    // No *active* version, but one version already exists (closed by the
+    // migration). Re-issuing 'v1' would hit the unique label and crash boot.
+    mockPrisma.platformConfigVersion.count
+      .mockResolvedValueOnce(0) // active-count -> none active
+      .mockResolvedValueOnce(1); // total-count -> one prior version
+
+    const result = await ensureActiveConfigVersions();
+
+    expect(result).toEqual({ rulesetSeed: false, settingsSeed: false, configSeed: true });
+    expect(mockPrisma.platformConfigVersion.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ version: 'v2' }) })
+    );
+  });
+
   it('creates the settings singleton with schema defaults on a fresh DB', async () => {
     mockPrisma.rulesetVersion.count.mockResolvedValue(1);
     mockPrisma.platformConfigVersion.count.mockResolvedValue(0);

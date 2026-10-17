@@ -51,13 +51,13 @@ describe('tierEnforcement', () => {
     expect(res.status).toHaveBeenCalledWith(400);
   });
 
-  it('should validate an exact preset for AMATEUR tier (matchmaking)', async () => {
-    // 50,000 is a valid amateur preset
-    const req = { user: { userId: '1' }, body: { stakeMinorUnits: '50000' } };
+  it('should accept an arbitrary in-range amount for AMATEUR tier (matchmaking)', async () => {
+    // Stakes are a range now, not presets: any value between min and max is valid.
+    const req = { user: { userId: '1' }, body: { stakeMinorUnits: '123456' } };
     mockPrisma.user.findUnique.mockResolvedValue({ tier: 'AMATEUR' });
     mockPrisma.platformSettings.findUniqueOrThrow.mockResolvedValue({
       amateurStakeMinP: 50000n,
-      amateurStakeMaxP: 1500000n
+      amateurStakeMaxP: 5000000n
     });
 
     const { next } = await runMiddleware(req, false);
@@ -65,35 +65,55 @@ describe('tierEnforcement', () => {
     expect(req.user.tier).toBe('AMATEUR');
   });
 
-  it('should reject an arbitrary valid amount that is not a preset for AMATEUR tier (matchmaking)', async () => {
-    // 50001 is within bounds but not a preset
-    const req = { user: { userId: '1' }, body: { stakeMinorUnits: '50001' } };
+  it('should reject a matchmaking stake below the tier minimum', async () => {
+    const req = { user: { userId: '1' }, body: { stakeMinorUnits: '49999' } };
     mockPrisma.user.findUnique.mockResolvedValue({ tier: 'AMATEUR' });
     mockPrisma.platformSettings.findUniqueOrThrow.mockResolvedValue({
       amateurStakeMinP: 50000n,
-      amateurStakeMaxP: 1500000n
+      amateurStakeMaxP: 5000000n
     });
 
     const { res } = await runMiddleware(req, false);
     expect(res.status).toHaveBeenCalledWith(400);
     expect(res.json).toHaveBeenCalledWith(
-      expect.objectContaining({ error: expect.stringContaining('Must be one of') })
+      expect.objectContaining({ error: expect.stringContaining('between') })
     );
   });
 
-  it('should accept a free-form callout stake within callout ceiling bounds', async () => {
-    // Callouts don't require presets, just boundary checks.
-    // 14M is well above amateurStakeMaxP, but within callout max.
-    // Wait, amateur has 0 callout max in the spec! Let's test PRO.
+  it('should reject a matchmaking stake above the tier maximum', async () => {
+    const req = { user: { userId: '1' }, body: { stakeMinorUnits: '5000001' } };
+    mockPrisma.user.findUnique.mockResolvedValue({ tier: 'AMATEUR' });
+    mockPrisma.platformSettings.findUniqueOrThrow.mockResolvedValue({
+      amateurStakeMinP: 50000n,
+      amateurStakeMaxP: 5000000n
+    });
+
+    const { res } = await runMiddleware(req, false);
+    expect(res.status).toHaveBeenCalledWith(400);
+  });
+
+  it('should accept a callout stake within the callout ceiling bounds', async () => {
     const req = { user: { userId: '1' }, body: { stakeMinorUnits: '25000000' } };
     mockPrisma.user.findUnique.mockResolvedValue({ tier: 'PRO' });
     mockPrisma.platformSettings.findUniqueOrThrow.mockResolvedValue({
-      proStakeMinP: 3000000n,
+      proStakeMinP: 50000n,
       proCalloutMaxP: 30000000n
     });
 
     const { next } = await runMiddleware(req, true);
     expect(next).toHaveBeenCalled();
+  });
+
+  it('should reject a callout stake above the callout ceiling', async () => {
+    const req = { user: { userId: '1' }, body: { stakeMinorUnits: '30000001' } };
+    mockPrisma.user.findUnique.mockResolvedValue({ tier: 'PRO' });
+    mockPrisma.platformSettings.findUniqueOrThrow.mockResolvedValue({
+      proStakeMinP: 50000n,
+      proCalloutMaxP: 30000000n
+    });
+
+    const { res } = await runMiddleware(req, true);
+    expect(res.status).toHaveBeenCalledWith(400);
   });
 
   it('should reject callouts for tiers with 0 callout max', async () => {

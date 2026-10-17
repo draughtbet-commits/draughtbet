@@ -42,10 +42,9 @@ jest.unstable_mockModule('../../modules/notification/service.js', () => ({
   NotificationService: { create }
 }));
 
-// Only one tier/stake bucket, so the worker's loop is easy to reason about.
-jest.unstable_mockModule('../../middleware/tierEnforcement.js', () => ({
-  STAKE_PRESETS: { MASTER: [1000000] }
-}));
+// The worker discovers live buckets via SCAN now (stakes are a free-form range,
+// so there is no preset list to iterate). One bucket keeps the loop simple.
+const QUEUE_KEY = 'queue:MASTER:1000000';
 
 // The queue is a stand-in for Redis: a sorted list of waiting player ids, with
 // the pop helpers mirroring the Lua scripts' behaviour.
@@ -56,6 +55,7 @@ const zadd = jest.fn((key, score, member) => {
 const mockRedis = {
   // The worker registers its Lua commands at import time.
   defineCommand: jest.fn(),
+  scan: jest.fn(async () => ['0', [QUEUE_KEY]]),
   popMatchmakingPair: jest.fn(async () => {
     if (queue.length < 2) return null;
     const pair = [queue[0], queue[1]];
@@ -164,7 +164,7 @@ describe('matchmaking worker: seating into open matches', () => {
 
     await processMatchmakingQueues();
 
-    expect(debitStakes).toHaveBeenCalledWith('p1', 'p2', 1000000, 'MASTER');
+    expect(debitStakes).toHaveBeenCalledWith('p1', 'p2', 1000000n, 'MASTER');
     expect(fundOpenMatch).not.toHaveBeenCalled();
   });
 });

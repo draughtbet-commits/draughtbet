@@ -62,7 +62,7 @@ class _TierSelectScreenState extends ConsumerState<TierSelectScreen> {
           isLoadingLimits = false;
         });
 
-        if (userTier != 'AMATEUR') {
+        if (userTier != null) {
           ref.read(matchProvider.notifier).fetchOpenCallouts();
         }
       }
@@ -232,7 +232,6 @@ class _TierSelectScreenState extends ConsumerState<TierSelectScreen> {
     }
 
     final theme = TierTheme.forTier(userTier!);
-    final isAmateur = userTier == 'AMATEUR';
 
     return Scaffold(
       backgroundColor: AppColors.voidBg,
@@ -431,8 +430,8 @@ class _TierSelectScreenState extends ConsumerState<TierSelectScreen> {
                       ),
                     ),
                     const SliverPadding(padding: EdgeInsets.only(top: 24)),
-                    // Call-outs for everyone above Amateur.
-                    if (!isAmateur) ...[
+                    // Call-outs are available for all tiers.
+                    ...[
                       SliverPadding(
                         padding: const EdgeInsets.symmetric(horizontal: 16),
                         sliver: SliverToBoxAdapter(
@@ -511,22 +510,7 @@ class _TierSelectScreenState extends ConsumerState<TierSelectScreen> {
                               ),
                       ),
                     ],
-                    if (isAmateur)
-                      SliverFillRemaining(
-                        hasScrollBody: false,
-                        child: Padding(
-                          padding: const EdgeInsets.all(24),
-                          child: Center(
-                            child: Text(
-                              'Call-outs are only available for Master and Pro tiers.',
-                              textAlign: TextAlign.center,
-                              style: const TextStyle(
-                                color: AppColors.textMuted,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
+
                     const SliverPadding(padding: EdgeInsets.only(bottom: 24)),
                   ],
                 ),

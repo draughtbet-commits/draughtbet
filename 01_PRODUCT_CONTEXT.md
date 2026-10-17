@@ -55,13 +55,13 @@ International Draughts, FMJD World Standard, 10×10 board:
 
 **Note on the figures below:** the client's original wireframe used GBP amounts. These have been converted to placeholder NGN figures (proportional at roughly ₦600/£1) for the Nigeria-phase build — they are not yet a client-confirmed pricing decision and should be revisited with real Nigeria-market context before launch, same caveat as `02_DATABASE_SCHEMA.md`'s `PlatformSettings` defaults.
 
-| Tier | Description (client's own words) | Normal stake range | Call-out ceiling (separate, higher — see below) |
-|---|---|---|---|
-| Amateur | "Learner category, not eligible for call-outs" | ₦500 – ₦15,000 | Not eligible |
-| Master | "Draught warriors; players know the rules of the game" | ₦10,000 – ₦30,000 | Eligible, up to ₦150,000 |
-| Pro | "Draught legends and professionals" | ₦30,000 – ₦60,000 | Eligible, up to ₦300,000 |
+| Tier | Description (client's own words) | Stake range (matchmaking & call-outs) |
+|---|---|---|
+| Amateur | "Learner category" | ₦500 – ₦50,000 |
+| Master | "Draught warriors; players know the rules of the game" | ₦500 – ₦150,000 |
+| Pro | "Draught legends and professionals" | ₦500 – ₦300,000 |
 
-**Important distinction — do not conflate these two numbers:** a tier's normal stake range (used for matchmaking and regular play) is deliberately lower than its call-out ceiling. Per the client's own wireframe, a Master player normally stakes ₦10,000–₦30,000 in matched play, but the same player can issue or accept a *call-out* for up to ₦150,000 — a much higher ceiling. This is modeled as two separate fields in `PlatformSettings` (`masterStakeMaxP` vs `masterCalloutMaxP`) specifically so the tier-enforcement middleware never wrongly caps a call-out at the lower matchmaking stake limit.
+**Every tier shares a ₦500 floor and every tier (including Amateur) may issue or accept call-outs.** Stakes are a continuous range per tier rather than a fixed preset list: any amount from the tier minimum to its ceiling is accepted. `PlatformSettings` keeps a per-tier matchmaking max (`{tier}StakeMaxP`) and a call-out ceiling (`{tier}CalloutMaxP`) as separate fields, but the two currently hold the same values — call-outs are not capped below a tier's normal matchmaking maximum, and the separate fields remain so the two can diverge later.
 
 ## Call-out mechanic (client's own definition)
 
