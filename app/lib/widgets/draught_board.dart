@@ -13,6 +13,7 @@ class DraughtBoard extends StatelessWidget {
     required this.onSquareTapped,
     this.inputEnabled = true,
     this.capturePath = const [],
+    this.flipped = false,
   });
 
   final List<int> board;
@@ -21,6 +22,12 @@ class DraughtBoard extends StatelessWidget {
   final ValueChanged<int> onSquareTapped;
   final bool inputEnabled;
   final List<int> capturePath;
+
+  /// When true the board is rotated 180° so the local player's own pieces sit
+  /// at the bottom of the screen. Squares are mapped with `51 - square`, which
+  /// keeps every tap, highlight and semantic on the square the user actually
+  /// sees (the raw board still speaks the server's 1–50 numbering).
+  final bool flipped;
 
   @override
   Widget build(BuildContext context) {
@@ -49,7 +56,10 @@ class DraughtBoard extends StatelessWidget {
                           .floor();
                       if (row < 0 || row > 9 || col < 0 || col > 9) return;
                       if ((row + col).isOdd) {
-                        onSquareTapped((row * 5) + (col ~/ 2) + 1);
+                        final visualSquare = (row * 5) + (col ~/ 2) + 1;
+                        onSquareTapped(
+                          flipped ? 51 - visualSquare : visualSquare,
+                        );
                       }
                     }
                   : null,
@@ -60,6 +70,7 @@ class DraughtBoard extends StatelessWidget {
                   legalMoves: legalMoves,
                   capturePath: capturePath,
                   interactive: inputEnabled,
+                  flipped: flipped,
                 ),
                 child: Stack(
                   children: [
@@ -67,6 +78,7 @@ class DraughtBoard extends StatelessWidget {
                       _LegalMoveSemantics(
                         square: square,
                         boardSize: constraints.maxWidth,
+                        flipped: flipped,
                         onTap: inputEnabled
                             ? () => onSquareTapped(square)
                             : null,
@@ -86,16 +98,19 @@ class _LegalMoveSemantics extends StatelessWidget {
   const _LegalMoveSemantics({
     required this.square,
     required this.boardSize,
+    required this.flipped,
     required this.onTap,
   });
 
   final int square;
   final double boardSize;
+  final bool flipped;
   final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
-    final zero = square - 1;
+    final visualSquare = flipped ? 51 - square : square;
+    final zero = visualSquare - 1;
     final row = zero ~/ 5;
     final indexInRow = zero % 5;
     final col = row.isEven ? indexInRow * 2 + 1 : indexInRow * 2;
@@ -107,7 +122,8 @@ class _LegalMoveSemantics extends StatelessWidget {
       height: squareSize,
       child: Semantics(
         button: true,
-        label: 'Move to square $square, row ${row + 1}, column ${col + 1}',
+        label:
+            'Move to square $square, row ${row + 1}, column ${col + 1}',
         onTap: onTap,
         child: const SizedBox.expand(),
       ),
@@ -122,6 +138,7 @@ class BoardPainter extends CustomPainter {
     required this.legalMoves,
     this.capturePath = const [],
     this.interactive = false,
+    this.flipped = false,
   });
 
   final List<int> board;
@@ -134,8 +151,13 @@ class BoardPainter extends CustomPainter {
   /// their options and must not be surfaced.
   final bool interactive;
 
+  /// Mirrors the local player's pieces to the bottom of the board so each player
+  /// always sits behind their own back rank.
+  final bool flipped;
+
   Offset _centerForSquare(int square, double size) {
-    final zero = square - 1;
+    final visualSquare = flipped ? 51 - square : square;
+    final zero = visualSquare - 1;
     final row = zero ~/ 5;
     final index = zero % 5;
     final col = row.isEven ? index * 2 + 1 : index * 2;
@@ -306,6 +328,7 @@ class BoardPainter extends CustomPainter {
         oldDelegate.selectedSquare != selectedSquare ||
         oldDelegate.legalMoves != legalMoves ||
         oldDelegate.capturePath != capturePath ||
-        oldDelegate.interactive != interactive;
+        oldDelegate.interactive != interactive ||
+        oldDelegate.flipped != flipped;
   }
 }

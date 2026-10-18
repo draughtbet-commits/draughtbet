@@ -99,6 +99,16 @@ class _MatchScreenState extends ConsumerState<MatchScreen>
     }
   }
 
+  /// Board rows are authored with White at the bottom (squares 31-50) and
+  /// Black on top (1-20). A Black seat therefore sees the opponent's men along
+  /// its own baseline, so the board is rotated 180° for that player and each
+  /// side always plays from the bottom of the screen.
+  bool _isBoardFlipped(GameState game, MatchState state) {
+    final userId = _userId ?? state.currentUserId;
+    if (userId == null) return false;
+    return game.player2 == userId && game.player1 != userId;
+  }
+
   bool _isMyTurn(GameState game, MatchState state) {
     final userId = _userId ?? state.currentUserId;
     if (userId == null) return false;
@@ -501,6 +511,7 @@ class _MatchScreenState extends ConsumerState<MatchScreen>
                                           onSquareTapped: _onSquareTapped,
                                           inputEnabled: inputEnabled,
                                           capturePath: capturePath,
+                                          flipped: _isBoardFlipped(game, state),
                                         ),
                                         if (mandatoryCapture &&
                                             _selectedSquare == null &&

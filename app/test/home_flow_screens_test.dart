@@ -806,6 +806,42 @@ void main() {
     expect(find.bySemanticsLabel(RegExp('Move to square 13')), findsOneWidget);
   });
 
+  testWidgets('Gameplay turns the board so each player plays from the bottom', (
+    tester,
+  ) async {
+    // The default mock signs the player in as the White seat (player-1); this
+    // test sits the same person on the dark seat to prove the board rotates.
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+          const MethodChannel('plugins.it_nomads.com/flutter_secure_storage'),
+          (call) async => call.method == 'read' ? 'player-2' : null,
+        );
+    final game = gameFixture(
+      turn: 'BLACK',
+      legalMoves: const [LegalMove(from: 31, to: 26)],
+    );
+    await tester.pumpWidget(
+      appFor(
+        const MatchScreen(matchId: 'match-123'),
+        match: MatchState(currentMatchId: 'match-123', gameState: game),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    final board = find.byType(DraughtBoard);
+    expect(tester.widget<DraughtBoard>(board).flipped, isTrue);
+
+    // Logical square 31 is drawn on visual square 20 (row 4, col 9) when
+    // flipped, so the dark-side player selects it where they see it.
+    final size = tester.getSize(board).width / 10;
+    await tester.tapAt(
+      tester.getTopLeft(board) + Offset(size * 8.5, size * 3.5),
+    );
+    await tester.pump(const Duration(milliseconds: 160));
+    expect(find.text('Choose a highlighted destination'), findsOneWidget);
+  });
+
   testWidgets('Gameplay renders authoritative king promotion', (tester) async {
     await tester.pumpWidget(
       appFor(
