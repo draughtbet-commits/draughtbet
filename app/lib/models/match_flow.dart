@@ -474,7 +474,7 @@ class MatchResultViewData {
   }) {
     final body = Map<String, dynamic>.from(raw);
     final winnerId = body['winnerId']?.toString().trim();
-    final reason = body['reason']?.toString().trim();
+    final reason = (body['reason'] ?? body['terminalReason'])?.toString().trim();
     final payout = _minorUnits(body['payout']);
     if (matchId.trim().isEmpty ||
         currentUserId.trim().isEmpty ||

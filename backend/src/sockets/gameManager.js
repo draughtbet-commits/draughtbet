@@ -1180,6 +1180,19 @@ export const handleDrawRespond = async (socket, payload) => {
 
   await clearPendingDrawOffer(matchId);
 
+  // The offerer's optimistic pending state cannot be released from the snapshot
+  // alone (a vanished offer is indistinguishable from one superseded by a move),
+  // so answer the room explicitly. The responder already cleared its own prompt.
+  try {
+    getIO().to(`match:${matchId}`).emit('draw.responded', {
+      matchId,
+      offerId,
+      response
+    });
+  } catch (e) {
+    logger.warn({ e, matchId }, 'draw.responded emit failed');
+  }
+
   if (response === 'accept') {
     // Terminal draw — the settlement layer refunds both stakes and emits the
     // terminal + settlement events; its cleanup clears the projection.

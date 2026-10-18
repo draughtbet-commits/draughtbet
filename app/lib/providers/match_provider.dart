@@ -298,20 +298,11 @@ class MatchNotifier extends StateNotifier<MatchState> {
           final hasPending = pendingOfferId.isNotEmpty;
           final isMine = hasPending && me != null && offeredBy == me;
           final isTheirs = hasPending && !isMine;
-          final hadPending = state.drawOfferPending;
 
-          // A pending offer that is still visible and mine keeps the pending
-          // latch; one that vanished while the match continued is the decline
-          // signal (accept ends the match through the settlement path, so it is
-          // excluded here and the terminal handling takes over).
-          final pendingRejected =
-              !hasPending && hadPending && gameState.status == 'in_progress';
-
-          // Deliberately does NOT clear the rejection banner. This snapshot is
-          // the remedy the stale-state path itself requests, so it lands
-          // immediately after move_rejected and used to wipe the notice before
-          // the player could ever see it. The banner is dismissed explicitly
-          // (clearRejection) or by the next deliberate action.
+          // The snapshot is the source of truth for a live offer. An offer that
+          // vanished answers itself only through the explicit `draw.responded`
+          // event (a bare snapshot cannot tell a decline from a move that
+          // superseded the offer), so this must not invent a declined banner.
           state = state.copyWith(
             gameState: gameState,
             syncState: MatchSyncState.synced,
@@ -320,8 +311,8 @@ class MatchNotifier extends StateNotifier<MatchState> {
             clearPendingMove: true,
             incomingDrawOffer: isTheirs ? DrawOffer(offerId: pendingOfferId) : null,
             clearDrawOffer: state.incomingDrawOffer != null && !isTheirs,
-            drawOfferPending: hasPending ? isMine : (hadPending ? false : null),
-            drawOfferRejected: pendingRejected ? true : (hasPending ? false : null),
+            drawOfferPending: hasPending ? isMine : false,
+            drawOfferRejected: hasPending ? false : null,
           );
         } catch (_) {
           state = state.copyWith(syncState: MatchSyncState.syncing);
@@ -595,7 +586,7 @@ class MatchNotifier extends StateNotifier<MatchState> {
         final opponentId = currentUserId == current.player1
             ? current.player2
             : current.player1;
-        final isBroadcastOutcome = data['winnerId'] != null;
+        final isBroadcastOutcome = data.containsKey('winnerId');
         final result = isBroadcastOutcome
             ? (currentUserId == null || matchId == null
                   ? null
@@ -624,6 +615,8 @@ class MatchNotifier extends StateNotifier<MatchState> {
           ),
           isMovePending: false,
           resignPending: false,
+          drawOfferPending: false,
+          clearDrawOffer: true,
           settlementPhase: result?.settlement ?? SettlementPhase.pending,
           confirmedPayoutMinorUnits: result?.payoutMinorUnits,
           endReason: result?.reason,

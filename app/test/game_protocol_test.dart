@@ -3,12 +3,14 @@ import 'dart:async';
 import 'package:dio/dio.dart';
 import 'package:draughts_arena/models/game_protocol.dart';
 import 'package:draughts_arena/models/game_state.dart';
+import 'package:draughts_arena/models/match_flow.dart';
 import 'package:draughts_arena/providers/match_provider.dart';
 import 'package:draughts_arena/screens/game_move_history_screen.dart';
 import 'package:draughts_arena/screens/match_screen.dart';
 import 'package:draughts_arena/services/socket_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 class ProtocolSocket extends SocketService {
@@ -19,6 +21,7 @@ class ProtocolSocket extends SocketService {
   final drawResponse = StreamController<Map<String, dynamic>>.broadcast();
   final clockSync = StreamController<Map<String, dynamic>>.broadcast();
   final error = StreamController<Map<String, dynamic>>.broadcast();
+  final matchEnded = StreamController<Map<String, dynamic>>.broadcast();
 
   Map<String, dynamic>? v2Move;
   List<Object?>? legacyMove;
@@ -53,7 +56,7 @@ class ProtocolSocket extends SocketService {
   @override
   Stream<Map<String, dynamic>> get onMatchEndedResign => const Stream.empty();
   @override
-  Stream<Map<String, dynamic>> get onMatchEnded => const Stream.empty();
+  Stream<Map<String, dynamic>> get onMatchEnded => matchEnded.stream;
 
   @override
   void joinMatch(String matchId) {}
@@ -130,6 +133,7 @@ class ProtocolSocket extends SocketService {
     drawResponse.close();
     clockSync.close();
     error.close();
+    matchEnded.close();
     super.dispose();
   }
 }
@@ -162,6 +166,12 @@ GameState game({
 );
 
 void main() {
+  setUp(() {
+    // A terminal match clears the stored active-match pointer; without a mock
+    // the secure-storage platform channel throws after the test completes.
+    FlutterSecureStorage.setMockInitialValues({});
+  });
+
   test('canonical V2 state parses paths, versions and accepted move log', () {
     final parsed = GameState.fromJson({
       'board': List.filled(50, 0),
@@ -474,7 +484,7 @@ void main() {
     expect(notifier.state.incomingDrawOffer, isNull);
   });
 
-  test('my own pendingDrawOffer stays pending and reads as rejected on clear', () async {
+  test('my own pendingDrawOffer stays pending and clears on answer', () async {
     final socket = ProtocolSocket();
     final notifier = ProtocolNotifier(socket, Dio());
     notifier.setCurrentUserId('player-one');
@@ -501,8 +511,9 @@ void main() {
     expect(notifier.state.drawOfferPending, isTrue);
     expect(notifier.state.incomingDrawOffer, isNull);
 
-    // The offer disappears while the match continues: the offerer is told it
-    // was declined rather than left stuck pending forever.
+    // The offer disappears while the match continues. A snapshot alone cannot
+    // tell a decline from a superseding move, so it must NOT raise the declined
+    // banner; the explicit draw.responded event is the only decline signal.
     socket.gameState.add({
       'board': List.filled(50, 0),
       'sideToMove': 'WHITE',
@@ -514,7 +525,41 @@ void main() {
     });
     await Future<void>.delayed(Duration.zero);
     expect(notifier.state.drawOfferPending, isFalse);
+    expect(notifier.state.drawOfferRejected, isFalse);
+
+    socket.drawResponse.add({'response': 'decline'});
+    await Future<void>.delayed(Duration.zero);
     expect(notifier.state.drawOfferRejected, isTrue);
+
+    // A fresh accepted answer clears the banner again.
+    socket.drawResponse.add({'response': 'accept'});
+    await Future<void>.delayed(Duration.zero);
+    expect(notifier.state.drawOfferRejected, isFalse);
+  });
+
+  test('a mutual draw terminal resolves as a completed draw, not a stall', () async {
+    final socket = ProtocolSocket();
+    final notifier = ProtocolNotifier(socket, Dio());
+    notifier.setCurrentUserId('player-one');
+    notifier.state = notifier.state.copyWith(
+      currentMatchId: 'match-draw',
+      gameState: game(),
+      drawOfferPending: true,
+    );
+
+    // What notifyAndCleanupDraw actually emits: match_ended carries winnerId
+    // null, which the old `!= null` broadcast check discarded, leaving both
+    // clients stuck on SETTLEMENT PROCESSING for ever.
+    socket.matchEnded.add({
+      'winnerId': null,
+      'reason': 'mutual_draw',
+      'payout': '400000',
+    });
+    await Future<void>.delayed(Duration.zero);
+
+    expect(notifier.state.gameState?.status, 'completed');
+    expect(notifier.state.authoritativeResult?.kind, ResultKind.draw);
+    expect(notifier.state.drawOfferPending, isFalse);
   });
 
   test('a rejected draw offer releases the optimistic pending flag', () async {

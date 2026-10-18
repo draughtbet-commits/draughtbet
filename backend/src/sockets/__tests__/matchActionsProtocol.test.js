@@ -253,6 +253,12 @@ describe('draw.respond', () => {
     expect(settlementMocks.settleGameDrawWithRetry).not.toHaveBeenCalled();
     expect(fakeRedis.hget('match:m1', 'pendingDrawOffer')).toBeNull();
     expect(emitSince('match:m1', 'match.state')[0].payload.pendingDrawOffer).toBeNull();
+    // The offerer cannot infer a decline from the snapshot alone.
+    expect(emitSince('match:m1', 'draw.responded')[0].payload).toMatchObject({
+      matchId: 'm1',
+      offerId: saved.offerId,
+      response: 'decline'
+    });
   });
 
   it('accept settles a mutual draw through the settlement layer', async () => {
@@ -263,6 +269,11 @@ describe('draw.respond', () => {
     await handleDrawRespond(socketFor('p2'), { matchId: 'm1', actionId: 'resp_action_002', offerId: saved.offerId, response: 'accept' });
 
     expect(settlementMocks.settleGameDrawWithRetry).toHaveBeenCalledWith('m1', 'mutual_draw');
+    expect(emitSince('match:m1', 'draw.responded')[0].payload).toMatchObject({
+      matchId: 'm1',
+      offerId: saved.offerId,
+      response: 'accept'
+    });
   });
 
   it('rejects an unknown offer id, an outsider, and the offerer answering their own offer', async () => {
