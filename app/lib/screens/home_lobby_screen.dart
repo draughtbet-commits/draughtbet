@@ -15,6 +15,7 @@ import '../services/socket_service.dart';
 import '../theme/colors.dart';
 import '../widgets/balance_card.dart';
 import '../widgets/flow_widgets.dart';
+import '../widgets/join_with_code.dart';
 import '../widgets/lobby_header.dart';
 import '../widgets/notification_bell.dart';
 import '../widgets/results_shortcut.dart';
@@ -106,57 +107,7 @@ class _HomeLobbyScreenState extends ConsumerState<HomeLobbyScreen> {
     }
   }
 
-  Future<void> _joinWithCode() async {
-    final controller = TextEditingController();
-    final code = await showDialog<String>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        backgroundColor: AppColors.surface,
-        title: const Text('Join a private room'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          textCapitalization: TextCapitalization.characters,
-          textInputAction: TextInputAction.done,
-          decoration: const InputDecoration(hintText: 'Room code'),
-          onSubmitted: (value) => Navigator.of(dialogContext).pop(value),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(dialogContext).pop(controller.text),
-            child: const Text('Join'),
-          ),
-        ],
-      ),
-    );
-    controller.dispose();
-    if (!mounted || code == null || code.trim().isEmpty) return;
-    final notifier = ref.read(matchFlowProvider.notifier);
-    final snapshot = await notifier.joinPrivateRoom(code.trim());
-    if (!mounted) return;
-    if (snapshot == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            ref.read(matchFlowProvider).message ??
-                'That room code could not be found.',
-          ),
-        ),
-      );
-      return;
-    }
-    final route = lifecyclePhaseRoute(snapshot);
-    if (isBoardRoute(route)) {
-      ref.read(matchProvider.notifier).joinMatch(snapshot.matchId!);
-      context.go(route);
-      return;
-    }
-    context.go(route, extra: snapshot);
-  }
+  Future<void> _joinWithCode() => showJoinWithCodeDialog(context, ref);
 
   @override
   Widget build(BuildContext context) {

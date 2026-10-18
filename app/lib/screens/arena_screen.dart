@@ -9,6 +9,7 @@ import '../providers/profile_provider.dart';
 import '../providers/wallet_provider.dart';
 import '../theme/colors.dart';
 import '../widgets/flow_widgets.dart';
+import '../widgets/join_with_code.dart';
 
 class ArenaScreen extends ConsumerStatefulWidget {
   const ArenaScreen({super.key});
@@ -171,6 +172,13 @@ class _ArenaScreenState extends ConsumerState<ArenaScreen> {
             ],
           ),
         ),
+      ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: () => showJoinWithCodeDialog(context, ref),
+        tooltip: 'Join with code',
+        backgroundColor: AppColors.valueAccent,
+        foregroundColor: AppColors.textPrimary,
+        child: const Icon(LucideIcons.keyRound),
       ),
     );
   }
