@@ -19,6 +19,7 @@ import { NotificationService } from '../notification/service.js';
 import {
   createOpenMatch,
   fundOpenMatch,
+  resolvePrivateListingId,
   listOpenMatches,
   listActiveMatches,
   buildLifecycleSnapshot,
@@ -53,6 +54,7 @@ const errorStatusFor = (err) => {
     case 'KycRequiredError':
       return 403;
     case 'MatchNotFoundError':
+    case 'RoomCodeNotFoundError':
       return 404;
     case 'JoinUnavailableError':
     case 'ActiveMatchError':
@@ -61,6 +63,63 @@ const errorStatusFor = (err) => {
     default:
       return 500;
   }
+};
+
+// Funds the listing for `userId`, fires the activation attempt, and announces
+// the match to both players (socket + inbox). Shared by the arena join and the
+// private-room join-by-code so both behave identically once seated.
+const joinMatchAndAnnounce = async ({ userId, tier, matchId, viaCode = false }) => {
+  const match = await fundOpenMatch(
+    userId,
+    matchId,
+    viaCode ? { tier, viaCode: true } : { tier }
+  );
+
+  // Activation is best-effort; the recovery sweep finishes or releases it.
+  const outbox = await prisma.gameOutbox.findUnique({
+    where: { matchId: match.id },
+    select: { id: true }
+  });
+  if (outbox) {
+    try {
+      await finalizeMatchActivation(outbox.id);
+    } catch (actErr) {
+      logger.warn({ actErr, matchId: match.id }, 'Join activation pending; recovery sweep will finish it');
+    }
+  }
+
+  const payload = {
+    ...match,
+    stakeMinorUnits: match.stakeMinorUnits.toString()
+  };
+  const io = getIO();
+  io.to(`user:${match.playerLightId}`).emit('match_found', payload);
+  io.to(`user:${match.playerDarkId}`).emit('match_found', payload);
+
+  try {
+    await Promise.all([
+      NotificationService.create(
+        match.playerDarkId,
+        'MATCH_FOUND',
+        'Match Found!',
+        'An opponent has been found. Your match is starting.',
+        `/match/${match.id}`,
+        match.id
+      ),
+      NotificationService.create(
+        match.playerLightId,
+        'MATCH_FOUND',
+        'Match Found!',
+        'Your open match was accepted. Head to the room.',
+        `/match/${match.id}`,
+        match.id
+      )
+    ]);
+  } catch (notifyErr) {
+    logger.warn({ notifyErr, matchId: match.id }, 'Join notifications failed');
+  }
+
+  return match;
 };
 
 openMatchRouter.get('/', requireAuth, async (req, res, next) => {
@@ -132,10 +191,15 @@ openMatchRouter.post(
         stakeMinorUnits: Number(stakeMinor),
         timeControlSeconds: Number(timeControlSeconds),
         commissionPercent,
-        currency: wallet?.currency ?? 'NGN'
+        currency: wallet?.currency ?? 'NGN',
+        visibility: normalizedVisibility
       });
 
-      res.status(201).json({ data: { id: match.id } });
+      // A PRIVATE listing is joined by code, not by id, so the creator needs the
+      // code back immediately to share it.
+      res.status(201).json({
+        data: { id: match.id, visibility: match.visibility, roomCode: match.roomCode ?? null }
+      });
     } catch (err) {
       const status = EligibilityService.statusCode(err);
       if (status !== 500) {
@@ -149,56 +213,41 @@ openMatchRouter.post(
 openMatchRouter.post('/:id/join', requireAuth, requireIdempotencyKey({ scope: 'match' }), async (req, res, next) => {
   try {
     const { id: userId, tier } = req.user;
-    const matchId = req.params.id;
-
-    const match = await fundOpenMatch(userId, matchId, { tier });
-
-    // Activation is best-effort; the recovery sweep finishes or releases it.
-    const outbox = await prisma.gameOutbox.findUnique({
-      where: { matchId: match.id },
-      select: { id: true }
+    const match = await joinMatchAndAnnounce({
+      userId,
+      tier,
+      matchId: req.params.id
     });
-    if (outbox) {
-      try {
-        await finalizeMatchActivation(outbox.id);
-      } catch (actErr) {
-        logger.warn({ actErr, matchId: match.id }, 'Join activation pending; recovery sweep will finish it');
-      }
-    }
-
-    const payload = {
-      ...match,
-      stakeMinorUnits: match.stakeMinorUnits.toString()
-    };
-    const io = getIO();
-    io.to(`user:${match.playerLightId}`).emit('match_found', payload);
-    io.to(`user:${match.playerDarkId}`).emit('match_found', payload);
-
-    try {
-      await Promise.all([
-        NotificationService.create(
-          match.playerDarkId,
-          'MATCH_FOUND',
-          'Match Found!',
-          'An opponent has been found. Your match is starting.',
-          `/match/${match.id}`,
-          match.id
-        ),
-        NotificationService.create(
-          match.playerLightId,
-          'MATCH_FOUND',
-          'Match Found!',
-          'Your open match was accepted. Head to the room.',
-          `/match/${match.id}`,
-          match.id
-        )
-      ]);
-    } catch (notifyErr) {
-      logger.warn({ notifyErr, matchId: match.id }, 'Join notifications failed');
-    }
-
     res.json({ data: { id: match.id } });
   } catch (err) {
+    const status = errorStatusFor(err);
+    if (status !== 500) {
+      return res.status(status).json({ error: err.message });
+    }
+    next(err);
+  }
+});
+
+// Redeem a private room code. Resolves the code to its listing, then joins and
+// announces through the same path as an arena join.
+openMatchRouter.post('/join-code', requireAuth, requireIdempotencyKey({ scope: 'match' }), async (req, res, next) => {
+  try {
+    const { id: userId, tier } = req.user;
+    const code = req.body?.code;
+    if (typeof code !== 'string' || code.trim() === '') {
+      return res.status(400).json({
+        error: { code: 'INVALID_ROOM_CODE', message: 'A room code is required' }
+      });
+    }
+    const matchId = await resolvePrivateListingId(code);
+    const match = await joinMatchAndAnnounce({ userId, tier, matchId, viaCode: true });
+    res.json({ data: { id: match.id } });
+  } catch (err) {
+    if (err.name === 'RoomCodeNotFoundError') {
+      return res.status(404).json({
+        error: { code: 'ROOM_NOT_FOUND', message: err.message }
+      });
+    }
     const status = errorStatusFor(err);
     if (status !== 500) {
       return res.status(status).json({ error: err.message });

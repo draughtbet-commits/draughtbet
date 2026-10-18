@@ -61,6 +61,7 @@ class MatchFlowState {
     bool clearCurrentMatchId = false,
     bool clearSearchId = false,
     bool clearMessage = false,
+    bool clearLifecycle = false,
     EligibilityDecision? eligibilityDecision,
     bool clearEligibilityDecision = false,
   }) {
@@ -74,7 +75,7 @@ class MatchFlowState {
           ? null
           : currentMatchId ?? this.currentMatchId,
       searchId: clearSearchId ? null : searchId ?? this.searchId,
-      lifecycle: lifecycle ?? this.lifecycle,
+      lifecycle: clearLifecycle ? null : lifecycle ?? this.lifecycle,
       message: clearMessage ? null : message ?? this.message,
       activeMatches: activeMatches ?? this.activeMatches,
       eligibilityDecision: clearEligibilityDecision
@@ -135,6 +136,7 @@ class MatchFlowNotifier extends StateNotifier<MatchFlowState> {
       clearCurrentMatchId: true,
       clearSearchId: true,
       clearMessage: true,
+      clearLifecycle: true,
       clearEligibilityDecision: true,
     );
   }
@@ -149,24 +151,38 @@ class MatchFlowNotifier extends StateNotifier<MatchFlowState> {
     );
     try {
       String? id;
+      MatchLifecycleSnapshot? privateSnapshot;
       if (intent.kind == MatchEntryKind.openMatch &&
           intent.openMatchId != null) {
         id = await _gateway.acceptOpenMatch(intent.openMatchId!);
       } else if (intent.kind == MatchEntryKind.created) {
-        final createdId = await _gateway.createOpenMatch(intent.terms);
+        final created = await _gateway.createOpenMatch(intent.terms);
         // V2 creates the authoritative match directly. The active legacy
         // backend creates only a callout and supplies the match later.
-        if (_gateway.isV2) id = createdId;
+        if (_gateway.isV2) {
+          id = created?.id;
+          // A private listing has no matchmaking queue to wait in; it parks on
+          // the share-code screen until its one opponent redeems the code.
+          if (intent.terms.privateRoom && created != null) {
+            privateSnapshot = MatchLifecycleSnapshot(
+              phase: MatchLifecyclePhase.privateRoom,
+              terms: intent.terms,
+              matchId: created.id,
+              roomCode: created.roomCode,
+            );
+          }
+        }
       } else {
         await _gateway.joinQueue(intent.terms);
       }
       final waitsForMatch =
           intent.kind == MatchEntryKind.quick ||
-          intent.kind == MatchEntryKind.created;
+          (intent.kind == MatchEntryKind.created && !intent.terms.privateRoom);
       state = state.copyWith(
         actionPhase: MatchActionPhase.succeeded,
         searchPhase: waitsForMatch ? SearchPhase.searching : SearchPhase.found,
         currentMatchId: id,
+        lifecycle: privateSnapshot,
         searchId: _gateway.lastSearchId,
       );
       return id;
@@ -365,6 +381,42 @@ class MatchFlowNotifier extends StateNotifier<MatchFlowState> {
       state = state.copyWith(
         actionPhase: MatchActionPhase.failed,
         message: 'The challenge could not be sent. Try again.',
+      );
+      return null;
+    }
+  }
+
+  /// Redeems a private room code from the lobby, seats the caller against the
+  /// listing, and surfaces the resulting snapshot so it can be routed like any
+  /// other funded match.
+  Future<MatchLifecycleSnapshot?> joinPrivateRoom(
+    String code, {
+    MatchTerms terms = const MatchTerms(stakeMinorUnits: 0),
+  }) async {
+    try {
+      final matchId = await _gateway.joinByCode(code);
+      if (matchId == null) {
+        state = state.copyWith(
+          actionPhase: MatchActionPhase.failed,
+          message: 'That room code could not be found.',
+        );
+        return null;
+      }
+      final snapshot = await _gateway.fetchMatch(matchId, terms);
+      if (snapshot != null) applyLifecycle(snapshot);
+      return snapshot;
+    } on DioException catch (e) {
+      state = state.copyWith(
+        actionPhase: MatchActionPhase.failed,
+        message:
+            apiErrorMessage(e.response?.data) ??
+            'That room code could not be found.',
+      );
+      return null;
+    } catch (_) {
+      state = state.copyWith(
+        actionPhase: MatchActionPhase.failed,
+        message: 'That room code could not be found.',
       );
       return null;
     }

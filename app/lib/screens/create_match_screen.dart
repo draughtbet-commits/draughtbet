@@ -28,6 +28,8 @@ class _CreateMatchScreenState extends ConsumerState<CreateMatchScreen> {
   static const _board = '10×10 (International)';
   // The create endpoint only accepts PUBLIC, PRIVATE or ANYONE.
   static const _visibility = 'Anyone';
+  // A private listing is joined by a shareable code instead of the Arena queue.
+  bool _privateRoom = false;
 
   @override
   void initState() {
@@ -73,8 +75,8 @@ class _CreateMatchScreenState extends ConsumerState<CreateMatchScreen> {
         timeControl: _timeControl,
         gameType: _gameType,
         board: _board,
-        visibility: _visibility,
-        privateRoom: false,
+        visibility: _privateRoom ? 'Private Room' : _visibility,
+        privateRoom: _privateRoom,
       ),
     );
     ref.read(matchFlowProvider.notifier).review(intent);
@@ -173,14 +175,16 @@ class _CreateMatchScreenState extends ConsumerState<CreateMatchScreen> {
               const _ServerConfiguredField(value: _board),
               const SizedBox(height: 13),
               _fieldLabel('Who can join?'),
-              const _ServerConfiguredField(value: _visibility),
+              _ServerConfiguredField(
+                value: _privateRoom ? 'Invite by code' : _visibility,
+              ),
               const SizedBox(height: 10),
               Material(
                 color: AppColors.transparent,
                 child: SwitchListTile.adaptive(
                   contentPadding: EdgeInsets.zero,
-                  value: false,
-                  onChanged: null,
+                  value: _privateRoom,
+                  onChanged: (value) => setState(() => _privateRoom = value),
                   title: Text(
                     'Private Room (Optional)',
                     style: TextStyle(
@@ -190,7 +194,9 @@ class _CreateMatchScreenState extends ConsumerState<CreateMatchScreen> {
                     ),
                   ),
                   subtitle: Text(
-                    'Unavailable in the current server contract',
+                    _privateRoom
+                        ? 'Only players with your room code can join'
+                        : 'Create a shareable code instead of listing publicly',
                     style: TextStyle(
                       fontFamily: 'Inter',
                       fontSize: 10,

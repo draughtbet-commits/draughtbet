@@ -124,8 +124,18 @@ describe('matchmaking worker: seating into open matches', () => {
     );
   });
 
-  it('does not seat the owner of an open match into their own match', async () => {
-    queue = [OWNER];
+  it('never considers private-room listings for auto-seating', async () => {
+    queue = [QUEUED];
+    findMany.mockResolvedValue([]);
+
+    await processMatchmakingQueues();
+
+    expect(findMany.mock.calls[0][0].where.visibility).toEqual({
+      not: 'PRIVATE'
+    });
+  });
+
+  it('does not seat the owner of an open match into their own match', async () => {    queue = [OWNER];
     findMany.mockResolvedValue([OPEN_MATCH]);
 
     await processMatchmakingQueues();

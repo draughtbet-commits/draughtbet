@@ -80,6 +80,7 @@ jest.unstable_mockModule('../../../modules/v2/lifecycleService.js', () => ({
   TierMismatchError: namedError('TierMismatchError'),
   createOpenMatch: jest.fn(),
   createChallengeMatch: jest.fn(),
+  resolvePrivateListingId: jest.fn(),
   fundOpenMatch: jest.fn((...args) => {
     lifecycleJoin.calls.push(args);
     return Promise.reject(lifecycleJoin.fundError);

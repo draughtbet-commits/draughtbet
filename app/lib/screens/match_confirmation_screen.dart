@@ -21,8 +21,11 @@ class MatchConfirmationScreen extends ConsumerWidget {
     }
     if (state.actionPhase != MatchActionPhase.succeeded) return;
     final intent = state.currentIntent;
+    final snapshot = state.lifecycle;
     if (intent?.kind == MatchEntryKind.openMatch && id != null) {
       context.go('/play/room/$id');
+    } else if (snapshot?.phase == MatchLifecyclePhase.privateRoom) {
+      context.go('/play/private-room', extra: snapshot);
     } else {
       context.go('/play/search');
     }

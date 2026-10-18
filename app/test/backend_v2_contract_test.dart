@@ -179,7 +179,7 @@ void main() {
         });
         final gateway = MatchFlowGateway(dio, contract: v2);
 
-        final id = await gateway.createOpenMatch(
+        final created = await gateway.createOpenMatch(
           const MatchTerms(
             stakeMinorUnits: 200000,
             timeControl: '10 minutes',
@@ -188,7 +188,7 @@ void main() {
         );
 
         final request = adapter.requests.single;
-        expect(id, 'mat_2');
+        expect(created?.id, 'mat_2');
         expect(wireUrl(request), 'https://api.example.test/api/v1/matches');
         expect(request.headers['Idempotency-Key'], isNotEmpty);
         expect(request.data, {
@@ -226,6 +226,79 @@ void main() {
         'https://api.example.test/api/v1/matchmaking/search/mm_1',
       );
       expect(adapter.requests[1].headers['Idempotency-Key'], isNotEmpty);
+    });
+
+    test('creates a PRIVATE listing and returns its room code', () async {
+      final (dio, adapter) = client();
+      adapter.enqueue({
+        'data': {
+          'id': 'mat_private',
+          'visibility': 'PRIVATE',
+          'roomCode': 'DB2415',
+        },
+      });
+      final gateway = MatchFlowGateway(dio, contract: v2);
+
+      final created = await gateway.createOpenMatch(
+        const MatchTerms(
+          stakeMinorUnits: 200000,
+          timeControl: '10 minutes',
+          gameType: 'Classic',
+          visibility: 'Private Room',
+          privateRoom: true,
+        ),
+      );
+
+      expect(created?.id, 'mat_private');
+      expect(created?.roomCode, 'DB2415');
+      expect(created?.visibility, 'PRIVATE');
+      expect(adapter.requests.single.data, {
+        'stakeMinor': 200000,
+        'timeControlSeconds': 600,
+        'ruleset': 'INTERNATIONAL_10X10',
+        'visibility': 'PRIVATE',
+      });
+    });
+
+    test('redeems a room code through join-code with an idempotent header', () async {
+      final (dio, adapter) = client();
+      adapter.enqueue({
+        'data': {'id': 'mat_joined'},
+      });
+      final gateway = MatchFlowGateway(dio, contract: v2);
+
+      final id = await gateway.joinByCode('db-24 15');
+
+      expect(id, 'mat_joined');
+      final request = adapter.requests.single;
+      expect(request.method, 'POST');
+      expect(wireUrl(request), 'https://api.example.test/api/v1/matches/join-code');
+      expect(request.data, {'code': 'DB2415'});
+      expect(request.headers['Idempotency-Key'], isNotEmpty);
+    });
+
+    test('parses an OPEN PRIVATE snapshot as the shared room phase', () async {
+      final (dio, adapter) = client();
+      adapter.enqueue({
+        'data': {
+          'id': 'mat_private',
+          'status': 'OPEN',
+          'visibility': 'PRIVATE',
+          'roomCode': 'DB2415',
+          'stakeMinor': 200000,
+          'yourStake': {'status': 'NONE', 'amountMinorUnits': 0},
+        },
+      });
+      final gateway = MatchFlowGateway(dio, contract: v2);
+
+      final snapshot = await gateway.fetchMatch(
+        'mat_private',
+        const MatchTerms(stakeMinorUnits: 200000),
+      );
+
+      expect(snapshot?.phase, MatchLifecyclePhase.privateRoom);
+      expect(snapshot?.roomCode, 'DB2415');
+      expect(snapshot?.terms.privateRoom, isTrue);
     });
   });
 

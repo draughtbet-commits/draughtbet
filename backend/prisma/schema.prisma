@@ -252,6 +252,13 @@ model Match {
   // cancelled and administrative matches are unrated and never move rating.
   rated                         Boolean    @default(true)
 
+  // Private rooms. PRIVATE listings are hidden from the public arena and from
+  // matchmaking queue auto-seating; the only way in is the single-use
+  // `roomCode`, which expires with the OPEN match TTL. PUBLIC/ANYONE remain
+  // publicly joinable. Legacy rows default to PUBLIC with no code.
+  visibility                    String     @default("PUBLIC")
+  roomCode                      String?    @unique
+
   // Versioned-config lookups (additive — NULL for rows funded before these
   // reference tables existed; the Int snapshot columns above stay authoritative
   // for settlement/timing derivation). `rulesetDef` is the relation name because

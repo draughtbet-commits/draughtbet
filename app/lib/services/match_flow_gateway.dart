@@ -21,6 +21,16 @@ class ChallengeInvite {
   final String direction;
 }
 
+/// The authoritative id of a freshly created OPEN listing, plus the private
+/// room code when the listing was created as `PRIVATE`.
+class OpenMatchCreation {
+  const OpenMatchCreation({required this.id, this.roomCode, this.visibility});
+
+  final String id;
+  final String? roomCode;
+  final String? visibility;
+}
+
 class MatchFlowGateway {
   MatchFlowGateway(this._dio, {BackendContractConfig? contract})
     : contract = contract ?? BackendContractConfig.fromEnvironment();
@@ -172,9 +182,9 @@ class MatchFlowGateway {
     return null;
   }
 
-  Future<String?> createOpenMatch(MatchTerms terms) async {
+  Future<OpenMatchCreation?> createOpenMatch(MatchTerms terms) async {
     final operation =
-        'match-create:${terms.stakeMinorUnits}:${terms.timeControl}:${terms.gameType}:${terms.visibility}';
+        'match-create:${terms.stakeMinorUnits}:${terms.timeControl}:${terms.gameType}:${terms.visibility}:${terms.privateRoom}';
     final response = await _dio.post<dynamic>(
       isV2 ? '/matches' : '/callouts',
       data: isV2
@@ -188,12 +198,39 @@ class MatchFlowGateway {
       options: isV2 ? _idempotent(operation) : null,
     );
     _complete(operation);
-    if (isV2) return unwrapData(response.data)?['id']?.toString();
+    if (isV2) {
+      final data = unwrapData(response.data);
+      final id = data?['id']?.toString();
+      if (id == null || id.isEmpty) return null;
+      return OpenMatchCreation(
+        id: id,
+        roomCode: data?['roomCode']?.toString(),
+        visibility: data?['visibility']?.toString(),
+      );
+    }
     final body = response.data;
     if (body is Map && body['callout'] is Map) {
-      return (body['callout'] as Map)['id']?.toString();
+      final id = (body['callout'] as Map)['id']?.toString();
+      return id == null ? null : OpenMatchCreation(id: id);
     }
     return null;
+  }
+
+  /// Redeems a private room code and seats the caller against its listing.
+  Future<String?> joinByCode(String code) async {
+    final normalized = code
+        .trim()
+        .toUpperCase()
+        .replaceAll(RegExp(r'[^A-Z0-9]'), '');
+    if (normalized.isEmpty) return null;
+    final operation = 'match-join-code:$normalized';
+    final response = await _dio.post<dynamic>(
+      '/matches/join-code',
+      data: {'code': normalized},
+      options: _idempotent(operation),
+    );
+    _complete(operation);
+    return unwrapData(response.data)?['id']?.toString();
   }
 
   Future<void> joinQueue(MatchTerms terms) async {
@@ -402,7 +439,7 @@ MatchLifecycleSnapshot? _lifecycleFromV2(
   final opponentConnected = raw['opponentConnected'] != false;
   final phase = switch (status) {
     'OPEN' =>
-      _challengePhase(raw) ?? MatchLifecyclePhase.waitingOpponentStake,
+      _challengePhase(raw) ?? _openPhase(raw),
     'FUNDED' => !opponentConnected && youConnected
         ? MatchLifecyclePhase.opponentDisconnected
         : MatchLifecyclePhase.readyCheck,
@@ -420,6 +457,7 @@ MatchLifecycleSnapshot? _lifecycleFromV2(
     'CANCELLED' || 'CANCELED' => MatchLifecyclePhase.unavailable,
     _ => MatchLifecyclePhase.waitingOpponentStake,
   };
+  final isPrivate = raw['visibility']?.toString().toUpperCase() == 'PRIVATE';
   return MatchLifecycleSnapshot(
     phase: phase,
     terms: fallback.copyWith(
@@ -427,9 +465,12 @@ MatchLifecycleSnapshot? _lifecycleFromV2(
       platformFeeMinorUnits: _integer(raw['feeMinor']),
       totalPrizeMinorUnits:
           _integer(raw['grossPotMinor']) ?? fallback.totalPrizeMinorUnits,
+      visibility: isPrivate ? 'Private Room' : fallback.visibility,
+      privateRoom: isPrivate || fallback.privateRoom,
       serverQuoted: true,
     ),
     matchId: id,
+    roomCode: raw['roomCode']?.toString(),
     opponent: _playerFromBrief(raw['opponent']),
     playerStake: yourStakeConfirmed
         ? AuthoritativeProgress.confirmed
@@ -464,6 +505,16 @@ MatchLifecyclePhase? _challengePhase(Map<String, dynamic> raw) {
     'RECEIVED' => MatchLifecyclePhase.incomingChallenge,
     _ => null,
   };
+}
+
+/// A PRIVATE listing is only reachable by code and is never auto-seated, so it
+/// parks on the dedicated "share this code" screen while it waits for its one
+/// opponent. PUBLIC/ANYONE listings keep the generic waiting-for-stake screen.
+MatchLifecyclePhase _openPhase(Map<String, dynamic> raw) {
+  if (raw['visibility']?.toString().toUpperCase() == 'PRIVATE') {
+    return MatchLifecyclePhase.privateRoom;
+  }
+  return MatchLifecyclePhase.waitingOpponentStake;
 }
 
 int _timeControlSeconds(String value) {

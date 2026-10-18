@@ -441,9 +441,13 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         path: '/play/private-room',
         redirect: (context, state) =>
             state.extra is MatchLifecycleSnapshot ? null : '/play/unavailable',
-        builder: (context, state) => PrivateRoomCodeScreen(
-          snapshot: state.extra! as MatchLifecycleSnapshot,
-        ),
+        builder: (context, state) {
+          final snapshot = state.extra! as MatchLifecycleSnapshot;
+          return _PrePlayLifecycleWatcher(
+            snapshot: snapshot,
+            child: PrivateRoomCodeScreen(snapshot: snapshot),
+          );
+        },
       ),
       GoRoute(
         path: '/play/challenge',
@@ -783,6 +787,7 @@ class _PrePlayLifecycleWatcherState
     final phase = next.phase;
     if (phase == MatchLifecyclePhase.readyCheck ||
         phase == MatchLifecyclePhase.waitingOpponentReady ||
+        phase == MatchLifecyclePhase.privateRoom ||
         phase == MatchLifecyclePhase.challengeSent ||
         phase == MatchLifecyclePhase.waitingOpponentStake) {
       return; // nothing changed from the player's perspective

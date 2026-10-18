@@ -71,6 +71,7 @@ jest.unstable_mockModule('../../../services/gameActivationService.js', () => ({
 jest.unstable_mockModule('../lifecycleService.js', () => ({
   createOpenMatch: jest.fn(),
   fundOpenMatch: jest.fn(),
+  resolvePrivateListingId: jest.fn(),
   listOpenMatches: jest.fn(),
   listActiveMatches: jest.fn(),
   markReady: jest.fn(),

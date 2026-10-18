@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
@@ -337,46 +338,103 @@ class OpponentDisconnectedBeforeStartScreen extends StatelessWidget {
   );
 }
 
-class PrivateRoomCodeScreen extends StatelessWidget {
+class PrivateRoomCodeScreen extends ConsumerStatefulWidget {
   const PrivateRoomCodeScreen({required this.snapshot, super.key});
 
   final MatchLifecycleSnapshot snapshot;
 
   @override
-  Widget build(BuildContext context) => _LifecycleScaffold(
-    title: 'PRIVATE ROOM',
-    child: Column(
-      children: [
-        const Spacer(),
-        const Icon(
-          LucideIcons.keyRound,
-          size: 64,
-          color: AppColors.valueAccent,
-        ),
-        const SizedBox(height: 18),
-        Text('Share this room code', style: AppTypography.heading2),
-        const SizedBox(height: 18),
-        FlowCard(
-          child: Text(
-            snapshot.roomCode ?? 'Awaiting server code',
-            textAlign: TextAlign.center,
-            style: AppTypography.heading1.copyWith(letterSpacing: 5),
+  ConsumerState<PrivateRoomCodeScreen> createState() =>
+      _PrivateRoomCodeScreenState();
+}
+
+class _PrivateRoomCodeScreenState
+    extends ConsumerState<PrivateRoomCodeScreen> {
+  bool _cancelling = false;
+
+  String get _code => widget.snapshot.roomCode?.trim() ?? '';
+
+  Future<void> _copy() async {
+    if (_code.isEmpty) return;
+    await Clipboard.setData(ClipboardData(text: _code));
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('Room code copied.')));
+  }
+
+  Future<void> _cancel() async {
+    if (_cancelling) return;
+    setState(() => _cancelling = true);
+    await ref
+        .read(matchFlowProvider.notifier)
+        .cancelSentChallenge(
+          matchId: widget.snapshot.matchId,
+          terms: widget.snapshot.terms,
+        );
+    if (!mounted) return;
+    context.go('/home');
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final hasCode = _code.isNotEmpty;
+    return _LifecycleScaffold(
+      title: 'PRIVATE ROOM',
+      child: Column(
+        children: [
+          const Spacer(),
+          const Icon(
+            LucideIcons.keyRound,
+            size: 64,
+            color: AppColors.valueAccent,
           ),
-        ),
-        const SizedBox(height: 12),
-        Text(
-          'Only the server can create or validate a private room.',
-          textAlign: TextAlign.center,
-          style: AppTypography.bodySmall,
-        ),
-        const Spacer(),
-        SecondaryActionButton(
-          label: 'Back to Home',
-          onPressed: () => context.go('/home'),
-        ),
-      ],
-    ),
-  );
+          const SizedBox(height: 18),
+          Text('Share this room code', style: AppTypography.heading2),
+          const SizedBox(height: 18),
+          FlowCard(
+            child: Text(
+              hasCode ? _code : 'Awaiting server code',
+              textAlign: TextAlign.center,
+              style: AppTypography.heading1.copyWith(letterSpacing: 5),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            hasCode
+                ? 'Your opponent enters this code from “Join with code". The match starts the moment they join.'
+                : 'Only the server can create or validate a private room.',
+            textAlign: TextAlign.center,
+            style: AppTypography.bodySmall,
+          ),
+          const SizedBox(height: 20),
+          const SizedBox.square(
+            dimension: 22,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            'Waiting for an opponent to join…',
+            textAlign: TextAlign.center,
+            style: AppTypography.bodySmall.copyWith(
+              color: AppColors.textSecondary,
+            ),
+          ),
+          const Spacer(),
+          PrimaryActionButton(
+            label: 'Copy code',
+            icon: LucideIcons.copy,
+            onPressed: hasCode ? _copy : null,
+          ),
+          const SizedBox(height: 8),
+          SecondaryActionButton(
+            label: 'Cancel room',
+            onPressed: _cancelling ? null : _cancel,
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class ChallengeStatusScreen extends StatefulWidget {

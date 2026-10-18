@@ -84,6 +84,58 @@ class _HomeLobbyScreenState extends ConsumerState<HomeLobbyScreen> {
     }
   }
 
+  Future<void> _joinWithCode() async {
+    final controller = TextEditingController();
+    final code = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: AppColors.surface,
+        title: const Text('Join a private room'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          textCapitalization: TextCapitalization.characters,
+          textInputAction: TextInputAction.done,
+          decoration: const InputDecoration(hintText: 'Room code'),
+          onSubmitted: (value) => Navigator.of(dialogContext).pop(value),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(controller.text),
+            child: const Text('Join'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (!mounted || code == null || code.trim().isEmpty) return;
+    final notifier = ref.read(matchFlowProvider.notifier);
+    final snapshot = await notifier.joinPrivateRoom(code.trim());
+    if (!mounted) return;
+    if (snapshot == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            ref.read(matchFlowProvider).message ??
+                'That room code could not be found.',
+          ),
+        ),
+      );
+      return;
+    }
+    final route = lifecyclePhaseRoute(snapshot);
+    if (isBoardRoute(route)) {
+      ref.read(matchProvider.notifier).joinMatch(snapshot.matchId!);
+      context.go(route);
+      return;
+    }
+    context.go(route, extra: snapshot);
+  }
+
   @override
   Widget build(BuildContext context) {
     final matchState = ref.watch(matchProvider);
@@ -203,6 +255,27 @@ class _HomeLobbyScreenState extends ConsumerState<HomeLobbyScreen> {
                       const Icon(LucideIcons.scanSearch, size: 22),
                     ],
                   ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 10),
+            Semantics(
+              button: true,
+              label: 'Join a private room with a code',
+              child: SizedBox(
+                width: double.infinity,
+                height: 48,
+                child: OutlinedButton.icon(
+                  onPressed: _joinWithCode,
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppColors.textPrimary,
+                    side: const BorderSide(color: AppColors.valueAccent),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(11),
+                    ),
+                  ),
+                  icon: const Icon(LucideIcons.keyRound, size: 18),
+                  label: const Text('JOIN WITH CODE'),
                 ),
               ),
             ),
@@ -427,6 +500,7 @@ class _ActiveMatchCard extends StatelessWidget {
     MatchLifecyclePhase.incomingChallenge =>
       'Incoming challenge · tap to respond',
     MatchLifecyclePhase.challengeExpired => 'Challenge expired',
+    MatchLifecyclePhase.privateRoom => 'Private room · share the code',
     MatchLifecyclePhase.readyCheck => 'Both stakes confirmed · ready to start',
     MatchLifecyclePhase.waitingOpponentReady =>
       'Waiting for opponent to confirm',
@@ -438,6 +512,7 @@ class _ActiveMatchCard extends StatelessWidget {
     MatchLifecyclePhase.challengeSent ||
     MatchLifecyclePhase.challengeExpired =>
       'View Challenge',
+    MatchLifecyclePhase.privateRoom => 'View Code',
     _ => 'Return to Room',
   };
 

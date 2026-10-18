@@ -9,11 +9,11 @@ import 'package:draughts_arena/services/match_flow_gateway.dart';
 class BlockingGateway extends MatchFlowGateway {
   BlockingGateway() : super(Dio());
 
-  final completer = Completer<String?>();
+  final completer = Completer<OpenMatchCreation?>();
   int createCalls = 0;
 
   @override
-  Future<String?> createOpenMatch(MatchTerms terms) {
+  Future<OpenMatchCreation?> createOpenMatch(MatchTerms terms) {
     createCalls += 1;
     return completer.future;
   }
@@ -60,7 +60,7 @@ void main() {
       expect(second, isNull);
       expect(gateway.createCalls, 1);
 
-      gateway.completer.complete('callout-1');
+      gateway.completer.complete(const OpenMatchCreation(id: 'callout-1'));
       expect(await first, isNull);
       expect(notifier.state.actionPhase, MatchActionPhase.succeeded);
       expect(notifier.state.searchPhase, SearchPhase.searching);

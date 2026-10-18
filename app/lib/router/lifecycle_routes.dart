@@ -13,6 +13,7 @@ String lifecyclePhaseRoute(MatchLifecycleSnapshot snapshot) {
     MatchLifecyclePhase.inPlay =>
       matchId == null || matchId.isEmpty ? '/home' : '/match/$matchId',
     MatchLifecyclePhase.readyCheck => '/play/ready',
+    MatchLifecyclePhase.privateRoom => '/play/private-room',
     MatchLifecyclePhase.waitingOpponentReady => '/play/waiting-ready',
     MatchLifecyclePhase.waitingOpponentStake => '/play/waiting-stake',
     MatchLifecyclePhase.readyTimeout => '/play/ready-timeout',

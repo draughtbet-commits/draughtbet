@@ -82,6 +82,35 @@ export const OPEN_MATCH_TTL_MS = (() => {
 export const RULESETS = new Set(['CLASSIC', 'INTERNATIONAL_10X10']);
 export const VISIBILITIES = new Set(['PUBLIC', 'PRIVATE', 'ANYONE']);
 
+// Room codes are read aloud and typed by hand, so the alphabet drops the
+// glyphs people confuse (I/L/1, O/0) and the code is a fixed six characters —
+// ~1e9 combinations, plenty for a code that only lives for the OPEN TTL.
+const ROOM_CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+const ROOM_CODE_LENGTH = 6;
+const ROOM_CODE_ATTEMPTS = 5;
+
+export const generateRoomCode = () => {
+  let code = '';
+  for (let index = 0; index < ROOM_CODE_LENGTH; index += 1) {
+    code += ROOM_CODE_ALPHABET[crypto.randomInt(ROOM_CODE_ALPHABET.length)];
+  }
+  return code;
+};
+
+/** Uppercase, strip separators/spaces so "db-2 415" and "DB2415" match. */
+export const normalizeRoomCode = (code) =>
+  String(code ?? '')
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, '');
+
+export class RoomCodeNotFoundError extends Error {
+  constructor(message = 'No private room matches that code') {
+    super(message);
+    this.name = 'RoomCodeNotFoundError';
+  }
+}
+
 // OPEN listings have no opponent yet; DARK is an empty placeholder so the rows
 // keep the players-distinct CHECK, and is atomically replaced by the joiner at
 // funding time. It never appears on a pre-terminal/live match.
@@ -120,7 +149,9 @@ export const buildLifecycleSnapshot = async (client, matchId, userId) => {
         endedAt: true,
         cancelledAt: true,
         currency: true,
-        timeControlSeconds: true
+        timeControlSeconds: true,
+        visibility: true,
+        roomCode: true
       }
     }),
     client.platformSettings.findUnique({ where: { id: 'singleton' } }),
@@ -253,6 +284,11 @@ export const buildLifecycleSnapshot = async (client, matchId, userId) => {
     youConnected,
     opponentConnected,
     stakeReleaseStatus,
+    // Private-room participants need the code to re-share it while the room is
+    // still waiting for an opponent. The snapshot is participant-gated, so the
+    // code never leaks to anyone who is not already in the room.
+    visibility: match.visibility ?? 'PUBLIC',
+    roomCode: match.roomCode ?? null,
     reason:
       match.endReason ??
       (match.status === 'CANCELLED' ? 'CREATOR_CANCELLED' : null),
@@ -404,45 +440,67 @@ export const createOpenMatch = async ({
   stakeMinorUnits,
   timeControlSeconds,
   commissionPercent,
-  currency = 'NGN'
+  currency = 'NGN',
+  visibility = 'PUBLIC'
 }) => {
   const matchId = crypto.randomUUID();
-  const openMatch = await prisma.$transaction(async (tx) => {
-    await assertEligibleForMoney(tx, creatorId, {
-      enforceTimeout: true,
-      stakeMinorUnits: BigInt(stakeMinorUnits)
-    });
-    const wallet = await lockWalletForUpdate(tx, creatorId);
-    const available = await getLedgerAvailable(
-      tx,
-      creatorId,
-      wallet.currency ?? currency
-    );
-    if (available < BigInt(stakeMinorUnits)) {
-      throw new InsufficientFundsError(
-        'Insufficient funds to create this match'
-      );
-    }
-    return tx.match.create({
-      data: {
-        id: matchId,
-        playerLightId: creatorId,
-        playerDarkId: OPEN_SELF_PLACEHOLDER,
-        tier,
-        stakeMinorUnits: BigInt(stakeMinorUnits),
-        status: 'OPEN',
-        settlementCommissionPercent: commissionPercent,
-        timeControlSeconds,
-        currency,
-        participants: {
-          create: [{ userId: creatorId, side: 'LIGHT' }]
+  const isPrivate = visibility === 'PRIVATE';
+  // A PRIVATE listing is reachable only by its code, so the code must be
+  // unique. A collision is vanishingly unlikely, but the unique index is the
+  // authority: regenerate and retry rather than fail the create.
+  for (let attempt = 1; ; attempt += 1) {
+    const roomCode = isPrivate ? generateRoomCode() : null;
+    try {
+      const openMatch = await prisma.$transaction(async (tx) => {
+        await assertEligibleForMoney(tx, creatorId, {
+          enforceTimeout: true,
+          stakeMinorUnits: BigInt(stakeMinorUnits)
+        });
+        const wallet = await lockWalletForUpdate(tx, creatorId);
+        const available = await getLedgerAvailable(
+          tx,
+          creatorId,
+          wallet.currency ?? currency
+        );
+        if (available < BigInt(stakeMinorUnits)) {
+          throw new InsufficientFundsError(
+            'Insufficient funds to create this match'
+          );
         }
-      }
-    });
-  });
-  logger.info({ matchId, creatorId, tier }, 'Open match created');
-  return openMatch;
+        return tx.match.create({
+          data: {
+            id: matchId,
+            playerLightId: creatorId,
+            playerDarkId: OPEN_SELF_PLACEHOLDER,
+            tier,
+            stakeMinorUnits: BigInt(stakeMinorUnits),
+            status: 'OPEN',
+            settlementCommissionPercent: commissionPercent,
+            timeControlSeconds,
+            currency,
+            visibility,
+            roomCode,
+            participants: {
+              create: [{ userId: creatorId, side: 'LIGHT' }]
+            }
+          }
+        });
+      });
+      logger.info(
+        { matchId, creatorId, tier, visibility },
+        'Open match created'
+      );
+      return openMatch;
+    } catch (err) {
+      const roomCodeCollision =
+        err?.code === 'P2002' &&
+        String(err?.meta?.target ?? '').includes('roomCode');
+      if (roomCodeCollision && attempt < ROOM_CODE_ATTEMPTS) continue;
+      throw err;
+    }
+  }
 };
+
 
 /**
  * Creates a directed challenge: an OPEN match whose join is reserved for one
@@ -553,7 +611,32 @@ export const fundOpenMatch = async (joinerId, matchId, options = {}) => {
   }
 };
 
-const fundOpenMatchTx = async (joinerId, matchId, { tier: joinerTier } = {}) => {
+/**
+ * Resolves a PRIVATE room code to its listing id (used by
+ * POST /api/v1/matches/join-code). The code is only an address: the caller then
+ * runs the exact same funding/eligibility/occupancy path as an id join, so a
+ * stale code, a full-up room or a self-join all fail with arena semantics.
+ */
+export const resolvePrivateListingId = async (code) => {
+  const normalized = normalizeRoomCode(code);
+  if (normalized.length !== ROOM_CODE_LENGTH) {
+    throw new RoomCodeNotFoundError();
+  }
+  const listing = await prisma.match.findUnique({
+    where: { roomCode: normalized },
+    select: { id: true, visibility: true }
+  });
+  if (!listing || listing.visibility !== 'PRIVATE') {
+    throw new RoomCodeNotFoundError();
+  }
+  return listing.id;
+};
+
+const fundOpenMatchTx = async (
+  joinerId,
+  matchId,
+  { tier: joinerTier, viaCode = false } = {}
+) => {
   const funded = await prisma.$transaction(async (tx) => {
     const rows = await tx.$queryRaw`
       SELECT * FROM "Match" WHERE id = ${matchId} FOR UPDATE
@@ -561,6 +644,13 @@ const fundOpenMatchTx = async (joinerId, matchId, { tier: joinerTier } = {}) => 
     const match = rows && rows[0];
     if (!match) throw new MatchNotFoundError();
 
+    // A private room is reachable only through its code; knowing the id must
+    // not be enough to slip into someone's room.
+    if (match.visibility === 'PRIVATE' && !viaCode) {
+      throw new JoinUnavailableError(
+        'This private room can only be joined with its code'
+      );
+    }
     if (match.status !== 'OPEN') {
       throw new JoinUnavailableError('This open match is no longer open');
     }
@@ -727,7 +817,8 @@ export const openMatchListing = (match, currency = 'NGN') => {
     stakeMinor: asInt(match.stakeMinorUnits),
     timeControlSeconds: asInt(match.timeControlSeconds),
     ruleset: match.rulesetVersion ? 'INTERNATIONAL_10X10' : 'CLASSIC',
-    visibility: 'PUBLIC',
+    visibility: match.visibility ?? 'PUBLIC',
+    roomCode: match.roomCode ?? null,
     board: 'Server configured',
     expiresAt: new Date(
       new Date(match.createdAt).getTime() + OPEN_MATCH_TTL_MS
@@ -757,6 +848,8 @@ export const listOpenMatches = async (userId) => {
     where: {
       status: 'OPEN',
       tier: user.tier,
+      // PRIVATE listings are code-only; the arena must never surface them.
+      visibility: { not: 'PRIVATE' },
       playerLightId: { not: userId },
       createdAt: { gt: since },
       challenges: { none: {} }
@@ -843,6 +936,8 @@ export default {
   createOpenMatch,
   createChallengeMatch,
   fundOpenMatch,
+  resolvePrivateListingId,
+  generateRoomCode,
   listOpenMatches,
   listActiveMatches,
   openMatchListing,

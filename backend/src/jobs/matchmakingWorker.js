@@ -51,8 +51,9 @@ let isSweeping = false;
  * Finds the oldest open match in this bucket that a waiting player could join.
  *
  * Excludes matches already earmarked for someone else (a pending directed
- * challenge) and matches the queued player's own, and skips anything past the
- * open-match TTL so the caller does not spin on a match it can never fund.
+ * challenge), private-room listings (code-only, never auto-seated) and matches
+ * the queued player's own, and skips anything past the open-match TTL so the
+ * caller does not spin on a match it can never fund.
  */
 const findJoinableOpenMatch = async (tier, stakeMinorUnits) => {
   const candidates = await prisma.match.findMany({
@@ -60,6 +61,7 @@ const findJoinableOpenMatch = async (tier, stakeMinorUnits) => {
       status: 'OPEN',
       tier,
       stakeMinorUnits: BigInt(stakeMinorUnits),
+      visibility: { not: 'PRIVATE' },
       createdAt: { gte: new Date(Date.now() - OPEN_MATCH_TTL_MS) }
     },
     orderBy: { createdAt: 'asc' },

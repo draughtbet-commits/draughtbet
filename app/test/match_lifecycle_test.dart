@@ -6,6 +6,8 @@ import 'package:draughts_arena/screens/match_lifecycle_screens.dart';
 import 'package:draughts_arena/services/match_flow_gateway.dart';
 import 'package:draughts_arena/theme/app_theme.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 const lifecycleOpponent = MatchPlayer(
@@ -57,9 +59,9 @@ class CreatedCalloutGateway extends MatchFlowGateway {
   var calls = 0;
 
   @override
-  Future<String?> createOpenMatch(MatchTerms terms) async {
+  Future<OpenMatchCreation?> createOpenMatch(MatchTerms terms) async {
     calls += 1;
-    return 'callout-not-a-match';
+    return const OpenMatchCreation(id: 'callout-not-a-match');
   }
 }
 
@@ -157,5 +159,43 @@ void main() {
     );
     expect(find.textContaining('already filled'), findsOneWidget);
     expect(find.textContaining('No stake lock was confirmed'), findsOneWidget);
+  });
+
+  testWidgets('private room screen surfaces and copies the room code', (
+    tester,
+  ) async {
+    final copied = <String>[];
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      SystemChannels.platform,
+      (call) async {
+        if (call.method == 'Clipboard.setData') {
+          copied.add((call.arguments as Map)['text'] as String);
+        }
+        return null;
+      },
+    );
+    addTearDown(
+      () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        null,
+      ),
+    );
+    await tester.pumpWidget(
+      ProviderScope(
+        child: MaterialApp(
+          theme: AppTheme.dark,
+          home: PrivateRoomCodeScreen(
+            snapshot: lifecycleSnapshot(MatchLifecyclePhase.privateRoom),
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('DB-2415'), findsOneWidget);
+    expect(find.textContaining('Waiting for an opponent'), findsOneWidget);
+    await tester.tap(find.text('Copy code'));
+    await tester.pump();
+    expect(copied, ['DB-2415']);
+    expect(find.text('Room code copied.'), findsOneWidget);
   });
 }
