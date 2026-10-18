@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../models/app_notification.dart';
+import '../providers/match_flow_provider.dart';
 import '../providers/notification_provider.dart';
 import '../services/secure_storage.dart';
 import '../theme/colors.dart';
@@ -167,6 +168,28 @@ class NotificationDetailsScreen extends ConsumerWidget {
 
   final AppNotification notification;
 
+  /// A challenge notification links to `/play/challenge`, which needs the
+  /// incoming-challenge snapshot as its route `extra`. The stored link carries
+  /// no snapshot, so pushing it bare lands on "Match unavailable" with no
+  /// accept/decline. Rebuild the snapshot from the live challenges listing, and
+  /// fall back to the unavailable screen only when the invite is truly gone.
+  Future<void> _openRelated(BuildContext context, WidgetRef ref) async {
+    final link = notification.link!;
+    final matchId = notification.matchId;
+    final isChallenge =
+        notification.type.toUpperCase() == 'MATCH_CHALLENGE' ||
+        link == '/play/challenge';
+    if (isChallenge && matchId != null) {
+      final snapshot = await ref
+          .read(matchFlowProvider.notifier)
+          .handleIncomingChallenge(matchId);
+      if (!context.mounted) return;
+      context.push('/play/challenge', extra: snapshot);
+      return;
+    }
+    context.push(link);
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return Scaffold(
@@ -234,7 +257,7 @@ class NotificationDetailsScreen extends ConsumerWidget {
                 PrimaryActionButton(
                   label: 'Open related item',
                   icon: LucideIcons.externalLink,
-                  onPressed: () => context.push(notification.link!),
+                  onPressed: () => _openRelated(context, ref),
                 ),
               if (notification.hasSafeLink) const SizedBox(height: 8),
               SecondaryActionButton(

@@ -453,31 +453,40 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           builder: (context, ref, _) {
             final snapshot = state.extra! as MatchLifecycleSnapshot;
             final notifier = ref.read(matchFlowProvider.notifier);
-            final sent = snapshot.phase == MatchLifecyclePhase.challengeSent;
+            final incoming =
+                snapshot.phase == MatchLifecyclePhase.incomingChallenge;
             final screen = ChallengeStatusScreen(
               snapshot: snapshot,
               onAccept: snapshot.phase == MatchLifecyclePhase.incomingChallenge
                   ? () async {
-                      final updated = await notifier.acceptChallenge();
+                      final updated = await notifier.acceptChallenge(
+                        matchId: snapshot.matchId,
+                        terms: snapshot.terms,
+                      );
                       if (!context.mounted || updated == null) return;
                       context.go('/play/ready', extra: updated);
                     }
                   : null,
               onDecline: () async {
-                final incoming =
-                    snapshot.phase == MatchLifecyclePhase.incomingChallenge;
                 if (incoming) {
-                  await notifier.declineChallenge();
+                  await notifier.declineChallenge(
+                    matchId: snapshot.matchId,
+                    terms: snapshot.terms,
+                  );
                 } else {
-                  await notifier.cancelSentChallenge();
+                  await notifier.cancelSentChallenge(
+                    matchId: snapshot.matchId,
+                    terms: snapshot.terms,
+                  );
                 }
                 if (!context.mounted) return;
                 context.go('/arena');
               },
             );
-            // The inviter waits idle on the sent screen; advance once the
-            // invitee joins through the normal fund path.
-            return sent ? _SentChallengeWatcher(child: screen) : screen;
+            // Both the inviter (waiting for a response) and the invitee
+            // (deciding) poll the same snapshot: the server advances either the
+            // moment the challenge is accepted, declined, cancelled or expires.
+            return _SentChallengeWatcher(snapshot: snapshot, child: screen);
           },
         ),
       ),
@@ -644,13 +653,15 @@ final appRouterProvider = Provider<GoRouter>((ref) {
   );
 });
 
-/// Polls a pending sent challenge and advances the inviter once the invitee
-/// funds the match (the server emits no dedicated socket event for the inviter
-/// of a directed challenge, so a light snapshot poll bridges the gap).
+/// Polls a pending directed challenge (either side) and advances the parked
+/// player once it resolves. The server emits no dedicated socket event for the
+/// inviter of a directed challenge, and the invitee's cold-start snapshot has
+/// no adopted match context, so the watcher re-seeds it on entry and then polls.
 class _SentChallengeWatcher extends ConsumerStatefulWidget {
-  const _SentChallengeWatcher({required this.child});
+  const _SentChallengeWatcher({required this.child, required this.snapshot});
 
   final Widget child;
+  final MatchLifecycleSnapshot snapshot;
 
   @override
   ConsumerState<_SentChallengeWatcher> createState() =>
@@ -663,6 +674,13 @@ class _SentChallengeWatcherState extends ConsumerState<_SentChallengeWatcher> {
   @override
   void initState() {
     super.initState();
+    // A challenge opened from the home active-match list (or via the
+    // notification) arrives without an adopted match context; without this the
+    // poll and the accept/decline actions silently no-op.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      ref.read(matchFlowProvider.notifier).adoptLifecycle(widget.snapshot);
+    });
     _timer = Timer.periodic(const Duration(seconds: 2), (_) => _tick());
   }
 

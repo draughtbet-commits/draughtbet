@@ -4,8 +4,11 @@ import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
 import 'package:draughts_arena/models/app_notification.dart';
+import 'package:draughts_arena/models/match_flow.dart';
+import 'package:draughts_arena/providers/match_flow_provider.dart';
 import 'package:draughts_arena/providers/notification_provider.dart';
 import 'package:draughts_arena/screens/notification_screens.dart';
+import 'package:draughts_arena/services/match_flow_gateway.dart';
 import 'package:draughts_arena/services/socket_service.dart';
 import 'package:draughts_arena/theme/app_theme.dart';
 import 'package:flutter/material.dart';
@@ -124,6 +127,25 @@ class _HttpNotifier extends NotificationNotifier {
     : super(dio, socket, initialize: false);
 
   void seed(NotificationState value) => state = value;
+}
+
+class _StubFlowGateway extends MatchFlowGateway {
+  _StubFlowGateway() : super(Dio());
+}
+
+/// Stands in for the match-flow notifier so the challenge notification path can
+/// be driven without a live gateway.
+class _ChallengeFlowNotifier extends MatchFlowNotifier {
+  _ChallengeFlowNotifier(this._invite) : super(_StubFlowGateway());
+
+  final MatchLifecycleSnapshot? _invite;
+  int handled = 0;
+
+  @override
+  Future<MatchLifecycleSnapshot?> handleIncomingChallenge(String matchId) async {
+    handled += 1;
+    return _invite;
+  }
 }
 
 NotificationState _state(List<AppNotification> items) => NotificationState(
@@ -304,6 +326,79 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('NOTIFICATION DETAILS'), findsOneWidget);
     expect(find.text('Your report is under review.'), findsOneWidget);
+  });
+
+  testWidgets('a challenge notification opens the incoming-challenge screen', (
+    tester,
+  ) async {
+    final challengeNotice = AppNotification(
+      id: 'notice-challenge',
+      type: 'MATCH_CHALLENGE',
+      title: 'New challenge',
+      message: 'KingMoves challenged you to a match.',
+      link: '/play/challenge',
+      matchId: 'match-9',
+      isRead: false,
+      createdAt: _now,
+    );
+    final invite = MatchLifecycleSnapshot(
+      phase: MatchLifecyclePhase.incomingChallenge,
+      terms: const MatchTerms(stakeMinorUnits: 200000, serverQuoted: true),
+      matchId: 'match-9',
+    );
+    final flow = _ChallengeFlowNotifier(invite);
+    final router = GoRouter(
+      initialLocation: '/profile/notifications',
+      routes: [
+        GoRoute(
+          path: '/profile/notifications',
+          builder: (_, _) => const NotificationsScreen(),
+        ),
+        GoRoute(
+          path: '/profile/notification-details',
+          builder: (_, state) => NotificationDetailsScreen(
+            notification: state.extra! as AppNotification,
+          ),
+        ),
+        GoRoute(
+          path: '/play/challenge',
+          builder: (_, _) => const Scaffold(
+            body: Center(child: Text('Challenge destination')),
+          ),
+        ),
+        GoRoute(
+          path: '/play/unavailable',
+          builder: (_, _) => const Scaffold(
+            body: Center(child: Text('Unavailable destination')),
+          ),
+        ),
+      ],
+    );
+    addTearDown(router.dispose);
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          notificationProvider.overrideWith(
+            (ref) => _SeededNotifier(_state([challengeNotice])),
+          ),
+          matchFlowProvider.overrideWith((ref) => flow),
+        ],
+        child: MaterialApp.router(theme: AppTheme.dark, routerConfig: router),
+      ),
+    );
+    await tester.pump();
+    expect(find.text('New challenge'), findsOneWidget);
+
+    await tester.tap(find.text('New challenge'));
+    await tester.pumpAndSettle();
+    expect(find.text('NOTIFICATION DETAILS'), findsOneWidget);
+
+    await tester.tap(find.text('Open related item'));
+    await tester.pumpAndSettle();
+
+    expect(flow.handled, 1);
+    expect(find.text('Challenge destination'), findsOneWidget);
+    expect(find.text('Unavailable destination'), findsNothing);
   });
 
   testWidgets('empty, error and invalid-link states are safe', (tester) async {

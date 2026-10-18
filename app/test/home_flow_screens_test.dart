@@ -92,6 +92,14 @@ class PreStartGateway extends MatchFlowGateway {
       );
 }
 
+MatchLifecycleSnapshot challengeSnapshot(MatchLifecyclePhase phase) =>
+    MatchLifecycleSnapshot(
+      phase: phase,
+      terms: referenceTerms,
+      matchId: 'challenge-1',
+      opponent: opponent,
+    );
+
 MatchLifecycleSnapshot inPlaySnapshot() => const MatchLifecycleSnapshot(
   phase: MatchLifecyclePhase.inPlay,
   matchId: 'match-123',
@@ -377,6 +385,12 @@ Widget navigationApp({
             const Scaffold(body: Center(child: Text('Ready check destination'))),
       ),
       GoRoute(
+        path: '/play/challenge',
+        builder: (context, state) => const Scaffold(
+          body: Center(child: Text('Challenge destination')),
+        ),
+      ),
+      GoRoute(
         path: '/play/waiting-ready',
         builder: (context, state) => const Scaffold(
           body: Center(child: Text('Waiting for opponent destination')),
@@ -488,6 +502,55 @@ void main() {
 
     expect(find.text('Gameplay destination'), findsOneWidget);
     expect(find.text('Return to Room'), findsNothing);
+  });
+
+  // A directed challenge surfaced in ACTIVE MATCHES used to map to the generic
+  // "waiting for an opponent stake" screen with no action. It now routes to the
+  // challenge surface: the invitee gets Respond (accept/decline), the inviter
+  // gets View Challenge (cancel).
+  testWidgets('an incoming challenge active match routes to the challenge screen',
+      (tester) async {
+    await tester.pumpWidget(
+      navigationApp(
+        initialLocation: '/home',
+        flow: MatchFlowState(
+          activeMatches: [challengeSnapshot(MatchLifecyclePhase.incomingChallenge)],
+        ),
+      ),
+    );
+    await tester.pump();
+    expect(find.text('Incoming challenge · tap to respond'), findsOneWidget);
+    expect(find.text('Respond'), findsOneWidget);
+
+    final button = find.text('Respond');
+    await tester.ensureVisible(button);
+    await tester.pumpAndSettle();
+    await tester.tap(button);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Challenge destination'), findsOneWidget);
+  });
+
+  testWidgets('a sent challenge active match offers a View Challenge action',
+      (tester) async {
+    await tester.pumpWidget(
+      navigationApp(
+        initialLocation: '/home',
+        flow: MatchFlowState(
+          activeMatches: [challengeSnapshot(MatchLifecyclePhase.challengeSent)],
+        ),
+      ),
+    );
+    await tester.pump();
+    expect(find.text('Challenge sent · awaiting response'), findsOneWidget);
+
+    final button = find.text('View Challenge');
+    await tester.ensureVisible(button);
+    await tester.pumpAndSettle();
+    await tester.tap(button);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Challenge destination'), findsOneWidget);
   });
 
   testWidgets('Arena renders approved open-match card content', (tester) async {

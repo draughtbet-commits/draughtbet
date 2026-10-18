@@ -17,7 +17,10 @@ String lifecyclePhaseRoute(MatchLifecycleSnapshot snapshot) {
     MatchLifecyclePhase.waitingOpponentStake => '/play/waiting-stake',
     MatchLifecyclePhase.readyTimeout => '/play/ready-timeout',
     MatchLifecyclePhase.opponentDisconnected => '/play/disconnected-before-start',
-    MatchLifecyclePhase.challengeExpired => '/play/challenge',
+    MatchLifecyclePhase.challengeSent ||
+    MatchLifecyclePhase.incomingChallenge ||
+    MatchLifecyclePhase.challengeExpired =>
+      '/play/challenge',
     MatchLifecyclePhase.unavailable => '/arena',
     _ => matchId == null || matchId.isEmpty ? '/home' : '/match/$matchId',
   };

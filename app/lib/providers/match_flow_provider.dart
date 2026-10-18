@@ -371,13 +371,19 @@ class MatchFlowNotifier extends StateNotifier<MatchFlowState> {
   }
 
   /// Accepts an incoming challenge (join) and surfaces the funded snapshot.
-  Future<MatchLifecycleSnapshot?> acceptChallenge() async {
-    final matchId = state.currentMatchId;
-    final terms = state.currentIntent?.terms;
-    if (matchId == null || terms == null) return null;
+  ///
+  /// [matchId]/[terms] let a screen that was opened straight from a snapshot
+  /// (home active-match card, notification) act without an adopted context.
+  Future<MatchLifecycleSnapshot?> acceptChallenge({
+    String? matchId,
+    MatchTerms? terms,
+  }) async {
+    final resolvedMatchId = matchId ?? state.currentMatchId;
+    final resolvedTerms = terms ?? state.currentIntent?.terms;
+    if (resolvedMatchId == null || resolvedTerms == null) return null;
     try {
-      await _gateway.acceptOpenMatch(matchId);
-      final snapshot = await _gateway.fetchMatch(matchId, terms);
+      await _gateway.acceptOpenMatch(resolvedMatchId);
+      final snapshot = await _gateway.fetchMatch(resolvedMatchId, resolvedTerms);
       if (snapshot != null) applyLifecycle(snapshot);
       return snapshot;
     } on DioException catch (e) {
@@ -398,12 +404,18 @@ class MatchFlowNotifier extends StateNotifier<MatchFlowState> {
   }
 
   /// Declines an incoming challenge; the match is cancelled server-side.
-  Future<MatchLifecycleSnapshot?> declineChallenge() async {
-    final matchId = state.currentMatchId;
-    final terms = state.currentIntent?.terms;
-    if (matchId == null || terms == null) return null;
+  Future<MatchLifecycleSnapshot?> declineChallenge({
+    String? matchId,
+    MatchTerms? terms,
+  }) async {
+    final resolvedMatchId = matchId ?? state.currentMatchId;
+    final resolvedTerms = terms ?? state.currentIntent?.terms;
+    if (resolvedMatchId == null || resolvedTerms == null) return null;
     try {
-      final snapshot = await _gateway.declineChallenge(matchId, terms);
+      final snapshot = await _gateway.declineChallenge(
+        resolvedMatchId,
+        resolvedTerms,
+      );
       if (snapshot != null) applyLifecycle(snapshot);
       return snapshot;
     } on DioException catch (e) {
@@ -424,12 +436,18 @@ class MatchFlowNotifier extends StateNotifier<MatchFlowState> {
   }
 
   /// Cancels a challenge the current user sent, while it is still pending.
-  Future<MatchLifecycleSnapshot?> cancelSentChallenge() async {
-    final matchId = state.currentMatchId;
-    final terms = state.currentIntent?.terms;
-    if (matchId == null || terms == null) return null;
+  Future<MatchLifecycleSnapshot?> cancelSentChallenge({
+    String? matchId,
+    MatchTerms? terms,
+  }) async {
+    final resolvedMatchId = matchId ?? state.currentMatchId;
+    final resolvedTerms = terms ?? state.currentIntent?.terms;
+    if (resolvedMatchId == null || resolvedTerms == null) return null;
     try {
-      final snapshot = await _gateway.cancelMatch(matchId, terms);
+      final snapshot = await _gateway.cancelMatch(
+        resolvedMatchId,
+        resolvedTerms,
+      );
       if (snapshot != null) applyLifecycle(snapshot);
       return snapshot;
     } catch (_) {

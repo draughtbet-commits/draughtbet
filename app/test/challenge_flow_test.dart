@@ -205,6 +205,110 @@ void main() {
       expect(snapshot?.opponent?.name, 'Rival');
       expect(snapshot?.opponent?.rank, 'MASTER');
     });
+
+    test('an OPEN match with a sent challenge maps to challengeSent', () async {
+      final adapter = RecordingAdapter();
+      final dio = Dio(BaseOptions(baseUrl: 'https://api.example.test'));
+      dio.httpClientAdapter = adapter;
+      adapter.enqueue({
+        'data': {
+          'id': 'match-9',
+          'status': 'OPEN',
+          'stakeMinor': 1000000,
+          'challenge': {
+            'id': 'c1',
+            'direction': 'SENT',
+            'status': 'PENDING',
+            'expiresAt': '2026-01-01T00:15:00.000Z',
+          },
+          'opponent': {
+            'id': 'usr_2',
+            'username': 'Rival',
+            'avatarId': 'avatar_03',
+            'tier': 'MASTER',
+          },
+        },
+      });
+
+      final snapshot = await MatchFlowGateway(
+        dio,
+        contract: v2,
+      ).fetchMatch('match-9', terms);
+
+      expect(snapshot?.phase, MatchLifecyclePhase.challengeSent);
+      expect(snapshot?.opponent?.id, 'usr_2');
+    });
+
+    test('an OPEN match with a received challenge maps to incomingChallenge',
+        () async {
+      final adapter = RecordingAdapter();
+      final dio = Dio(BaseOptions(baseUrl: 'https://api.example.test'));
+      dio.httpClientAdapter = adapter;
+      adapter.enqueue({
+        'data': {
+          'id': 'match-9',
+          'status': 'OPEN',
+          'stakeMinor': 1000000,
+          'challenge': {
+            'id': 'c1',
+            'direction': 'RECEIVED',
+            'status': 'PENDING',
+            'expiresAt': '2026-01-01T00:15:00.000Z',
+          },
+          'opponent': {
+            'id': 'usr_2',
+            'username': 'Rival',
+            'avatarId': 'avatar_03',
+            'tier': 'MASTER',
+          },
+        },
+      });
+
+      final snapshot = await MatchFlowGateway(
+        dio,
+        contract: v2,
+      ).fetchMatch('match-9', terms);
+
+      expect(snapshot?.phase, MatchLifecyclePhase.incomingChallenge);
+    });
+
+    test('loadActiveMatches surfaces both challenge directions', () async {
+      final adapter = RecordingAdapter();
+      final dio = Dio(BaseOptions(baseUrl: 'https://api.example.test'));
+      dio.httpClientAdapter = adapter;
+      adapter.enqueue({
+        'data': [
+          {
+            'id': 'sent-1',
+            'status': 'OPEN',
+            'stakeMinor': 1000000,
+            'challenge': {'id': 'c1', 'direction': 'SENT', 'status': 'PENDING'},
+          },
+          {
+            'id': 'recv-1',
+            'status': 'OPEN',
+            'stakeMinor': 1000000,
+            'challenge': {
+              'id': 'c2',
+              'direction': 'RECEIVED',
+              'status': 'PENDING',
+            },
+          },
+          {'id': 'funded-1', 'status': 'FUNDED', 'stakeMinor': 1000000},
+        ],
+      });
+
+      final matches = await MatchFlowGateway(
+        dio,
+        contract: v2,
+      ).loadActiveMatches();
+
+      expect(adapter.requests.single.path, '/matches/active');
+      final byId = {for (final match in matches) match.matchId: match.phase};
+      expect(byId['sent-1'], MatchLifecyclePhase.challengeSent);
+      expect(byId['recv-1'], MatchLifecyclePhase.incomingChallenge);
+      expect(byId['funded-1'], MatchLifecyclePhase.readyCheck);
+    });
   });
 
   group('MatchFlowNotifier challenge flow', () {
@@ -234,6 +338,47 @@ void main() {
 
       expect(accepted?.phase, MatchLifecyclePhase.readyCheck);
       expect(accepted?.matchId, 'match-1');
+      notifier.dispose();
+    });
+
+    test('acceptChallenge acts on an explicit match without an adopted context',
+        () async {
+      final funded = MatchLifecycleSnapshot(
+        phase: MatchLifecyclePhase.readyCheck,
+        terms: terms,
+        matchId: 'match-9',
+      );
+      final notifier = MatchFlowNotifier(
+        _StubGateway({'fetchMatch': Future.value(funded)}),
+      );
+      expect(notifier.state.currentMatchId, isNull);
+
+      final accepted = await notifier.acceptChallenge(
+        matchId: 'match-9',
+        terms: terms,
+      );
+
+      expect(accepted?.phase, MatchLifecyclePhase.readyCheck);
+      expect(accepted?.matchId, 'match-9');
+      notifier.dispose();
+    });
+
+    test('cancelSentChallenge accepts an explicit id and terms', () async {
+      final cancelled = MatchLifecycleSnapshot(
+        phase: MatchLifecyclePhase.unavailable,
+        terms: terms,
+        matchId: 'match-9',
+      );
+      final notifier = MatchFlowNotifier(
+        _StubGateway({'cancelMatch': Future.value(cancelled)}),
+      );
+
+      final result = await notifier.cancelSentChallenge(
+        matchId: 'match-9',
+        terms: terms,
+      );
+
+      expect(result?.matchId, 'match-9');
       notifier.dispose();
     });
 

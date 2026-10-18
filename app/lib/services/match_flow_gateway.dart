@@ -401,6 +401,8 @@ MatchLifecycleSnapshot? _lifecycleFromV2(
   final youConnected = raw['youConnected'] != false;
   final opponentConnected = raw['opponentConnected'] != false;
   final phase = switch (status) {
+    'OPEN' =>
+      _challengePhase(raw) ?? MatchLifecyclePhase.waitingOpponentStake,
     'FUNDED' => !opponentConnected && youConnected
         ? MatchLifecyclePhase.opponentDisconnected
         : MatchLifecyclePhase.readyCheck,
@@ -446,6 +448,22 @@ MatchLifecycleSnapshot? _lifecycleFromV2(
         : AuthoritativeProgress.unknown,
     reason: raw['reason']?.toString(),
   );
+}
+
+/// Directed challenges are OPEN matches with a `challenge` block; map the
+/// direction onto the dedicated sent/incoming screens instead of the generic
+/// "waiting for an opponent stake" one.
+MatchLifecyclePhase? _challengePhase(Map<String, dynamic> raw) {
+  final challenge = raw['challenge'];
+  if (challenge is! Map) return null;
+  final status = challenge['status']?.toString().toUpperCase();
+  if (status == 'EXPIRED') return MatchLifecyclePhase.challengeExpired;
+  if (status != 'PENDING') return null;
+  return switch (challenge['direction']?.toString().toUpperCase()) {
+    'SENT' => MatchLifecyclePhase.challengeSent,
+    'RECEIVED' => MatchLifecyclePhase.incomingChallenge,
+    _ => null,
+  };
 }
 
 int _timeControlSeconds(String value) {

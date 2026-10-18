@@ -106,7 +106,7 @@ const reserveSnapshot = (row) => ({
  * from the Redis projection, fee/preconditions and release/reason fields.
  */
 export const buildLifecycleSnapshot = async (client, matchId, userId) => {
-  const [match, settings, reservations] = await Promise.all([
+  const [match, settings, challenge] = await Promise.all([
     client.match.findUnique({
       where: { id: matchId },
       select: {
@@ -123,10 +123,29 @@ export const buildLifecycleSnapshot = async (client, matchId, userId) => {
         timeControlSeconds: true
       }
     }),
-    client.platformSettings.findUnique({ where: { id: 'singleton' } })
+    client.platformSettings.findUnique({ where: { id: 'singleton' } }),
+    client.matchChallenge.findFirst({
+      where: { matchId },
+      select: {
+        id: true,
+        inviterId: true,
+        inviteeId: true,
+        status: true,
+        createdAt: true
+      }
+    })
   ]);
   if (!match) throw new MatchNotFoundError();
-  if (match.playerLightId !== userId && match.playerDarkId !== userId) {
+  // A directed challenge seats only the inviter until the invitee joins, so the
+  // invitee is not yet a participant. Let them read the pre-accept snapshot too,
+  // otherwise the challenge is invisible everywhere except the push/inbox.
+  const isInvitee =
+    challenge?.inviteeId === userId && challenge?.status === 'PENDING';
+  if (
+    match.playerLightId !== userId &&
+    match.playerDarkId !== userId &&
+    !isInvitee
+  ) {
     throw new NotParticipantError();
   }
 
@@ -138,8 +157,15 @@ export const buildLifecycleSnapshot = async (client, matchId, userId) => {
   const feeMinor = Math.round((stake * (commissionPercent || 0)) / 100);
   const grossPotMinor = stake * 2 - feeMinor;
   const side = match.playerLightId === userId ? 'LIGHT' : 'DARK';
-  const opponentId =
-    side === 'LIGHT' ? match.playerDarkId : match.playerLightId;
+  // For a directed challenge the invitee is not seated yet (playerDarkId is the
+  // empty placeholder), so derive the counterpart from the challenge itself.
+  const opponentId = challenge
+    ? challenge.inviterId === userId
+      ? challenge.inviteeId
+      : challenge.inviterId
+    : side === 'LIGHT'
+      ? match.playerDarkId
+      : match.playerLightId;
 
   const opponentUser = opponentId
     ? await client.user.findUnique({
@@ -176,10 +202,9 @@ export const buildLifecycleSnapshot = async (client, matchId, userId) => {
   const youConnected = presenceConnected(isLight ? 'connLIGHT' : 'connDARK');
   const opponentConnected = presenceConnected(isLight ? 'connDARK' : 'connLIGHT');
 
-  const reservationRows =
-    reservations && reservations.length
-      ? reservations
-      : await client.stakeReservation.findMany({ where: { matchId } });
+  const reservationRows = await client.stakeReservation.findMany({
+    where: { matchId }
+  });
   const yourReservation = reservationRows.find(
     (r) => r.userId === userId,
   );
@@ -231,6 +256,16 @@ export const buildLifecycleSnapshot = async (client, matchId, userId) => {
     reason:
       match.endReason ??
       (match.status === 'CANCELLED' ? 'CREATOR_CANCELLED' : null),
+    challenge: challenge
+      ? {
+          id: challenge.id,
+          direction: challenge.inviterId === userId ? 'SENT' : 'RECEIVED',
+          status: challenge.status,
+          expiresAt: new Date(
+            new Date(challenge.createdAt).getTime() + OPEN_MATCH_TTL_MS
+          ).toISOString(),
+        }
+      : null,
   };
 };
 
@@ -761,19 +796,40 @@ export const listOpenMatches = async (userId) => {
  *  snapshot, newest first. Lets the app Home surface stranded pre-play matches.
  */
 export const listActiveMatches = async (userId) => {
-  const rows = await prisma.match.findMany({
-    where: {
-      status: { in: ['OPEN', 'FUNDED', 'READY'] },
-      OR: [{ playerLightId: userId }, { playerDarkId: userId }]
-    },
-    orderBy: { createdAt: 'desc' },
-    take: 50,
-    select: { id: true }
-  });
+  const since = new Date(Date.now() - OPEN_MATCH_TTL_MS);
+  const [matches, received] = await Promise.all([
+    prisma.match.findMany({
+      where: {
+        status: { in: ['OPEN', 'FUNDED', 'READY'] },
+        OR: [{ playerLightId: userId }, { playerDarkId: userId }]
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 100,
+      select: { id: true }
+    }),
+    // The invitee is not a participant until acceptance, so surface their
+    // pending directed challenges here too — otherwise an incoming challenge
+    // only ever reaches them through the push/inbox.
+    prisma.matchChallenge.findMany({
+      where: {
+        inviteeId: userId,
+        status: 'PENDING',
+        createdAt: { gt: since }
+      },
+      orderBy: { createdAt: 'desc' },
+      select: { matchId: true }
+    })
+  ]);
+  const matchIds = [
+    ...new Set([
+      ...matches.map((match) => match.id),
+      ...received.map((challenge) => challenge.matchId)
+    ])
+  ];
   const snapshots = await Promise.all(
-    rows.map(({ id }) =>
-      buildLifecycleSnapshot(prisma, id, userId).catch((err) => {
-        logger.warn({ err, matchId: id }, 'active match snapshot failed');
+    matchIds.map((matchId) =>
+      buildLifecycleSnapshot(prisma, matchId, userId).catch((err) => {
+        logger.warn({ err, matchId }, 'active match snapshot failed');
         return null;
       })
     )

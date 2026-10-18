@@ -423,10 +423,22 @@ class _ActiveMatchCard extends StatelessWidget {
   String get _route => lifecyclePhaseRoute(snapshot);
 
   String get _status => switch (snapshot.phase) {
+    MatchLifecyclePhase.challengeSent => 'Challenge sent · awaiting response',
+    MatchLifecyclePhase.incomingChallenge =>
+      'Incoming challenge · tap to respond',
+    MatchLifecyclePhase.challengeExpired => 'Challenge expired',
     MatchLifecyclePhase.readyCheck => 'Both stakes confirmed · ready to start',
     MatchLifecyclePhase.waitingOpponentReady =>
       'Waiting for opponent to confirm',
     _ => 'Waiting for an opponent stake',
+  };
+
+  String get _actionLabel => switch (snapshot.phase) {
+    MatchLifecyclePhase.incomingChallenge => 'Respond',
+    MatchLifecyclePhase.challengeSent ||
+    MatchLifecyclePhase.challengeExpired =>
+      'View Challenge',
+    _ => 'Return to Room',
   };
 
   String get _opponentLabel {
@@ -481,7 +493,7 @@ class _ActiveMatchCard extends StatelessWidget {
               minimumSize: const Size(0, 42),
               side: const BorderSide(color: AppColors.primaryBright),
             ),
-            child: const Text('Return to Room', style: TextStyle(fontSize: 11)),
+            child: Text(_actionLabel, style: const TextStyle(fontSize: 11)),
           ),
         ],
       ),
