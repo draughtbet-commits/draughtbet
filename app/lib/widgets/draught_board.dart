@@ -59,6 +59,7 @@ class DraughtBoard extends StatelessWidget {
                   selectedSquare: selectedSquare,
                   legalMoves: legalMoves,
                   capturePath: capturePath,
+                  interactive: inputEnabled,
                 ),
                 child: Stack(
                   children: [
@@ -120,12 +121,18 @@ class BoardPainter extends CustomPainter {
     required this.selectedSquare,
     required this.legalMoves,
     this.capturePath = const [],
+    this.interactive = false,
   });
 
   final List<int> board;
   final int? selectedSquare;
   final List<LegalMove> legalMoves;
   final List<int> capturePath;
+
+  /// True while this client may move. Only then are the pieces that can be
+  /// played highlighted; on the opponent's turn the same `legalMoves` describe
+  /// their options and must not be surfaced.
+  final bool interactive;
 
   Offset _centerForSquare(int square, double size) {
     final zero = square - 1;
@@ -186,10 +193,27 @@ class BoardPainter extends CustomPainter {
       );
     }
 
+    // Squares holding a piece this client may play. When a capture is
+    // compulsory (international draughts) every legal move is a capture, so the
+    // whole set is drawn in the capture accent, matching the "Capture required"
+    // hint instead of leaving the board looking unchanged.
+    final movableFrom = <int>{};
+    final capturingFrom = <int>{};
+    if (interactive) {
+      for (final move in legalMoves) {
+        movableFrom.add(move.from);
+        if (move.capturedSquares.isNotEmpty) capturingFrom.add(move.from);
+      }
+    }
+
     for (var index = 1; index <= math.min(50, board.length); index++) {
       final piece = board[index - 1];
       final center = _centerForSquare(index, square);
       final selected = selectedSquare == index;
+      final movable = movableFrom.contains(index) && !selected;
+      final highlightColor = capturingFrom.contains(index)
+          ? AppColors.valueAccent
+          : AppColors.primaryBright;
       final legalDestination =
           selectedSquare != null &&
           legalMoves.any(
@@ -217,6 +241,15 @@ class BoardPainter extends CustomPainter {
 
       final isLight = Piece.isLight(piece);
       final pieceColor = isLight ? AppColors.pieceLight : AppColors.pieceDark;
+      if (movable) {
+        canvas.drawCircle(
+          center,
+          square * .5,
+          Paint()
+            ..color = highlightColor.withValues(alpha: .18)
+            ..style = PaintingStyle.fill,
+        );
+      }
       canvas.drawCircle(
         center.translate(0, square * .05),
         square * .38,
@@ -253,6 +286,15 @@ class BoardPainter extends CustomPainter {
             ..style = PaintingStyle.stroke
             ..strokeWidth = math.max(2, square * .08),
         );
+      } else if (movable) {
+        canvas.drawCircle(
+          center,
+          square * .44,
+          Paint()
+            ..color = highlightColor
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = math.max(2, square * .07),
+        );
       }
     }
     canvas.restore();
@@ -263,6 +305,7 @@ class BoardPainter extends CustomPainter {
     return oldDelegate.board != board ||
         oldDelegate.selectedSquare != selectedSquare ||
         oldDelegate.legalMoves != legalMoves ||
-        oldDelegate.capturePath != capturePath;
+        oldDelegate.capturePath != capturePath ||
+        oldDelegate.interactive != interactive;
   }
 }
