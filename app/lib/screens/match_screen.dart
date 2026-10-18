@@ -7,6 +7,7 @@ import 'package:go_router/go_router.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../models/game_state.dart';
 import '../models/game_protocol.dart';
+import '../models/chat_message.dart';
 import '../models/match_flow.dart';
 import '../providers/match_provider.dart';
 import '../services/secure_storage.dart';
@@ -36,6 +37,11 @@ class _MatchScreenState extends ConsumerState<MatchScreen>
   int _clockRevisionSeen = -1;
   int _disconnectSequenceSeen = -1;
   bool _resultOpened = false;
+  bool _chatOpen = false;
+  int _chatCountSeen = 0;
+  final TextEditingController _chatController = TextEditingController();
+  final ScrollController _chatScrollController = ScrollController();
+  final FocusNode _chatFocusNode = FocusNode();
 
   @override
   void initState() {
@@ -80,6 +86,9 @@ class _MatchScreenState extends ConsumerState<MatchScreen>
     _errorSubscription?.cancel();
     _promotionTimer?.cancel();
     _uiTicker?.cancel();
+    _chatController.dispose();
+    _chatScrollController.dispose();
+    _chatFocusNode.dispose();
     super.dispose();
   }
 
@@ -170,12 +179,36 @@ class _MatchScreenState extends ConsumerState<MatchScreen>
     }
   }
 
-  void _chatUnavailable() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Chat is not supported by the current server contract.'),
-      ),
-    );
+  void _toggleChat() {
+    setState(() => _chatOpen = !_chatOpen);
+    if (_chatOpen) _scrollChatToEnd();
+  }
+
+  void _sendChat() {
+    final text = _chatController.text;
+    if (text.trim().isEmpty) return;
+    final sent = ref.read(matchProvider.notifier).sendChat(text);
+    if (!sent) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Message not sent. Chat is available during play.'),
+        ),
+      );
+      return;
+    }
+    _chatController.clear();
+    _scrollChatToEnd();
+  }
+
+  void _scrollChatToEnd() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_chatScrollController.hasClients) return;
+      _chatScrollController.animateTo(
+        _chatScrollController.position.maxScrollExtent,
+        duration: const Duration(milliseconds: 200),
+        curve: Curves.easeOut,
+      );
+    });
   }
 
   void _showMatchMenu() {
@@ -329,6 +362,10 @@ class _MatchScreenState extends ConsumerState<MatchScreen>
     }
     if (state.authoritativeResult != null) {
       _openResult(state.authoritativeResult!);
+    }
+    if (_chatOpen && state.chatMessages.length != _chatCountSeen) {
+      _chatCountSeen = state.chatMessages.length;
+      _scrollChatToEnd();
     }
 
     final myTurn = game != null && _isMyTurn(game, state);
@@ -588,7 +625,7 @@ class _MatchScreenState extends ConsumerState<MatchScreen>
                                   _GameAction(
                                     icon: LucideIcons.messageCircle,
                                     label: 'Chat',
-                                    onTap: _chatUnavailable,
+                                    onTap: _toggleChat,
                                   ),
                                   _GameAction(
                                     icon: LucideIcons.menu,
@@ -655,6 +692,17 @@ class _MatchScreenState extends ConsumerState<MatchScreen>
                       MoveRejection.fromServer({'code': state.rejectionReason}),
                   onDismiss: ref.read(matchProvider.notifier).clearRejection,
                 ),
+              _MatchChatPanel(
+                open: _chatOpen,
+                messages: state.chatMessages,
+                currentUserId: _userId ?? state.currentUserId,
+                controller: _chatController,
+                scrollController: _chatScrollController,
+                focusNode: _chatFocusNode,
+                enabled: game?.status == 'in_progress' && stable,
+                onClose: () => setState(() => _chatOpen = false),
+                onSend: _sendChat,
+              ),
             ],
           ),
         ),
@@ -726,6 +774,264 @@ class _MoveRejectedOverlay extends StatelessWidget {
           ? 'Continue'
           : 'Choose another move',
       onPrimary: onDismiss,
+    );
+  }
+}
+
+class _MatchChatPanel extends StatelessWidget {
+  const _MatchChatPanel({
+    required this.open,
+    required this.messages,
+    required this.currentUserId,
+    required this.controller,
+    required this.scrollController,
+    required this.focusNode,
+    required this.enabled,
+    required this.onClose,
+    required this.onSend,
+  });
+
+  final bool open;
+  final List<MatchChatMessage> messages;
+  final String? currentUserId;
+  final TextEditingController controller;
+  final ScrollController scrollController;
+  final FocusNode focusNode;
+  final bool enabled;
+  final VoidCallback onClose;
+  final VoidCallback onSend;
+
+  @override
+  Widget build(BuildContext context) {
+    final reduceMotion = MediaQuery.disableAnimationsOf(context);
+    final panelHeight =
+        (MediaQuery.sizeOf(context).height * 0.55).clamp(280.0, 460.0);
+    return IgnorePointer(
+      ignoring: !open,
+      child: AnimatedOpacity(
+        key: const ValueKey('match-chat-animation'),
+        opacity: open ? 1 : 0,
+        duration: Duration(milliseconds: reduceMotion ? 1 : 180),
+        child: Stack(
+          children: [
+            Positioned.fill(
+              child: GestureDetector(
+                onTap: onClose,
+                child: ColoredBox(
+                  color: AppColors.background.withValues(alpha: .64),
+                ),
+              ),
+            ),
+            AnimatedPositioned(
+              left: 0,
+              right: 0,
+              bottom: open ? 0 : -panelHeight,
+              duration: Duration(milliseconds: reduceMotion ? 1 : 220),
+              curve: Curves.easeOutCubic,
+              child: Container(
+                height: panelHeight,
+                decoration: const BoxDecoration(
+                  color: AppColors.surface,
+                  borderRadius:
+                      BorderRadius.vertical(top: Radius.circular(20)),
+                  border: Border(top: BorderSide(color: AppColors.border)),
+                ),
+                child: SafeArea(
+                  top: false,
+                  child: Column(
+                    children: [
+                      const SizedBox(height: 8),
+                      Container(
+                        width: 40,
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: AppColors.border,
+                          borderRadius: BorderRadius.circular(2),
+                        ),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 8, 8, 8),
+                        child: Row(
+                          children: [
+                            const Icon(
+                              LucideIcons.messageCircle,
+                              size: 18,
+                              color: AppColors.primaryBright,
+                            ),
+                            const SizedBox(width: 8),
+                            const Expanded(
+                              child: Text(
+                                'Match chat',
+                                style: TextStyle(
+                                  fontFamily: 'Sora',
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                            const Text(
+                              'Live · not saved',
+                              style: TextStyle(
+                                fontFamily: 'Inter',
+                                fontSize: 10,
+                                color: AppColors.textSecondary,
+                              ),
+                            ),
+                            IconButton(
+                              tooltip: 'Close chat',
+                              onPressed: onClose,
+                              icon: const Icon(LucideIcons.x, size: 18),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const Divider(height: 1, color: AppColors.border),
+                      Expanded(
+                        child: messages.isEmpty
+                            ? const Center(
+                                child: Padding(
+                                  padding: EdgeInsets.all(24),
+                                  child: Text(
+                                    'Chat is live only. Messages are not saved '
+                                    'and are gone if the connection drops.',
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(
+                                      fontFamily: 'Inter',
+                                      fontSize: 12,
+                                      color: AppColors.textSecondary,
+                                    ),
+                                  ),
+                                ),
+                              )
+                            : ListView.builder(
+                                controller: scrollController,
+                                padding:
+                                    const EdgeInsets.fromLTRB(16, 10, 16, 10),
+                                itemCount: messages.length,
+                                itemBuilder: (context, index) => _ChatBubble(
+                                  message: messages[index],
+                                  mine: messages[index].isMine(currentUserId),
+                                ),
+                              ),
+                      ),
+                      _buildComposer(),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildComposer() {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
+      decoration: const BoxDecoration(
+        border: Border(top: BorderSide(color: AppColors.border)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          Expanded(
+            child: TextField(
+              controller: controller,
+              focusNode: focusNode,
+              enabled: enabled,
+              maxLength: kMaxChatTextLength,
+              maxLines: 4,
+              minLines: 1,
+              textInputAction: TextInputAction.send,
+              onSubmitted: (_) => onSend(),
+              style: const TextStyle(fontFamily: 'Inter', fontSize: 13),
+              decoration: InputDecoration(
+                counterText: '',
+                isDense: true,
+                hintText: enabled
+                    ? 'Message your opponent…'
+                    : 'Chat is available during play',
+                hintStyle: const TextStyle(
+                  fontFamily: 'Inter',
+                  fontSize: 12,
+                  color: AppColors.textSecondary,
+                ),
+                filled: true,
+                fillColor: AppColors.surfaceRaised,
+                contentPadding:
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(18),
+                  borderSide: const BorderSide(color: AppColors.border),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(18),
+                  borderSide: const BorderSide(color: AppColors.border),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(18),
+                  borderSide: const BorderSide(color: AppColors.primaryBright),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 6),
+          ValueListenableBuilder<TextEditingValue>(
+            valueListenable: controller,
+            builder: (context, value, _) {
+              final canSend = enabled && value.text.trim().isNotEmpty;
+              return IconButton(
+                tooltip: 'Send',
+                onPressed: canSend ? onSend : null,
+                icon: const Icon(LucideIcons.send, size: 20),
+                color: AppColors.primaryBright,
+                disabledColor: AppColors.disabled,
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ChatBubble extends StatelessWidget {
+  const _ChatBubble({required this.message, required this.mine});
+
+  final MatchChatMessage message;
+  final bool mine;
+
+  @override
+  Widget build(BuildContext context) {
+    return Align(
+      alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
+      child: Container(
+        constraints: const BoxConstraints(maxWidth: 300),
+        margin: const EdgeInsets.symmetric(vertical: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+        decoration: BoxDecoration(
+          color: mine ? AppColors.primaryGlow : AppColors.surfaceRaised,
+          borderRadius: BorderRadius.only(
+            topLeft: const Radius.circular(14),
+            topRight: const Radius.circular(14),
+            bottomLeft: Radius.circular(mine ? 14 : 4),
+            bottomRight: Radius.circular(mine ? 4 : 14),
+          ),
+          border: Border.all(
+            color: mine ? AppColors.primaryBright : AppColors.border,
+          ),
+        ),
+        child: Text(
+          message.text,
+          style: const TextStyle(
+            fontFamily: 'Inter',
+            fontSize: 13,
+            height: 1.35,
+            color: AppColors.textPrimary,
+          ),
+        ),
+      ),
     );
   }
 }

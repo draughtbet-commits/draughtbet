@@ -5,6 +5,7 @@ import 'package:dio/dio.dart';
 import '../models/game_state.dart';
 import '../models/game_protocol.dart';
 import '../models/callout.dart';
+import '../models/chat_message.dart';
 import '../services/api_client.dart';
 import '../services/socket_service.dart';
 import '../services/secure_storage.dart';
@@ -96,6 +97,7 @@ class MatchState {
   final bool isFindingMatch;
   final String? currentMatchId;
   final List<Callout> openCallouts;
+  final List<MatchChatMessage> chatMessages;
   final bool isMovePending;
   final String? rejectionReason;
   final MoveRejection? moveRejection;
@@ -124,6 +126,7 @@ class MatchState {
     this.isFindingMatch = false,
     this.currentMatchId,
     this.openCallouts = const [],
+    this.chatMessages = const [],
     this.isMovePending = false,
     this.rejectionReason,
     this.moveRejection,
@@ -153,6 +156,8 @@ class MatchState {
     bool? isFindingMatch,
     String? currentMatchId,
     List<Callout>? openCallouts,
+    List<MatchChatMessage>? chatMessages,
+    bool clearChat = false,
     bool? isMovePending,
     String? rejectionReason,
     MoveRejection? moveRejection,
@@ -187,6 +192,7 @@ class MatchState {
       isFindingMatch: isFindingMatch ?? this.isFindingMatch,
       currentMatchId: currentMatchId ?? this.currentMatchId,
       openCallouts: openCallouts ?? this.openCallouts,
+      chatMessages: clearChat ? const [] : chatMessages ?? this.chatMessages,
       isMovePending: isMovePending ?? this.isMovePending,
       rejectionReason: clearRejection
           ? null
@@ -265,6 +271,7 @@ class MatchNotifier extends StateNotifier<MatchState> {
           currentMatchId: matchId,
           settlementPhase: SettlementPhase.pending,
           clearResult: true,
+          clearChat: true,
         );
         unawaited(_storage.setActiveMatchId(matchId));
         _socketService.joinMatch(matchId);
@@ -324,6 +331,27 @@ class MatchNotifier extends StateNotifier<MatchState> {
             if (matchId != null) unawaited(fetchGameState(matchId));
           }
         }
+      }),
+    );
+
+    _subscriptions.add(
+      _socketService.onChatMessage.listen((data) {
+        final eventMatchId = data['matchId']?.toString();
+        if (eventMatchId != null &&
+            eventMatchId.isNotEmpty &&
+            eventMatchId != state.currentMatchId) {
+          return;
+        }
+        final message = MatchChatMessage.tryFromServer(data);
+        if (message == null) return;
+        // The server fans the message out to the whole room including the
+        // sender; a duplicate delivery must not double the bubble.
+        if (state.chatMessages.any((existing) => existing.id == message.id)) {
+          return;
+        }
+        state = state.copyWith(
+          chatMessages: [...state.chatMessages, message],
+        );
       }),
     );
 
@@ -945,6 +973,29 @@ class MatchNotifier extends StateNotifier<MatchState> {
 
   void clearDrawRejected() {
     state = state.copyWith(drawOfferRejected: false);
+  }
+
+  /// Sends a chat message to the match room. Returns false when the message is
+  /// empty, too long, or the match is not a live V2 game — the caller shows the
+  /// reason rather than a silent no-op. The bubble appears when the server
+  /// echoes the message back, so nothing is appended here.
+  bool sendChat(String rawText) {
+    final matchId = state.currentMatchId;
+    final game = state.gameState;
+    final text = rawText.trim();
+    if (matchId == null ||
+        game == null ||
+        game.protocolVersion < 2 ||
+        text.isEmpty ||
+        text.length > kMaxChatTextLength) {
+      return false;
+    }
+    _socketService.sendChatMessage(
+      matchId: matchId,
+      actionId: _newActionId('chat'),
+      text: text,
+    );
+    return true;
   }
 
   void resign() {

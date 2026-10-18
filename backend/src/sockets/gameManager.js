@@ -1,6 +1,6 @@
 import redis from '../utils/redis.js';
 import logger from '../utils/logger.js';
-import { validateClockSync, validateMoveAttempt, validateMoveSubmit, validateReady, validateResign, validateDrawOffer, validateDrawRespond } from './payloadGuard.js';
+import { validateClockSync, validateMoveAttempt, validateMoveSubmit, validateReady, validateResign, validateDrawOffer, validateDrawRespond, validateChatSend } from './payloadGuard.js';
 import { createInitialBoard, getLegalMoves, applyMove, checkGameEnd, COLOR_WHITE, COLOR_BLACK, isKing } from '../modules/engine/index.js';
 import { settleGame, settleGameDraw, settleGameWithRetry, settleGameDrawWithRetry } from './settlement.js';
 import {
@@ -1202,4 +1202,50 @@ export const handleDrawRespond = async (socket, payload) => {
 
   const refreshed = await getGameState(matchId);
   await broadcastState(matchId, refreshed);
+};
+
+/**
+ * `chat.send {matchId, actionId, text}`. Real-time only: the text is fanned out
+ * to the match room as `chat.message` and never persisted (no history endpoint
+ * exists, and a reconnect does not replay it). Only the two seated players of a
+ * live match may send. The sender is included in the broadcast rather than
+ * receiving a separate ack, so a bubble on screen is always a message the server
+ * accepted — the client never renders an optimistic copy it cannot vouch for.
+ */
+export const handleChatSend = async (socket, payload) => {
+  const userId = socket.user?.userId;
+  if (!userId) return;
+
+  const validated = validateChatSend(payload);
+  if (!validated.ok) {
+    emitActionError(socket, 'invalid_payload');
+    return;
+  }
+  const { matchId, text } = validated.data;
+
+  const state = await getGameState(matchId);
+  if (!state) {
+    emitActionError(socket, 'game_already_ended');
+    return;
+  }
+  if (state.player1 !== userId && state.player2 !== userId) {
+    emitActionError(socket, 'not_authorized');
+    return;
+  }
+  if (state.status !== 'in_progress') {
+    emitActionError(socket, 'game_not_in_progress');
+    return;
+  }
+
+  try {
+    getIO().to(`match:${matchId}`).emit('chat.message', {
+      matchId,
+      messageId: `chat_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`,
+      senderId: userId,
+      text,
+      sentAtMs: Date.now()
+    });
+  } catch (e) {
+    logger.warn({ e, matchId }, 'chat.message emit failed');
+  }
 };

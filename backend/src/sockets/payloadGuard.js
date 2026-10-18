@@ -99,6 +99,20 @@ export const clockSyncSchema = z.strictObject({
   clientSentAt: z.number().int().min(0).optional()
 });
 
+// V2 in-match chat. Real-time only (never persisted): the server fans the text
+// out to the match room and drops it. The length is capped well below the
+// transport budget so one message can never approach `maxHttpBufferSize`, and
+// `.trim()` collapses whitespace-only text to an empty string, which `min(1)`
+// then rejects rather than broadcasting a blank bubble.
+export const MAX_CHAT_TEXT_LENGTH = 500;
+
+export const chatSendSchema = z.strictObject({
+  matchId,
+  actionId,
+  text: z.string().trim().min(1).max(MAX_CHAT_TEXT_LENGTH)
+});
+
+
 export const payloadTooLarge = (payload) => {
   if (payload === null || payload === undefined) return false;
   try {
@@ -151,4 +165,9 @@ export const validateDrawRespond = (payload) => {
 export const validateClockSync = (payload) => {
   if (payloadTooLarge(payload)) return { ok: false };
   return parse(clockSyncSchema, payload);
+};
+
+export const validateChatSend = (payload) => {
+  if (payloadTooLarge(payload)) return { ok: false };
+  return parse(chatSendSchema, payload);
 };

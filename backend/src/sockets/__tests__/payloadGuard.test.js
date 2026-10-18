@@ -4,6 +4,7 @@ import {
   validateMoveSubmit,
   validateMatchIdPayload,
   validateClockSync,
+  validateChatSend,
   payloadTooLarge
 } from '../payloadGuard.js';
 
@@ -73,6 +74,39 @@ describe('payloadGuard', () => {
     expect(validateClockSync({ matchId: 'abc', clientSentAt: 1.5 }).ok).toBe(false);
     expect(validateClockSync({ matchId: 'abc', serverNowMs: 1 }).ok).toBe(false);
     expect(validateClockSync({}).ok).toBe(false);
+  });
+});
+
+describe('payloadGuard — V2 chat.send', () => {
+  const base = { matchId: 'abc', actionId: 'chat_12345678', text: 'good game' };
+
+  it('accepts a well-formed chat message and trims surrounding whitespace', () => {
+    const result = validateChatSend({ ...base, text: '  hello there  ' });
+    expect(result.ok).toBe(true);
+    expect(result.data.text).toBe('hello there');
+  });
+
+  it('requires a valid actionId', () => {
+    expect(validateChatSend({ matchId: 'abc', text: 'hi' }).ok).toBe(false);
+    expect(validateChatSend({ ...base, actionId: 'short' }).ok).toBe(false);
+  });
+
+  it('rejects empty or whitespace-only text', () => {
+    expect(validateChatSend({ matchId: 'abc', actionId: 'chat_12345678', text: '' }).ok).toBe(false);
+    expect(validateChatSend({ ...base, text: '   \n  ' }).ok).toBe(false);
+    expect(validateChatSend({ matchId: 'abc', actionId: 'chat_12345678' }).ok).toBe(false);
+  });
+
+  it('caps the text at 500 characters', () => {
+    expect(validateChatSend({ ...base, text: 'x'.repeat(500) }).ok).toBe(true);
+    expect(validateChatSend({ ...base, text: 'x'.repeat(501) }).ok).toBe(false);
+  });
+
+  it('rejects unknown fields and non-string text', () => {
+    expect(validateChatSend({ ...base, extra: 1 }).ok).toBe(false);
+    expect(validateChatSend({ ...base, text: 123 }).ok).toBe(false);
+    expect(validateChatSend(null).ok).toBe(false);
+    expect(validateChatSend([]).ok).toBe(false);
   });
 });
 

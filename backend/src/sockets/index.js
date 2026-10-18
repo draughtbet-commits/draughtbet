@@ -2,7 +2,7 @@ import { Server } from 'socket.io';
 import logger from '../utils/logger.js';
 import { socketAuthMiddleware } from './middleware.js';
 import { handleDisconnect, handleJoinMatch } from './disconnectHandler.js';
-import { handleClockSync, handleMoveAttempt, handleMoveSubmit, handleResign, handlePlayerReady, handleDrawOffer, handleDrawRespond } from './gameManager.js';
+import { handleClockSync, handleMoveAttempt, handleMoveSubmit, handleResign, handlePlayerReady, handleDrawOffer, handleDrawRespond, handleChatSend } from './gameManager.js';
 import { consumeBudget, MAX_SOCKETS_PER_USER } from './budget.js';
 
 let io;
@@ -79,6 +79,10 @@ export const initSocketServer = (httpServer) => {
     socket.on('join_match', guardSocketHandler(socket, handleJoinMatch, 'join_match'));
 
     socket.on('clock.sync', guardSocketHandler(socket, handleClockSync, 'clock.sync'));
+
+    // In-match chat (real-time only). Registered only under the V2 name: the
+    // feature does not exist in the legacy client, so there is no legacy alias.
+    socket.on('chat.send', guardSocketHandler(socket, handleChatSend, 'chat.send'));
   });
 
   return io;

@@ -84,6 +84,7 @@ const {
   handlePlayerReady,
   handleDrawOffer,
   handleDrawRespond,
+  handleChatSend,
 } = await import('../gameManager.js');
 const { buildStatePayload } = await import('../gameProtocol.js');
 
@@ -318,5 +319,62 @@ describe('match.state contract shape', () => {
     ]));
     expect(payload.pendingDrawOffer).toMatchObject({ offerId: 'draw_offer_abc' });
     expect(payload.settlementStatus).toBe('pending');
+  });
+});
+
+describe('chat.send real-time fan-out', () => {
+  it('broadcasts an authorized player message to the match room', async () => {
+    seededState();
+
+    await handleChatSend(socketFor('p1'), {
+      matchId: 'm1',
+      actionId: 'chat_action_0001',
+      text: 'good luck'
+    });
+
+    const messages = emitSince('match:m1', 'chat.message');
+    expect(messages).toHaveLength(1);
+    expect(messages[0].payload).toMatchObject({
+      matchId: 'm1',
+      senderId: 'p1',
+      text: 'good luck'
+    });
+    expect(typeof messages[0].payload.messageId).toBe('string');
+    expect(messages[0].payload.sentAtMs).toEqual(expect.any(Number));
+  });
+
+  it('trims surrounding whitespace before fan-out', async () => {
+    seededState();
+
+    await handleChatSend(socketFor('p2'), {
+      matchId: 'm1',
+      actionId: 'chat_action_0002',
+      text: '  hello there  '
+    });
+
+    expect(emitSince('match:m1', 'chat.message')[0].payload.text).toBe('hello there');
+  });
+
+  it('rejects an invalid payload (blank text) without broadcasting', async () => {
+    seededState();
+    const socket = socketFor('p1');
+
+    await handleChatSend(socket, { matchId: 'm1', actionId: 'chat_action_0003', text: '   ' });
+
+    expect(socket.emit).toHaveBeenCalledWith('error', expect.objectContaining({ code: 'invalid_payload' }));
+    expect(emitSince('match:m1', 'chat.message')).toHaveLength(0);
+  });
+
+  it('rejects a non-participant and a non-live match', async () => {
+    seededState();
+    const outsider = socketFor('x');
+    await handleChatSend(outsider, { matchId: 'm1', actionId: 'chat_action_0004', text: 'hi' });
+    expect(outsider.emit).toHaveBeenCalledWith('error', expect.objectContaining({ code: 'not_authorized' }));
+
+    seededState({ status: 'completed', winnerId: 'p1' });
+    const ended = socketFor('p1');
+    await handleChatSend(ended, { matchId: 'm1', actionId: 'chat_action_0005', text: 'hi' });
+    expect(ended.emit).toHaveBeenCalledWith('error', expect.objectContaining({ code: 'game_not_in_progress' }));
+    expect(emitSince('match:m1', 'chat.message')).toHaveLength(0);
   });
 });

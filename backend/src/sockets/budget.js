@@ -27,9 +27,12 @@ const DEFAULT_BUDGETS = {
   'match.resign': { max: 10, windowMs: 60 * 1000 },
   resign: { max: 10, windowMs: 60 * 1000 },
   'match.join': { max: 30, windowMs: 60 * 1000 },
-  join_match: { max: 30, windowMs: 60 * 1000 },
-  'clock.sync': { max: 30, windowMs: 60 * 1000 },
-};
+    'join_match': { max: 30, windowMs: 60 * 1000 },
+    'clock.sync': { max: 20, windowMs: 60 * 1000 },
+    // In-match chat. Real-time only; generous enough for conversation,
+    // bounded so it cannot be used as a cheap broadcast amplifier.
+    'chat.send': { max: 20, windowMs: 60 * 1000 }
+  };
 
 const envMax = (eventName) => {
   const value = process.env[`SOCKET_BUDGET_${eventName.toUpperCase()}_MAX`];

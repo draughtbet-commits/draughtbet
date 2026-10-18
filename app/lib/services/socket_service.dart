@@ -160,6 +160,8 @@ class SocketService {
       StreamController<Map<String, dynamic>>.broadcast();
   final _settlementCompletedController =
       StreamController<Map<String, dynamic>>.broadcast();
+  final _chatMessageController =
+      StreamController<Map<String, dynamic>>.broadcast();
   final _connectionPhaseController =
       StreamController<SocketConnectionPhase>.broadcast();
   final _gameStartedController =
@@ -214,6 +216,11 @@ class SocketService {
   Stream<Map<String, dynamic>> get onClockSync => _clockSyncController.stream;
   Stream<Map<String, dynamic>> get onSettlementCompleted =>
       _settlementCompletedController.stream;
+
+  /// A live in-match chat message fanned out to the match room. Real-time only:
+  /// the server does not persist or replay these, so a message missed while
+  /// disconnected is gone.
+  Stream<Map<String, dynamic>> get onChatMessage => _chatMessageController.stream;
   Stream<SocketConnectionPhase> get onConnectionPhase =>
       _connectionPhaseController.stream;
   bool get isV2 => contract.isV2;
@@ -643,6 +650,12 @@ class SocketService {
       }
     });
 
+    _socket!.on('chat.message', (data) {
+      if (data is Map) {
+        _chatMessageController.add(Map<String, dynamic>.from(data));
+      }
+    });
+
     _socket!.on('notification', (data) {
       if (data is Map) {
         _notificationController.add(Map<String, dynamic>.from(data));
@@ -827,6 +840,21 @@ class SocketService {
     });
   }
 
+  /// Sends a real-time in-match chat message. The server echoes it back to the
+  /// whole room, so the sender renders only that echo (never an optimistic copy).
+  void sendChatMessage({
+    required String matchId,
+    required String actionId,
+    required String text,
+  }) {
+    if (!contract.isV2) return;
+    _socket?.emit('chat.send', {
+      'matchId': matchId,
+      'actionId': actionId,
+      'text': text,
+    });
+  }
+
   void disconnect() {
     final socket = _socket;
     _socket = null;
@@ -858,6 +886,7 @@ class SocketService {
     _drawResponseController.close();
     _clockSyncController.close();
     _settlementCompletedController.close();
+    _chatMessageController.close();
     _connectionPhaseController.close();
     _gameStartedController.close();
     disconnect();
