@@ -465,7 +465,7 @@ class _ChallengeStatusScreenState extends State<ChallengeStatusScreen> {
                   ? null
                   : () => _run(widget.onDecline),
             ),
-          ] else
+          ] else ...[
             SecondaryActionButton(
               label: 'Cancel challenge',
               loading: _submitting,
@@ -473,6 +473,20 @@ class _ChallengeStatusScreenState extends State<ChallengeStatusScreen> {
                   ? null
                   : () => _run(widget.onDecline),
             ),
+            const SizedBox(height: 4),
+            TextButton.icon(
+              onPressed: () => context.go('/home'),
+              icon: const Icon(LucideIcons.home, size: 18),
+              label: const Text('Go to Home'),
+              style: TextButton.styleFrom(
+                foregroundColor: AppColors.textSecondary,
+                textStyle: const TextStyle(
+                  fontFamily: 'Inter',
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
         ],
       ),
     );
