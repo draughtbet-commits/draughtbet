@@ -18,6 +18,7 @@ import { startGameRecovery } from './sockets/gameRecovery.js';
 import { startReadyGateSweep } from './jobs/readyGateSweep.js';
 import { startStakeLockSweep } from './jobs/stakeLockSweep.js';
 import { startChallengeExpirySweep } from './jobs/challengeExpirySweep.js';
+import { startOpenMatchExpirySweep } from './jobs/openMatchExpirySweep.js';
 import { startVerificationExpirySweep } from './jobs/verificationExpiry.js';
 import { startDepositQuoteExpirySweep } from './jobs/depositQuoteExpiry.js';
 import { ensureActiveConfigVersions } from './services/configVersionsService.js';
@@ -43,6 +44,7 @@ const startBackgroundJobs = () => {
   startReadyGateSweep();
   startStakeLockSweep();
   startChallengeExpirySweep();
+  startOpenMatchExpirySweep();
   startVerificationExpirySweep();
   startDepositQuoteExpirySweep();
 };

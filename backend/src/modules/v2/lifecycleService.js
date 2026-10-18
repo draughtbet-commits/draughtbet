@@ -151,8 +151,9 @@ export const buildLifecycleSnapshot = async (client, matchId, userId) => {
         currency: true,
         timeControlSeconds: true,
         visibility: true,
-        roomCode: true
-      }
+        roomCode: true,
+        createdAt: true,
+      },
     }),
     client.platformSettings.findUnique({ where: { id: 'singleton' } }),
     client.matchChallenge.findFirst({
@@ -289,6 +290,15 @@ export const buildLifecycleSnapshot = async (client, matchId, userId) => {
     // code never leaks to anyone who is not already in the room.
     visibility: match.visibility ?? 'PUBLIC',
     roomCode: match.roomCode ?? null,
+    // An OPEN listing is retired once its TTL elapses (open-match expiry sweep).
+    // Publishing the deadline lets the creator's app show the remaining window
+    // and leave the room on its own instead of waiting on the next poll.
+    expiresAt:
+      match.status === 'OPEN' && match.createdAt
+        ? new Date(
+            new Date(match.createdAt).getTime() + OPEN_MATCH_TTL_MS
+          ).toISOString()
+        : null,
     reason:
       match.endReason ??
       (match.status === 'CANCELLED' ? 'CREATOR_CANCELLED' : null),

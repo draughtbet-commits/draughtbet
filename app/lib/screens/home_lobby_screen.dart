@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_svg/flutter_svg.dart';
@@ -9,6 +11,7 @@ import '../providers/match_provider.dart';
 import '../providers/profile_provider.dart';
 import '../providers/wallet_provider.dart';
 import '../router/lifecycle_routes.dart';
+import '../services/socket_service.dart';
 import '../theme/colors.dart';
 import '../widgets/balance_card.dart';
 import '../widgets/flow_widgets.dart';
@@ -25,6 +28,8 @@ class HomeLobbyScreen extends ConsumerStatefulWidget {
 
 class _HomeLobbyScreenState extends ConsumerState<HomeLobbyScreen> {
   int? _selectedStake;
+  StreamSubscription<Map<String, dynamic>>? _matchFoundSub;
+  StreamSubscription<Map<String, dynamic>>? _preplayReleasedSub;
 
   @override
   void initState() {
@@ -39,6 +44,16 @@ class _HomeLobbyScreenState extends ConsumerState<HomeLobbyScreen> {
         ref.read(matchFlowProvider.notifier).loadActiveMatches();
       }
     });
+    // A private-room creator can wait on Home instead of the share-code screen.
+    // An opponent joining flips the room into a funded/ready-check match and a
+    // TTL expiry retires it; both arrive on the socket, so refresh the card
+    // rather than leave it showing a stale "waiting for an opponent" state.
+    _matchFoundSub = socketService.onMatchFound.listen(
+      (_) => ref.read(matchFlowProvider.notifier).loadActiveMatches(),
+    );
+    _preplayReleasedSub = socketService.onPreplayReleased.listen(
+      (_) => ref.read(matchFlowProvider.notifier).loadActiveMatches(),
+    );
     Future.microtask(() {
       ref.read(profileProvider.notifier).load();
       ref.read(matchFlowProvider.notifier).loadArena();
@@ -47,6 +62,13 @@ class _HomeLobbyScreenState extends ConsumerState<HomeLobbyScreen> {
       ref.read(walletProvider.notifier).fetchBalance(silent: true);
       ref.read(walletProvider.notifier).fetchTierLimits();
     });
+  }
+
+  @override
+  void dispose() {
+    _matchFoundSub?.cancel();
+    _preplayReleasedSub?.cancel();
+    super.dispose();
   }
 
   int get _stakeMin {

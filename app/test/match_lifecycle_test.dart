@@ -198,4 +198,32 @@ void main() {
     expect(copied, ['DB-2415']);
     expect(find.text('Room code copied.'), findsOneWidget);
   });
+
+  testWidgets('private room screen offers go-home and the closing window', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        child: MaterialApp(
+          theme: AppTheme.dark,
+          home: PrivateRoomCodeScreen(
+            snapshot: MatchLifecycleSnapshot(
+              phase: MatchLifecyclePhase.privateRoom,
+              terms: lifecycleTerms,
+              matchId: '2415678',
+              roomCode: 'DB-2415',
+              expiresAt: DateTime.now().add(const Duration(minutes: 15)),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('Go to Home'), findsOneWidget);
+    expect(find.text('Cancel room'), findsOneWidget);
+    expect(find.textContaining('This room closes in'), findsOneWidget);
+    // Unmount so the scheduled expiry timer is cancelled by dispose; otherwise
+    // the pending timer outlives the test.
+    await tester.pumpWidget(const SizedBox());
+  });
 }

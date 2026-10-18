@@ -24,11 +24,21 @@ class ChallengeInvite {
 /// The authoritative id of a freshly created OPEN listing, plus the private
 /// room code when the listing was created as `PRIVATE`.
 class OpenMatchCreation {
-  const OpenMatchCreation({required this.id, this.roomCode, this.visibility});
+  const OpenMatchCreation({
+    required this.id,
+    this.roomCode,
+    this.visibility,
+    this.expiresAt,
+  });
 
   final String id;
   final String? roomCode;
   final String? visibility;
+
+  /// When the OPEN listing is retired by the server-side expiry sweep. Carried
+  /// into the private-room snapshot so the share-code screen can show the
+  /// remaining window without waiting on the next poll.
+  final DateTime? expiresAt;
 }
 
 class MatchFlowGateway {
@@ -206,6 +216,9 @@ class MatchFlowGateway {
         id: id,
         roomCode: data?['roomCode']?.toString(),
         visibility: data?['visibility']?.toString(),
+        expiresAt: DateTime.tryParse(
+          data?['expiresAt']?.toString() ?? '',
+        )?.toLocal(),
       );
     }
     final body = response.data;
@@ -488,6 +501,7 @@ MatchLifecycleSnapshot? _lifecycleFromV2(
         ? AuthoritativeProgress.confirmed
         : AuthoritativeProgress.unknown,
     reason: raw['reason']?.toString(),
+    expiresAt: DateTime.tryParse(raw['expiresAt']?.toString() ?? '')?.toLocal(),
   );
 }
 

@@ -94,6 +94,7 @@ class MatchLifecycleSnapshot {
     this.opponentReady = AuthoritativeProgress.pending,
     this.release = AuthoritativeProgress.unknown,
     this.deadline,
+    this.expiresAt,
   });
 
   final MatchLifecyclePhase phase;
@@ -111,6 +112,7 @@ class MatchLifecycleSnapshot {
   final AuthoritativeProgress opponentReady;
   final AuthoritativeProgress release;
   final DateTime? deadline;
+  final DateTime? expiresAt;
 }
 
 class Money {

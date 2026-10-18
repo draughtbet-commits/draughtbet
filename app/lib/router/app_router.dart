@@ -445,6 +445,8 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           final snapshot = state.extra! as MatchLifecycleSnapshot;
           return _PrePlayLifecycleWatcher(
             snapshot: snapshot,
+            parkedPhases: const {MatchLifecyclePhase.privateRoom},
+            terminalRoute: '/home',
             child: PrivateRoomCodeScreen(snapshot: snapshot),
           );
         },
@@ -730,10 +732,31 @@ class _SentChallengeWatcherState extends ConsumerState<_SentChallengeWatcher> {
 /// opponent dropping their socket before the opening. Mirrors the sent
 /// challenge watcher: no dedicated socket event reaches the parked player.
 class _PrePlayLifecycleWatcher extends ConsumerStatefulWidget {
-  const _PrePlayLifecycleWatcher({required this.child, required this.snapshot});
+  const _PrePlayLifecycleWatcher({
+    required this.child,
+    required this.snapshot,
+    this.parkedPhases = const {
+      MatchLifecyclePhase.readyCheck,
+      MatchLifecyclePhase.waitingOpponentReady,
+      MatchLifecyclePhase.challengeSent,
+      MatchLifecyclePhase.waitingOpponentStake,
+    },
+    this.terminalRoute,
+  });
 
   final Widget child;
   final MatchLifecycleSnapshot snapshot;
+
+  /// Phases that mean "still on this screen, keep waiting". Anything else
+  /// advances. The ready/waiting-ready screens park on readiness; the private
+  /// room parks only on `privateRoom`, so the moment an opponent joins and the
+  /// phase flips to a readiness state the creator is carried forward instead of
+  /// being stranded on the share-code screen.
+  final Set<MatchLifecyclePhase> parkedPhases;
+
+  /// Where to send the player when the match is retired (expired/unavailable)
+  /// while parked. Defaults to the normal lifecycle route.
+  final String? terminalRoute;
 
   @override
   ConsumerState<_PrePlayLifecycleWatcher> createState() =>
@@ -785,15 +808,20 @@ class _PrePlayLifecycleWatcherState
     }
     if (!mounted || next == null) return;
     final phase = next.phase;
-    if (phase == MatchLifecyclePhase.readyCheck ||
-        phase == MatchLifecyclePhase.waitingOpponentReady ||
-        phase == MatchLifecyclePhase.privateRoom ||
-        phase == MatchLifecyclePhase.challengeSent ||
-        phase == MatchLifecyclePhase.waitingOpponentStake) {
+    if (widget.parkedPhases.contains(phase)) {
       return; // nothing changed from the player's perspective
     }
     _timer?.cancel();
     if (!context.mounted) return;
+    final terminalRoute = widget.terminalRoute;
+    if (terminalRoute != null &&
+        (phase == MatchLifecyclePhase.unavailable ||
+            phase == MatchLifecyclePhase.challengeExpired)) {
+      // The room's TTL elapsed (or it was retired): leave the parked screen
+      // rather than bounce through a challenge-specific route.
+      context.go(terminalRoute);
+      return;
+    }
     final route = lifecyclePhaseRoute(next);
     if (isBoardRoute(route)) {
       // Seat the player on the board the way the room screen's Enter Match does.

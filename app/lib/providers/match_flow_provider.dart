@@ -169,6 +169,7 @@ class MatchFlowNotifier extends StateNotifier<MatchFlowState> {
               terms: intent.terms,
               matchId: created.id,
               roomCode: created.roomCode,
+              expiresAt: created.expiresAt,
             );
           }
         }

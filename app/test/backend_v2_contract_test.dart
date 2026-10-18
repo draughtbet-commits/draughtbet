@@ -235,6 +235,7 @@ void main() {
           'id': 'mat_private',
           'visibility': 'PRIVATE',
           'roomCode': 'DB2415',
+          'expiresAt': '2026-01-01T12:15:00.000Z',
         },
       });
       final gateway = MatchFlowGateway(dio, contract: v2);
@@ -252,6 +253,7 @@ void main() {
       expect(created?.id, 'mat_private');
       expect(created?.roomCode, 'DB2415');
       expect(created?.visibility, 'PRIVATE');
+      expect(created?.expiresAt?.toUtc().toIso8601String(), '2026-01-01T12:15:00.000Z');
       expect(adapter.requests.single.data, {
         'stakeMinor': 200000,
         'timeControlSeconds': 600,

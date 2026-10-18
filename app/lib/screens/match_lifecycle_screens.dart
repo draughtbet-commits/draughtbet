@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -351,8 +353,43 @@ class PrivateRoomCodeScreen extends ConsumerStatefulWidget {
 class _PrivateRoomCodeScreenState
     extends ConsumerState<PrivateRoomCodeScreen> {
   bool _cancelling = false;
+  Timer? _expiryTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    // The OPEN listing is retired server-side at the TTL. Rather than leave the
+    // creator staring at a dead code, schedule a one-shot hand-off to Home at
+    // the deadline; the sweep does the authoritative cancellation and the Home
+    // list refreshes off the release socket event.
+    final expiresAt = widget.snapshot.expiresAt;
+    if (expiresAt != null) {
+      final remaining = expiresAt.difference(DateTime.now());
+      _expiryTimer = Timer(
+        remaining.isNegative ? Duration.zero : remaining,
+        () {
+          if (mounted) context.go('/home');
+        },
+      );
+    }
+  }
+
+  @override
+  void dispose() {
+    _expiryTimer?.cancel();
+    super.dispose();
+  }
 
   String get _code => widget.snapshot.roomCode?.trim() ?? '';
+
+  String? get _closingLabel {
+    final expiresAt = widget.snapshot.expiresAt;
+    if (expiresAt == null) return null;
+    final remaining = expiresAt.difference(DateTime.now());
+    if (remaining <= Duration.zero) return 'This room is closing…';
+    final minutes = (remaining.inSeconds / 60).ceil();
+    return 'This room closes in $minutes ${minutes == 1 ? 'minute' : 'minutes'}.';
+  }
 
   Future<void> _copy() async {
     if (_code.isEmpty) return;
@@ -420,6 +457,16 @@ class _PrivateRoomCodeScreenState
               color: AppColors.textSecondary,
             ),
           ),
+          if (_closingLabel != null) ...[
+            const SizedBox(height: 6),
+            Text(
+              _closingLabel!,
+              textAlign: TextAlign.center,
+              style: AppTypography.bodySmall.copyWith(
+                color: AppColors.valueAccent,
+              ),
+            ),
+          ],
           const Spacer(),
           PrimaryActionButton(
             label: 'Copy code',
@@ -428,8 +475,19 @@ class _PrivateRoomCodeScreenState
           ),
           const SizedBox(height: 8),
           SecondaryActionButton(
-            label: 'Cancel room',
+            label: 'Go to Home',
+            icon: LucideIcons.house,
+            onPressed: () => context.go('/home'),
+          ),
+          const SizedBox(height: 8),
+          TextButton(
             onPressed: _cancelling ? null : _cancel,
+            child: Text(
+              'Cancel room',
+              style: AppTypography.bodySmall.copyWith(
+                color: AppColors.textSecondary,
+              ),
+            ),
           ),
         ],
       ),
