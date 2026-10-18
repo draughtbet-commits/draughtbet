@@ -714,6 +714,7 @@ void main() {
     );
     expect(find.text('Finding your opponent...'), findsOneWidget);
     expect(find.text('Cancel Search'), findsOneWidget);
+    expect(find.text('Back to Home (search continues)'), findsOneWidget);
   });
 
   testWidgets('Matchmaking timeout has retry and Home recovery actions', (

@@ -226,4 +226,22 @@ void main() {
     // the pending timer outlives the test.
     await tester.pumpWidget(const SizedBox());
   });
+
+  testWidgets('waiting-for-opponent screen offers a wait-on-Home escape', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        child: MaterialApp(
+          theme: AppTheme.dark,
+          home: WaitingOpponentStakeScreen(
+            snapshot: lifecycleSnapshot(MatchLifecyclePhase.waitingOpponentStake),
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('WAITING FOR OPPONENT'), findsOneWidget);
+    expect(find.text('Back to Home'), findsOneWidget);
+  });
 }

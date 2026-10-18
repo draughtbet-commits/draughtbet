@@ -382,9 +382,13 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         path: '/play/waiting-stake',
         redirect: (context, state) =>
             state.extra is MatchLifecycleSnapshot ? null : '/play/unavailable',
-        builder: (context, state) => WaitingOpponentStakeScreen(
-          snapshot: state.extra! as MatchLifecycleSnapshot,
-        ),
+        builder: (context, state) {
+          final snapshot = state.extra! as MatchLifecycleSnapshot;
+          return _PrePlayLifecycleWatcher(
+            snapshot: snapshot,
+            child: WaitingOpponentStakeScreen(snapshot: snapshot),
+          );
+        },
       ),
       GoRoute(
         path: '/play/ready',

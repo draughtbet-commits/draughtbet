@@ -250,12 +250,28 @@ class _MatchmakingScreenState extends ConsumerState<MatchmakingScreen> {
                     onPressed: () => context.go('/home'),
                   )
                 else if (canCancel)
-                  SecondaryActionButton(
-                    label: pendingCancel
-                        ? 'Cancelling Search'
-                        : 'Cancel Search',
-                    loading: pendingCancel,
-                    onPressed: _cancel,
+                  Column(
+                    children: [
+                      SecondaryActionButton(
+                        label: pendingCancel
+                            ? 'Cancelling Search'
+                            : 'Cancel Search',
+                        loading: pendingCancel,
+                        onPressed: _cancel,
+                      ),
+                      const SizedBox(height: 8),
+                      TextButton(
+                        onPressed: () => context.go('/home'),
+                        child: Text(
+                          'Back to Home (search continues)',
+                          style: TextStyle(
+                            fontFamily: 'Inter',
+                            color: AppColors.textSecondary,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ),
+                    ],
                   )
                 else
                   SecondaryActionButton(

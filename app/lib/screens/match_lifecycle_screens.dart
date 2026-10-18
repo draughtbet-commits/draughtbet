@@ -228,6 +228,11 @@ class WaitingOpponentStakeScreen extends StatelessWidget {
     message: 'Waiting for your opponent to lock their stake.',
     playerStatus: 'Locked',
     opponentStatus: 'Waiting…',
+    action: SecondaryActionButton(
+      label: 'Back to Home',
+      icon: LucideIcons.house,
+      onPressed: () => context.go('/home'),
+    ),
   );
 }
 
