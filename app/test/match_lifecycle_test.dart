@@ -243,5 +243,6 @@ void main() {
 
     expect(find.text('WAITING FOR OPPONENT'), findsOneWidget);
     expect(find.text('Back to Home'), findsOneWidget);
+    expect(find.text('Cancel match'), findsOneWidget);
   });
 }

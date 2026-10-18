@@ -216,22 +216,58 @@ class LockingStakeScreen extends StatelessWidget {
   );
 }
 
-class WaitingOpponentStakeScreen extends StatelessWidget {
+class WaitingOpponentStakeScreen extends ConsumerStatefulWidget {
   const WaitingOpponentStakeScreen({required this.snapshot, super.key});
 
   final MatchLifecycleSnapshot snapshot;
 
   @override
+  ConsumerState<WaitingOpponentStakeScreen> createState() =>
+      _WaitingOpponentStakeScreenState();
+}
+
+class _WaitingOpponentStakeScreenState
+    extends ConsumerState<WaitingOpponentStakeScreen> {
+  bool _cancelling = false;
+
+  Future<void> _cancel() async {
+    if (_cancelling) return;
+    setState(() => _cancelling = true);
+    await ref
+        .read(matchFlowProvider.notifier)
+        .cancelSentChallenge(
+          matchId: widget.snapshot.matchId,
+          terms: widget.snapshot.terms,
+        );
+    if (!mounted) return;
+    context.go('/home');
+  }
+
+  @override
   Widget build(BuildContext context) => _PlayersStatusScreen(
-    snapshot: snapshot,
+    snapshot: widget.snapshot,
     title: 'WAITING FOR OPPONENT',
     message: 'Waiting for your opponent to lock their stake.',
     playerStatus: 'Locked',
     opponentStatus: 'Waiting…',
-    action: SecondaryActionButton(
-      label: 'Back to Home',
-      icon: LucideIcons.house,
-      onPressed: () => context.go('/home'),
+    action: Column(
+      children: [
+        SecondaryActionButton(
+          label: 'Back to Home',
+          icon: LucideIcons.house,
+          onPressed: () => context.go('/home'),
+        ),
+        const SizedBox(height: 8),
+        TextButton(
+          onPressed: _cancelling ? null : _cancel,
+          child: Text(
+            'Cancel match',
+            style: AppTypography.bodySmall.copyWith(
+              color: AppColors.textSecondary,
+            ),
+          ),
+        ),
+      ],
     ),
   );
 }
