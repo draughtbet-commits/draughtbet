@@ -75,6 +75,9 @@ void main() {
         () => mockSocketService.onClockSync,
       ).thenAnswer((_) => const Stream.empty());
       when(
+        () => mockSocketService.onError,
+      ).thenAnswer((_) => const Stream.empty());
+      when(
         () => mockSocketService.onSettlementCompleted,
       ).thenAnswer((_) => const Stream.empty());
       when(

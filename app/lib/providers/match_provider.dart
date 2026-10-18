@@ -12,6 +12,18 @@ import '../models/match_flow.dart';
 
 enum MatchSyncState { synced, syncing, offline }
 
+// Server `error` codes that mean a `draw.offer` was refused; used to release
+// the optimistic pending flag so the player can try again.
+const Set<String> _drawRejectionCodes = {
+  'not_your_turn',
+  'stale_state',
+  'draw_already_offered',
+  'game_not_in_progress',
+  'game_already_ended',
+  'not_authorized',
+  'invalid_payload',
+};
+
 enum MatchRecoveryPhase {
   none,
   connectionLost,
@@ -271,6 +283,30 @@ class MatchNotifier extends StateNotifier<MatchState> {
       _socketService.onGameState.listen((data) {
         try {
           final gameState = GameState.fromJson(data);
+          // The server folds the draw protocol into the canonical snapshot
+          // (`pendingDrawOffer`) instead of emitting dedicated draw events, so
+          // this is the only place an incoming offer or its resolution is ever
+          // observed. Reconcile it here so both players stay in step across a
+          // resync/reconnect, not only at the moment of the offer.
+          final me = _currentUserId ?? state.currentUserId;
+          final pending = data['pendingDrawOffer'];
+          final pendingMap = pending is Map
+              ? Map<String, dynamic>.from(pending)
+              : const <String, dynamic>{};
+          final pendingOfferId = pendingMap['offerId']?.toString() ?? '';
+          final offeredBy = pendingMap['offeredByUserId']?.toString();
+          final hasPending = pendingOfferId.isNotEmpty;
+          final isMine = hasPending && me != null && offeredBy == me;
+          final isTheirs = hasPending && !isMine;
+          final hadPending = state.drawOfferPending;
+
+          // A pending offer that is still visible and mine keeps the pending
+          // latch; one that vanished while the match continued is the decline
+          // signal (accept ends the match through the settlement path, so it is
+          // excluded here and the terminal handling takes over).
+          final pendingRejected =
+              !hasPending && hadPending && gameState.status == 'in_progress';
+
           // Deliberately does NOT clear the rejection banner. This snapshot is
           // the remedy the stale-state path itself requests, so it lands
           // immediately after move_rejected and used to wipe the notice before
@@ -282,6 +318,10 @@ class MatchNotifier extends StateNotifier<MatchState> {
             recoveryPhase: MatchRecoveryPhase.none,
             isMovePending: false,
             clearPendingMove: true,
+            incomingDrawOffer: isTheirs ? DrawOffer(offerId: pendingOfferId) : null,
+            clearDrawOffer: state.incomingDrawOffer != null && !isTheirs,
+            drawOfferPending: hasPending ? isMine : (hadPending ? false : null),
+            drawOfferRejected: pendingRejected ? true : (hasPending ? false : null),
           );
         } catch (_) {
           state = state.copyWith(syncState: MatchSyncState.syncing);
@@ -410,8 +450,20 @@ class MatchNotifier extends StateNotifier<MatchState> {
         final response = data['response']?.toString().toLowerCase();
         state = state.copyWith(
           drawOfferPending: false,
-          drawOfferRejected: response == 'rejected' || response == 'declined',
+          drawOfferRejected: response == 'decline' || response == 'rejected' || response == 'declined',
         );
+      }),
+    );
+    // A rejected action arrives on the shared `error` event, not `match.state`.
+    // Without this the optimistic `drawOfferPending` flag set by offerDraw would
+    // never clear when the server refuses the offer (wrong turn, stale version).
+    _subscriptions.add(
+      _socketService.onError.listen((data) {
+        if (!state.drawOfferPending) return;
+        final code = data['code']?.toString();
+        if (code != null && _drawRejectionCodes.contains(code)) {
+          state = state.copyWith(drawOfferPending: false);
+        }
       }),
     );
 
@@ -894,7 +946,7 @@ class MatchNotifier extends StateNotifier<MatchState> {
       matchId: matchId,
       actionId: _newActionId('draw-response'),
       offerId: offer.offerId,
-      response: accept ? 'accepted' : 'rejected',
+      response: accept ? 'accept' : 'decline',
     );
   }
 

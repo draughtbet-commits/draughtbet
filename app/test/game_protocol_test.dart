@@ -18,6 +18,7 @@ class ProtocolSocket extends SocketService {
   final drawOffer = StreamController<Map<String, dynamic>>.broadcast();
   final drawResponse = StreamController<Map<String, dynamic>>.broadcast();
   final clockSync = StreamController<Map<String, dynamic>>.broadcast();
+  final error = StreamController<Map<String, dynamic>>.broadcast();
 
   Map<String, dynamic>? v2Move;
   List<Object?>? legacyMove;
@@ -37,6 +38,8 @@ class ProtocolSocket extends SocketService {
   Stream<Map<String, dynamic>> get onDrawResponse => drawResponse.stream;
   @override
   Stream<Map<String, dynamic>> get onClockSync => clockSync.stream;
+  @override
+  Stream<Map<String, dynamic>> get onError => error.stream;
   @override
   Stream<Map<String, dynamic>> get onMatchFound => const Stream.empty();
   @override
@@ -126,6 +129,7 @@ class ProtocolSocket extends SocketService {
     drawOffer.close();
     drawResponse.close();
     clockSync.close();
+    error.close();
     super.dispose();
   }
 }
@@ -417,7 +421,7 @@ void main() {
       await Future<void>.delayed(Duration.zero);
       notifier.respondToDraw(false);
       expect(socket.drawReply?['offerId'], 'offer-2');
-      expect(socket.drawReply?['response'], 'rejected');
+      expect(socket.drawReply?['response'], 'decline');
 
       notifier.resign();
       notifier.resign();
@@ -425,6 +429,109 @@ void main() {
       expect(notifier.state.resignPending, isTrue);
     },
   );
+
+  test('an incoming pendingDrawOffer on match.state raises the draw prompt', () async {
+    final socket = ProtocolSocket();
+    final notifier = ProtocolNotifier(socket, Dio());
+    notifier.setCurrentUserId('player-two');
+    notifier.state = notifier.state.copyWith(
+      currentMatchId: 'match-9',
+      gameState: game(),
+    );
+
+    socket.gameState.add({
+      'board': List.filled(50, 0),
+      'sideToMove': 'WHITE',
+      'players': {'light': 'player-one', 'dark': 'player-two'},
+      'status': 'in_progress',
+      'stateVersion': 12,
+      'legalMoves': const <dynamic>[],
+      'pendingDrawOffer': {
+        'offerId': 'draw_offer_abc',
+        'offeredByUserId': 'player-one',
+      },
+    });
+    await Future<void>.delayed(Duration.zero);
+
+    expect(notifier.state.incomingDrawOffer?.offerId, 'draw_offer_abc');
+    expect(notifier.state.drawOfferPending, isFalse);
+
+    notifier.respondToDraw(true);
+    expect(socket.drawReply?['response'], 'accept');
+    expect(notifier.state.incomingDrawOffer, isNull);
+
+    // The offer is gone from the snapshot: the prompt must not come back.
+    socket.gameState.add({
+      'board': List.filled(50, 0),
+      'sideToMove': 'WHITE',
+      'players': {'light': 'player-one', 'dark': 'player-two'},
+      'status': 'in_progress',
+      'stateVersion': 12,
+      'legalMoves': const <dynamic>[],
+      'pendingDrawOffer': null,
+    });
+    await Future<void>.delayed(Duration.zero);
+    expect(notifier.state.incomingDrawOffer, isNull);
+  });
+
+  test('my own pendingDrawOffer stays pending and reads as rejected on clear', () async {
+    final socket = ProtocolSocket();
+    final notifier = ProtocolNotifier(socket, Dio());
+    notifier.setCurrentUserId('player-one');
+    notifier.state = notifier.state.copyWith(
+      currentMatchId: 'match-10',
+      gameState: game(),
+    );
+
+    expect(notifier.offerDraw(), isTrue);
+
+    socket.gameState.add({
+      'board': List.filled(50, 0),
+      'sideToMove': 'WHITE',
+      'players': {'light': 'player-one', 'dark': 'player-two'},
+      'status': 'in_progress',
+      'stateVersion': 12,
+      'legalMoves': const <dynamic>[],
+      'pendingDrawOffer': {
+        'offerId': 'draw_offer_abc',
+        'offeredByUserId': 'player-one',
+      },
+    });
+    await Future<void>.delayed(Duration.zero);
+    expect(notifier.state.drawOfferPending, isTrue);
+    expect(notifier.state.incomingDrawOffer, isNull);
+
+    // The offer disappears while the match continues: the offerer is told it
+    // was declined rather than left stuck pending forever.
+    socket.gameState.add({
+      'board': List.filled(50, 0),
+      'sideToMove': 'WHITE',
+      'players': {'light': 'player-one', 'dark': 'player-two'},
+      'status': 'in_progress',
+      'stateVersion': 12,
+      'legalMoves': const <dynamic>[],
+      'pendingDrawOffer': null,
+    });
+    await Future<void>.delayed(Duration.zero);
+    expect(notifier.state.drawOfferPending, isFalse);
+    expect(notifier.state.drawOfferRejected, isTrue);
+  });
+
+  test('a rejected draw offer releases the optimistic pending flag', () async {
+    final socket = ProtocolSocket();
+    final notifier = ProtocolNotifier(socket, Dio());
+    notifier.state = notifier.state.copyWith(
+      currentMatchId: 'match-11',
+      gameState: game(),
+    );
+
+    expect(notifier.offerDraw(), isTrue);
+    expect(notifier.state.drawOfferPending, isTrue);
+
+    socket.error.add({'code': 'not_your_turn'});
+    await Future<void>.delayed(Duration.zero);
+    expect(notifier.state.drawOfferPending, isFalse);
+  });
 
   test(
     'canonical state replaces local state and invalid data resyncs',
