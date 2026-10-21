@@ -45,7 +45,8 @@ jest.unstable_mockModule('../../utils/logger.js', () => ({
 jest.unstable_mockModule('../gameManager.js', () => ({
   getActiveGameForUser: jest.fn(),
   getGameState: jest.fn(),
-  authoritativeNowMs: jest.fn(async () => 123456)
+  authoritativeNowMs: jest.fn(async () => 123456),
+  runAfterJoinHook: jest.fn(async () => {})
 }));
 
 jest.unstable_mockModule('../gameRecovery.js', () => ({

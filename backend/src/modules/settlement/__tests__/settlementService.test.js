@@ -303,4 +303,83 @@ describe('SettlementService', () => {
         .rejects.toThrow(MatchNotSettleableError);
     });
   });
+
+  describe('settleMatch — free play', () => {
+    const freePlayMatch = (overrides = {}) => activeMatch({
+      id: 'm1',
+      mode: 'FREE_PLAY',
+      stakeMinorUnits: BigInt(0),
+      rated: false,
+      playerLightId: 'player-1',
+      playerDarkId: 'bot:m1',
+      settlementCommissionPercent: null,
+      ...overrides
+    });
+
+    it('finishes a free-play win with no money and no rating', async () => {
+      mockPrisma.match.findUnique.mockResolvedValue(freePlayMatch());
+      mockPrisma.match.updateMany.mockResolvedValue({ count: 1 });
+
+      const result = await settleMatch('m1', {
+        result: 'WIN', winnerId: 'player-1', loserId: 'bot:m1', endReason: 'NO_LEGAL_MOVES'
+      });
+
+      expect(result.claimed).toBe(true);
+      expect(result.payout).toBe(0n);
+      expect(result.settlement).toBeNull();
+
+      // LIVE -> COMPLETED (never SETTLED: there is no money to settle).
+      expect(mockPrisma.match.updateMany).toHaveBeenCalledWith({
+        where: { id: 'm1', status: { in: ['ACTIVE', 'IN_PLAY'] } },
+        data: expect.objectContaining({ status: 'COMPLETED', winnerId: 'player-1', endReason: 'NO_LEGAL_MOVES' })
+      });
+
+      // The ledger, receipts, reservations and ratings must all stay untouched.
+      expect(mockPostSettlementWin).not.toHaveBeenCalled();
+      expect(mockPostSettlementDraw).not.toHaveBeenCalled();
+      expect(mockPrisma.matchSettlement.create).not.toHaveBeenCalled();
+      expect(mockPrisma.matchReceipt.createMany).not.toHaveBeenCalled();
+      expect(mockPrisma.stakeReservation.updateMany).not.toHaveBeenCalled();
+      expect(mockPrisma.ratingEvent.createMany).not.toHaveBeenCalled();
+      expect(mockPrisma.playerStats.upsert).not.toHaveBeenCalled();
+    });
+
+    it('finishes a free-play draw with no refund', async () => {
+      mockPrisma.match.findUnique.mockResolvedValue(freePlayMatch());
+      mockPrisma.match.updateMany.mockResolvedValue({ count: 1 });
+
+      const result = await settleMatch('m1', { result: 'DRAW', endReason: 'DRAW_THREEFOLD' });
+
+      expect(result.claimed).toBe(true);
+      expect(result.payout).toBe(0n);
+      expect(mockPrisma.match.updateMany).toHaveBeenCalledWith({
+        where: { id: 'm1', status: { in: ['ACTIVE', 'IN_PLAY'] } },
+        data: expect.objectContaining({ status: 'COMPLETED', endReason: 'DRAW_THREEFOLD' })
+      });
+      expect(mockPostSettlementDraw).not.toHaveBeenCalled();
+      expect(mockPrisma.matchReceipt.createMany).not.toHaveBeenCalled();
+    });
+
+    it('replays idempotently once the free-play match is COMPLETED', async () => {
+      mockPrisma.match.findUnique.mockResolvedValue(freePlayMatch({ status: 'COMPLETED' }));
+
+      const result = await settleMatch('m1', {
+        result: 'WIN', winnerId: 'player-1', loserId: 'bot:m1', endReason: 'NO_LEGAL_MOVES'
+      });
+
+      expect(result.claimed).toBe(false);
+      expect(result.replayed).toBe(true);
+      expect(result.payout).toBe(0n);
+      expect(mockPrisma.match.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('still refuses a board-derived outcome with no durable evidence', async () => {
+      mockPrisma.match.findUnique.mockResolvedValue(freePlayMatch());
+      mockPrisma.matchMove.findFirst.mockResolvedValue(null);
+      await expect(settleMatch('m1', {
+        result: 'WIN', winnerId: 'player-1', loserId: 'bot:m1', endReason: 'NO_LEGAL_MOVES'
+      })).rejects.toThrow(InvalidSettlementError);
+      expect(mockPrisma.match.updateMany).not.toHaveBeenCalled();
+    });
+  });
 });

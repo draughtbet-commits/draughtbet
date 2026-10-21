@@ -9,6 +9,7 @@ import {
   OutsiderSettlementError,
   InvalidSettlementError
 } from '../modules/settlement/service.js';
+import { FREE_PLAY_MODE } from '../modules/v2/freePlayService.js';
 
 export { OutsiderSettlementError, InvalidSettlementError } from '../modules/settlement/service.js';
 
@@ -83,7 +84,7 @@ async function loadRatingSummaries(matchId) {
   }
 }
 
-async function notifyAndCleanupWin(matchId, winnerId, playerLightId, playerDarkId, payout, reason) {
+async function notifyAndCleanupWin(matchId, winnerId, playerLightId, playerDarkId, payout, reason, mode = 'RANKED') {
   // Capture the terminal projection version before it is deleted; the outcome
   // event carries it so a client can reconcile its local state.
   const stateVersion = await readStateVersion(matchId);
@@ -98,7 +99,8 @@ async function notifyAndCleanupWin(matchId, winnerId, playerLightId, playerDarkI
     io.to(`match:${matchId}`).emit('match_ended', {
       winnerId,
       reason,
-      payout: payout.toString()
+      payout: payout.toString(),
+      mode
     });
     io.to(`match:${matchId}`).emit('match.finished', {
       matchId,
@@ -107,7 +109,8 @@ async function notifyAndCleanupWin(matchId, winnerId, playerLightId, playerDarkI
       stateVersion,
       settlementStatus: 'settled',
       winnerId,
-      ratings
+      ratings,
+      mode
     });
   } catch (e) {
     logger.warn({ e, matchId }, 'Socket emit after settlement failed');
@@ -120,7 +123,7 @@ async function notifyAndCleanupWin(matchId, winnerId, playerLightId, playerDarkI
  * Cleans up Redis keys and emits terminal + settlement events after a draw
  * settlement.
  */
-async function notifyAndCleanupDraw(matchId, playerLightId, playerDarkId, refundAmount, reason) {
+async function notifyAndCleanupDraw(matchId, playerLightId, playerDarkId, refundAmount, reason, mode = 'RANKED') {
   const stateVersion = await readStateVersion(matchId);
   const ratings = await loadRatingSummaries(matchId);
   try { await redis.del(`match:${matchId}`); } catch (e) { logger.warn({ e, matchId }, 'Redis del match key failed'); }
@@ -132,7 +135,8 @@ async function notifyAndCleanupDraw(matchId, playerLightId, playerDarkId, refund
     io.to(`match:${matchId}`).emit('match_ended', {
       winnerId: null,
       reason,
-      payout: refundAmount.toString()
+      payout: refundAmount.toString(),
+      mode
     });
     io.to(`match:${matchId}`).emit('match.finished', {
       matchId,
@@ -141,7 +145,8 @@ async function notifyAndCleanupDraw(matchId, playerLightId, playerDarkId, refund
       stateVersion,
       settlementStatus: 'settled',
       winnerId: null,
-      ratings
+      ratings,
+      mode
     });
   } catch (e) {
     logger.warn({ e, matchId }, 'Socket emit after draw settlement failed');
@@ -202,6 +207,7 @@ async function runCleanupFromDbForWin(matchId) {
     where: { id: matchId },
     select: {
       status: true,
+      mode: true,
       playerLightId: true,
       playerDarkId: true,
       winnerId: true,
@@ -209,7 +215,30 @@ async function runCleanupFromDbForWin(matchId) {
     }
   });
 
-  if (!match || match.status !== 'SETTLED') return;
+  if (!match) return;
+
+  // A free-play match has no money to settle: it finishes as COMPLETED and the
+  // match row itself is the whole outcome (no settlement record exists).
+  if (match.mode === FREE_PLAY_MODE) {
+    if (match.status !== 'COMPLETED') return;
+    const winnerId = match.winnerId;
+    if (!winnerId) {
+      await runCleanupFromDbForDraw(matchId);
+      return;
+    }
+    await notifyAndCleanupWin(
+      matchId,
+      winnerId,
+      match.playerLightId,
+      match.playerDarkId,
+      0n,
+      match.endReason ?? 'NO_LEGAL_MOVES',
+      FREE_PLAY_MODE
+    );
+    return;
+  }
+
+  if (match.status !== 'SETTLED') return;
 
   const record = await readSettlementOrLegacyPayout(matchId);
   if (!record) return;
@@ -238,13 +267,29 @@ async function runCleanupFromDbForDraw(matchId) {
     where: { id: matchId },
     select: {
       status: true,
+      mode: true,
       stakeMinorUnits: true,
       playerLightId: true,
       playerDarkId: true,
       endReason: true
     }
   });
-  if (!match || match.status !== 'SETTLED') return;
+  if (!match) return;
+
+  if (match.mode === FREE_PLAY_MODE) {
+    if (match.status !== 'COMPLETED') return;
+    await notifyAndCleanupDraw(
+      matchId,
+      match.playerLightId,
+      match.playerDarkId,
+      0n,
+      match.endReason ?? 'DRAW',
+      FREE_PLAY_MODE
+    );
+    return;
+  }
+
+  if (match.status !== 'SETTLED') return;
 
   await notifyAndCleanupDraw(matchId, match.playerLightId, match.playerDarkId, match.stakeMinorUnits, match.endReason);
 }
@@ -276,7 +321,7 @@ export async function settleGame(matchId, winnerId, loserId, reason) {
     await notifyAndCleanupWin(
       matchId, winnerId,
       result.match.playerLightId, result.match.playerDarkId,
-      result.payout, reason
+      result.payout, reason, result.match.mode
     );
   } else {
     // Idempotency gate fired: DB already settled, cleanup may not have run.
@@ -296,7 +341,7 @@ export async function settleGameDraw(matchId, reason) {
     await notifyAndCleanupDraw(
       matchId,
       result.match.playerLightId, result.match.playerDarkId,
-      result.match.stakeMinorUnits, reason
+      result.match.stakeMinorUnits, reason, result.match.mode
     );
   } else {
     await runCleanupFromDbForDraw(matchId);

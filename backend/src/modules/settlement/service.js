@@ -5,6 +5,7 @@ import { postSettlementWin, postSettlementDraw } from '../../services/ledgerServ
 import { enqueueNotificationDelivery, enqueueWalletUpdated } from '../../services/outboxService.js';
 import { LIVE_STATUSES, isLiveStatus } from '../match/service.js';
 import { applyMatchOutcome } from './playerStatsService.js';
+import { FREE_PLAY_MODE } from '../v2/freePlayService.js';
 
 /**
  * Settlement V2. Financial settlement leaves the socket layer and lives here:
@@ -239,6 +240,7 @@ async function readMatch(tx, matchId) {
     select: {
       id: true,
       status: true,
+      mode: true,
       stakeMinorUnits: true,
       playerLightId: true,
       playerDarkId: true,
@@ -246,6 +248,81 @@ async function readMatch(tx, matchId) {
       rated: true
     }
   });
+}
+
+/**
+ * Terminal handling for a free-play match (solo game against the bot).
+ *
+ * The game still ends on exactly the same evidence as a competitive one — a
+ * durable move log, the same clock, the same forfeit/resign rules — but no
+ * money and no rating is involved:
+ *   - the match is claimed LIVE -> COMPLETED, exactly once
+ *   - no ledger entry, no stake reservation, no receipt, no settlement record
+ *   - no rating event and no stats: the bot seat has no User row, and a
+ *     practice game must not move a real player's rating
+ *
+ * It returns the same shape as the financial path (payout 0) so every caller
+ * (socket settle, timeout sweep, disconnect sweep, reconciliation sweep) can
+ * treat it identically.
+ */
+async function settleFreePlayMatch(tx, match, terminalResult) {
+  const { winnerId, endReason } = assertTerminalResultShape(match, terminalResult);
+
+  if (!isLiveStatus(match.status)) {
+    // Already finished: the same idempotent replay contract as the money path.
+    return {
+      claimed: false,
+      replayed: true,
+      payout: 0n,
+      commission: 0n,
+      match,
+      settlement: null,
+      ratings: []
+    };
+  }
+
+  if (BOARD_OUTCOME_REASONS.has(endReason)) {
+    const finalMove = await tx.matchMove.findFirst({
+      where: { matchId: match.id },
+      orderBy: { moveNumber: 'desc' }
+    });
+    if (!finalMove) {
+      throw new InvalidSettlementError('Settlement evidence missing: move log is empty');
+    }
+  }
+
+  const claimed = await tx.match.updateMany({
+    where: { id: match.id, status: { in: LIVE_STATUSES } },
+    data: {
+      status: 'COMPLETED',
+      ...(winnerId ? { winnerId } : {}),
+      endReason,
+      endedAt: new Date()
+    }
+  });
+  if (claimed.count === 0) {
+    return {
+      claimed: false,
+      replayed: true,
+      payout: 0n,
+      commission: 0n,
+      match,
+      settlement: null,
+      ratings: []
+    };
+  }
+
+  logger.info({ matchId: match.id, winnerId: winnerId ?? null, endReason }, 'Free play match finished');
+
+  return {
+    claimed: true,
+    replayed: false,
+    payout: 0n,
+    commission: 0n,
+    match,
+    settlement: null,
+    ratings: []
+  };
 }
 
 /**
@@ -260,6 +337,12 @@ export async function settleMatch(matchId, terminalResult) {
   return prisma.$transaction(async (tx) => {
     const match = await readMatch(tx, matchId);
     if (!match) throw new MatchNotSettleableError(`Match ${matchId} not found`);
+
+    // A free-play game has no money and no rating: it is finished by the same
+    // evidence rules, but settled without touching the ledger or the rating.
+    if (match.mode === FREE_PLAY_MODE) {
+      return settleFreePlayMatch(tx, match, terminalResult);
+    }
 
     if (!isLiveStatus(match.status)) {
       return { ...(await replayResponse(tx, matchId, match)), claimed: false, replayed: true };

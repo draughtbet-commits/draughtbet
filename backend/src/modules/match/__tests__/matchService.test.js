@@ -154,6 +154,8 @@ describe('match/service hasPreterminalMatchForPlayers', () => {
     expect(client.match.findFirst).toHaveBeenCalledWith({
       where: {
         status: { in: PRETTERMINAL_STATUSES },
+        // A free-play game never counts as "one game at a time".
+        mode: { not: 'FREE_PLAY' },
         OR: [
           { playerLightId: 'alice' },
           { playerDarkId: 'alice' },

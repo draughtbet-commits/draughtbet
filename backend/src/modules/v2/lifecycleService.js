@@ -575,6 +575,9 @@ export const matchesJoinedOpenStatuses = (tx, userId, notMatchId) =>
   tx.match.findFirst({
     where: {
       status: { in: ['DRAFT', 'OPEN', 'FUNDED', 'READY', 'IN_PLAY', 'ACTIVE'] },
+      // A free-play game is a practice game against the bot: it must never
+      // stand in the way of a real match.
+      mode: { not: 'FREE_PLAY' },
       id: notMatchId ? { not: notMatchId } : undefined,
       OR: [{ playerLightId: userId }, { playerDarkId: userId }]
     },

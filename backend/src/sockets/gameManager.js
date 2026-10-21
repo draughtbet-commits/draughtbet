@@ -20,6 +20,7 @@ import {
 } from './timeControl.js';
 import prisma from '../utils/db.js';
 import { transitionMatchWhere, isLiveStatus } from '../modules/match/service.js';
+import { FREE_PLAY_MODE, isBotId } from '../modules/v2/freePlayService.js';
 import * as Sentry from '@sentry/node';
 
 // Lua script for atomic compare-and-swap. The expiry guard is embedded in the
@@ -142,7 +143,7 @@ async function resolveUniqueConflict(moveData) {
 // (`existing`) so the caller can tell its own replay from a competing move.
 // Throws when the write could not be completed after retries — in that case
 // the move is NOT accepted.
-async function persistAcceptedMove(moveData, durableState, retries = 3) {
+export async function persistAcceptedMove(moveData, durableState, retries = 3) {
   let lastErr = null;
   for (let attempt = 1; attempt <= retries; attempt++) {
     try {
@@ -284,8 +285,12 @@ export const initializeGame = async (matchId, player1Id, player2Id, stakeTier, {
   // just guarantee the participant pointers and upgrade a pre-start staging to
   // live when a start is requested.
   if (await redis.exists(matchKey)) {
-    await redis.set(`user:${player1Id}:activeMatch`, matchId);
-    await redis.set(`user:${player2Id}:activeMatch`, matchId);
+    if (!isBotId(player1Id)) {
+      await redis.set(`user:${player1Id}:activeMatch`, matchId);
+    }
+    if (!isBotId(player2Id)) {
+      await redis.set(`user:${player2Id}:activeMatch`, matchId);
+    }
     const existing = await getGameState(matchId);
 
     if (!pending && existing && existing.status === 'ready_pending') {
@@ -322,13 +327,21 @@ export const initializeGame = async (matchId, player1Id, player2Id, stakeTier, {
   // back to the platform default when the row predates the column, so a
   // legacy/recovered game still runs under a sane clock.
   let timeControlSeconds = DEFAULT_TIME_CONTROL_SECONDS;
+  let freePlay = null;
   try {
     const match = await prisma.match.findUnique({
       where: { id: matchId },
-      select: { timeControlSeconds: true }
+      select: { timeControlSeconds: true, mode: true, botLevel: true, botPlayerId: true }
     });
     if (match && Number.isInteger(match.timeControlSeconds) && match.timeControlSeconds > 0) {
       timeControlSeconds = match.timeControlSeconds;
+    }
+    if (match && match.mode === FREE_PLAY_MODE) {
+      freePlay = {
+        mode: FREE_PLAY_MODE,
+        botLevel: String(match.botLevel ?? ''),
+        botPlayerId: String(match.botPlayerId ?? '')
+      };
     }
   } catch (err) {
     logger.warn({ err, matchId },
@@ -361,14 +374,20 @@ export const initializeGame = async (matchId, player1Id, player2Id, stakeTier, {
     // Server-owned turn start and grace snapshot (client-clock independent);
     // a pre-start staging carries no running turn.
     turnStartedAtServer: live ? String(now) : '',
-    disconnectGraceMs: disconnectGraceMs()
+    disconnectGraceMs: disconnectGraceMs(),
+    // A free-play projection carries the bot markers the bot driver reads.
+    ...(freePlay ?? {})
   };
 
   try {
     await redis.hset(matchKey, initialState);
     await redis.expire(matchKey, GAME_STATE_TTL_SECONDS);
-    await redis.set(`user:${player1Id}:activeMatch`, matchId);
-    await redis.set(`user:${player2Id}:activeMatch`, matchId);
+    // A practice game never claims the player's active-match pointer, and the
+    // bot seat has no session to point.
+    if (!freePlay) {
+      await redis.set(`user:${player1Id}:activeMatch`, matchId);
+      await redis.set(`user:${player2Id}:activeMatch`, matchId);
+    }
 
     return {
       ...initialState,
@@ -550,7 +569,7 @@ export const findLegalMove = (legalMoves, from, to, desiredPath = null) => {
   return legalMoves.find((m) => m.from === from && m.to === to);
 };
 
-const computeNextState = (state, from, to, nowMs = Date.now(), desiredPath = null) => {
+export const computeNextState = (state, from, to, nowMs = Date.now(), desiredPath = null) => {
   const board = JSON.parse(state.board);
   const legalMoves = getLegalMoves(board, state.currentTurn);
   
@@ -603,6 +622,45 @@ const computeNextState = (state, from, to, nowMs = Date.now(), desiredPath = nul
     positionCounts, ended, reason, newStatus, winnerId, move, promoted: applyResult.promoted,
     deadlineAt, timeControlSeconds
   };
+};
+
+// Optional hook invoked after a move has been accepted, persisted and
+// broadcast. The free-play runtime registers one so the bot can answer the
+// human's move. It is a registration rather than an import so the socket core
+// never depends on the free-play module: the dependency stays one-directional
+// and a failure in the hook can never affect the move that triggered it.
+let afterMoveAcceptedHook = null;
+
+export const registerAfterMoveAcceptedHook = (hook) => {
+  afterMoveAcceptedHook = typeof hook === 'function' ? hook : null;
+};
+
+const runAfterMoveAcceptedHook = async (matchId) => {
+  if (!afterMoveAcceptedHook) return;
+  try {
+    await afterMoveAcceptedHook({ matchId });
+  } catch (err) {
+    logger.warn({ err, matchId }, 'after-move hook failed');
+  }
+};
+
+// Optional hook invoked when a player joins a live match room. The free-play
+// runtime uses it to open a game the bot holds the first move in (the human
+// is not the one who has to move first there). Same one-directional
+// registration as the after-move hook.
+let afterJoinHook = null;
+
+export const registerAfterJoinHook = (hook) => {
+  afterJoinHook = typeof hook === 'function' ? hook : null;
+};
+
+export const runAfterJoinHook = async (matchId) => {
+  if (!afterJoinHook) return;
+  try {
+    await afterJoinHook({ matchId });
+  } catch (err) {
+    logger.warn({ err, matchId }, 'after-join hook failed');
+  }
 };
 
 // Emits the previous accepted result of a replayed client move to the sender
@@ -886,6 +944,10 @@ const submitMove = async (socket, move) => {
           settleGameDrawWithRetry(matchId, reason);
         }
       }
+
+      // A live game may have a scripted opponent to answer (free play). The
+      // hook is best-effort: it never gates the move that triggered it.
+      await runAfterMoveAcceptedHook(matchId);
     } catch (err) {
       if (err.message && err.message.includes('VERSION_MISMATCH')) {
         retries--;

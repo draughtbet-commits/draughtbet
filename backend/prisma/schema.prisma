@@ -259,6 +259,21 @@ model Match {
   visibility                    String     @default("PUBLIC")
   roomCode                      String?    @unique
 
+  // Game mode. RANKED (the default) is competitive play between two humans:
+  // real stakes, ledger postings, rated. FREE_PLAY is a solo game against the
+  // server bot — the bot occupies one of the two seats, the stake is zero, no
+  // ledger entry is ever written and the player's rating never moves.
+  mode                       String     @default("RANKED")
+  // Bot strength for FREE_PLAY games (1 = easiest .. 4 = strongest). NULL for
+  // every other mode.
+  botLevel                   Int?
+  // The bot's seat id for FREE_PLAY games. It occupies either playerLightId or
+  // playerDarkId depending on the side the human chose; recorded explicitly so
+  // no caller has to infer it from the id format.
+  botPlayerId                String?
+
+  @@index([mode, status])
+
   // Versioned-config lookups (additive — NULL for rows funded before these
   // reference tables existed; the Int snapshot columns above stay authoritative
   // for settlement/timing derivation). `rulesetDef` is the relation name because

@@ -181,6 +181,9 @@ export async function hasPreterminalMatchForPlayers(client, playerIds) {
   const row = await client.match.findFirst({
     where: {
       status: { in: PRETTERMINAL_STATUSES },
+      // A free-play game is a practice game: it never counts as "one game at a
+      // time", so it can never block a real match.
+      mode: { not: 'FREE_PLAY' },
       OR: playerIds.flatMap((userId) => [
         { playerLightId: userId },
         { playerDarkId: userId }

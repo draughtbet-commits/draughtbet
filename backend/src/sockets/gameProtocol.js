@@ -3,8 +3,7 @@ import { resolveDisconnectGraceMs, remainingMs } from './timeControl.js';
 
 // Engine colors (WHITE/BLACK) and the durable MatchSide enum (LIGHT/DARK) do
 // not share spelling; the durable projection needs the enum value.
-const SIDE_BY_COLOR = Object.freeze({ WHITE: 'LIGHT', BLACK: 'DARK' });
-
+export const SIDE_BY_COLOR = Object.freeze({ WHITE: 'LIGHT', BLACK: 'DARK' });
 /**
  * Stable move-rejection codes. The legacy Flutter client only knows the
  * `move_rejected` event with a `reason` string, so these double as the legacy
@@ -111,6 +110,11 @@ export const buildStatePayload = (matchId, state, nowMs = null) => {
     participants,
     connection,
     pendingDrawOffer,
+    // Free-play markers so the client can hide opponent-only chrome (chat,
+    // draw, disconnect) and label the bot seat. Absent on a ranked match.
+    ...(state.mode === 'FREE_PLAY'
+      ? { mode: 'FREE_PLAY', botLevel: Number(state.botLevel) || null }
+      : {}),
     // A terminal Redis status predates the ledger commit that settles the
     // match; the settled state is announced by match.finished/settlement.completed.
     settlementStatus: status === 'completed' || status === 'draw' ? 'pending' : null
@@ -177,5 +181,3 @@ export const emitMoveAccepted = (io, matchId, { move, replayed = false, clientMo
     ...clockFields
   });
 };
-
-export { SIDE_BY_COLOR };

@@ -22,6 +22,8 @@ import { startOpenMatchExpirySweep } from './jobs/openMatchExpirySweep.js';
 import { startVerificationExpirySweep } from './jobs/verificationExpiry.js';
 import { startDepositQuoteExpirySweep } from './jobs/depositQuoteExpiry.js';
 import { ensureActiveConfigVersions } from './services/configVersionsService.js';
+import { startFreePlayBotSweep, scheduleBotTurn } from './sockets/freePlayRuntime.js';
+import { registerAfterMoveAcceptedHook, registerAfterJoinHook } from './sockets/gameManager.js';
 
 const PORT = process.env.PORT || 3000;
 
@@ -47,7 +49,18 @@ const startBackgroundJobs = () => {
   startOpenMatchExpirySweep();
   startVerificationExpirySweep();
   startDepositQuoteExpirySweep();
+  startFreePlayBotSweep();
 };
+
+// The free-play bot answers the human's move and opens a game the bot holds
+// the first move in. Both are registered as hooks so the socket core never
+// imports the free-play runtime (the dependency stays one-directional).
+registerAfterMoveAcceptedHook(async ({ matchId }) => {
+  await scheduleBotTurn({ matchId });
+});
+registerAfterJoinHook(async ({ matchId }) => {
+  await scheduleBotTurn({ matchId });
+});
 
 // Wait (bounded) for Redis so the shared rate limiter is in service before the
 // first request. Degrades to per-process memory if Redis is not reachable.

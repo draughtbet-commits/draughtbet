@@ -4,17 +4,19 @@ import { getIO } from './index.js';
 import {
   authoritativeNowMs,
   getActiveGameForUser,
-  getGameState
+  getGameState,
+  runAfterJoinHook
 } from './gameManager.js';
 import { reconcileRedisWithDurable } from './gameRecovery.js';
 import { getLegalMoves } from '../modules/engine/index.js';
 import { buildStatePayload } from './gameProtocol.js';
 import { validateMatchIdPayload } from './payloadGuard.js';
-import { resolveDisconnectGraceMs, GAME_STATE_TTL_SECONDS } from './timeControl.js';
+import { resolveDisconnectGraceMs, GAME_STATE_TTL_SECONDS, DEFAULT_TIME_CONTROL_SECONDS } from './timeControl.js';
 import { recordConnectionEvent, recordGameEvent } from './connectionEvidence.js';
 import logger from '../utils/logger.js';
 import { NotificationService } from '../modules/notification/service.js';
 import { isLiveStatus } from '../modules/match/service.js';
+import { FREE_PLAY_MODE } from '../modules/v2/freePlayService.js';
 
 // Room budget per connection: every socket owns its personal `user:<id>` room,
 // so this is the cap on the personal room plus match rooms.
@@ -262,7 +264,7 @@ export async function handleJoinMatch(socket, payload) {
     // reconnection notification. Knowledge of a match id is not authorization.
     const match = await prisma.match.findUnique({
       where: { id: matchId },
-      select: { status: true, playerLightId: true, playerDarkId: true }
+      select: { status: true, mode: true, playerLightId: true, playerDarkId: true }
     });
 
     if (!match) {
@@ -308,10 +310,27 @@ export async function handleJoinMatch(socket, payload) {
     // Reconcile the live projection against the durable log before serving it:
     // a restart or Redis loss must surface the canonical board, never a stale
     // or missing one.
-    const state = await reconcileRedisWithDurable(matchId);
+    let state = await reconcileRedisWithDurable(matchId);
     if (!state) {
       socket.emit('error', { message: 'Game not found' });
       return;
+    }
+
+    // A free-play game opens its clock when the player is actually in the
+    // room: the match row is live from the start (so the game is never
+    // stranded), but the first turn must not burn while the client is still
+    // navigating to the board.
+    if (state.status === 'ready_pending' && match.mode === FREE_PLAY_MODE) {
+      const nowMs = Date.now();
+      const control = Number(state.timeControlSeconds) > 0
+        ? Number(state.timeControlSeconds)
+        : DEFAULT_TIME_CONTROL_SECONDS;
+      await redis.hset(`match:${matchId}`, {
+        status: 'in_progress',
+        deadlineAt: String(nowMs + control * 1000),
+        turnStartedAtServer: String(nowMs)
+      });
+      state = { ...state, status: 'in_progress', deadlineAt: String(nowMs + control * 1000), turnStartedAtServer: String(nowMs) };
     }
 
     const board = JSON.parse(state.board);
@@ -346,6 +365,9 @@ if (isLiveStatus(match.status)) {
       }
       await recordConnectionEvent({ matchId, userId, state: 'RECONNECTED', socket });
     }
+    // A free-play game may have the bot on the move (the human plays dark);
+    // the hook lets the bot open the game.
+    await runAfterJoinHook(matchId);
     logger.info({ userId, matchId }, 'Player reconnected and joined match room');
   } catch (err) {
     logger.error({ err, userId, matchId }, 'Error handling join match');

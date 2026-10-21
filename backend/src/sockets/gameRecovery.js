@@ -16,6 +16,7 @@ import {
   disconnectGraceMs,
   resolveDisconnectGraceMs
 } from './timeControl.js';
+import { FREE_PLAY_MODE, isBotId } from '../modules/v2/freePlayService.js';
 
 const LIVE_MATCH_STATUSES = ['IN_PLAY', 'ACTIVE'];
 const SIDE_COLOR = { LIGHT: COLOR_WHITE, DARK: COLOR_BLACK };
@@ -118,7 +119,17 @@ const buildProjection = ({ live, durable, match, rows }) => {
     deadlineAt,
     timeControlSeconds: String(timeControlSeconds),
     turnStartedAtServer: turnStartedAtServer ? String(turnStartedAtServer) : '',
-    disconnectGraceMs: String(resolveDisconnectGraceMs(live))
+    disconnectGraceMs: String(resolveDisconnectGraceMs(live)),
+    // A free-play game is driven by the bot driver, which reads these markers
+    // from the projection. A rebuilt projection must carry them too, or the
+    // bot would go silent after a restart.
+    ...(match.mode === FREE_PLAY_MODE
+      ? {
+          mode: FREE_PLAY_MODE,
+          botLevel: String(match.botLevel ?? live?.botLevel ?? ''),
+          botPlayerId: String(match.botPlayerId ?? live?.botPlayerId ?? '')
+        }
+      : {})
   };
 };
 
@@ -137,7 +148,10 @@ export const rebuildProjectionFromDurable = async (matchId, { durable = null, li
         playerDarkId: true,
         status: true,
         winnerId: true,
-        timeControlSeconds: true
+        timeControlSeconds: true,
+        mode: true,
+        botLevel: true,
+        botPlayerId: true
       }
     })
   ]);
@@ -204,7 +218,7 @@ export const recoverLiveGames = async ({ limit = 200 } = {}) => {
     where: { status: { in: LIVE_MATCH_STATUSES } },
     orderBy: { createdAt: 'desc' },
     take: limit,
-    select: { id: true, status: true, timeControlSeconds: true }
+    select: { id: true, status: true, timeControlSeconds: true, mode: true }
   });
 
   let recovered = 0;
@@ -231,8 +245,17 @@ export const recoverLiveGames = async ({ limit = 200 } = {}) => {
       }
 
       if (state) {
-        await redis.set(`user:${state.player1}:activeMatch`, row.id);
-        await redis.set(`user:${state.player2}:activeMatch`, row.id);
+        // A free-play game is a practice game: it must never claim the
+        // player's "you have an active match" pointer, and the bot seat has no
+        // session of its own.
+        if (row.mode !== FREE_PLAY_MODE) {
+          if (!isBotId(state.player1)) {
+            await redis.set(`user:${state.player1}:activeMatch`, row.id);
+          }
+          if (!isBotId(state.player2)) {
+            await redis.set(`user:${state.player2}:activeMatch`, row.id);
+          }
+        }
         recovered++;
       }
     } catch (err) {
