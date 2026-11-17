@@ -29,6 +29,7 @@ import { webhookRouter } from './modules/payment/webhookController.js';
 import { notificationRouter } from './modules/notification/controller.js';
 import { verificationRouter } from './modules/verification/controller.js';
 import { saferPlayRouter } from './modules/saferPlay/controller.js';
+import { MaintenanceService } from './modules/maintenance/service.js';
 
 const app = express();
 // Prisma initialized in utils/db.js
@@ -81,9 +82,35 @@ app.use(globalRateLimiter);
 
 // Versioned API routes. Sensitive surfaces carry their own stricter bucket on
 // top of the global one (webhooks stay exempt — mounted before all limiters).
+// Auth and Admin routes are mounted before maintenance enforcement so admin
+// sign-in, token refresh, and backend RBAC remain accessible during maintenance.
 app.use('/api/v1/auth', authRouter);
-app.use('/api/v1/me', meRouter);
 app.use('/api/v1/admin', adminRateLimiter, adminRouter);
+
+app.get('/api/v1/maintenance/status', async (_req, res, next) => {
+  try {
+    const state = await MaintenanceService.getMaintenanceState();
+    res.status(200).json({
+      maintenance: {
+        active: state.active,
+        effectivelyActive: state.effectivelyActive,
+        effectiveStatus: state.effectiveStatus,
+        scope: state.scope,
+        headline: state.headline,
+        message: state.message,
+        startsAt: state.startsAt,
+        endsAt: state.endsAt
+      }
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Enforce maintenance scope across player operational endpoints
+app.use(MaintenanceService.middleware());
+
+app.use('/api/v1/me', meRouter);
 app.use('/api/v1/matches', matchRateLimiter, matchRouter);
 app.use('/api/v1/callouts', calloutRateLimiter, calloutRouter);
 app.use('/api/v1/matchmaking', matchmakingRateLimiter, matchmakingRouter);

@@ -13,11 +13,21 @@ import {
   MakerCheckerViolationError
 } from './service.js';
 import { CONFIG_DOMAINS } from './schema.js';
+import { featureFlagRouter } from '../featureFlags/controller.js';
+import { notificationTemplateRouter } from '../notificationTemplates/controller.js';
+import { maintenanceRouter } from '../maintenance/controller.js';
 
 export const configRouter = express.Router();
 
 // All configuration management routes require authenticated admin sessions
 configRouter.use(requireAuth);
+
+// Sub-routers for Phase 4 Milestone 3 governance controls
+configRouter.use('/feature-flags', featureFlagRouter);
+configRouter.use('/flags', featureFlagRouter);
+configRouter.use('/notification-templates', notificationTemplateRouter);
+configRouter.use('/templates', notificationTemplateRouter);
+configRouter.use('/maintenance', maintenanceRouter);
 
 const getAuditTelemetry = (req) => ({
   ip: req.ip,

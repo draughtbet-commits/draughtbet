@@ -26,6 +26,7 @@ jest.unstable_mockModule('../../../utils/logger.js', () => ({
 const { requirePermission, hasPermission } = await import('../../rbac/service.js');
 const { PERMISSIONS } = await import('../../rbac/permissions.js');
 const { ConfigService, MakerCheckerViolationError, ImmutableVersionError } = await import('../service.js');
+const { FeatureFlagService, ProtectedInvariantError } = await import('../../featureFlags/service.js');
 const { DEFAULT_CONFIG_PAYLOAD } = await import('../schema.js');
 const { generateChecksum } = await import('../canonicalJson.js');
 
@@ -45,14 +46,22 @@ describe('Security Boundaries & RBAC Authority', () => {
       // Even if a feature flag named "emergency_withdrawal_override" is enabled with allowedRoles: ['SUPPORT']
       const flag = {
         key: 'emergency_withdrawal_override',
+        enabled: true,
         isEnabled: true,
         allowedRoles: ['SUPPORT']
       };
       mockPrisma.featureFlag.findUnique.mockResolvedValue(flag);
 
-      // Verify that hasPermission resolves directly to false for FINANCE_WITHDRAWAL_APPROVE
-      const allowed = await hasPermission('user-support-1', PERMISSIONS.FINANCE_WITHDRAWAL_APPROVE, { dbp: mockPrisma });
+      // Verify that hasPermission resolves directly to false for WITHDRAWALS_PROCESS
+      expect(PERMISSIONS.WITHDRAWALS_PROCESS).toBe('withdrawals.process');
+      const allowed = await hasPermission('user-support-1', PERMISSIONS.WITHDRAWALS_PROCESS, { dbp: mockPrisma });
       expect(allowed).toBe(false);
+
+      // Verify FeatureFlagService visibility explicitly declares grantsPermissions: false
+      const visibility = FeatureFlagService.computeAdminVisibility(flag, ['SUPPORT']);
+      expect(visibility.visible).toBe(true);
+      expect(visibility.grantsPermissions).toBe(false);
+      expect(visibility.rbacAuthoritative).toBe(true);
 
       // Verify route guard denies access and records DENIED audit log
       const req = {
@@ -69,7 +78,7 @@ describe('Security Boundaries & RBAC Authority', () => {
       const next = jest.fn();
 
       // Execute requirePermission route guard
-      const guard = requirePermission(PERMISSIONS.FINANCE_WITHDRAWAL_APPROVE);
+      const guard = requirePermission(PERMISSIONS.WITHDRAWALS_PROCESS);
       await guard(req, res, next);
 
       if (next.mock.calls.length > 0 && next.mock.calls[0][0]) {
@@ -87,29 +96,45 @@ describe('Security Boundaries & RBAC Authority', () => {
         { role: { name: 'RISK_COMPLIANCE' } }
       ]);
 
-      const allowed = await hasPermission('user-risk-1', PERMISSIONS.FINANCE_LEDGER_ADJUST, { dbp: mockPrisma });
+      expect(PERMISSIONS.LEDGER_ADJUST).toBe('ledger.adjust');
+      const allowed = await hasPermission('user-risk-1', PERMISSIONS.LEDGER_ADJUST, { dbp: mockPrisma });
       expect(allowed).toBe(false);
     });
 
     it('enforces protected invariant protection: feature flags marked isProtectedInvariant cannot be disabled', async () => {
       // Invariant flag: KYC must always be enforced before funds leave the platform
       const kycInvariantFlag = {
+        id: 'flag-inv-1',
         key: 'enforce_kyc_on_withdrawal',
-        isEnabled: true,
-        isProtectedInvariant: true
+        name: 'Enforce KYC on Withdrawal',
+        enabled: true,
+        rolloutPercentage: 100,
+        allowedTiers: [],
+        allowedRoles: ['SUPER_ADMIN'],
+        isKillSwitch: false,
+        metadata: { isProtectedInvariant: true }
       };
-
-      // Simulated feature flag update service logic asserting invariant protection
-      const attemptDisableFlag = async (flag, targetState) => {
-        if (flag.isProtectedInvariant && targetState.isEnabled === false) {
-          throw new Error('Protected platform invariant cannot be disabled via feature flags');
-        }
-        return { ...flag, ...targetState };
-      };
+      mockPrisma.featureFlag.findUnique.mockResolvedValue(kycInvariantFlag);
 
       await expect(
-        attemptDisableFlag(kycInvariantFlag, { isEnabled: false })
-      ).rejects.toThrow(/protected platform invariant cannot be disabled/i);
+        FeatureFlagService.toggleFlag({
+          key: 'enforce_kyc_on_withdrawal',
+          enabled: false,
+          changeReason: 'Attempt to disable KYC invariant',
+          actorId: 'super-admin-1',
+          dbp: mockPrisma
+        })
+      ).rejects.toThrow(ProtectedInvariantError);
+
+      await expect(
+        FeatureFlagService.updateFlag({
+          key: 'enforce_kyc_on_withdrawal',
+          updates: { rolloutPercentage: 50 },
+          changeReason: 'Attempt to dilute KYC invariant rollout',
+          actorId: 'super-admin-1',
+          dbp: mockPrisma
+        })
+      ).rejects.toThrow(ProtectedInvariantError);
     });
   });
 

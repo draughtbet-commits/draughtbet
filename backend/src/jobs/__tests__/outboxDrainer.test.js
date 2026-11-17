@@ -236,6 +236,87 @@ describe('deliverEvent', () => {
     });
   });
 
+  it('delivers platform.feature_flag.updated event to admin socket room', async () => {
+    const flagEvent = event({
+      aggregateType: 'FeatureFlag',
+      aggregateId: 'flag-1',
+      eventType: 'platform.feature_flag.updated',
+      payload: {
+        key: 'live_matchmaking_queue',
+        enabled: false,
+        isKillSwitch: true,
+        action: 'KILL_SWITCH_TRIGGERED',
+        updatedAt: '2026-01-01T00:00:00.000Z'
+      }
+    });
+
+    await deliverEvent(flagEvent);
+    expect(toMock).toHaveBeenCalledWith('admin');
+    expect(emitMock).toHaveBeenCalledWith('platform_feature_flag_updated', {
+      key: 'live_matchmaking_queue',
+      enabled: false,
+      isKillSwitch: true,
+      action: 'KILL_SWITCH_TRIGGERED',
+      updatedAt: '2026-01-01T00:00:00.000Z'
+    });
+  });
+
+  it('delivers platform.notification_template.updated event to admin socket room', async () => {
+    const tplEvent = event({
+      aggregateType: 'NotificationTemplate',
+      aggregateId: 'tpl-1',
+      eventType: 'platform.notification_template.updated',
+      payload: {
+        code: 'DEPOSIT_CONFIRMED',
+        version: 2,
+        isActive: true,
+        action: 'UPDATED',
+        updatedAt: '2026-01-01T00:00:00.000Z'
+      }
+    });
+
+    await deliverEvent(tplEvent);
+    expect(toMock).toHaveBeenCalledWith('admin');
+    expect(emitMock).toHaveBeenCalledWith('platform_notification_template_updated', {
+      code: 'DEPOSIT_CONFIRMED',
+      version: 2,
+      isActive: true,
+      action: 'UPDATED',
+      updatedAt: '2026-01-01T00:00:00.000Z'
+    });
+  });
+
+  it('delivers platform.maintenance.updated event to admin socket room', async () => {
+    const maintEvent = event({
+      aggregateType: 'MaintenanceState',
+      aggregateId: 'singleton',
+      eventType: 'platform.maintenance.updated',
+      payload: {
+        active: true,
+        scope: 'GAMEPLAY_ONLY',
+        headline: 'Gameplay Maintenance',
+        message: 'Matches will resume shortly.',
+        startsAt: null,
+        endsAt: null,
+        action: 'maintenance.enabled',
+        updatedAt: '2026-01-01T00:00:00.000Z'
+      }
+    });
+
+    await deliverEvent(maintEvent);
+    expect(toMock).toHaveBeenCalledWith('admin');
+    expect(emitMock).toHaveBeenCalledWith('platform_maintenance_updated', {
+      active: true,
+      scope: 'GAMEPLAY_ONLY',
+      headline: 'Gameplay Maintenance',
+      message: 'Matches will resume shortly.',
+      startsAt: null,
+      endsAt: null,
+      action: 'maintenance.enabled',
+      updatedAt: '2026-01-01T00:00:00.000Z'
+    });
+  });
+
   it('throws on an unknown eventType so the row is parked, not spun', async () => {
     await expect(deliverEvent(event({ eventType: 'mystery' }))).rejects.toThrow(/unknown eventType/);
   });

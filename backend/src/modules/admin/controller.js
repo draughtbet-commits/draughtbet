@@ -29,6 +29,9 @@ import {
 import { recordAdminAction } from '../audit/service.js';
 import { auditRouter } from '../audit/controller.js';
 import { configRouter } from '../config/controller.js';
+import { featureFlagRouter } from '../featureFlags/controller.js';
+import { notificationTemplateRouter } from '../notificationTemplates/controller.js';
+import { maintenanceRouter } from '../maintenance/controller.js';
 import {
   listVerificationCases,
   getVerificationCaseDetail,
@@ -104,6 +107,11 @@ adminRouter.get('/me', async (req, res, next) => {
 
 adminRouter.use('/audit', auditRouter);
 adminRouter.use('/config', configRouter);
+adminRouter.use('/feature-flags', featureFlagRouter);
+adminRouter.use('/flags', featureFlagRouter);
+adminRouter.use('/notification-templates', notificationTemplateRouter);
+adminRouter.use('/templates', notificationTemplateRouter);
+adminRouter.use('/maintenance', maintenanceRouter);
 
 // ---------------------------------------------------------------------------
 // Dashboard Summary — aggregated operational and financial statistics

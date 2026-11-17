@@ -94,6 +94,105 @@ export const deliverEvent = async (event) => {
     return;
   }
 
+  if (event.eventType === 'platform.feature_flag.updated') {
+    const p = event.payload;
+    if (isRedisReady()) {
+      try {
+        if (p?.key) {
+          await redis.del(`feature_flag:${String(p.key).toLowerCase()}:v2`);
+        }
+        await redis.publish('platform:feature_flag:invalidated', JSON.stringify({
+          key: p?.key ?? null,
+          enabled: p?.enabled ?? false,
+          isKillSwitch: Boolean(p?.isKillSwitch),
+          action: p?.action ?? 'UPDATED',
+          updatedAt: p?.updatedAt ?? new Date().toISOString()
+        }));
+      } catch (err) {
+        logger.warn({ err }, 'Failed to deliver platform.feature_flag.updated event to Redis');
+        throw err;
+      }
+    }
+    try {
+      getIO()?.to('admin')?.emit('platform_feature_flag_updated', {
+        key: p?.key ?? null,
+        enabled: p?.enabled ?? false,
+        isKillSwitch: Boolean(p?.isKillSwitch),
+        action: p?.action ?? 'UPDATED',
+        updatedAt: p?.updatedAt ?? null
+      });
+    } catch {
+      // Sockets may not be active in non-server / test context
+    }
+    return;
+  }
+
+  if (event.eventType === 'platform.notification_template.updated') {
+    const p = event.payload;
+    if (isRedisReady()) {
+      try {
+        if (p?.code) {
+          await redis.del(`notification_template:${String(p.code).toUpperCase()}:v2`);
+        }
+        await redis.publish('platform:notification_template:invalidated', JSON.stringify({
+          code: p?.code ?? null,
+          version: p?.version ?? null,
+          isActive: p?.isActive ?? true,
+          action: p?.action ?? 'UPDATED',
+          updatedAt: p?.updatedAt ?? new Date().toISOString()
+        }));
+      } catch (err) {
+        logger.warn({ err }, 'Failed to deliver platform.notification_template.updated event to Redis');
+        throw err;
+      }
+    }
+    try {
+      getIO()?.to('admin')?.emit('platform_notification_template_updated', {
+        code: p?.code ?? null,
+        version: p?.version ?? null,
+        isActive: p?.isActive ?? true,
+        action: p?.action ?? 'UPDATED',
+        updatedAt: p?.updatedAt ?? null
+      });
+    } catch {
+      // Sockets may not be active in non-server / test context
+    }
+    return;
+  }
+
+  if (event.eventType === 'platform.maintenance.updated') {
+    const p = event.payload;
+    if (isRedisReady()) {
+      try {
+        await redis.del('maintenance:state:v2');
+        await redis.publish('platform:maintenance:invalidated', JSON.stringify({
+          active: Boolean(p?.active),
+          scope: p?.scope ?? 'FULL_PLATFORM',
+          action: p?.action ?? 'UPDATED',
+          updatedAt: p?.updatedAt ?? new Date().toISOString()
+        }));
+      } catch (err) {
+        logger.warn({ err }, 'Failed to deliver platform.maintenance.updated event to Redis');
+        throw err;
+      }
+    }
+    try {
+      getIO()?.to('admin')?.emit('platform_maintenance_updated', {
+        active: Boolean(p?.active),
+        scope: p?.scope ?? 'FULL_PLATFORM',
+        headline: p?.headline ?? null,
+        message: p?.message ?? null,
+        startsAt: p?.startsAt ?? null,
+        endsAt: p?.endsAt ?? null,
+        action: p?.action ?? 'UPDATED',
+        updatedAt: p?.updatedAt ?? null
+      });
+    } catch {
+      // Sockets may not be active in non-server / test context
+    }
+    return;
+  }
+
   throw new Error(`Outbox drainer cannot deliver unknown eventType: ${event.eventType}`);
 };
 
