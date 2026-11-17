@@ -1,0 +1,30 @@
+Permission area,SUPER_ADMIN,FINANCE,RISK_COMPLIANCE,SUPPORT,GAME_OPERATIONS,READ_ONLY_AUDITOR
+Dashboard & operational queues,Read,Read,Read,Read,Read,Read
+Player directory / player overview,Full read,Read (operational fields),Read,Read,Read (match context),Read (audit scope)
+Player account restriction / suspension,Manage,—,Manage within policy,—,—,—
+Player sessions / revoke sessions,Manage,—,—,Request support escalation,—,Read
+Player wallet / ledger history,Read,Read,Limited read,Masked read only,Match-linked evidence only,Read
+Deposits and provider payment records,Read,Read,Risk flags only,Limited status read,—,Read
+Withdrawal queue,Read,Read / decide,Risk flags only,Status read,—,Read
+Withdrawal approve / reject,—,Approve / reject,—,—,—,—
+Ledger adjustment request,—,Request,—,—,—,—
+Ledger adjustment approval,—,Approve if independent checker,—,—,—,—
+Reconciliation runs / issues,Read,Read / resolve assigned operational issue,Read,—,—,Read
+KYC cases and decisions,Read metadata,Read status only,Read / decide,Status only,—,Read metadata
+Raw KYC document access,"Exceptional, audited",—,"Least-privilege, audited",—,—,—
+Risk events / cases,Read,Risk indicators only,Read / manage,Escalate,—,Read
+Safer-play restrictions,Read,—,Read / manage,Read status,—,Read
+Match list / match detail,Read,Financial fields only,Risk context,Read support context,Read / manage operations,Read
+Match replay / game evidence,Read,Settlement evidence only,Risk evidence,Support-safe subset,Read / review,Read
+Dispute review / resolution,Read,Financial consequence review,Compliance review,Create / comment / escalate,Review / decide within workflow,Read
+Support case management,Read,Finance-linked cases only,Compliance-linked cases,Create / assign / reply / close,Game-linked cases only,Read
+Platform configuration read,Read,Read finance settings,Read compliance settings,—,Read ruleset settings,Read
+Platform configuration publish,Manage with audit / approval,—,—,—,—,—
+Ruleset version management,Manage with audit,—,—,—,Propose / review if delegated,Read
+Payment provider operational settings,Manage non-secret controls,Manage permitted routing controls,—,—,—,Read status
+Notification templates,Manage,—,Compliance templates only if delegated,—,—,Read
+Feature flags / maintenance mode,Manage with audit,—,—,—,—,Read
+Admin staff / role assignments,Manage; no privilege bypass,—,—,—,—,Read
+Audit log,Read,Read finance scope,Read compliance scope,Read own/support scope,Read game scope,Read all permitted audit records
+Reports / exports,All permitted,Finance,Compliance / risk,Support,Game operations,Read-only
+System health / jobs / webhooks,Read,Finance/provider status,KYC/risk provider status,—,Realtime/game status,Read

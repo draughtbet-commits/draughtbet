@@ -12,7 +12,8 @@ const mockPrisma = {
   user: {
     findUnique: jest.fn(),
     findMany: jest.fn(),
-    update: jest.fn()
+    update: jest.fn(),
+    count: jest.fn()
   },
   adminRoleAssignment: {
     findMany: jest.fn(),
@@ -55,6 +56,23 @@ const mockPrisma = {
   },
   securityEvent: {
     create: jest.fn()
+  },
+  match: {
+    findMany: jest.fn(),
+    count: jest.fn()
+  },
+  adminAuditLog: {
+    findMany: jest.fn(),
+    count: jest.fn()
+  },
+  verificationCase: {
+    count: jest.fn(),
+    findMany: jest.fn()
+  },
+  withdrawal: {
+    count: jest.fn(),
+    aggregate: jest.fn(),
+    findMany: jest.fn()
   }
 };
 
@@ -65,6 +83,7 @@ jest.unstable_mockModule('../../../utils/logger.js', () => ({
 jest.unstable_mockModule('../../withdrawal/service.js', () => ({
   WithdrawalService: jest.fn().mockImplementation(() => ({
     listAllWithdrawals: jest.fn(),
+    getWithdrawal: jest.fn(),
     approveWithdrawal: jest.fn(),
     beginPayout: jest.fn(),
     reportPayoutResult: jest.fn(),
@@ -97,6 +116,9 @@ jest.unstable_mockModule('../../withdrawal/service.js', () => ({
 }));
 jest.unstable_mockModule('../../verification/service.js', () => ({
   listVerificationCases: jest.fn(),
+  getVerificationCaseDetail: jest.fn(),
+  generateVerificationDocumentAccess: jest.fn(),
+  requestAdditionalKycInfo: jest.fn(),
   approveVerificationCase: jest.fn(),
   rejectVerificationCase: jest.fn(),
   KYC_STATUSES: ['STARTED', 'PENDING', 'UNDER_REVIEW', 'REJECTED', 'EXPIRED', 'VERIFIED'],
@@ -115,11 +137,14 @@ jest.unstable_mockModule('../../verification/service.js', () => ({
 }));
 jest.unstable_mockModule('../../saferPlay/service.js', () => ({
   clearTimeoutByAdmin: jest.fn(),
-  endSelfExclusionByAdmin: jest.fn()
+  endSelfExclusionByAdmin: jest.fn(),
+  applyAdminSaferPlayRestriction: jest.fn(),
+  listSaferPlayRestrictions: jest.fn()
 }));
 jest.unstable_mockModule('../../audit/service.js', () => ({
   recordAdminAction: jest.fn().mockResolvedValue({ id: 'log-1' }),
   listAdminActions: jest.fn().mockResolvedValue({ logs: [], total: 0, page: 1, totalPages: 0 }),
+  getAdminActionDetail: jest.fn().mockResolvedValue({ id: 'log-1', action: 'test' }),
   auditPagination: jest.fn(() => ({ page: 1, limit: 20 })),
   AUDIT_OUTCOMES: ['SUCCESS', 'FAILURE', 'DENIED']
 }));
@@ -170,6 +195,15 @@ beforeEach(() => {
   mockPrisma.riskEvent.count.mockResolvedValue(0);
   mockPrisma.riskCase.findMany.mockResolvedValue([]);
   mockPrisma.riskCase.count.mockResolvedValue(0);
+  mockPrisma.user.count.mockResolvedValue(0);
+  mockPrisma.match.count.mockResolvedValue(0);
+  mockPrisma.match.findMany.mockResolvedValue([]);
+  mockPrisma.verificationCase.count.mockResolvedValue(0);
+  mockPrisma.verificationCase.findMany.mockResolvedValue([]);
+  mockPrisma.withdrawal.count.mockResolvedValue(0);
+  mockPrisma.withdrawal.aggregate.mockResolvedValue({ _sum: { amountMinorUnits: 0n } });
+  mockPrisma.withdrawal.findMany.mockResolvedValue([]);
+  mockPrisma.adminAuditLog.findMany.mockResolvedValue([]);
   verificationModule.approveVerificationCase.mockResolvedValue(null);
   verificationModule.rejectVerificationCase.mockResolvedValue(null);
   saferPlayModule.clearTimeoutByAdmin.mockResolvedValue(null);
@@ -478,5 +512,168 @@ describe('admin risk review', () => {
       .set('Authorization', `Bearer ${token}`)
       .send({ status: 'EXPLODED' });
     expect(res.status).toBe(400);
+  });
+});
+
+describe('admin dashboard summary (Module A)', () => {
+  it('returns operational counts and masks financials for SUPPORT', async () => {
+    mockPrisma.user.count.mockResolvedValueOnce(50).mockResolvedValueOnce(45).mockResolvedValueOnce(5);
+    mockPrisma.match.count.mockResolvedValueOnce(100).mockResolvedValueOnce(10).mockResolvedValueOnce(90);
+    mockPrisma.disputeCase.count.mockResolvedValueOnce(2);
+    mockPrisma.verificationCase.count.mockResolvedValueOnce(4);
+    mockPrisma.riskCase.count.mockResolvedValueOnce(1);
+    mockPrisma.adminAuditLog.findMany.mockResolvedValueOnce([]);
+
+    const token = await asRole('SUPPORT');
+    const res = await request(app)
+      .get('/api/v1/admin/dashboard/summary')
+      .set('Authorization', `Bearer ${token}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.summary.players.total).toBe(50);
+    expect(res.body.summary.matches.total).toBe(100);
+    expect(res.body.summary.compliance.pendingKyc).toBe(4);
+    expect(res.body.summary.financials).toBeNull();
+  });
+
+  it('includes financial totals when accessed by FINANCE', async () => {
+    mockPrisma.user.count.mockResolvedValueOnce(50).mockResolvedValueOnce(45).mockResolvedValueOnce(5);
+    mockPrisma.match.count.mockResolvedValueOnce(100).mockResolvedValueOnce(10).mockResolvedValueOnce(90);
+    mockPrisma.disputeCase.count.mockResolvedValueOnce(2);
+    mockPrisma.verificationCase.count.mockResolvedValueOnce(4);
+    mockPrisma.riskCase.count.mockResolvedValueOnce(1);
+    mockPrisma.adminAuditLog.findMany.mockResolvedValueOnce([]);
+    mockPrisma.withdrawal.count.mockResolvedValueOnce(3).mockResolvedValueOnce(15);
+    mockPrisma.withdrawal.aggregate
+      .mockResolvedValueOnce({ _sum: { amountMinorUnits: 300000n } })
+      .mockResolvedValueOnce({ _sum: { amountMinorUnits: 1500000n } });
+
+    const token = await asRole('FINANCE');
+    const res = await request(app)
+      .get('/api/v1/admin/dashboard/summary')
+      .set('Authorization', `Bearer ${token}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.summary.financials).not.toBeNull();
+    expect(res.body.summary.financials.pendingWithdrawalsCount).toBe(3);
+    expect(res.body.summary.financials.pendingWithdrawalsAmountMinorUnits).toBe('300000');
+    expect(res.body.summary.financials.currency).toBe('NGN');
+  });
+
+  it('denies dashboard summary to a non-admin account', async () => {
+    mockPrisma.adminRoleAssignment.findMany.mockResolvedValue([]);
+    const { accessToken } = await AuthService.issueTokens('regular-player-1');
+    const res = await request(app)
+      .get('/api/v1/admin/dashboard/summary')
+      .set('Authorization', `Bearer ${accessToken}`);
+
+    expect(res.status).toBe(403);
+    expect(res.body.error).toBe('Account does not have admin privileges');
+  });
+});
+
+describe('admin player management (Module B)', () => {
+  it('lists players with search and pagination for any admin role', async () => {
+    mockPrisma.user.findMany.mockResolvedValueOnce([
+      { id: 'u1', email: 'p1@test.com', username: 'player1', tier: 'AMATEUR', kycStatus: 'VERIFIED', isBanned: false, createdAt: new Date() }
+    ]);
+    mockPrisma.user.count.mockResolvedValueOnce(1);
+
+    const token = await asRole('SUPPORT');
+    const res = await request(app)
+      .get('/api/v1/admin/users?page=1&limit=10&search=player1')
+      .set('Authorization', `Bearer ${token}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.users).toHaveLength(1);
+    expect(res.body.total).toBe(1);
+    expect(res.body.page).toBe(1);
+  });
+
+  it('returns player details with safe fields', async () => {
+    mockPrisma.user.findUnique.mockImplementation(async ({ where }) => {
+      if (where.id === 'caller') return adminUser;
+      if (where.id === 'target-1') {
+        return {
+          id: 'target-1',
+          email: 'target@test.com',
+          username: 'targetPlayer',
+          phone: '+2348011111111',
+          kycStatus: 'VERIFIED',
+          isBanned: false,
+          isAdmin: false,
+          createdAt: new Date(),
+          saferPlayProfile: null,
+          saferPlayEvents: [],
+          verificationCases: [],
+          sessions: [],
+          devices: []
+        };
+      }
+      return null;
+    });
+
+    const token = await asRole('SUPPORT');
+    const res = await request(app)
+      .get('/api/v1/admin/users/target-1')
+      .set('Authorization', `Bearer ${token}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.user.email).toBe('target@test.com');
+    expect(res.body.user.passwordHash).toBeUndefined();
+    expect(res.body.user.financials).toBeNull();
+  });
+
+  it('returns 404 when player does not exist', async () => {
+    mockPrisma.user.findUnique.mockImplementation(async ({ where }) => {
+      if (where.id === 'caller') return adminUser;
+      return null;
+    });
+
+    const token = await asRole('SUPPORT');
+    const res = await request(app)
+      .get('/api/v1/admin/users/non-existent-user')
+      .set('Authorization', `Bearer ${token}`);
+
+    expect(res.status).toBe(404);
+  });
+});
+
+describe('admin withdrawal details (Module C)', () => {
+  it('returns withdrawal detail with audit history for FINANCE', async () => {
+    controllerWithdrawal.getWithdrawal.mockResolvedValueOnce({
+      id: 'wd-detail-1',
+      userId: 'u-1',
+      amountMinorUnits: '50000',
+      currency: 'NGN',
+      reference: 'REF-WD-1',
+      gateway: 'PAYSTACK',
+      status: 'PENDING_REVIEW',
+      user: { id: 'u-1', email: 'u1@test.com' },
+      bankAccount: { bankName: 'Access Bank', accountNumber: '0123456789' }
+    });
+    mockPrisma.adminAuditLog.findMany.mockResolvedValueOnce([
+      { id: 'audit-1', action: 'withdrawal.approve', outcome: 'SUCCESS', createdAt: new Date() }
+    ]);
+
+    const token = await asRole('FINANCE');
+    const res = await request(app)
+      .get('/api/v1/admin/withdrawals/wd-detail-1')
+      .set('Authorization', `Bearer ${token}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.withdrawal.id).toBe('wd-detail-1');
+    expect(res.body.withdrawal.bankAccount.bankName).toBe('Access Bank');
+    expect(res.body.withdrawal.auditHistory).toHaveLength(1);
+  });
+
+  it('rejects withdrawal detail request if role lacks withdrawals.read (e.g. SUPPORT)', async () => {
+    const token = await asRole('SUPPORT');
+    const res = await request(app)
+      .get('/api/v1/admin/withdrawals/wd-detail-1')
+      .set('Authorization', `Bearer ${token}`);
+
+    expect(res.status).toBe(403);
+    expect(res.body.error).toBe('Insufficient admin permission');
   });
 });

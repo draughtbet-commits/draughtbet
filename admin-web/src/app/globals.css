@@ -1,0 +1,27 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --void: #0B0D10;
+    --surface-1: #15181D;
+    --surface-2: #1E2229;
+    --surface-3: #272C34;
+    --hairline: #2E333B;
+    --text-primary: #F4F2ED;
+    --text-secondary: #9CA3AF;
+    --text-muted: #6B7280;
+    --gold-500: #E7B24A;
+    --gold-700: #B8862E;
+    --gold-100: #3A2E17;
+  }
+
+  body {
+    background-color: var(--void);
+    color: var(--text-primary);
+    font-family: var(--font-sans), system-ui, -apple-system, sans-serif;
+  }
+
+  h1, h2, h3 {
+    font-family: var(--font-display), Georgia, serif;
+  }
+}

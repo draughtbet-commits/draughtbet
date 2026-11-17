@@ -366,13 +366,61 @@ export class WithdrawalService {
     const [rows, total] = await Promise.all([
       prisma.withdrawal.findMany({
         where,
+        include: {
+          user: {
+            select: {
+              id: true,
+              email: true,
+              username: true,
+              fullName: true,
+              kycStatus: true,
+              isBanned: true
+            }
+          },
+          bankAccount: true
+        },
         orderBy: { createdAt: 'desc' },
         skip,
         take: limit
       }),
       prisma.withdrawal.count({ where })
     ]);
-    return { withdrawals: rows.map(toPayload), total };
+    return {
+      withdrawals: rows.map((w) => ({
+        ...toPayload(w),
+        user: w.user,
+        bankAccount: w.bankAccount
+      })),
+      total,
+      page,
+      totalPages: Math.ceil(total / limit)
+    };
+  }
+
+  async getWithdrawal(withdrawalId) {
+    const row = await prisma.withdrawal.findUnique({
+      where: { id: withdrawalId },
+      include: {
+        user: {
+          select: {
+            id: true,
+            email: true,
+            username: true,
+            fullName: true,
+            phone: true,
+            kycStatus: true,
+            isBanned: true
+          }
+        },
+        bankAccount: true
+      }
+    });
+    if (!row) throw new WithdrawalNotFoundError();
+    return {
+      ...toPayload(row),
+      user: row.user,
+      bankAccount: row.bankAccount
+    };
   }
 
   /**

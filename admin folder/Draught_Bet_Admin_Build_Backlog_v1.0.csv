@@ -1,0 +1,27 @@
+Ticket,Priority,Workstream,Implementation scope,Owner,Acceptance criteria
+ADM-001,P0,Contract verification,"Confirm live admin routes, auth claims, MFA flow, DTOs and deployed Backend V2 status.",Backend owner,No UI integration uses an unverified endpoint; OpenAPI addendum agreed.
+ADM-002,P0,Admin authentication & MFA,"Implement secure admin login/session boundary, mandatory MFA and session expiry handling.",Backend + frontend,"Unauthenticated, non-admin, MFA-incomplete and revoked sessions are blocked."
+ADM-003,P0,RBAC and route guards,"Implement permission registry, role-aware navigation and server authorization.",Backend + frontend,All six roles pass allow/deny tests; UI hiding is not treated as authorization.
+ADM-004,P0,Admin shell,"Build Next.js App Router shell, responsive sidebar, topbar, breadcrumbs, page title and error boundary.",Frontend,All 55 routes can render within authenticated shell.
+ADM-005,P0,Dashboard and queues,Build role-filtered dashboard KPIs and actionable queue cards.,Backend + frontend,Counts match authoritative queries; no client-side financial aggregation.
+ADM-006,P0,Player directory/detail,"Build user search and detail tabs for profile, account, wallet, matches, KYC, safer-play and sessions.",Backend + frontend,Search is cursor-paginated and sensitive fields are role-redacted.
+ADM-007,P0,Withdrawal review,"Build queue/detail/review with reason capture, idempotency and stale-state protection.",Backend + frontend,Approve/reject only through documented service; ledger reservation/finalization remains backend-owned.
+ADM-008,P0,KYC review,"Build queue, case detail, private document access and decision capture.",Backend + frontend,"Document access is short-lived, least-privilege and audited; decision is idempotent."
+ADM-009,P0,Ledger explorer,Build immutable ledger search/detail with account entries and transaction source links.,Backend + frontend,No edit/delete/direct-balance controls exist.
+ADM-010,P0,Admin audit log,Build searchable audit explorer with redaction and role scoping.,Backend + frontend,"Every sensitive write is traceable by actor, requestId, entity and timestamp."
+ADM-011,P1,Deposit operations,Build deposit search/detail and provider event evidence.,Backend + frontend,No client/provider redirect is treated as proof of credit.
+ADM-012,P1,Financial adjustments,"Build request, independent approval and outcome timeline.",Backend + frontend,No self-approval; balanced idempotent ledger posting; reason mandatory.
+ADM-013,P1,Reconciliation,"Build run dashboard, issue detail and controlled resolution.",Backend + frontend,Mismatch is visible; no silent historical correction.
+ADM-014,P1,Risk and safer-play,Build risk events/cases and restriction management.,Backend + frontend,Restrictions are server-enforced across sessions/devices.
+ADM-015,P1,Match operations,Build match monitor/detail and canonical evidence viewer.,Backend + frontend,Evidence is read-only and sourced from backend canonical state.
+ADM-016,P1,Disputes,Build dispute queue/detail/decision workflow.,Backend + frontend,No direct winner edit; money correction is separate ledger action.
+ADM-017,P1,Support cases,"Build support list/detail, assignment, internal notes and case events.",Backend + frontend,"Support role cannot mutate wallet, KYC decisions or match result."
+ADM-018,P1,Platform configuration,"Build versioned config editor, diff, validation, approval and publish.",Backend + frontend,Changes create immutable version; existing funded match snapshots remain unchanged.
+ADM-019,P1,Ruleset management,Build versioned ruleset viewer/editor/activation.,Backend + frontend,No mutation of ruleset version already referenced by a match.
+ADM-020,P1,Admin team and permissions,"Build staff directory, role assignment and effective permission view.",Backend + frontend,"Role assignment is audited, MFA-protected and cannot self-elevate."
+ADM-021,P2,Provider operations,Build sanitized provider health/routing controls; secrets stay in deployment secret store.,Backend + frontend,No provider secret is returned to browser or audit payload.
+ADM-022,P2,Notifications and feature flags,Build versioned notification templates and feature flag/maintenance controls if backend supports them.,Backend + frontend,No unsafe promotional content; all changes audited.
+ADM-023,P2,Reports and exports,Build role-scoped reports with server-side aggregation and audited exports.,Backend + frontend,Export permission and data scope are enforced server-side.
+ADM-024,P2,System health,Build API/worker/outbox/webhook health pages and controlled retry actions.,Backend + frontend,Retries are idempotent and do not duplicate financial effects.
+ADM-025,P0,Security and QA,"Run role matrix, MFA, CSRF/session, XSS, export, audit, financial invariant and failure-state tests.",QA + security,No privilege bypass; all P0 acceptance tests pass.
+ADM-026,P1,Release and operations,"Deploy admin separately or under approved route; configure HTTPS, CORS, CSP, monitoring and rollback.",Platform,Production access is restricted; no live-money enablement without launch gates.

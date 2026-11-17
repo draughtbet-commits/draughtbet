@@ -77,6 +77,14 @@ const assertAmount = (amount) => {
   return amount;
 };
 
+const assertPositiveAmount = (amount) => {
+  const val = assertAmount(amount);
+  if (val <= 0n) {
+    throw new InvalidAmountError('Amount must be strictly positive');
+  }
+  return val;
+};
+
 /**
  * Resolves (create-if-missing) a single ledger account for a user.
  *
@@ -351,7 +359,7 @@ export async function postDepositCredit(
   tx,
   { userId, amountMinorUnits, currency = 'NGN', depositIntentId, reference }
 ) {
-  const amount = assertAmount(amountMinorUnits);
+  const amount = assertPositiveAmount(amountMinorUnits);
   const accounts = await ensureUserAccounts(tx, userId, currency);
   const liability = await ensureSystemAccount(tx, 'CUSTOMER_LIABILITY', currency);
   return postLedgerTransaction(tx, {
@@ -378,7 +386,7 @@ export async function postWithdrawalReserve(
   tx,
   { withdrawalId, userId, amountMinorUnits, currency = 'NGN' }
 ) {
-  const amount = assertAmount(amountMinorUnits);
+  const amount = assertPositiveAmount(amountMinorUnits);
   const accounts = await ensureUserAccounts(tx, userId, currency);
   return postLedgerTransaction(tx, {
     type: 'WITHDRAWAL_RESERVE',
@@ -404,7 +412,7 @@ export async function postWithdrawalComplete(
   tx,
   { withdrawalId, userId, amountMinorUnits, currency = 'NGN' }
 ) {
-  const amount = assertAmount(amountMinorUnits);
+  const amount = assertPositiveAmount(amountMinorUnits);
   const accounts = await ensureUserAccounts(tx, userId, currency);
   const liability = await ensureSystemAccount(tx, 'CUSTOMER_LIABILITY', currency);
   return postLedgerTransaction(tx, {
@@ -432,7 +440,7 @@ export async function postWithdrawalRelease(
   tx,
   { withdrawalId, userId, amountMinorUnits, currency = 'NGN' }
 ) {
-  const amount = assertAmount(amountMinorUnits);
+  const amount = assertPositiveAmount(amountMinorUnits);
   const accounts = await ensureUserAccounts(tx, userId, currency);
   return postLedgerTransaction(tx, {
     type: 'WITHDRAWAL_RELEASE',
@@ -470,7 +478,7 @@ export async function postAdjustment(
   if (direction !== 'CREDIT' && direction !== 'DEBIT') {
     throw new InvalidAmountError('Adjustment direction must be CREDIT or DEBIT');
   }
-  const amount = assertAmount(amountMinorUnits);
+  const amount = assertPositiveAmount(amountMinorUnits);
   const accounts = await ensureUserAccounts(tx, userId, currency);
   const liability = await ensureSystemAccount(tx, 'CUSTOMER_LIABILITY', currency);
 

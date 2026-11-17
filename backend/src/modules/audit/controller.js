@@ -1,7 +1,7 @@
 import express from 'express';
 import { requirePermission } from '../rbac/service.js';
 import { PERMISSIONS } from '../rbac/permissions.js';
-import { listAdminActions, auditPagination } from './service.js';
+import { listAdminActions, getAdminActionDetail, auditPagination } from './service.js';
 
 export const auditRouter = express.Router();
 
@@ -18,6 +18,22 @@ auditRouter.get(
       }
       const data = await listAdminActions(filters);
       res.json(data);
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+auditRouter.get(
+  '/logs/:id',
+  requirePermission(PERMISSIONS.AUDIT_READ),
+  async (req, res, next) => {
+    try {
+      const log = await getAdminActionDetail(req.params.id);
+      if (!log) {
+        return res.status(404).json({ error: 'Audit record not found' });
+      }
+      res.json({ log });
     } catch (error) {
       next(error);
     }

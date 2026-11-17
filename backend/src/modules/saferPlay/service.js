@@ -490,6 +490,162 @@ export const endSelfExclusionByAdmin = async (userId, { actorId = null, dbp = pr
   return updated;
 };
 
+/**
+ * Admin-applied safer-play restriction (timeout, self-exclusion, deposit limit, or stake limit).
+ * Enforces extend-only rules on active timeouts and self-exclusions and records
+ * the compliance operator's reason and timestamps.
+ */
+export const applyAdminSaferPlayRestriction = async (
+  userId,
+  {
+    type: explicitType,
+    timeoutMinutes,
+    timeoutUntil,
+    selfExclusionDays,
+    selfExcludedUntil,
+    depositLimitMinorUnits,
+    stakeLimitMinorUnits,
+    reason = null,
+    actorId = null,
+    now = new Date(),
+    dbp = prisma
+  } = {}
+) => {
+  let type = explicitType;
+  if (!type) {
+    if (timeoutMinutes || timeoutUntil) type = 'TIMEOUT';
+    else if (selfExcludedUntil || selfExclusionDays) type = 'SELF_EXCLUSION';
+    else if (depositLimitMinorUnits) type = 'DEPOSIT_LIMIT';
+    else if (stakeLimitMinorUnits) type = 'STAKE_LIMIT';
+  }
+
+  let updatedProfile;
+  if (type === 'TIMEOUT') {
+    const mins = timeoutMinutes ?? (timeoutUntil ? Math.max(1, Math.round((new Date(timeoutUntil) - now) / 60000)) : null);
+    updatedProfile = await startTimeout(userId, mins, { now, dbp });
+  } else if (type === 'SELF_EXCLUSION') {
+    const rawUntil = selfExcludedUntil ?? (selfExclusionDays ? `${selfExclusionDays}d` : null);
+    updatedProfile = await extendSelfExclusion(userId, rawUntil, { now, dbp });
+  } else if (type === 'DEPOSIT_LIMIT') {
+    updatedProfile = await setDepositLimit(userId, depositLimitMinorUnits, { now, dbp });
+  } else if (type === 'STAKE_LIMIT') {
+    updatedProfile = await setStakeLimit(userId, stakeLimitMinorUnits, { now, dbp });
+  } else {
+    const err = new Error('Invalid restriction type');
+    err.name = 'InvalidRestrictionTypeError';
+    throw err;
+  }
+
+  if (reason && typeof dbp.saferPlayEvent?.create === 'function') {
+    await dbp.saferPlayEvent.create({
+      data: {
+        userId,
+        action: 'SET',
+        field: `admin:${type.toLowerCase()}`,
+        oldValue: { actorId },
+        newValue: {
+          type,
+          reason,
+          appliedAt: now.toISOString(),
+          timeoutUntil: updatedProfile.timeoutUntil,
+          selfExcludedUntil: updatedProfile.selfExcludedUntil,
+          depositLimitMinorUnits: updatedProfile.depositLimitMinorUnits,
+          stakeLimitMinorUnits: updatedProfile.stakeLimitMinorUnits
+        }
+      }
+    });
+  }
+
+  return updatedProfile;
+};
+
+/**
+ * Lists safer-play profiles and recent restriction events for compliance review.
+ */
+export const listSaferPlayRestrictions = async ({
+  page = 1,
+  limit = 20,
+  filter = 'all',
+  search = null,
+  now = new Date(),
+  dbp = prisma
+} = {}) => {
+  const where = {};
+  if (filter === 'timeout') {
+    where.timeoutUntil = { gt: now };
+  } else if (filter === 'self_excluded') {
+    where.selfExcludedUntil = { gt: now };
+  } else if (filter === 'limits') {
+    where.OR = [
+      { depositLimitMinorUnits: { not: null } },
+      { stakeLimitMinorUnits: { not: null } }
+    ];
+  }
+
+  if (search && typeof search === 'string' && search.trim() !== '') {
+    const term = search.trim();
+    where.user = {
+      OR: [
+        { id: { contains: term, mode: 'insensitive' } },
+        { email: { contains: term, mode: 'insensitive' } },
+        { username: { contains: term, mode: 'insensitive' } },
+        { fullName: { contains: term, mode: 'insensitive' } }
+      ]
+    };
+  }
+
+  const skip = (page - 1) * limit;
+  const coolingHours = await readCoolingHours(dbp);
+
+  const [rows, total, recentEvents] = await Promise.all([
+    dbp.saferPlayProfile.findMany({
+      where,
+      orderBy: { updatedAt: 'desc' },
+      skip,
+      take: limit,
+      include: {
+        user: {
+          select: {
+            id: true,
+            email: true,
+            username: true,
+            fullName: true,
+            kycStatus: true,
+            isBanned: true
+          }
+        }
+      }
+    }),
+    dbp.saferPlayProfile.count({ where }),
+    dbp.saferPlayEvent.findMany({
+      orderBy: { createdAt: 'desc' },
+      take: 20,
+      include: {
+        user: {
+          select: { id: true, email: true, username: true }
+        }
+      }
+    })
+  ]);
+
+  const profiles = rows.map((r) => ({
+    id: r.id,
+    userId: r.userId,
+    user: r.user,
+    ...profilePayload(r, now, coolingHours),
+    updatedAt: r.updatedAt,
+    createdAt: r.createdAt
+  }));
+
+  return {
+    profiles,
+    recentEvents,
+    total,
+    page,
+    totalPages: Math.ceil(total / limit)
+  };
+};
+
 // ---------------------------------------------------------------------------
 // Deposit limit enforcement
 // ---------------------------------------------------------------------------

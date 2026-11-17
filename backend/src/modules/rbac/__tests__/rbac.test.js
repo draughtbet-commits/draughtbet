@@ -1,7 +1,6 @@
 import { jest } from '@jest/globals';
 
 jest.unstable_mockModule('../../../utils/db.js', () => ({ default: mockDb }));
-jest.unstable_mockModule('../../mfa/service.js', () => ({ AdminMfaService: mockAdminMfaService }));
 jest.unstable_mockModule('../../audit/service.js', () => ({
   recordAdminAction: jest.fn().mockResolvedValue(undefined)
 }));
@@ -19,13 +18,6 @@ const mockDb = {
   }
 };
 
-const mockAdminMfaService = {
-  getStatus: jest.fn(),
-  isLocked: jest.fn(),
-  verify: jest.fn(),
-  recordFailure: jest.fn()
-};
-
 const {
   ensureRoles,
   getUserRoles,
@@ -34,7 +26,6 @@ const {
   assignRole,
   revokeRole,
   requirePermission,
-  requireAdminMfa,
   PermissionDeniedError,
   RoleAssignmentError
 } = await import('../service.js');
@@ -45,11 +36,52 @@ const ALL = Object.values(PERMISSIONS);
 
 const MATRIX = {
   SUPER_ADMIN: ALL,
-  FINANCE: ['withdrawals.read', 'withdrawals.process', 'ledger.adjust', 'audit.read'],
-  RISK_COMPLIANCE: ['verification.review', 'risk.review', 'safer-play.lift', 'audit.read'],
-  SUPPORT: ['users.manage', 'disputes.manage', 'safer-play.lift', 'audit.read'],
-  GAME_OPERATIONS: ['audit.read'],
-  READ_ONLY_AUDITOR: ['withdrawals.read', 'audit.read']
+  FINANCE: [
+    'withdrawals.read',
+    'withdrawals.process',
+    'ledger.adjust',
+    'audit.read',
+    'config.read',
+    'config.propose.financial',
+    'config.approve',
+    'flags.read',
+    'maintenance.read'
+  ],
+  RISK_COMPLIANCE: [
+    'verification.review',
+    'risk.review',
+    'safer-play.lift',
+    'audit.read',
+    'config.read',
+    'config.propose.compliance',
+    'config.approve',
+    'flags.read',
+    'flags.killswitch',
+    'maintenance.read'
+  ],
+  SUPPORT: [
+    'users.manage',
+    'disputes.manage',
+    'safer-play.lift',
+    'audit.read',
+    'flags.read',
+    'maintenance.read'
+  ],
+  GAME_OPERATIONS: [
+    'audit.read',
+    'config.read',
+    'config.propose.game',
+    'flags.read',
+    'flags.killswitch',
+    'maintenance.read'
+  ],
+  READ_ONLY_AUDITOR: [
+    'withdrawals.read',
+    'audit.read',
+    'config.read',
+    'flags.read',
+    'maintenance.read'
+  ]
 };
 
 describe('rbac matrix', () => {
@@ -214,81 +246,5 @@ describe('rbac requirePermission', () => {
     mockDb.adminRoleAssignment.findMany.mockRejectedValue(new Error('db down'));
     await requirePermission('audit.read')(req, res, next);
     expect(next).toHaveBeenCalledWith(expect.any(Error));
-  });
-});
-
-describe('rbac requireAdminMfa', () => {
-  const make = () => {
-    const req = { user: { id: 'admin-1' }, ip: '1.2.3.4', id: 'req-1', method: 'GET', originalUrl: '/admin/x', get: () => undefined };
-    const res = { status: jest.fn().mockReturnThis(), json: jest.fn() };
-    const next = jest.fn();
-    return { req, res, next };
-  };
-
-  beforeEach(() => {
-    jest.clearAllMocks();
-    delete process.env.ADMIN_MFA_ENFORCED;
-    delete process.env.ADMIN_MFA_CODE;
-    mockAdminMfaService.getStatus.mockResolvedValue({ provisioned: true, enabled: true });
-    mockAdminMfaService.isLocked.mockResolvedValue(false);
-    mockAdminMfaService.verify.mockResolvedValue(true);
-  });
-
-  it('passes through when MFA is not enforced', async () => {
-    const { req, res, next } = make();
-    await requireAdminMfa(req, res, next);
-    expect(next).toHaveBeenCalled();
-    expect(recordAdminAction).not.toHaveBeenCalled();
-  });
-
-  it('denies an unprovisioned admin and audits DENIED', async () => {
-    process.env.ADMIN_MFA_ENFORCED = 'true';
-    mockAdminMfaService.getStatus.mockResolvedValue({ provisioned: false, enabled: false });
-    const { req, res, next } = make();
-    await requireAdminMfa(req, res, next);
-    expect(res.status).toHaveBeenCalledWith(403);
-    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ error: expect.stringContaining('MFA') }));
-    expect(next).not.toHaveBeenCalled();
-    expect(recordAdminAction).toHaveBeenCalledWith(expect.objectContaining({ outcome: 'DENIED' }));
-  });
-
-  it('denies MFA that is provisioned but not enabled', async () => {
-    process.env.ADMIN_MFA_ENFORCED = 'true';
-    mockAdminMfaService.getStatus.mockResolvedValue({ provisioned: true, enabled: false });
-    const { req, res, next } = make();
-    await requireAdminMfa(req, res, next);
-    expect(res.status).toHaveBeenCalledWith(403);
-    expect(recordAdminAction).toHaveBeenCalledWith(expect.objectContaining({ outcome: 'DENIED' }));
-  });
-
-  it('denies a locked admin', async () => {
-    process.env.ADMIN_MFA_ENFORCED = 'true';
-    mockAdminMfaService.isLocked.mockResolvedValue(true);
-    const { req, res, next } = make();
-    await requireAdminMfa(req, res, next);
-    expect(res.status).toHaveBeenCalledWith(403);
-    expect(recordAdminAction).toHaveBeenCalledWith(expect.objectContaining({ outcome: 'DENIED' }));
-  });
-
-  it('denies a wrong code, records the failure and audits DENIED', async () => {
-    process.env.ADMIN_MFA_ENFORCED = 'true';
-    mockAdminMfaService.verify.mockResolvedValue(false);
-    const { req, res, next } = make();
-    req.get = (h) => (h === 'x-admin-mfa-code' ? '000000' : undefined);
-    await requireAdminMfa(req, res, next);
-    expect(mockAdminMfaService.verify).toHaveBeenCalledWith('admin-1', '000000');
-    expect(mockAdminMfaService.recordFailure).toHaveBeenCalledWith('admin-1');
-    expect(res.status).toHaveBeenCalledWith(403);
-    expect(recordAdminAction).toHaveBeenCalledWith(expect.objectContaining({ outcome: 'DENIED' }));
-  });
-
-  it('accepts a valid code and audits SUCCESS', async () => {
-    process.env.ADMIN_MFA_ENFORCED = 'true';
-    const { req, res, next } = make();
-    req.get = (h) => (h === 'x-admin-mfa-code' ? '123456' : undefined);
-    await requireAdminMfa(req, res, next);
-    expect(mockAdminMfaService.verify).toHaveBeenCalledWith('admin-1', '123456');
-    expect(next).toHaveBeenCalled();
-    expect(recordAdminAction).toHaveBeenCalledWith(expect.objectContaining({ outcome: 'SUCCESS' }));
   });
 });

@@ -20,7 +20,6 @@ Consolidated business truth from the signed contract, the original (superseded) 
 | Currency | Naira (₦) | GBP (£) | **NGN (₦) for Nigeria launch, GBP added in a later global phase** — see note below |
 | Payment gateway | Paystack + Flutterwave | Stripe (exclusively, per §3.2) | **Paystack (primary) + Flutterwave (secondary) for Nigeria launch, Stripe added for global phase** — see note below |
 | Mobile stack | React Native | React Native | **Flutter** per direct client agreement — resolved, not open |
-| Contract value | ₦3,000,000 | ₦1,500,000 (NGN equivalent, paid in GBP) | Unchanged for now — currency of *payment to the developer* is separate from *in-app player currency*, see note below |
 | Commission | 10% default | Configurable, no fixed default | Configurable, admin-adjustable from day one |
 
 **Stack note (resolved):** the Contract's IP-transfer clause names "React Native." The actual build uses Flutter. Communicated to the client in writing already — do not revert based on Contract text alone.

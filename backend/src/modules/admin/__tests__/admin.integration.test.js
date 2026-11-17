@@ -233,14 +233,14 @@ describeIntegration('Admin v2 (real PostgreSQL + Redis)', () => {
   it('has SUPPORT ban a user and disconnect their sessions', async () => {
     const token = await tokenFor(support.id);
     const res = await request(app)
-      .patch(`/admin/users/${player2.id}/ban`)
+      .patch(`/api/v1/admin/users/${player2.id}/ban`)
       .set(auth(token));
     expect(res.status).toBe(200);
     const banned = await prisma.user.findUnique({ where: { id: player2.id } });
     expect(banned.isBanned).toBe(true);
 
     const unban = await request(app)
-      .patch(`/admin/users/${player2.id}/unban`)
+      .patch(`/api/v1/admin/users/${player2.id}/unban`)
       .set(auth(token));
     expect(unban.status).toBe(200);
   });
@@ -258,7 +258,7 @@ describeIntegration('Admin v2 (real PostgreSQL + Redis)', () => {
     });
     const token = await tokenFor(risk.id);
     const res = await request(app)
-      .post(`/admin/verification-cases/${vc.id}/approve`)
+      .post(`/api/v1/admin/verification-cases/${vc.id}/approve`)
       .set(auth(token))
       .send({ note: 'integration pass' });
     expect(res.status).toBe(200);
@@ -284,20 +284,20 @@ describeIntegration('Admin v2 (real PostgreSQL + Redis)', () => {
     const token = await tokenFor(support.id);
 
     const evidence = await request(app)
-      .post(`/admin/disputes/${dispute.id}/evidence`)
+      .post(`/api/v1/admin/disputes/${dispute.id}/evidence`)
       .set(auth(token))
       .send({ type: 'GAME_LOG', url: 'https://cdn.test/gamelog.json' });
     expect(evidence.status).toBe(201);
 
     const decide = await request(app)
-      .post(`/admin/disputes/${dispute.id}/decide`)
+      .post(`/api/v1/admin/disputes/${dispute.id}/decide`)
       .set(auth(token))
       .send({ status: 'RESOLVED', resolution: 'Reader confirms the result, no refund.' });
     expect(decide.status).toBe(200);
     expect(decide.body.disputeCase.status).toBe('RESOLVED');
 
     const again = await request(app)
-      .post(`/admin/disputes/${dispute.id}/decide`)
+      .post(`/api/v1/admin/disputes/${dispute.id}/decide`)
       .set(auth(token))
       .send({ status: 'RESOLVED', resolution: 'Already resolved.' });
     expect(again.status).toBe(409);
@@ -312,7 +312,7 @@ describeIntegration('Admin v2 (real PostgreSQL + Redis)', () => {
 
     const token = await tokenFor(support.id);
     const res = await request(app)
-      .post(`/admin/safer-play/${player.id}/clear-timeout`)
+      .post(`/api/v1/admin/safer-play/${player.id}/clear-timeout`)
       .set(auth(token));
     expect(res.status).toBe(200);
     expect(res.body.lifted).toBe(true);
@@ -324,5 +324,80 @@ describeIntegration('Admin v2 (real PostgreSQL + Redis)', () => {
     expect(actions).toContain('safer-play.clear-timeout');
     expect(actions).toContain('ledger.adjustment');
     expect(actions).toContain('role.assign');
+  });
+
+  it('loads real dashboard summary (Module A)', async () => {
+    const finToken = await tokenFor(finance.id);
+    const finRes = await request(app).get('/api/v1/admin/dashboard/summary').set(auth(finToken));
+    expect(finRes.status).toBe(200);
+    expect(finRes.body.summary.players.total).toBeGreaterThanOrEqual(2);
+    expect(finRes.body.summary.financials).not.toBeNull();
+    expect(finRes.body.summary.financials.currency).toBe('NGN');
+
+    const supToken = await tokenFor(support.id);
+    const supRes = await request(app).get('/api/v1/admin/dashboard/summary').set(auth(supToken));
+    expect(supRes.status).toBe(200);
+    expect(supRes.body.summary.financials).toBeNull();
+  });
+
+  it('lists players with search and filters, and gets player details (Module B)', async () => {
+    const token = await tokenFor(support.id);
+    const list = await request(app).get('/api/v1/admin/users?page=1&limit=5').set(auth(token));
+    expect(list.status).toBe(200);
+    expect(Array.isArray(list.body.users)).toBe(true);
+    expect(list.body.total).toBeGreaterThanOrEqual(1);
+
+    const detail = await request(app).get(`/api/v1/admin/users/${player.id}`).set(auth(token));
+    expect(detail.status).toBe(200);
+    expect(detail.body.user.id).toBe(player.id);
+    expect(detail.body.user.email).toBe(player.email);
+    expect(detail.body.user.passwordHash).toBeUndefined();
+    expect(detail.body.user.financials).toBeNull();
+
+    const finToken = await tokenFor(finance.id);
+    const finDetail = await request(app).get(`/api/v1/admin/users/${player2.id}`).set(auth(finToken));
+    expect(finDetail.status).toBe(200);
+    expect(finDetail.body.user.financials).not.toBeNull();
+    expect(finDetail.body.user.financials.projections.available).toBe('250000');
+  });
+
+  it('fetches withdrawal detail with audit history (Module C)', async () => {
+    const bank = await prisma.bankAccount.create({
+      data: {
+        userId: player.id,
+        gateway: 'PAYSTACK',
+        bankCode: '058',
+        bankName: 'GTBank',
+        accountNumber: '0123456789',
+        accountName: 'Integration Player',
+        isDefault: true
+      }
+    });
+    const wd = await prisma.withdrawal.create({
+      data: {
+        userId: player.id,
+        amountMinorUnits: 50000n,
+        currency: 'NGN',
+        reference: `itg-wd-detail-${Date.now()}`,
+        gateway: 'PAYSTACK',
+        bankAccountId: bank.id,
+        status: 'PENDING_REVIEW'
+      }
+    });
+
+    const token = await tokenFor(finance.id);
+    const res = await request(app).get(`/api/v1/admin/withdrawals/${wd.id}`).set(auth(token));
+    expect(res.status).toBe(200);
+    expect(res.body.withdrawal.id).toBe(wd.id);
+    expect(res.body.withdrawal.amountMinorUnits).toBe('50000');
+    expect(res.body.withdrawal.bankAccount.bankName).toBe('GTBank');
+    expect(Array.isArray(res.body.withdrawal.auditHistory)).toBe(true);
+
+    const supToken = await tokenFor(support.id);
+    const denied = await request(app).get(`/api/v1/admin/withdrawals/${wd.id}`).set(auth(supToken));
+    expect(denied.status).toBe(403);
+
+    await prisma.withdrawal.delete({ where: { id: wd.id } });
+    await prisma.bankAccount.delete({ where: { id: bank.id } });
   });
 });

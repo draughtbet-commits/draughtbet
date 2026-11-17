@@ -53,6 +53,13 @@ model User {
   connectionEvents        MatchConnectionEvent[]
   withdrawals             Withdrawal[]
   adminMfa                AdminMfa?
+  supportCases            SupportCase[]
+  authoredConfigs         PlatformConfigVersion[] @relation("ConfigAuthor")
+  activatedConfigs        PlatformConfigVersion[] @relation("ConfigActivator")
+  configApprovals         ConfigApproval[]        @relation("ConfigReviewer")
+  updatedFeatureFlags     FeatureFlag[]           @relation("FeatureFlagUpdater")
+  updatedMaintenance      MaintenanceState[]      @relation("MaintenanceUpdater")
+  updatedTemplates        NotificationTemplate[]  @relation("TemplateUpdater")
 }
 
 enum Tier {
@@ -911,6 +918,7 @@ model RiskEvent {
 enum RiskCaseStatus {
   OPEN
   INVESTIGATING
+  ESCALATED
   RESOLVED
   DISMISSED
 }
@@ -925,6 +933,73 @@ model RiskCase {
   updatedAt   DateTime       @updatedAt
 
   @@index([status])
+}
+
+enum SupportCaseStatus {
+  OPEN
+  IN_PROGRESS
+  WAITING_ON_PLAYER
+  ESCALATED
+  RESOLVED
+  CLOSED
+}
+
+enum SupportCasePriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum SupportCaseCategory {
+  ACCOUNT
+  MATCH_DISPUTE
+  DEPOSIT
+  WITHDRAWAL
+  KYC_COMPLIANCE
+  TECHNICAL
+  OTHER
+}
+
+model SupportCase {
+  id                     String              @id @default(uuid())
+  reference              String              @unique
+  userId                 String
+  user                   User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subject                String
+  description            String
+  category               SupportCaseCategory @default(ACCOUNT)
+  priority               SupportCasePriority @default(MEDIUM)
+  status                 SupportCaseStatus   @default(OPEN)
+  assignedTo             String?
+  relatedMatchId         String?
+  relatedTransactionRef  String?
+  resolutionNote         String?
+  resolvedBy             String?
+  resolvedAt             DateTime?
+  createdBy              String?
+  createdAt              DateTime            @default(now())
+  updatedAt              DateTime            @updatedAt
+
+  notes                  SupportCaseNote[]
+
+  @@index([userId, status])
+  @@index([status, priority])
+  @@index([assignedTo])
+}
+
+model SupportCaseNote {
+  id          String      @id @default(uuid())
+  caseId      String
+  case        SupportCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  authorId    String
+  authorEmail String?
+  eventType   String      @default("NOTE")
+  body        String
+  metadata    Json?
+  createdAt   DateTime    @default(now())
+
+  @@index([caseId, createdAt])
 }
 
 enum DisputeStatus {
@@ -1032,3 +1107,140 @@ model AdminMfa {
 
   @@index([enabledAt])
 }
+
+// ---------------------------------------------------------------------------
+// Phase 4: Platform Configuration & Global Governance Models
+// ---------------------------------------------------------------------------
+
+enum ConfigVersionStatus {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  ACTIVE
+  SUPERSEDED
+  REJECTED
+  ROLLED_BACK
+}
+
+enum ConfigApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum NotificationCategory {
+  TRANSACTIONAL
+  GAMEPLAY
+  ACCOUNT
+  COMPLIANCE
+  MARKETING_SYSTEM
+}
+
+enum NotificationChannel {
+  IN_APP
+  PUSH
+  EMAIL
+}
+
+enum MaintenanceScope {
+  FULL_PLATFORM
+  GAMEPLAY_ONLY
+  MATCHMAKING_ONLY
+  FINANCIAL_ONLY
+}
+
+model PlatformConfigVersion {
+  id              String              @id @default(uuid())
+  version         Int                 @unique
+  status          ConfigVersionStatus @default(DRAFT)
+  checksum        String              // SHA-256 hash of canonicalized JSON payload
+  payload         Json                // Full canonical configuration JSON snapshot
+  changeReason    String              // Explanation of configuration changes
+  effectiveFrom   DateTime?           // Optional future activation timestamp
+  isRestricted    Boolean             @default(false) // Requires Maker-Checker approval
+  modifiedDomains String[]            @default([])
+
+  authorId        String
+  author          User                @relation("ConfigAuthor", fields: [authorId], references: [id])
+  activatedById   String?
+  activatedBy     User?               @relation("ConfigActivator", fields: [activatedById], references: [id])
+  activatedAt     DateTime?
+  supersededAt    DateTime?
+  rolledBackFrom  Int?
+
+  approvals       ConfigApproval[]
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+
+  @@index([status])
+  @@index([version])
+}
+
+model ConfigApproval {
+  id              String                @id @default(uuid())
+  versionId       String
+  configVersion   PlatformConfigVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+  reviewerId      String
+  reviewer        User                  @relation("ConfigReviewer", fields: [reviewerId], references: [id])
+  status          ConfigApprovalStatus  @default(PENDING)
+  checksum        String                // Checksum of version payload at time of review
+  reviewNote      String?
+  reviewedAt      DateTime?
+  createdAt       DateTime              @default(now())
+
+  @@unique([versionId, reviewerId])
+  @@index([status])
+}
+
+model FeatureFlag {
+  id                String          @id @default(uuid())
+  key               String          @unique
+  name              String
+  description       String?
+  enabled           Boolean         @default(false)
+  rolloutPercentage Int             @default(0)
+  allowedTiers      Tier[]          @default([])
+  allowedRoles      AdminRoleName[] @default([])
+  isKillSwitch      Boolean         @default(false)
+  metadata          Json?
+  updatedById       String?
+  updatedBy         User?           @relation("FeatureFlagUpdater", fields: [updatedById], references: [id])
+  updatedAt         DateTime        @updatedAt
+  createdAt         DateTime        @default(now())
+
+  @@index([key, enabled])
+}
+
+model MaintenanceState {
+  id              String           @id @default("singleton")
+  active          Boolean          @default(false)
+  scope           MaintenanceScope @default(FULL_PLATFORM)
+  headline        String           @default("Platform Under Scheduled Maintenance")
+  message         String           @default("We are performing essential system updates. Gameplay and financial operations will resume shortly.")
+  allowedIps      String[]         @default([])
+  allowedRoles    AdminRoleName[]  @default([SUPER_ADMIN])
+  startsAt        DateTime?
+  endsAt          DateTime?
+  updatedById     String?
+  updatedBy       User?            @relation("MaintenanceUpdater", fields: [updatedById], references: [id])
+  updatedAt       DateTime         @updatedAt
+}
+
+model NotificationTemplate {
+  id              String               @id @default(uuid())
+  code            String               @unique
+  title           String
+  bodyTemplate    String
+  category        NotificationCategory @default(TRANSACTIONAL)
+  channels        NotificationChannel[] @default([IN_APP])
+  isActive        Boolean              @default(true)
+  variables       String[]
+  version         Int                  @default(1)
+  updatedById     String?
+  updatedBy       User?                @relation("TemplateUpdater", fields: [updatedById], references: [id])
+  updatedAt       DateTime             @updatedAt
+  createdAt       DateTime             @default(now())
+
+  @@index([code, isActive])
+}
+

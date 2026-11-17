@@ -16,3 +16,10 @@ flutter/
 
 # Working reference/progress tracker (living doc, never committed)
 /docs/backend-v2-pr-tracker.md
+
+# Redis dump
+*.rdb
+dump.rdb
+
+# Flutter test failure diffs
+app/test/failures/

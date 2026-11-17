@@ -179,16 +179,6 @@ export const adminRateLimiter = limiterFor({
   message: 'Too many admin requests from this IP, please try again after a minute',
 });
 
-// TOTP provisioning / verification is the one path an attacker can hammer to
-// guess codes, so it gets its own strict budget on top of the per-admin Redis
-// lock inside AdminMfaService.
-export const adminMfaRateLimiter = limiterFor({
-  prefix: 'http:admin:mfa:',
-  windowMs: 60 * 1000,
-  max: process.env.NODE_ENV === 'test' ? 1000 : 6,
-  message: 'Too many admin MFA attempts, please try again later',
-});
-
 export const withdrawalRateLimiter = limiterFor({
   prefix: 'http:withdrawal:',
   windowMs: 60 * 1000,

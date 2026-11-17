@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import prisma from '../../utils/db.js';
 import logger from '../../utils/logger.js';
 import { KycRequiredError } from '../../services/eligibilityService.js';
@@ -265,24 +266,41 @@ export class VerificationCaseNotReviewableError extends Error {
 
 // A case an operator may still close by hand. VERIFIED is terminal and can
 // never be re-reviewed.
-const REVIEWABLE_CASE_STATUSES = ['STARTED', 'PENDING', 'UNDER_REVIEW', 'REJECTED', 'EXPIRED'];
+const REVIEWABLE_CASE_STATUSES = ['REQUIRED', 'STARTED', 'PENDING', 'UNDER_REVIEW', 'REJECTED', 'EXPIRED'];
 
 export const listVerificationCases = async ({
   page = 1,
   limit = 20,
   status = null,
+  search = null,
+  sortBy = 'updatedAt',
+  order = 'desc',
   dbp = prisma
 } = {}) => {
   const where = status ? { status } : {};
+  if (search && typeof search === 'string' && search.trim() !== '') {
+    const term = search.trim();
+    where.OR = [
+      { id: { contains: term, mode: 'insensitive' } },
+      { userId: { contains: term, mode: 'insensitive' } },
+      { user: { email: { contains: term, mode: 'insensitive' } } },
+      { user: { username: { contains: term, mode: 'insensitive' } } },
+      { user: { fullName: { contains: term, mode: 'insensitive' } } }
+    ];
+  }
+  const validSortFields = ['createdAt', 'updatedAt', 'status'];
+  const sortField = validSortFields.includes(sortBy) ? sortBy : 'updatedAt';
+  const sortOrder = order === 'asc' ? 'asc' : 'desc';
   const skip = (page - 1) * limit;
   const [rows, total] = await Promise.all([
     dbp.verificationCase.findMany({
       where,
-      orderBy: { updatedAt: 'desc' },
+      orderBy: { [sortField]: sortOrder },
       skip,
       take: limit,
       select: {
         id: true,
+        userId: true,
         status: true,
         provider: true,
         metadata: true,
@@ -292,7 +310,17 @@ export const listVerificationCases = async ({
           orderBy: { createdAt: 'asc' },
           select: { id: true, type: true, status: true, verifiedAt: true }
         },
-        user: { select: { id: true, email: true, fullName: true, kycStatus: true } }
+        user: {
+          select: {
+            id: true,
+            email: true,
+            username: true,
+            fullName: true,
+            kycStatus: true,
+            ageVerified: true,
+            countryCode: true
+          }
+        }
       }
     }),
     dbp.verificationCase.count({ where })
@@ -314,6 +342,198 @@ export const listVerificationCases = async ({
     page,
     totalPages: Math.ceil(total / limit)
   };
+};
+
+/**
+ * Detailed KYC application view for authorized compliance reviewers.
+ * Never returns raw private document URLs or permanent storage credentials.
+ */
+export const getVerificationCaseDetail = async (caseId, { dbp = prisma } = {}) => {
+  const row = await dbp.verificationCase.findUnique({
+    where: { id: caseId },
+    include: {
+      checks: {
+        orderBy: { createdAt: 'asc' }
+      },
+      user: {
+        select: {
+          id: true,
+          email: true,
+          username: true,
+          fullName: true,
+          phone: true,
+          kycStatus: true,
+          ageVerified: true,
+          dateOfBirth: true,
+          countryCode: true,
+          isBanned: true,
+          createdAt: true,
+          eligibility: true
+        }
+      }
+    }
+  });
+  if (!row) throw new VerificationCaseNotFoundError();
+
+  const [previousCases, auditHistory] = await Promise.all([
+    dbp.verificationCase?.findMany
+      ? dbp.verificationCase.findMany({
+          where: { userId: row.userId },
+          orderBy: { createdAt: 'desc' },
+          take: 10,
+          select: {
+            id: true,
+            status: true,
+            provider: true,
+            metadata: true,
+            createdAt: true,
+            updatedAt: true
+          }
+        })
+      : Promise.resolve([]),
+    dbp.adminAuditLog?.findMany
+      ? dbp.adminAuditLog.findMany({
+          where: {
+            OR: [
+              { targetType: 'verification-case', targetId: caseId },
+              { targetId: caseId }
+            ]
+          },
+          orderBy: { createdAt: 'desc' },
+          take: 25
+        })
+      : Promise.resolve([])
+  ]);
+
+  const sanitizedChecks = (row.checks ?? []).map((c) => ({
+    id: c.id,
+    caseId: c.caseId,
+    type: c.type,
+    status: c.status,
+    verifiedAt: c.verifiedAt,
+    createdAt: c.createdAt,
+    providerResponse: sanitizeProviderResponse(c.providerResponse)
+  }));
+
+  return {
+    verificationCase: {
+      id: row.id,
+      userId: row.userId,
+      status: row.status,
+      provider: row.provider,
+      metadata: row.metadata,
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+      user: row.user,
+      checks: sanitizedChecks,
+      statusHistory: previousCases,
+      auditHistory
+    }
+  };
+};
+
+/**
+ * Generates a short-lived signed access envelope for inspecting a KYC check
+ * document without ever exposing permanent object storage URLs or credentials.
+ */
+export const generateVerificationDocumentAccess = async (
+  caseId,
+  { checkId = null, adminId = null, dbp = prisma } = {}
+) => {
+  const row = await dbp.verificationCase.findUnique({
+    where: { id: caseId },
+    include: { checks: true }
+  });
+  if (!row) throw new VerificationCaseNotFoundError();
+
+  const targetCheck = checkId
+    ? (row.checks ?? []).find((c) => c.id === checkId)
+    : (row.checks ?? [])[0] ?? null;
+
+  if (checkId && !targetCheck) {
+    const err = new Error('Verification check not found on this case');
+    err.name = 'VerificationCaseNotFoundError';
+    throw err;
+  }
+
+  const now = new Date();
+  const expiresInSeconds = 120;
+  const expiresAt = new Date(now.getTime() + expiresInSeconds * 1000).toISOString();
+  const signingSecret = process.env.JWT_SECRET || 'kyc-ephemeral-signing-key';
+  const payloadString = `${caseId}:${targetCheck?.id ?? 'case'}:${adminId ?? 'admin'}:${expiresAt}`;
+  const signature = crypto
+    .createHmac('sha256', signingSecret)
+    .update(payloadString)
+    .digest('hex');
+
+  return {
+    access: {
+      caseId: row.id,
+      checkId: targetCheck?.id ?? null,
+      checkType: targetCheck?.type ?? 'ID_DOCUMENT',
+      checkStatus: targetCheck?.status ?? row.status,
+      provider: row.provider || 'simulated',
+      signedToken: `kyc_sig_${signature.slice(0, 32)}`,
+      expiresAt,
+      expiresInSeconds,
+      watermark: `CONFIDENTIAL · VIEWED BY ${adminId ?? 'ADMIN'} · ${now.toISOString()}`,
+      sanitizedVerdict: sanitizeProviderResponse(targetCheck?.providerResponse) ?? {
+        status: targetCheck?.status ?? row.status,
+        provider: row.provider || 'simulated',
+        verdict: targetCheck?.status === 'PASSED' ? 'MATCH_CONFIRMED' : 'MANUAL_REVIEW_REQUIRED'
+      }
+    }
+  };
+};
+
+/**
+ * Admin request additional information. Transitions a reviewable case to
+ * REQUIRED and records the operator's request in case metadata and user status.
+ */
+export const requestAdditionalKycInfo = async (
+  caseId,
+  { adminId = null, reason = null, dbp = prisma } = {}
+) => {
+  return dbp.$transaction(async (tx) => {
+    const vc = await tx.verificationCase.findUnique({ where: { id: caseId } });
+    if (!vc) throw new VerificationCaseNotFoundError();
+    if (!REVIEWABLE_CASE_STATUSES.includes(vc.status)) {
+      throw new VerificationCaseNotReviewableError(
+        'Cannot request additional information on a verified or closed case'
+      );
+    }
+
+    const now = new Date();
+    const prevHistory = Array.isArray(vc.metadata?.decisionHistory)
+      ? vc.metadata.decisionHistory
+      : [];
+    const entry = {
+      action: 'REQUEST_ADDITIONAL_INFO',
+      reviewedBy: adminId,
+      reviewedAt: now.toISOString(),
+      reason: reason || 'Additional identity verification information required'
+    };
+
+    const updated = await tx.verificationCase.update({
+      where: { id: caseId },
+      data: {
+        status: 'REQUIRED',
+        metadata: {
+          ...(vc.metadata ?? {}),
+          reviewedBy: adminId,
+          reviewedAt: now.toISOString(),
+          infoRequestedReason: entry.reason,
+          decisionHistory: [...prevHistory, entry]
+        }
+      }
+    });
+    await tx.user.update({
+      where: { id: vc.userId },
+      data: { kycStatus: 'PENDING' }
+    });
+    logger.info({ caseId, adminId, userId: vc.userId, reason }, 'Additional KYC info requested by admin');
+    return { case: updated, replayed: false };
+  });
 };
 
 /**

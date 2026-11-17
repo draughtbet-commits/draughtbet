@@ -170,7 +170,6 @@ describe('rate limiter store selection', () => {
     redisReady = true;
     const app = express();
     app.use(mod.adminRateLimiter);
-    app.use(mod.adminMfaRateLimiter);
     app.use(mod.withdrawalRateLimiter);
     app.use(mod.depositRateLimiter);
     app.use(mod.verificationRateLimiter);
@@ -187,7 +186,6 @@ describe('rate limiter store selection', () => {
     const prefixes = createdStores.map((s) => s.prefix).sort();
     for (const prefix of [
       'rl:http:admin:',
-      'rl:http:admin:mfa:',
       'rl:http:withdrawal:',
       'rl:http:deposit:',
       'rl:http:verification:',
@@ -200,7 +198,7 @@ describe('rate limiter store selection', () => {
     ]) {
       expect(prefixes).toContain(prefix);
     }
-    // exactly the eleven route buckets, each with its own budget
-    expect(new Set(prefixes).size).toBe(11);
+    // exactly the ten route buckets, each with its own budget
+    expect(new Set(prefixes).size).toBe(10);
   });
 });

@@ -21,26 +21,34 @@ import {
 } from '../rbac/permissions.js';
 import {
   requirePermission,
-  requireAdminMfa,
+  requireAnyAdminRole,
   assignRole,
   revokeRole,
   getUserRoles
 } from '../rbac/service.js';
 import { recordAdminAction } from '../audit/service.js';
-import { AdminMfaService } from '../mfa/service.js';
-import { adminMfaRateLimiter } from '../../middleware/rateLimit.js';
 import { auditRouter } from '../audit/controller.js';
+import { configRouter } from '../config/controller.js';
 import {
   listVerificationCases,
+  getVerificationCaseDetail,
+  generateVerificationDocumentAccess,
+  requestAdditionalKycInfo,
   approveVerificationCase,
   rejectVerificationCase,
   VerificationCaseNotFoundError,
   VerificationCaseNotReviewableError,
   KYC_STATUSES
 } from '../verification/service.js';
-import { clearTimeoutByAdmin, endSelfExclusionByAdmin } from '../saferPlay/service.js';
-import { AdminService } from './service.js';
+import {
+  clearTimeoutByAdmin,
+  endSelfExclusionByAdmin,
+  applyAdminSaferPlayRestriction,
+  listSaferPlayRestrictions
+} from '../saferPlay/service.js';
+import { AdminService, UserNotFoundError, ResourceNotFoundError } from './service.js';
 import { InsufficientFundsError, InvalidAmountError } from '../../services/ledgerService.js';
+import redis from '../../utils/redis.js';
 
 export const adminRouter = express.Router();
 
@@ -65,75 +73,51 @@ const audit = (req, action, { targetType = null, targetId = null, metadata = nul
   });
 
 // ---------------------------------------------------------------------------
-// Admin MFA bootstrap — registered BEFORE the MFA gate so an admin can
-// provision/enable/disable their TOTP. SUPER_ADMIN-only (ROLES_ADMIN grant).
+// Admin Identity & Context — loaded by the admin shell upon login.
 // ---------------------------------------------------------------------------
-const mfaBootstrap = express.Router();
-
-mfaBootstrap.get('/status', adminMfaRateLimiter, requirePermission(PERMISSIONS.AUDIT_READ), async (req, res, next) => {
+adminRouter.get('/me', async (req, res, next) => {
   try {
-    const status = await AdminMfaService.getStatus(req.user.id);
-    res.json({ userId: req.user.id, ...status });
-  } catch (error) {
-    next(error);
-  }
-});
-
-mfaBootstrap.post('/setup', adminMfaRateLimiter, requirePermission(PERMISSIONS.ROLES_ADMIN), async (req, res, next) => {
-  try {
-    const result = await AdminMfaService.provision(req.user.id);
-    await audit(req, 'admin.mfa.setup', {
-      targetType: 'user', targetId: req.user.id,
-      metadata: { reenrolled: true }
+    const assignments = await getUserRoles(req.user.id);
+    if (!assignments || assignments.length === 0) {
+      return res.status(403).json({ error: 'Account does not have admin privileges' });
+    }
+    const roles = assignments.map((a) => a.role.name);
+    const permissions = Array.from(
+      new Set(
+        roles.flatMap((roleName) =>
+          Object.values(PERMISSIONS).filter((p) => roleHasPermission(roleName, p))
+        )
+      )
+    );
+    res.json({
+      id: req.user.id,
+      email: req.user.email,
+      username: req.user.username ?? null,
+      fullName: req.user.fullName ?? null,
+      roles,
+      permissions
     });
-    // Secret + otpauth returned exactly once. Never log them.
-    res.status(201).json(result);
   } catch (error) {
     next(error);
   }
 });
 
-mfaBootstrap.post('/verify', adminMfaRateLimiter, requirePermission(PERMISSIONS.ROLES_ADMIN), async (req, res, next) => {
-  try {
-    const { code } = req.body ?? {};
-    await AdminMfaService.enable(req.user.id, code);
-    await audit(req, 'admin.mfa.enable', {
-      targetType: 'user', targetId: req.user.id
-    });
-    res.json({ enabled: true });
-  } catch (error) {
-    if (error?.name === 'AdminMfaCodeError') {
-      return res.status(403).json({ error: error.message });
-    }
-    if (error?.name === 'AdminMfaStateError') {
-      return res.status(409).json({ error: error.message });
-    }
-    if (error?.name === 'AdminMfaNotFoundError') {
-      return res.status(404).json({ error: error.message });
-    }
-    next(error);
-  }
-});
-
-mfaBootstrap.post('/disable', adminMfaRateLimiter, requirePermission(PERMISSIONS.ROLES_ADMIN), async (req, res, next) => {
-  try {
-    const { code } = req.body ?? {};
-    await AdminMfaService.disable(req.user.id, code);
-    await audit(req, 'admin.mfa.disable', {
-      targetType: 'user', targetId: req.user.id
-    });
-    res.json({ disabled: true });
-  } catch (error) {
-    if (error?.name === 'AdminMfaCodeError' || error?.name === 'AdminMfaNotFoundError') {
-      return res.status(error.name === 'AdminMfaCodeError' ? 403 : 404).json({ error: error.message });
-    }
-    next(error);
-  }
-});
-
-adminRouter.use('/mfa', mfaBootstrap);
-adminRouter.use(requireAdminMfa);
 adminRouter.use('/audit', auditRouter);
+adminRouter.use('/config', configRouter);
+
+// ---------------------------------------------------------------------------
+// Dashboard Summary — aggregated operational and financial statistics
+// ---------------------------------------------------------------------------
+adminRouter.get('/dashboard/summary', requireAnyAdminRole, async (req, res, next) => {
+  try {
+    const summary = await AdminService.getDashboardSummary({
+      adminRoles: req.adminRoles
+    });
+    res.json({ summary });
+  } catch (error) {
+    next(error);
+  }
+});
 
 // ---------------------------------------------------------------------------
 // Account status (SUPPORT / SUPER_ADMIN)
@@ -197,6 +181,54 @@ adminRouter.patch(
 );
 
 // ---------------------------------------------------------------------------
+// Player Directory & Profiles (Read access across all 6 roles)
+// ---------------------------------------------------------------------------
+adminRouter.get('/users', requireAnyAdminRole, async (req, res, next) => {
+  try {
+    const parsed = parsePagination(req.query);
+    if (!parsed.ok) {
+      return res.status(400).json({ error: 'Invalid pagination params' });
+    }
+    const { page, limit } = parsed.data;
+    const { search, isBanned, kycStatus, dateFrom, dateTo, sortBy, order } = req.query;
+
+    let parsedIsBanned = undefined;
+    if (isBanned === 'true') parsedIsBanned = true;
+    if (isBanned === 'false') parsedIsBanned = false;
+
+    const data = await AdminService.listUsers({
+      page,
+      limit,
+      search: typeof search === 'string' ? search : undefined,
+      isBanned: parsedIsBanned,
+      kycStatus: typeof kycStatus === 'string' ? kycStatus : undefined,
+      dateFrom: typeof dateFrom === 'string' ? dateFrom : undefined,
+      dateTo: typeof dateTo === 'string' ? dateTo : undefined,
+      sortBy: typeof sortBy === 'string' ? sortBy : undefined,
+      order: typeof order === 'string' ? order : undefined
+    });
+    res.json(data);
+  } catch (error) {
+    next(error);
+  }
+});
+
+adminRouter.get('/users/:userId', requireAnyAdminRole, async (req, res, next) => {
+  try {
+    const data = await AdminService.getUserDetail({
+      userId: req.params.userId,
+      adminRoles: req.adminRoles
+    });
+    res.json(data);
+  } catch (error) {
+    if (error instanceof UserNotFoundError || error.name === 'UserNotFoundError') {
+      return res.status(404).json({ error: error.message });
+    }
+    next(error);
+  }
+});
+
+// ---------------------------------------------------------------------------
 // Withdrawal V2 review + payout actions (FINANCE / SUPER_ADMIN)
 // ---------------------------------------------------------------------------
 
@@ -220,6 +252,26 @@ adminRouter.get(
       });
       res.json(data);
     } catch (error) {
+      next(error);
+    }
+  }
+);
+
+adminRouter.get(
+  '/withdrawals/:id',
+  requirePermission(PERMISSIONS.WITHDRAWALS_READ),
+  async (req, res, next) => {
+    try {
+      const withdrawal = await withdrawalService.getWithdrawal(req.params.id);
+      const auditHistory = await prisma.adminAuditLog.findMany({
+        where: { targetType: 'withdrawal', targetId: req.params.id },
+        orderBy: { createdAt: 'desc' }
+      });
+      res.json({ withdrawal: { ...withdrawal, auditHistory } });
+    } catch (error) {
+      if (error.name === 'WithdrawalNotFoundError') {
+        return res.status(404).json({ error: error.message });
+      }
       next(error);
     }
   }
@@ -413,11 +465,83 @@ adminRouter.get(
       const parsed = parsePagination(req.query);
       if (!parsed.ok) return res.status(400).json({ error: 'Invalid pagination params' });
       const { page, limit } = parsed.data;
-      const { status } = req.query;
+      const { status, search, sortBy, order } = req.query;
       const filtered = typeof status === 'string' && KYC_STATUSES.includes(status) ? status : null;
-      const data = await listVerificationCases({ page, limit, status: filtered });
+      const data = await listVerificationCases({
+        page,
+        limit,
+        status: filtered,
+        search: typeof search === 'string' ? search : null,
+        sortBy: typeof sortBy === 'string' ? sortBy : 'updatedAt',
+        order: typeof order === 'string' ? order : 'desc'
+      });
       res.json(data);
     } catch (error) {
+      next(error);
+    }
+  }
+);
+
+adminRouter.get(
+  '/verification-cases/:id',
+  requirePermission(PERMISSIONS.VERIFICATION_REVIEW),
+  async (req, res, next) => {
+    try {
+      const data = await getVerificationCaseDetail(req.params.id);
+      res.json(data);
+    } catch (error) {
+      if (error.name === 'VerificationCaseNotFoundError') {
+        return res.status(404).json({ error: error.message });
+      }
+      next(error);
+    }
+  }
+);
+
+adminRouter.post(
+  '/verification-cases/:id/documents/signed-access',
+  requirePermission(PERMISSIONS.VERIFICATION_REVIEW),
+  async (req, res, next) => {
+    try {
+      const { checkId } = req.body ?? {};
+      const data = await generateVerificationDocumentAccess(req.params.id, {
+        checkId: typeof checkId === 'string' ? checkId : null,
+        adminId: req.user.id
+      });
+      await audit(req, 'verification.document_access', {
+        targetType: 'verification-case',
+        targetId: req.params.id,
+        metadata: { checkId: data.access.checkId, expiresAt: data.access.expiresAt }
+      });
+      res.json(data);
+    } catch (error) {
+      if (error.name === 'VerificationCaseNotFoundError') {
+        return res.status(404).json({ error: error.message });
+      }
+      next(error);
+    }
+  }
+);
+
+adminRouter.post(
+  '/verification-cases/:id/request-info',
+  requirePermission(PERMISSIONS.VERIFICATION_REVIEW),
+  async (req, res, next) => {
+    try {
+      const { reason } = req.body ?? {};
+      const { case: verificationCase } = await requestAdditionalKycInfo(req.params.id, {
+        adminId: req.user.id,
+        reason: typeof reason === 'string' ? reason : null
+      });
+      await audit(req, 'verification.request_info', {
+        targetType: 'verification-case',
+        targetId: verificationCase.id,
+        metadata: { reason }
+      });
+      res.json({ verificationCase });
+    } catch (error) {
+      if (error.name === 'VerificationCaseNotFoundError') return res.status(404).json({ error: error.message });
+      if (error.name === 'VerificationCaseNotReviewableError') return res.status(409).json({ error: error.message });
       next(error);
     }
   }
@@ -497,7 +621,19 @@ adminRouter.get(
           take: limit,
           include: {
             evidence: { orderBy: { uploadedAt: 'asc' } },
-            match: { select: { id: true, status: true, outcome: true } }
+            match: {
+              select: {
+                id: true,
+                status: true,
+                tier: true,
+                stakeMinorUnits: true,
+                winnerId: true,
+                endReason: true,
+                playerLightId: true,
+                playerDarkId: true,
+                createdAt: true
+              }
+            }
           }
         }),
         prisma.disputeCase.count({ where })
@@ -506,16 +642,37 @@ adminRouter.get(
       const raisers = raisedBy.length
         ? await prisma.user.findMany({
             where: { id: { in: raisedBy } },
-            select: { id: true, email: true }
+            select: { id: true, email: true, username: true }
           })
         : [];
-      const emailByUser = Object.fromEntries(raisers.map((u) => [u.id, u.email]));
+      const userById = Object.fromEntries(raisers.map((u) => [u.id, u]));
       const disputes = rows.map((r) => ({
         ...r,
-        raisedByEmail: emailByUser[r.raisedBy] ?? null
+        raisedByEmail: userById[r.raisedBy]?.email ?? null,
+        raisedByUser: userById[r.raisedBy] ?? null,
+        match: r.match ? {
+          ...r.match,
+          stakeMinorUnits: r.match.stakeMinorUnits.toString()
+        } : null
       }));
       res.json({ disputes, total, page, totalPages: Math.ceil(total / limit) });
     } catch (error) {
+      next(error);
+    }
+  }
+);
+
+adminRouter.get(
+  '/disputes/:id',
+  requirePermission(PERMISSIONS.DISPUTES_MANAGE),
+  async (req, res, next) => {
+    try {
+      const data = await AdminService.getDisputeDetail({ disputeId: req.params.id });
+      res.json(data);
+    } catch (error) {
+      if (error.name === 'ResourceNotFoundError') {
+        return res.status(404).json({ error: error.message });
+      }
       next(error);
     }
   }
@@ -594,10 +751,10 @@ adminRouter.post(
 );
 
 // ---------------------------------------------------------------------------
-// Risk (RISK_COMPLIANCE / SUPER_ADMIN)
+// Risk & Safer Play (RISK_COMPLIANCE / SUPER_ADMIN)
 // ---------------------------------------------------------------------------
 
-const RISK_CASE_STATUS_LIST = ['OPEN', 'INVESTIGATING', 'RESOLVED', 'DISMISSED'];
+const RISK_CASE_STATUS_LIST = ['OPEN', 'INVESTIGATING', 'ESCALATED', 'RESOLVED', 'DISMISSED'];
 
 adminRouter.get(
   '/risk-events',
@@ -615,7 +772,15 @@ adminRouter.get(
       };
       const skip = (page - 1) * limit;
       const [rows, total] = await Promise.all([
-        prisma.riskEvent.findMany({ where, orderBy: { createdAt: 'desc' }, skip, take: limit }),
+        prisma.riskEvent.findMany({
+          where,
+          orderBy: { createdAt: 'desc' },
+          skip,
+          take: limit,
+          include: {
+            user: { select: { id: true, email: true, username: true } }
+          }
+        }),
         prisma.riskEvent.count({ where })
       ]);
       res.json({ events: rows, total, page, totalPages: Math.ceil(total / limit) });
@@ -633,16 +798,31 @@ adminRouter.get(
       const parsed = parsePagination(req.query);
       if (!parsed.ok) return res.status(400).json({ error: 'Invalid pagination params' });
       const { page, limit } = parsed.data;
-      const { status } = req.query;
-      const where =
-        typeof status === 'string' && RISK_CASE_STATUS_LIST.includes(status) ? { status } : {};
-      const skip = (page - 1) * limit;
-      const [rows, total] = await Promise.all([
-        prisma.riskCase.findMany({ where, orderBy: { updatedAt: 'desc' }, skip, take: limit }),
-        prisma.riskCase.count({ where })
-      ]);
-      res.json({ cases: rows, total, page, totalPages: Math.ceil(total / limit) });
+      const { status, search } = req.query;
+      const data = await AdminService.listRiskCases({
+        page,
+        limit,
+        status: typeof status === 'string' ? status : undefined,
+        search: typeof search === 'string' ? search : undefined
+      });
+      res.json(data);
     } catch (error) {
+      next(error);
+    }
+  }
+);
+
+adminRouter.get(
+  '/risk-cases/:id',
+  requirePermission(PERMISSIONS.RISK_REVIEW),
+  async (req, res, next) => {
+    try {
+      const data = await AdminService.getRiskCaseDetail({ caseId: req.params.id });
+      res.json(data);
+    } catch (error) {
+      if (error.name === 'ResourceNotFoundError') {
+        return res.status(404).json({ error: error.message });
+      }
       next(error);
     }
   }
@@ -653,26 +833,150 @@ adminRouter.post(
   requirePermission(PERMISSIONS.RISK_REVIEW),
   async (req, res, next) => {
     try {
-      const { status, assignedTo } = req.body ?? {};
+      const { status, assignedTo, resolutionNote } = req.body ?? {};
       if (!RISK_CASE_STATUS_LIST.includes(status)) {
         return res.status(400).json({ error: 'Invalid risk case status' });
       }
       const existing = await prisma.riskCase.findUnique({ where: { id: req.params.id } });
       if (!existing) return res.status(404).json({ error: 'Risk case not found' });
+
+      let currentNotes = [];
+      if (Array.isArray(existing.notes)) currentNotes = existing.notes;
+      else if (existing.notes && typeof existing.notes === 'object') currentNotes = [existing.notes];
+
+      const noteEntry = resolutionNote ? {
+        id: `status-note-${Date.now()}`,
+        authorId: req.user.id,
+        actionType: status,
+        note: resolutionNote.trim(),
+        createdAt: new Date().toISOString()
+      } : null;
+
       const updated = await prisma.riskCase.update({
         where: { id: req.params.id },
         data: {
           status,
-          ...(typeof assignedTo === 'string' ? { assignedTo } : {})
+          ...(typeof assignedTo === 'string' ? { assignedTo } : {}),
+          ...(noteEntry ? { notes: [...currentNotes, noteEntry] } : {})
         }
       });
       await audit(req, 'risk-case.status', {
         targetType: 'risk-case',
         targetId: req.params.id,
-        metadata: { status, assignedTo: typeof assignedTo === 'string' ? assignedTo : null }
+        metadata: {
+          status,
+          assignedTo: typeof assignedTo === 'string' ? assignedTo : null,
+          resolutionNote: resolutionNote ?? null
+        }
       });
       res.json({ riskCase: updated });
     } catch (error) {
+      next(error);
+    }
+  }
+);
+
+adminRouter.post(
+  '/risk-cases/:id/notes',
+  requirePermission(PERMISSIONS.RISK_REVIEW),
+  async (req, res, next) => {
+    try {
+      const { note, actionType } = req.body ?? {};
+      if (!note || typeof note !== 'string' || note.trim() === '') {
+        return res.status(400).json({ error: 'note is required' });
+      }
+      const data = await AdminService.addRiskCaseNote({
+        caseId: req.params.id,
+        note,
+        actionType: actionType || 'NOTE',
+        authorId: req.user.id
+      });
+      await audit(req, 'risk-case.note', {
+        targetType: 'risk-case',
+        targetId: req.params.id,
+        metadata: { actionType: actionType || 'NOTE' }
+      });
+      res.status(201).json(data);
+    } catch (error) {
+      if (error.name === 'ResourceNotFoundError') {
+        return res.status(404).json({ error: error.message });
+      }
+      next(error);
+    }
+  }
+);
+
+adminRouter.get(
+  '/safer-play/restrictions',
+  requirePermission(PERMISSIONS.RISK_REVIEW),
+  async (req, res, next) => {
+    try {
+      const parsed = parsePagination(req.query);
+      if (!parsed.ok) return res.status(400).json({ error: 'Invalid pagination params' });
+      const { page, limit } = parsed.data;
+      const { filter, search } = req.query;
+      const data = await listSaferPlayRestrictions({
+        page,
+        limit,
+        filter: typeof filter === 'string' ? filter : 'all',
+        search: typeof search === 'string' ? search : null
+      });
+      res.json(data);
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+adminRouter.post(
+  '/users/:userId/restrictions',
+  requirePermission(PERMISSIONS.SAFER_PLAY_LIFT),
+  async (req, res, next) => {
+    try {
+      const target = await prisma.user.findUnique({ where: { id: req.params.userId } });
+      if (!target) return res.status(404).json({ error: 'User not found' });
+      const {
+        type,
+        timeoutMinutes,
+        timeoutUntil,
+        selfExclusionDays,
+        selfExcludedUntil,
+        depositLimitMinorUnits,
+        stakeLimitMinorUnits,
+        reason
+      } = req.body ?? {};
+
+      const profile = await applyAdminSaferPlayRestriction(req.params.userId, {
+        type,
+        timeoutMinutes,
+        timeoutUntil,
+        selfExclusionDays,
+        selfExcludedUntil,
+        depositLimitMinorUnits,
+        stakeLimitMinorUnits,
+        reason,
+        actorId: req.user.id
+      });
+
+      await audit(req, `safer-play.apply_${type?.toLowerCase() || 'restriction'}`, {
+        targetType: 'user',
+        targetId: req.params.userId,
+        metadata: { type, reason, timeoutMinutes, selfExclusionDays, depositLimitMinorUnits, stakeLimitMinorUnits }
+      });
+
+      res.status(201).json({ profile, message: 'Safer play restriction applied successfully' });
+    } catch (error) {
+      if (
+        error.name === 'InvalidRestrictionTypeError' ||
+        error.name === 'InvalidTimeoutError' ||
+        error.name === 'InvalidSelfExclusionError' ||
+        error.name === 'InvalidAmountError'
+      ) {
+        return res.status(400).json({ error: error.message });
+      }
+      if (error.name === 'TimeoutShrinkError' || error.name === 'SelfExclusionShrinkError') {
+        return res.status(409).json({ error: error.message });
+      }
       next(error);
     }
   }
@@ -767,6 +1071,173 @@ adminRouter.post(
         metadata: { lifted: Boolean(profile) }
       });
       res.json({ lifted: Boolean(profile), profile });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+// ---------------------------------------------------------------------------
+// Match Operations (GAME_OPERATIONS / SUPER_ADMIN)
+// ---------------------------------------------------------------------------
+
+adminRouter.get(
+  '/matches',
+  requireAnyAdminRole,
+  async (req, res, next) => {
+    try {
+      const parsed = parsePagination(req.query);
+      if (!parsed.ok) return res.status(400).json({ error: 'Invalid pagination params' });
+      const { page, limit } = parsed.data;
+      const { status, search } = req.query;
+      const data = await AdminService.listMatches({
+        page,
+        limit,
+        status: typeof status === 'string' ? status : undefined,
+        search: typeof search === 'string' ? search : undefined
+      });
+      res.json(data);
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+adminRouter.get(
+  '/matches/:id',
+  requireAnyAdminRole,
+  async (req, res, next) => {
+    try {
+      const data = await AdminService.getMatchDetail({ matchId: req.params.id });
+      res.json(data);
+    } catch (error) {
+      if (error.name === 'ResourceNotFoundError') {
+        return res.status(404).json({ error: error.message });
+      }
+      next(error);
+    }
+  }
+);
+
+// ---------------------------------------------------------------------------
+// Support Case Management (SUPPORT / SUPER_ADMIN)
+// ---------------------------------------------------------------------------
+
+adminRouter.get(
+  '/support/cases',
+  requireAnyAdminRole,
+  async (req, res, next) => {
+    try {
+      const parsed = parsePagination(req.query);
+      if (!parsed.ok) return res.status(400).json({ error: 'Invalid pagination params' });
+      const { page, limit } = parsed.data;
+      const { status, priority, category, search } = req.query;
+      const data = await AdminService.listSupportCases({
+        page,
+        limit,
+        status: typeof status === 'string' ? status : undefined,
+        priority: typeof priority === 'string' ? priority : undefined,
+        category: typeof category === 'string' ? category : undefined,
+        search: typeof search === 'string' ? search : undefined
+      });
+      res.json(data);
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+adminRouter.get(
+  '/support/cases/:id',
+  requireAnyAdminRole,
+  async (req, res, next) => {
+    try {
+      const data = await AdminService.getSupportCaseDetail({ caseId: req.params.id });
+      res.json(data);
+    } catch (error) {
+      if (error.name === 'ResourceNotFoundError') {
+        return res.status(404).json({ error: error.message });
+      }
+      next(error);
+    }
+  }
+);
+
+adminRouter.post(
+  '/support/cases',
+  requirePermission(PERMISSIONS.USERS_MANAGE),
+  async (req, res, next) => {
+    try {
+      const { userId, subject, description, category, priority, relatedMatchId, relatedTransactionRef } = req.body ?? {};
+      if (!userId || !subject || !description) {
+        return res.status(400).json({ error: 'userId, subject, and description are required' });
+      }
+      const supportCase = await AdminService.createSupportCase({
+        userId,
+        subject,
+        description,
+        category,
+        priority,
+        relatedMatchId,
+        relatedTransactionRef,
+        createdBy: req.user.id
+      });
+      await audit(req, 'support.create_case', {
+        targetType: 'support-case',
+        targetId: supportCase.id,
+        metadata: { reference: supportCase.reference, userId, category, priority }
+      });
+      res.status(201).json({ supportCase });
+    } catch (error) {
+      if (error.name === 'UserNotFoundError') return res.status(404).json({ error: error.message });
+      next(error);
+    }
+  }
+);
+
+adminRouter.patch(
+  '/support/cases/:id',
+  requirePermission(PERMISSIONS.USERS_MANAGE),
+  async (req, res, next) => {
+    try {
+      const { status, priority, assignedTo, resolutionNote, noteBody } = req.body ?? {};
+      const supportCase = await AdminService.updateSupportCase({
+        caseId: req.params.id,
+        status,
+        priority,
+        assignedTo,
+        resolutionNote,
+        noteBody,
+        adminId: req.user.id,
+        adminEmail: req.user.email
+      });
+      await audit(req, 'support.update_case', {
+        targetType: 'support-case',
+        targetId: req.params.id,
+        metadata: { status, priority, assignedTo, resolutionNote: resolutionNote ?? null }
+      });
+      res.json({ supportCase });
+    } catch (error) {
+      if (error.name === 'ResourceNotFoundError') return res.status(404).json({ error: error.message });
+      next(error);
+    }
+  }
+);
+
+// ---------------------------------------------------------------------------
+// System Health (Sanitized metrics across all admin roles)
+// ---------------------------------------------------------------------------
+
+adminRouter.get(
+  '/system/health',
+  requireAnyAdminRole,
+  async (_req, res, next) => {
+    try {
+      const health = await AdminService.getSystemHealth({
+        dbp: prisma,
+        redisClient: redis
+      });
+      res.json({ health });
     } catch (error) {
       next(error);
     }
