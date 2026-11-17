@@ -9,6 +9,7 @@ import {
 } from '../modules/match/service.js';
 import { reserveBothStakes } from '../modules/stake/service.js';
 import { getLedgerAvailable } from './ledgerService.js';
+import { ConfigService } from '../modules/config/service.js';
 
 export class InsufficientFundsError extends Error {
   constructor(message = 'Insufficient funds') {
@@ -117,19 +118,32 @@ export const createMatchWithStakes = async (tx, player1Id, player2Id, stakeMinor
     throw new InsufficientFundsError('Insufficient funds for stake');
   }
 
-  // 4. Snapshot the accepted fee terms and time control before any match exists.
+  // 4. Snapshot the accepted fee terms, time control, configuration version, and ruleset version.
+  let activeConfig = null;
+  try {
+    if (tx?.platformConfigVersion) {
+      activeConfig = await ConfigService.getActiveConfig({ dbp: tx });
+    }
+  } catch {
+    // Graceful fallback to legacy PlatformSettings row
+  }
+
   const settings = await tx.platformSettings.findUnique({
     where: { id: 'singleton' }
   });
-  if (!settings) throw new Error('Platform settings not configured');
-  const commissionPercent = settings.commissionPercent;
+  if (!settings && !activeConfig) throw new Error('Platform settings not configured');
+
+  const commissionPercent = activeConfig?.payload?.financial?.commissionPercent ?? settings?.commissionPercent;
   if (!Number.isInteger(commissionPercent) || commissionPercent < 0 || commissionPercent > 100) {
     throw new Error(`Invalid commissionPercent snapshot: ${commissionPercent}`);
   }
-  const timeControlSeconds = settings.timeControlSeconds ?? DEFAULT_TIME_CONTROL_SECONDS;
+  const timeControlSeconds = activeConfig?.payload?.game?.timeControlSeconds ?? settings?.timeControlSeconds ?? DEFAULT_TIME_CONTROL_SECONDS;
   if (!Number.isInteger(timeControlSeconds) || timeControlSeconds < 1) {
     throw new Error(`Invalid timeControlSeconds snapshot: ${timeControlSeconds}`);
   }
+
+  const configurationVersion = activeConfig?.version ?? 1;
+  const rulesetVersion = activeConfig?.payload?.game?.rulesetVersion ?? 1;
 
   // 5. Generate match ID upfront so WalletTransactions can reference it
   const matchId = crypto.randomUUID();
@@ -144,6 +158,8 @@ export const createMatchWithStakes = async (tx, player1Id, player2Id, stakeMinor
     stakeMinorUnits: stakeAmount,
     commissionPercent,
     timeControlSeconds,
+    configurationVersion,
+    rulesetVersion,
     currency: w1.currency ?? 'NGN'
   });
 

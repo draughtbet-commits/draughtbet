@@ -71,6 +71,8 @@ export async function createMatch(
     stakeMinorUnits,
     commissionPercent,
     timeControlSeconds,
+    rulesetVersion,
+    configurationVersion,
     currency
   }
 ) {
@@ -84,6 +86,8 @@ export async function createMatch(
       status: 'OPEN',
       settlementCommissionPercent: commissionPercent,
       timeControlSeconds,
+      ...(rulesetVersion !== undefined && rulesetVersion !== null ? { rulesetVersion } : {}),
+      ...(configurationVersion !== undefined && configurationVersion !== null ? { configurationVersion } : {}),
       ...(currency !== undefined && currency !== null ? { currency } : {}),
       participants: {
         create: [

@@ -1,4 +1,5 @@
 import express from 'express';
+import prisma from '../../utils/db.js';
 import { requireAuth } from '../../middleware/auth.js';
 import { PERMISSIONS } from '../rbac/permissions.js';
 import { requirePermission, getUserRoles } from '../rbac/service.js';
@@ -7,7 +8,9 @@ import {
   ConfigValidationError,
   DraftNotFoundError,
   ImmutableVersionError,
-  ChecksumIntegrityError
+  ChecksumIntegrityError,
+  ConfigConflictError,
+  MakerCheckerViolationError
 } from './service.js';
 import { CONFIG_DOMAINS } from './schema.js';
 
@@ -32,8 +35,15 @@ const handleConfigError = (err, res, next) => {
   if (err instanceof DraftNotFoundError) {
     return res.status(err.status).json({ error: err.message });
   }
-  if (err instanceof ImmutableVersionError || err instanceof ChecksumIntegrityError) {
-    return res.status(err.status).json({ error: err.message });
+  if (err instanceof MakerCheckerViolationError) {
+    return res.status(err.status || 403).json({ error: err.message });
+  }
+  if (
+    err instanceof ImmutableVersionError ||
+    err instanceof ChecksumIntegrityError ||
+    err instanceof ConfigConflictError
+  ) {
+    return res.status(err.status || 409).json({ error: err.message });
   }
   return next(err);
 };
@@ -205,7 +215,6 @@ configRouter.post(
     try {
       const { changeReason, baseVersion, payload, effectiveFrom } = req.body || {};
 
-      // Dry run domain check if candidate payload provided
       if (payload) {
         const valResult = await ConfigService.validateDraftPayload({ payload, baseVersion });
         if (valResult.valid) {
@@ -297,6 +306,143 @@ configRouter.delete(
       });
 
       res.status(200).json(result);
+    } catch (err) {
+      handleConfigError(err, res, next);
+    }
+  }
+);
+
+/**
+ * POST /api/v1/admin/config/drafts/:id/submit
+ * Submits an un-submitted configuration draft for formal maker-checker review.
+ * Transitions status: DRAFT -> PENDING_APPROVAL. Draft becomes immutable.
+ */
+configRouter.post(
+  '/drafts/:id/submit',
+  requireProposePermission,
+  async (req, res, next) => {
+    try {
+      const submitted = await ConfigService.submitDraft({
+        draftId: req.params.id,
+        authorId: req.user.id,
+        auditTelemetry: getAuditTelemetry(req)
+      });
+
+      res.status(200).json({ version: submitted });
+    } catch (err) {
+      handleConfigError(err, res, next);
+    }
+  }
+);
+
+/**
+ * POST /api/v1/admin/config/versions/:id/approve
+ * Maker-checker approval. Enforces authorId !== reviewerId and checksum verification.
+ */
+configRouter.post(
+  '/versions/:id/approve',
+  requirePermission(PERMISSIONS.CONFIG_APPROVE),
+  async (req, res, next) => {
+    try {
+      const { reviewNote, checksum } = req.body || {};
+      const result = await ConfigService.approveVersion({
+        versionId: req.params.id,
+        reviewerId: req.user.id,
+        reviewNote,
+        clientChecksum: checksum,
+        auditTelemetry: getAuditTelemetry(req)
+      });
+
+      res.status(200).json({
+        version: result.version,
+        approval: result.approval
+      });
+    } catch (err) {
+      handleConfigError(err, res, next);
+    }
+  }
+);
+
+/**
+ * POST /api/v1/admin/config/versions/:id/reject
+ * Maker-checker rejection with mandatory reason. Enforces authorId !== reviewerId.
+ */
+configRouter.post(
+  '/versions/:id/reject',
+  requirePermission(PERMISSIONS.CONFIG_APPROVE),
+  async (req, res, next) => {
+    try {
+      const { reason } = req.body || {};
+      const result = await ConfigService.rejectVersion({
+        versionId: req.params.id,
+        reviewerId: req.user.id,
+        reason,
+        auditTelemetry: getAuditTelemetry(req)
+      });
+
+      res.status(200).json({
+        version: result.version,
+        approval: result.approval
+      });
+    } catch (err) {
+      handleConfigError(err, res, next);
+    }
+  }
+);
+
+/**
+ * POST /api/v1/admin/config/versions/:id/activate
+ * Atomically activates an APPROVED configuration version inside an ACID transaction.
+ * Supersedes existing active version and inserts OutboxEvent for Redis propagation.
+ */
+configRouter.post(
+  '/versions/:id/activate',
+  requirePermission(PERMISSIONS.CONFIG_ACTIVATE),
+  async (req, res, next) => {
+    try {
+      const activated = await ConfigService.activateVersion({
+        versionId: req.params.id,
+        activatorId: req.user.id,
+        auditTelemetry: getAuditTelemetry(req)
+      });
+
+      res.status(200).json({ version: activated });
+    } catch (err) {
+      handleConfigError(err, res, next);
+    }
+  }
+);
+
+/**
+ * POST /api/v1/admin/config/versions/:id/rollback
+ * Creates a brand-new sequential version (N+1) using a historical payload.
+ */
+configRouter.post(
+  '/versions/:id/rollback',
+  requirePermission(PERMISSIONS.CONFIG_ACTIVATE),
+  async (req, res, next) => {
+    try {
+      let targetNum = Number.parseInt(req.params.id, 10);
+      if (Number.isNaN(targetNum)) {
+        const row = await prisma.platformConfigVersion.findUnique({
+          where: { id: req.params.id },
+          select: { version: true }
+        });
+        if (!row) {
+          return res.status(404).json({ error: `Configuration version ${req.params.id} not found` });
+        }
+        targetNum = row.version;
+      }
+
+      const { reason } = req.body || {};
+      const rollbackDraft = await ConfigService.rollbackVersion({
+        targetVersionNumber: targetNum,
+        actorId: req.user.id,
+        reason,
+        auditTelemetry: getAuditTelemetry(req)
+      });
+
+      res.status(201).json({ version: rollbackDraft });
     } catch (err) {
       handleConfigError(err, res, next);
     }

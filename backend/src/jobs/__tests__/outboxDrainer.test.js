@@ -215,6 +215,27 @@ describe('deliverEvent', () => {
     expect(emitMock).toHaveBeenCalledWith('notification', expect.objectContaining({ id: 'notif-1' }));
   });
 
+  it('delivers platform.config.activated event to admin socket room', async () => {
+    const configEvent = event({
+      aggregateType: 'PlatformConfigVersion',
+      aggregateId: 'cfg-uuid-1',
+      eventType: 'platform.config.activated',
+      payload: {
+        version: 2,
+        checksum: 'abc123hash',
+        activatedAt: '2026-01-01T00:00:00.000Z'
+      }
+    });
+
+    await deliverEvent(configEvent);
+    expect(toMock).toHaveBeenCalledWith('admin');
+    expect(emitMock).toHaveBeenCalledWith('platform_config_activated', {
+      version: 2,
+      checksum: 'abc123hash',
+      activatedAt: '2026-01-01T00:00:00.000Z'
+    });
+  });
+
   it('throws on an unknown eventType so the row is parked, not spun', async () => {
     await expect(deliverEvent(event({ eventType: 'mystery' }))).rejects.toThrow(/unknown eventType/);
   });

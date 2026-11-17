@@ -3,6 +3,7 @@ import cron from 'node-cron';
 import prisma from '../utils/db.js';
 import logger from '../utils/logger.js';
 import { getIO } from '../sockets/index.js';
+import redis, { isRedisReady } from '../utils/redis.js';
 import {
   OUTBOX_LEASE_MS,
   OUTBOX_MAX_ATTEMPTS,
@@ -56,6 +57,39 @@ export const deliverEvent = async (event) => {
       // Offline fallback is mocked until real FCM exists (same contract as the
       // old NotificationService: saved to DB + best-effort push logged).
       logger.info({ userId: p.userId, type: p.type, notificationId: p.notificationId }, '[MOCK FCM] Sent push notification to offline user');
+    }
+    return;
+  }
+
+  if (event.eventType === 'platform.config.activated') {
+    const p = event.payload;
+    if (isRedisReady()) {
+      try {
+        await redis.set('config:active:v2', JSON.stringify({
+          version: p.version,
+          checksum: p.checksum,
+          payload: p.payload,
+          activatedAt: p.activatedAt
+        }), 'EX', 3600);
+
+        await redis.publish('platform:config:invalidated', JSON.stringify({
+          version: p.version,
+          checksum: p.checksum,
+          activatedAt: p.activatedAt
+        }));
+      } catch (err) {
+        logger.warn({ err }, 'Failed to deliver platform.config.activated event to Redis');
+        throw err;
+      }
+    }
+    try {
+      getIO()?.to('admin')?.emit('platform_config_activated', {
+        version: p.version,
+        checksum: p.checksum,
+        activatedAt: p.activatedAt
+      });
+    } catch {
+      // Sockets may not be active in non-server / test context
     }
     return;
   }
