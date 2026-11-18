@@ -1,5 +1,5 @@
-import { AdminRole } from '../permissions/roles';
-import { Permission } from '../permissions/matrix';
+import type { AdminRole } from '../permissions/roles';
+import type { Permission } from '../permissions/matrix';
 
 export interface ApiErrorResponse {
   error?: string;
@@ -36,6 +36,13 @@ export interface AuditLogItem {
     email: string;
     fullName?: string | null;
   } | null;
+  actor?: {
+    id?: string;
+    email: string;
+    username?: string | null;
+    fullName?: string | null;
+    roles?: string[];
+  } | null;
   action: string;
   outcome: 'SUCCESS' | 'FAILURE' | 'DENIED';
   targetType: string | null;
@@ -48,6 +55,7 @@ export interface AuditLogItem {
 }
 
 export interface PaginatedResponse<T> {
+  items?: T[];
   logs?: T[];
   withdrawals?: T[];
   cases?: T[];
@@ -694,4 +702,297 @@ export interface PlayerDetailResponse {
     financials: PlayerFinancials | null;
   };
 }
+
+// ============================================================================
+// Phase 4: Platform Configuration, Feature Flags, Templates & Maintenance Types
+// ============================================================================
+
+export type ConfigDomainName =
+  | 'PLATFORM'
+  | 'FINANCIAL'
+  | 'TIERS'
+  | 'GAME'
+  | 'MATCHMAKING'
+  | 'SAFER_PLAY'
+  | 'KYC';
+
+export type ConfigVersionStatus =
+  | 'DRAFT'
+  | 'PENDING_APPROVAL'
+  | 'APPROVED'
+  | 'ACTIVE'
+  | 'SUPERSEDED'
+  | 'REJECTED'
+  | 'ROLLED_BACK';
+
+export type ConfigApprovalStatus = 'PENDING' | 'APPROVED' | 'REJECTED';
+
+export type PlayerTier = 'AMATEUR' | 'MASTER' | 'PRO';
+
+export interface TierStakeConfig {
+  minStake: string;
+  maxStake: string;
+  maxCallout: string;
+}
+
+export interface PlatformConfigPayload {
+  meta: {
+    schemaVersion: number;
+    environment: 'development' | 'test' | 'staging' | 'production';
+  };
+  platform: {
+    identity: string;
+    defaultCurrency: 'NGN';
+    supportedCurrencies: string[];
+    supportEmail: string;
+  };
+  financial: {
+    commissionPercent: number;
+    minDepositMinorUnits: string;
+    maxDepositMinorUnits: string;
+    minWithdrawalMinorUnits: string;
+    maxWithdrawalMinorUnits: string;
+    dailyWithdrawalCeilingMinorUnits: string;
+  };
+  tiers: {
+    AMATEUR: TierStakeConfig;
+    MASTER: TierStakeConfig;
+    PRO: TierStakeConfig;
+  };
+  game: {
+    rulesetVersion: number;
+    timeControlSeconds: number;
+    matchReadinessSeconds: number;
+    disconnectGraceMs: number;
+    maxConsecutiveKingMoves: number;
+    canOfferDrawPlyCount: number;
+  };
+  matchmaking: {
+    queueTimeoutSeconds: number;
+    cronTickSeconds: number;
+    maxConcurrentQueuePerPlayer: number;
+  };
+  saferPlay: {
+    limitRaiseCoolingHours: number;
+    minTimeoutDurationMinutes: number;
+    minSelfExclusionDays: number;
+  };
+  kyc: {
+    mandatoryWithdrawalThresholdMinorUnits: string;
+    requireVerificationForCallouts: boolean;
+    allowedCountries: string[];
+  };
+}
+
+export interface ConfigActorRef {
+  id: string;
+  email: string;
+  username: string | null;
+}
+
+export interface ConfigApprovalItem {
+  id: string;
+  versionId: string;
+  reviewerId: string;
+  reviewer?: ConfigActorRef;
+  status: ConfigApprovalStatus;
+  checksum: string;
+  reviewNote: string | null;
+  reviewedAt: string | null;
+  createdAt: string;
+}
+
+export interface PlatformConfigVersionItem {
+  id: string;
+  version: number;
+  status: ConfigVersionStatus;
+  checksum: string;
+  payload?: PlatformConfigPayload;
+  changeReason: string;
+  effectiveFrom: string | null;
+  isRestricted: boolean;
+  modifiedDomains: ConfigDomainName[];
+  authorId: string;
+  author?: ConfigActorRef;
+  activatedById: string | null;
+  activatedBy?: ConfigActorRef | null;
+  activatedAt: string | null;
+  supersededAt: string | null;
+  rolledBackFrom: number | null;
+  approvals?: ConfigApprovalItem[];
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface ConfigVersionHistoryResponse {
+  versions: PlatformConfigVersionItem[];
+  total: number;
+  page: number;
+  totalPages: number;
+}
+
+export interface ValidateConfigDraftResponse {
+  valid: boolean;
+  checksum?: string;
+  isRestricted?: boolean;
+  modifiedDomains?: ConfigDomainName[];
+  errors?: Array<{
+    path: (string | number)[];
+    message: string;
+    code?: string;
+  }>;
+}
+
+// Feature Flags
+export interface FeatureFlagVisibility {
+  visible: boolean;
+  reason: string;
+  allowedRoles?: AdminRole[];
+  grantsPermissions: false;
+  rbacAuthoritative: true;
+}
+
+export interface FeatureFlagItem {
+  id: string;
+  key: string;
+  name: string;
+  description: string | null;
+  enabled: boolean;
+  rolloutPercentage: number;
+  allowedTiers: PlayerTier[];
+  allowedRoles: AdminRole[];
+  isKillSwitch: boolean;
+  isProtectedInvariant?: boolean;
+  metadata: Record<string, unknown> | null;
+  updatedById: string | null;
+  updatedBy?: ConfigActorRef | null;
+  adminVisibility?: FeatureFlagVisibility;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface FeatureFlagEvaluation {
+  key: string;
+  enabled: boolean;
+  reason: string;
+  rolloutPercentage: number | null;
+  bucket: number | null;
+  allowedTiers?: PlayerTier[];
+  userTier?: string | null;
+  isKillSwitch?: boolean;
+  grantsPermissions: false;
+  rbacAuthoritative: true;
+  adminVisibility?: FeatureFlagVisibility;
+}
+
+export interface FeatureFlagHistoryResponse {
+  flag: { id?: string; key: string; name?: string };
+  history: AuditLogItem[];
+  total: number;
+  page: number;
+  totalPages: number;
+}
+
+// Notification Templates
+export type NotificationCategory =
+  | 'TRANSACTIONAL'
+  | 'GAMEPLAY'
+  | 'ACCOUNT'
+  | 'COMPLIANCE'
+  | 'MARKETING_SYSTEM';
+
+export type NotificationChannel = 'IN_APP' | 'PUSH' | 'EMAIL';
+
+export interface ChannelCapabilityItem {
+  channel: NotificationChannel;
+  implemented: boolean;
+  deliveryMode: 'POSTGRES_AND_SOCKET_OUTBOX' | 'MOCK_FCM_FALLBACK' | 'TEMPLATE_ONLY' | string;
+  description: string;
+}
+
+export interface NotificationTemplateItem {
+  id: string;
+  code: string;
+  title: string;
+  bodyTemplate: string;
+  category: NotificationCategory;
+  channels: NotificationChannel[];
+  channelDetails?: ChannelCapabilityItem[];
+  isActive: boolean;
+  variables: string[];
+  systemRequiredVariables?: string[];
+  version: number;
+  updatedById: string | null;
+  updatedBy?: ConfigActorRef | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface NotificationPreviewResult {
+  code: string | null;
+  version: number | null;
+  renderedTitle: string;
+  renderedBody: string;
+  requiredVariables: string[];
+  usedVariables: string[];
+  channels: NotificationChannel[];
+  channelDetails: ChannelCapabilityItem[];
+}
+
+export interface NotificationTemplateHistoryResponse {
+  template: { id?: string; code: string; title?: string };
+  history: AuditLogItem[];
+  total: number;
+  page: number;
+  totalPages: number;
+}
+
+// Maintenance Controls
+export type MaintenanceScope =
+  | 'FULL_PLATFORM'
+  | 'GAMEPLAY_ONLY'
+  | 'MATCHMAKING_ONLY'
+  | 'FINANCIAL_ONLY';
+
+export type MaintenanceEffectiveStatus = 'INACTIVE' | 'SCHEDULED' | 'ACTIVE' | 'EXPIRED';
+
+export interface MaintenanceStateItem {
+  id: string;
+  active: boolean;
+  effectivelyActive: boolean;
+  effectiveStatus: MaintenanceEffectiveStatus;
+  scope: MaintenanceScope;
+  headline: string;
+  message: string;
+  allowedIps: string[];
+  allowedRoles: AdminRole[];
+  startsAt: string | null;
+  endsAt: string | null;
+  exemptPrefixes: string[];
+  restrictedPrefixes: string[];
+  updatedById?: string | null;
+  updatedBy?: ConfigActorRef | null;
+  updatedAt?: string;
+}
+
+export interface MaintenanceAccessDecision {
+  allowed: boolean;
+  status?: number;
+  reason: string;
+  path: string;
+  scope?: MaintenanceScope;
+  effectiveStatus?: MaintenanceEffectiveStatus;
+  headline?: string;
+  message?: string;
+  startsAt?: string | null;
+  endsAt?: string | null;
+}
+
+export interface MaintenanceHistoryResponse {
+  history: AuditLogItem[];
+  total: number;
+  page: number;
+  totalPages: number;
+}
+
 

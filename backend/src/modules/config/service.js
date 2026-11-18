@@ -390,6 +390,13 @@ export class ConfigService {
           activatedAt: true,
           supersededAt: true,
           rolledBackFrom: true,
+          approvals: {
+            include: {
+              reviewer: {
+                select: { id: true, email: true, username: true }
+              }
+            }
+          },
           createdAt: true,
           updatedAt: true
         }
@@ -406,16 +413,23 @@ export class ConfigService {
   }
 
   /**
-   * Retrieves a single configuration version by business version number.
+   * Retrieves a single configuration version by business version number or UUID.
    */
   static async getVersionByNumber(versionNumber, { dbp = prisma } = {}) {
-    const num = Number.parseInt(versionNumber, 10);
-    if (Number.isNaN(num) || num <= 0) {
-      throw new ConfigValidationError('Version must be a positive integer');
+    const isUuid = typeof versionNumber === 'string' && /^[0-9a-f-]{36}$/i.test(versionNumber.trim());
+    let whereClause;
+    if (isUuid) {
+      whereClause = { id: versionNumber.trim() };
+    } else {
+      const num = Number.parseInt(versionNumber, 10);
+      if (Number.isNaN(num) || num <= 0) {
+        throw new ConfigValidationError('Version must be a positive integer');
+      }
+      whereClause = { version: num };
     }
 
     const version = await dbp.platformConfigVersion.findUnique({
-      where: { version: num },
+      where: whereClause,
       include: {
         author: { select: { id: true, email: true, username: true } },
         activatedBy: { select: { id: true, email: true, username: true } },

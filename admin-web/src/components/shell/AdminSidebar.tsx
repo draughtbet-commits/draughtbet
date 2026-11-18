@@ -21,7 +21,12 @@ import {
   UserCog,
   FileText,
   Activity,
-  Crown
+  Crown,
+  GitBranch,
+  CheckCircle2,
+  Flag,
+  Bell,
+  Wrench
 } from 'lucide-react';
 
 interface NavItem {
@@ -30,6 +35,7 @@ interface NavItem {
   icon: React.ComponentType<{ className?: string }>;
   permission?: Permission;
   badge?: string;
+  exact?: boolean;
 }
 
 interface NavSection {
@@ -41,7 +47,7 @@ const NAV_SECTIONS: NavSection[] = [
   {
     title: 'Overview',
     items: [
-      { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard }
+      { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, exact: true }
     ]
   },
   {
@@ -80,7 +86,12 @@ const NAV_SECTIONS: NavSection[] = [
   {
     title: 'Platform Control',
     items: [
-      { label: 'Configuration', href: '/configuration', icon: Sliders, permission: PERMISSIONS.ROLES_ADMIN }
+      { label: 'Configuration', href: '/configuration', icon: Sliders, permission: PERMISSIONS.FLAGS_READ, exact: true },
+      { label: 'Approvals Queue', href: '/configuration/approvals', icon: CheckCircle2, permission: PERMISSIONS.CONFIG_READ },
+      { label: 'Version History', href: '/configuration/versions', icon: GitBranch, permission: PERMISSIONS.CONFIG_READ },
+      { label: 'Feature Flags', href: '/configuration/feature-flags', icon: Flag, permission: PERMISSIONS.FLAGS_READ },
+      { label: 'Notification Templates', href: '/configuration/notifications', icon: Bell, permission: PERMISSIONS.CONFIG_READ },
+      { label: 'Maintenance Mode', href: '/configuration/maintenance', icon: Wrench, permission: PERMISSIONS.MAINTENANCE_READ }
     ]
   },
   {
@@ -91,6 +102,14 @@ const NAV_SECTIONS: NavSection[] = [
       { label: 'System Health', href: '/system/health', icon: Activity }
     ]
   }
+];
+
+const SUB_CONFIG_PATHS = [
+  '/configuration/approvals',
+  '/configuration/versions',
+  '/configuration/feature-flags',
+  '/configuration/notifications',
+  '/configuration/maintenance'
 ];
 
 export function AdminSidebar({ className }: { className?: string }) {
@@ -124,7 +143,6 @@ export function AdminSidebar({ className }: { className?: string }) {
       {/* Navigation Groups */}
       <div className="flex-1 overflow-y-auto px-3 py-4 space-y-6 scrollbar-thin scrollbar-thumb-[#2E333B]">
         {NAV_SECTIONS.map((section) => {
-          // Filter items based on user permissions
           const visibleItems = section.items.filter((item) => {
             if (!item.permission) return true;
             return canAccessPermission(user, item.permission);
@@ -139,8 +157,18 @@ export function AdminSidebar({ className }: { className?: string }) {
               </h4>
               <div className="space-y-0.5 mt-1">
                 {visibleItems.map((item) => {
-                  const isActive =
-                    pathname === item.href || (item.href !== '/dashboard' && pathname.startsWith(item.href));
+                  let isActive = false;
+                  if (item.href === '/configuration') {
+                    isActive =
+                      pathname === '/configuration' ||
+                      (pathname.startsWith('/configuration/') &&
+                        !SUB_CONFIG_PATHS.some((p) => pathname.startsWith(p)));
+                  } else if (item.exact) {
+                    isActive = pathname === item.href;
+                  } else {
+                    isActive = pathname === item.href || pathname.startsWith(`${item.href}/`);
+                  }
+
                   const Icon = item.icon;
 
                   return (
@@ -182,4 +210,3 @@ export function AdminSidebar({ className }: { className?: string }) {
     </aside>
   );
 }
-

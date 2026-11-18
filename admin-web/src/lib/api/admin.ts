@@ -1,5 +1,5 @@
 import { apiClient } from './client';
-import {
+import type {
   AuditLogItem,
   PaginatedResponse,
   WithdrawalItem,
@@ -15,8 +15,29 @@ import {
   SystemHealthResponse,
   DashboardSummaryResponse,
   PlayerListItem,
-  PlayerDetailResponse
+  PlayerDetailResponse,
+  PlatformConfigPayload,
+  PlatformConfigVersionItem,
+  ConfigVersionStatus,
+  ConfigVersionHistoryResponse,
+  ValidateConfigDraftResponse,
+  ConfigApprovalItem,
+  FeatureFlagItem,
+  FeatureFlagEvaluation,
+  FeatureFlagHistoryResponse,
+  PlayerTier,
+  NotificationTemplateItem,
+  NotificationCategory,
+  NotificationChannel,
+  ChannelCapabilityItem,
+  NotificationPreviewResult,
+  NotificationTemplateHistoryResponse,
+  MaintenanceStateItem,
+  MaintenanceScope,
+  MaintenanceAccessDecision,
+  MaintenanceHistoryResponse
 } from './types';
+import type { AdminRole } from '../permissions/roles';
 
 export const adminApi = {
   // Dashboard Summary (Module A)
@@ -364,6 +385,389 @@ export const adminApi = {
 
   async revokeRole(userId: string, roleName: string): Promise<unknown> {
     return apiClient.post('/admin/roles/revoke', { userId, roleName });
+  },
+
+  // ==========================================================================
+  // Phase 4: Platform Configuration Versioning & Maker-Checker Governance
+  // ==========================================================================
+  async getActiveConfig(): Promise<{ config: PlatformConfigVersionItem }> {
+    return apiClient.get<{ config: PlatformConfigVersionItem }>('/admin/config/active');
+  },
+
+  async getConfigVersions(params: {
+    page?: number;
+    limit?: number;
+    status?: ConfigVersionStatus | '';
+  } = {}): Promise<ConfigVersionHistoryResponse> {
+    const q = new URLSearchParams();
+    if (params.page) q.set('page', params.page.toString());
+    if (params.limit) q.set('limit', params.limit.toString());
+    if (params.status) q.set('status', params.status);
+    return apiClient.get<ConfigVersionHistoryResponse>(`/admin/config/versions?${q.toString()}`);
+  },
+
+  async getConfigVersion(versionOrId: number | string): Promise<{ version: PlatformConfigVersionItem }> {
+    return apiClient.get<{ version: PlatformConfigVersionItem }>(`/admin/config/versions/${versionOrId}`);
+  },
+
+  async validateConfigDraft(
+    payload: PlatformConfigPayload,
+    baseVersion?: number | null
+  ): Promise<ValidateConfigDraftResponse> {
+    return apiClient.post<ValidateConfigDraftResponse>('/admin/config/drafts/validate', {
+      payload,
+      ...(baseVersion ? { baseVersion } : {})
+    });
+  },
+
+  async createConfigDraft(data: {
+    changeReason: string;
+    baseVersion?: number | null;
+    payload?: PlatformConfigPayload;
+    effectiveFrom?: string | null;
+  }): Promise<{ draft: PlatformConfigVersionItem }> {
+    return apiClient.post<{ draft: PlatformConfigVersionItem }>('/admin/config/drafts', data);
+  },
+
+  async updateConfigDraft(
+    draftId: string,
+    data: {
+      payload?: Partial<PlatformConfigPayload>;
+      changeReason?: string;
+      effectiveFrom?: string | null;
+    }
+  ): Promise<{ draft: PlatformConfigVersionItem }> {
+    return apiClient.patch<{ draft: PlatformConfigVersionItem }>(`/admin/config/drafts/${draftId}`, data);
+  },
+
+  async deleteConfigDraft(draftId: string): Promise<{ deleted: boolean; draftId: string; version: number }> {
+    return apiClient.delete<{ deleted: boolean; draftId: string; version: number }>(
+      `/admin/config/drafts/${draftId}`
+    );
+  },
+
+  async submitConfigDraft(draftId: string): Promise<{ version: PlatformConfigVersionItem }> {
+    return apiClient.post<{ version: PlatformConfigVersionItem }>(
+      `/admin/config/drafts/${draftId}/submit`
+    );
+  },
+
+  async approveConfigVersion(
+    versionId: string,
+    data: { reviewNote?: string; checksum?: string } = {}
+  ): Promise<{ version: PlatformConfigVersionItem; approval: ConfigApprovalItem }> {
+    return apiClient.post<{ version: PlatformConfigVersionItem; approval: ConfigApprovalItem }>(
+      `/admin/config/versions/${versionId}/approve`,
+      data
+    );
+  },
+
+  async rejectConfigVersion(
+    versionId: string,
+    reason: string
+  ): Promise<{ version: PlatformConfigVersionItem; approval: ConfigApprovalItem }> {
+    return apiClient.post<{ version: PlatformConfigVersionItem; approval: ConfigApprovalItem }>(
+      `/admin/config/versions/${versionId}/reject`,
+      { reason }
+    );
+  },
+
+  async activateConfigVersion(versionId: string): Promise<{ version: PlatformConfigVersionItem }> {
+    return apiClient.post<{ version: PlatformConfigVersionItem }>(
+      `/admin/config/versions/${versionId}/activate`
+    );
+  },
+
+  async rollbackConfigVersion(
+    versionIdOrNumber: string | number,
+    reason: string
+  ): Promise<{ version: PlatformConfigVersionItem }> {
+    return apiClient.post<{ version: PlatformConfigVersionItem }>(
+      `/admin/config/versions/${versionIdOrNumber}/rollback`,
+      { reason }
+    );
+  },
+
+  // ==========================================================================
+  // Phase 4: Feature Flags & Operational Kill Switches
+  // ==========================================================================
+  async getFeatureFlags(params: {
+    search?: string;
+    enabled?: boolean;
+    isKillSwitch?: boolean;
+  } = {}): Promise<{ flags: FeatureFlagItem[]; count: number }> {
+    const q = new URLSearchParams();
+    if (params.search) q.set('search', params.search);
+    if (typeof params.enabled === 'boolean') q.set('enabled', params.enabled.toString());
+    if (typeof params.isKillSwitch === 'boolean') q.set('isKillSwitch', params.isKillSwitch.toString());
+    const qs = q.toString();
+    return apiClient.get<{ flags: FeatureFlagItem[]; count: number }>(
+      `/admin/feature-flags${qs ? `?${qs}` : ''}`
+    );
+  },
+
+  async getFeatureFlag(key: string): Promise<{ flag: FeatureFlagItem }> {
+    return apiClient.get<{ flag: FeatureFlagItem }>(`/admin/feature-flags/${encodeURIComponent(key)}`);
+  },
+
+  async getFeatureFlagHistory(
+    key: string,
+    params: { page?: number; limit?: number } = {}
+  ): Promise<FeatureFlagHistoryResponse> {
+    const q = new URLSearchParams();
+    if (params.page) q.set('page', params.page.toString());
+    if (params.limit) q.set('limit', params.limit.toString());
+    return apiClient.get<FeatureFlagHistoryResponse>(
+      `/admin/feature-flags/${encodeURIComponent(key)}/history?${q.toString()}`
+    );
+  },
+
+  async evaluateFeatureFlag(
+    key: string,
+    data: {
+      userId?: string | null;
+      userTier?: PlayerTier | string | null;
+      adminRoles?: AdminRole[];
+      defaultValue?: boolean;
+    }
+  ): Promise<{ evaluation: FeatureFlagEvaluation }> {
+    return apiClient.post<{ evaluation: FeatureFlagEvaluation }>(
+      `/admin/feature-flags/${encodeURIComponent(key)}/evaluate`,
+      data
+    );
+  },
+
+  async createFeatureFlag(data: {
+    key: string;
+    name: string;
+    description?: string | null;
+    enabled?: boolean;
+    rolloutPercentage?: number;
+    allowedTiers?: PlayerTier[];
+    allowedRoles?: AdminRole[];
+    isKillSwitch?: boolean;
+    metadata?: Record<string, unknown> | null;
+    changeReason: string;
+  }): Promise<{ flag: FeatureFlagItem }> {
+    return apiClient.post<{ flag: FeatureFlagItem }>('/admin/feature-flags', data);
+  },
+
+  async updateFeatureFlag(
+    key: string,
+    data: {
+      name?: string;
+      description?: string | null;
+      enabled?: boolean;
+      rolloutPercentage?: number;
+      allowedTiers?: PlayerTier[];
+      allowedRoles?: AdminRole[];
+      isKillSwitch?: boolean;
+      metadata?: Record<string, unknown> | null;
+      changeReason: string;
+    }
+  ): Promise<{ flag: FeatureFlagItem }> {
+    return apiClient.patch<{ flag: FeatureFlagItem }>(
+      `/admin/feature-flags/${encodeURIComponent(key)}`,
+      data
+    );
+  },
+
+  async toggleFeatureFlag(
+    key: string,
+    data: { enabled: boolean; changeReason: string }
+  ): Promise<{ flag: FeatureFlagItem }> {
+    return apiClient.post<{ flag: FeatureFlagItem }>(
+      `/admin/feature-flags/${encodeURIComponent(key)}/toggle`,
+      data
+    );
+  },
+
+  async triggerFeatureFlagKillSwitch(
+    key: string,
+    data: { enabled: boolean; reason: string }
+  ): Promise<{ flag: FeatureFlagItem }> {
+    return apiClient.post<{ flag: FeatureFlagItem }>(
+      `/admin/feature-flags/${encodeURIComponent(key)}/kill-switch`,
+      data
+    );
+  },
+
+  async deleteFeatureFlag(
+    key: string,
+    reason: string
+  ): Promise<{ deleted: boolean; key: string; id: string }> {
+    return apiClient.delete<{ deleted: boolean; key: string; id: string }>(
+      `/admin/feature-flags/${encodeURIComponent(key)}?reason=${encodeURIComponent(reason)}`
+    );
+  },
+
+  // ==========================================================================
+  // Phase 4: Notification Templates
+  // ==========================================================================
+  async getNotificationChannels(): Promise<{ channels: ChannelCapabilityItem[] }> {
+    return apiClient.get<{ channels: ChannelCapabilityItem[] }>('/admin/notification-templates/channels');
+  },
+
+  async getNotificationTemplates(params: {
+    category?: NotificationCategory | '';
+    channel?: NotificationChannel | '';
+    isActive?: boolean;
+    search?: string;
+  } = {}): Promise<{
+    templates: NotificationTemplateItem[];
+    count: number;
+    channelCapabilities: ChannelCapabilityItem[];
+  }> {
+    const q = new URLSearchParams();
+    if (params.category) q.set('category', params.category);
+    if (params.channel) q.set('channel', params.channel);
+    if (typeof params.isActive === 'boolean') q.set('isActive', params.isActive.toString());
+    if (params.search) q.set('search', params.search);
+    const qs = q.toString();
+    return apiClient.get(`/admin/notification-templates${qs ? `?${qs}` : ''}`);
+  },
+
+  async getNotificationTemplate(codeOrId: string): Promise<{ template: NotificationTemplateItem }> {
+    return apiClient.get<{ template: NotificationTemplateItem }>(
+      `/admin/notification-templates/${encodeURIComponent(codeOrId)}`
+    );
+  },
+
+  async getNotificationTemplateHistory(
+    codeOrId: string,
+    params: { page?: number; limit?: number } = {}
+  ): Promise<NotificationTemplateHistoryResponse> {
+    const q = new URLSearchParams();
+    if (params.page) q.set('page', params.page.toString());
+    if (params.limit) q.set('limit', params.limit.toString());
+    return apiClient.get<NotificationTemplateHistoryResponse>(
+      `/admin/notification-templates/${encodeURIComponent(codeOrId)}/history?${q.toString()}`
+    );
+  },
+
+  async previewDraftNotificationTemplate(data: {
+    code?: string | null;
+    title: string;
+    bodyTemplate: string;
+    variables?: string[];
+    channels?: NotificationChannel[];
+    sampleValues: Record<string, string | number | boolean>;
+  }): Promise<{ preview: NotificationPreviewResult }> {
+    return apiClient.post<{ preview: NotificationPreviewResult }>(
+      '/admin/notification-templates/preview',
+      data
+    );
+  },
+
+  async previewSavedNotificationTemplate(
+    codeOrId: string,
+    sampleValues: Record<string, string | number | boolean>
+  ): Promise<{ preview: NotificationPreviewResult }> {
+    return apiClient.post<{ preview: NotificationPreviewResult }>(
+      `/admin/notification-templates/${encodeURIComponent(codeOrId)}/preview`,
+      { sampleValues }
+    );
+  },
+
+  async createNotificationTemplate(data: {
+    code: string;
+    title: string;
+    bodyTemplate: string;
+    category: NotificationCategory;
+    channels: NotificationChannel[];
+    variables: string[];
+    isActive?: boolean;
+    changeReason: string;
+  }): Promise<{ template: NotificationTemplateItem }> {
+    return apiClient.post<{ template: NotificationTemplateItem }>(
+      '/admin/notification-templates',
+      data
+    );
+  },
+
+  async updateNotificationTemplate(
+    codeOrId: string,
+    data: {
+      title?: string;
+      bodyTemplate?: string;
+      category?: NotificationCategory;
+      channels?: NotificationChannel[];
+      variables?: string[];
+      isActive?: boolean;
+      changeReason: string;
+    }
+  ): Promise<{ template: NotificationTemplateItem }> {
+    return apiClient.patch<{ template: NotificationTemplateItem }>(
+      `/admin/notification-templates/${encodeURIComponent(codeOrId)}`,
+      data
+    );
+  },
+
+  // ==========================================================================
+  // Phase 4: Maintenance Controls
+  // ==========================================================================
+  async getMaintenanceState(): Promise<{ maintenance: MaintenanceStateItem }> {
+    return apiClient.get<{ maintenance: MaintenanceStateItem }>('/admin/maintenance');
+  },
+
+  async getMaintenanceHistory(params: {
+    page?: number;
+    limit?: number;
+  } = {}): Promise<MaintenanceHistoryResponse> {
+    const q = new URLSearchParams();
+    if (params.page) q.set('page', params.page.toString());
+    if (params.limit) q.set('limit', params.limit.toString());
+    return apiClient.get<MaintenanceHistoryResponse>(`/admin/maintenance/history?${q.toString()}`);
+  },
+
+  async evaluateMaintenanceAccess(data: {
+    path: string;
+    ip?: string | null;
+    adminRoles?: AdminRole[];
+  }): Promise<{ decision: MaintenanceAccessDecision }> {
+    return apiClient.post<{ decision: MaintenanceAccessDecision }>('/admin/maintenance/evaluate', data);
+  },
+
+  async updateMaintenanceState(data: {
+    active?: boolean;
+    scope?: MaintenanceScope;
+    headline?: string;
+    message?: string;
+    allowedIps?: string[];
+    allowedRoles?: AdminRole[];
+    startsAt?: string | null;
+    endsAt?: string | null;
+    reason: string;
+  }): Promise<{ maintenance: MaintenanceStateItem }> {
+    return apiClient.patch<{ maintenance: MaintenanceStateItem }>('/admin/maintenance', data);
+  },
+
+  async enableMaintenance(data: {
+    scope: MaintenanceScope;
+    headline?: string;
+    message?: string;
+    allowedIps?: string[];
+    allowedRoles?: AdminRole[];
+    startsAt?: string | null;
+    endsAt?: string | null;
+    reason: string;
+  }): Promise<{ maintenance: MaintenanceStateItem }> {
+    return apiClient.post<{ maintenance: MaintenanceStateItem }>('/admin/maintenance/enable', data);
+  },
+
+  async disableMaintenance(reason: string): Promise<{ maintenance: MaintenanceStateItem }> {
+    return apiClient.post<{ maintenance: MaintenanceStateItem }>('/admin/maintenance/disable', {
+      reason
+    });
+  },
+
+  async emergencyResetMaintenance(
+    reason: string
+  ): Promise<{ maintenance: MaintenanceStateItem; recovered: boolean }> {
+    return apiClient.post<{ maintenance: MaintenanceStateItem; recovered: boolean }>(
+      '/admin/maintenance/emergency-reset',
+      { reason }
+    );
   }
 };
 
