@@ -189,21 +189,21 @@ export function WithdrawalDetailModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 bg-black/80 backdrop-blur-sm animate-in fade-in duration-150">
-      <div className="relative w-full max-w-4xl max-h-[92vh] flex flex-col rounded-2xl bg-[#15181D] border border-[#2E333B] shadow-2xl overflow-hidden text-[#F4F2ED]">
+      <div className="relative w-full max-w-4xl max-h-[92vh] flex flex-col rounded-2xl bg-[#0C1B2A] border border-[#274056] shadow-2xl overflow-hidden text-[#F5F7FA]">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-[#2E333B] bg-[#111317]">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-[#274056] bg-[#111317]">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-full bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
               <Wallet className="w-5 h-5" />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h2 className="text-lg font-bold font-serif text-[#F4F2ED]">
+                <h2 className="text-lg font-bold font-serif text-[#F5F7FA]">
                   Withdrawal Review & Audit
                 </h2>
                 {data && getStatusBadge(data.status)}
               </div>
-              <span className="text-xs text-[#9CA3AF] font-mono">
+              <span className="text-xs text-[#8FA3B7] font-mono">
                 Ref: {data?.reference || withdrawalId}
               </span>
             </div>
@@ -215,13 +215,13 @@ export function WithdrawalDetailModal({
               size="sm"
               onClick={fetchDetail}
               isLoading={isLoading}
-              className="text-[#9CA3AF] hover:text-[#F4F2ED]"
+              className="text-[#8FA3B7] hover:text-[#F5F7FA]"
             >
               <RefreshCw className="w-4 h-4" />
             </Button>
             <button
               onClick={onClose}
-              className="p-1.5 rounded-lg text-[#9CA3AF] hover:text-[#F4F2ED] hover:bg-[#1E2229] transition-colors"
+              className="p-1.5 rounded-lg text-[#8FA3B7] hover:text-[#F5F7FA] hover:bg-[#132638] transition-colors"
             >
               <X className="w-5 h-5" />
             </button>
@@ -245,8 +245,8 @@ export function WithdrawalDetailModal({
         {/* Body */}
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
           {isLoading ? (
-            <div className="py-20 text-center text-[#9CA3AF] text-sm">
-              <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-[#E7B24A]" />
+            <div className="py-20 text-center text-[#8FA3B7] text-sm">
+              <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-[#18C986]" />
               Loading withdrawal dossier...
             </div>
           ) : !data ? (
@@ -258,59 +258,59 @@ export function WithdrawalDetailModal({
               {/* Financial & Destination Grid */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {/* Financial Summary */}
-                <Card className="bg-[#1A1D24] border-[#2E333B]">
-                  <h3 className="text-xs font-bold uppercase tracking-wider text-[#9CA3AF] mb-3">
+                <Card className="bg-[#1A1D24] border-[#274056]">
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-[#8FA3B7] mb-3">
                     Settlement Details
                   </h3>
-                  <div className="p-4 rounded-xl bg-[#111317] border border-[#2E333B] mb-4">
-                    <span className="text-[10px] uppercase text-[#9CA3AF] block">Disbursement Amount</span>
+                  <div className="p-4 rounded-xl bg-[#111317] border border-[#274056] mb-4">
+                    <span className="text-[10px] uppercase text-[#8FA3B7] block">Disbursement Amount</span>
                     <span className="text-2xl font-bold font-mono text-emerald-400">
                       {formatNaira(data.amountMinorUnits)}
                     </span>
-                    <span className="text-[11px] font-mono text-[#9CA3AF] block mt-0.5">
+                    <span className="text-[11px] font-mono text-[#8FA3B7] block mt-0.5">
                       Minor units: {data.amountMinorUnits} {data.currency}
                     </span>
                   </div>
 
                   <dl className="space-y-2 text-xs">
-                    <div className="flex justify-between py-1 border-b border-[#2E333B]/40">
-                      <dt className="text-[#9CA3AF]">Status</dt>
+                    <div className="flex justify-between py-1 border-b border-[#274056]/40">
+                      <dt className="text-[#8FA3B7]">Status</dt>
                       <dd>{getStatusBadge(data.status)}</dd>
                     </div>
-                    <div className="flex justify-between py-1 border-b border-[#2E333B]/40">
-                      <dt className="text-[#9CA3AF]">Gateway Provider</dt>
-                      <dd className="font-mono text-[#F4F2ED]">{data.gateway}</dd>
+                    <div className="flex justify-between py-1 border-b border-[#274056]/40">
+                      <dt className="text-[#8FA3B7]">Gateway Provider</dt>
+                      <dd className="font-mono text-[#F5F7FA]">{data.gateway}</dd>
                     </div>
-                    <div className="flex justify-between py-1 border-b border-[#2E333B]/40">
-                      <dt className="text-[#9CA3AF]">Server Reference</dt>
-                      <dd className="font-mono text-[#F4F2ED]">{data.reference}</dd>
+                    <div className="flex justify-between py-1 border-b border-[#274056]/40">
+                      <dt className="text-[#8FA3B7]">Server Reference</dt>
+                      <dd className="font-mono text-[#F5F7FA]">{data.reference}</dd>
                     </div>
-                    <div className="flex justify-between py-1 border-b border-[#2E333B]/40">
-                      <dt className="text-[#9CA3AF]">Provider Transfer Ref</dt>
-                      <dd className="font-mono text-[#F4F2ED]">{data.providerRef || 'Not assigned yet'}</dd>
+                    <div className="flex justify-between py-1 border-b border-[#274056]/40">
+                      <dt className="text-[#8FA3B7]">Provider Transfer Ref</dt>
+                      <dd className="font-mono text-[#F5F7FA]">{data.providerRef || 'Not assigned yet'}</dd>
                     </div>
                     <div className="flex justify-between py-1">
-                      <dt className="text-[#9CA3AF]">Requested At</dt>
-                      <dd className="font-mono text-[#F4F2ED]">{formatDate(data.createdAt)}</dd>
+                      <dt className="text-[#8FA3B7]">Requested At</dt>
+                      <dd className="font-mono text-[#F5F7FA]">{formatDate(data.createdAt)}</dd>
                     </div>
                   </dl>
                 </Card>
 
                 {/* Player & Bank Account */}
-                <Card className="bg-[#1A1D24] border-[#2E333B]">
-                  <h3 className="text-xs font-bold uppercase tracking-wider text-[#9CA3AF] mb-3">
+                <Card className="bg-[#1A1D24] border-[#274056]">
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-[#8FA3B7] mb-3">
                     Destination & Player Account
                   </h3>
                   {data.bankAccount ? (
-                    <div className="p-4 rounded-xl bg-[#111317] border border-[#2E333B] mb-4">
-                      <span className="text-[10px] uppercase text-[#9CA3AF] block">Bank Account Destination</span>
-                      <span className="text-base font-bold text-[#F4F2ED] block">
+                    <div className="p-4 rounded-xl bg-[#111317] border border-[#274056] mb-4">
+                      <span className="text-[10px] uppercase text-[#8FA3B7] block">Bank Account Destination</span>
+                      <span className="text-base font-bold text-[#F5F7FA] block">
                         {data.bankAccount.bankName}
                       </span>
-                      <span className="text-xs font-mono text-[#E7B24A] block">
+                      <span className="text-xs font-mono text-[#18C986] block">
                         {data.bankAccount.accountNumber}
                       </span>
-                      <span className="text-[11px] text-[#9CA3AF] block mt-0.5">
+                      <span className="text-[11px] text-[#8FA3B7] block mt-0.5">
                         Account Name: {data.bankAccount.accountName || '—'}
                       </span>
                     </div>
@@ -321,20 +321,20 @@ export function WithdrawalDetailModal({
                   )}
 
                   <dl className="space-y-2 text-xs">
-                    <div className="flex justify-between py-1 border-b border-[#2E333B]/40">
-                      <dt className="text-[#9CA3AF]">Player User ID</dt>
-                      <dd className="font-mono text-[#F4F2ED]">{data.userId}</dd>
+                    <div className="flex justify-between py-1 border-b border-[#274056]/40">
+                      <dt className="text-[#8FA3B7]">Player User ID</dt>
+                      <dd className="font-mono text-[#F5F7FA]">{data.userId}</dd>
                     </div>
-                    <div className="flex justify-between py-1 border-b border-[#2E333B]/40">
-                      <dt className="text-[#9CA3AF]">Email</dt>
-                      <dd className="font-mono text-[#F4F2ED]">{data.user?.email || '—'}</dd>
+                    <div className="flex justify-between py-1 border-b border-[#274056]/40">
+                      <dt className="text-[#8FA3B7]">Email</dt>
+                      <dd className="font-mono text-[#F5F7FA]">{data.user?.email || '—'}</dd>
                     </div>
-                    <div className="flex justify-between py-1 border-b border-[#2E333B]/40">
-                      <dt className="text-[#9CA3AF]">Username</dt>
-                      <dd className="text-[#F4F2ED]">{data.user?.username || '—'}</dd>
+                    <div className="flex justify-between py-1 border-b border-[#274056]/40">
+                      <dt className="text-[#8FA3B7]">Username</dt>
+                      <dd className="text-[#F5F7FA]">{data.user?.username || '—'}</dd>
                     </div>
-                    <div className="flex justify-between py-1 border-b border-[#2E333B]/40">
-                      <dt className="text-[#9CA3AF]">KYC Status</dt>
+                    <div className="flex justify-between py-1 border-b border-[#274056]/40">
+                      <dt className="text-[#8FA3B7]">KYC Status</dt>
                       <dd>
                         <Badge variant={data.user?.kycStatus === 'VERIFIED' ? 'success' : 'default'}>
                           {data.user?.kycStatus || 'UNKNOWN'}
@@ -342,7 +342,7 @@ export function WithdrawalDetailModal({
                       </dd>
                     </div>
                     <div className="flex justify-between py-1">
-                      <dt className="text-[#9CA3AF]">Account Status</dt>
+                      <dt className="text-[#8FA3B7]">Account Status</dt>
                       <dd>
                         <Badge variant={data.user?.isBanned ? 'danger' : 'success'}>
                           {data.user?.isBanned ? 'Suspended' : 'Active'}
@@ -355,17 +355,17 @@ export function WithdrawalDetailModal({
 
               {/* Reviewer / Failure Metadata */}
               {(data.reviewedBy || data.failureReason) && (
-                <Card className="bg-[#1A1D24] border-[#2E333B]">
-                  <h3 className="text-xs font-bold uppercase tracking-wider text-[#9CA3AF] mb-3">
+                <Card className="bg-[#1A1D24] border-[#274056]">
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-[#8FA3B7] mb-3">
                     Review Metadata
                   </h3>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
                     {data.reviewedBy && (
                       <div>
-                        <span className="text-[#9CA3AF] block">Reviewed By Admin:</span>
-                        <span className="font-mono text-[#F4F2ED]">{data.reviewedBy}</span>
+                        <span className="text-[#8FA3B7] block">Reviewed By Admin:</span>
+                        <span className="font-mono text-[#F5F7FA]">{data.reviewedBy}</span>
                         {data.reviewedAt && (
-                          <span className="text-[11px] font-mono text-[#9CA3AF] block">
+                          <span className="text-[11px] font-mono text-[#8FA3B7] block">
                             At: {formatDate(data.reviewedAt)}
                           </span>
                         )}
@@ -383,12 +383,12 @@ export function WithdrawalDetailModal({
 
               {/* Consequential Action Bar */}
               {canProcess && (
-                <div className="p-4 rounded-xl bg-[#1E2229] border border-[#2E333B] flex flex-wrap items-center justify-between gap-3">
+                <div className="p-4 rounded-xl bg-[#132638] border border-[#274056] flex flex-wrap items-center justify-between gap-3">
                   <div>
-                    <h4 className="text-xs font-bold text-[#F4F2ED]">
+                    <h4 className="text-xs font-bold text-[#F5F7FA]">
                       Finance Operational Actions
                     </h4>
-                    <p className="text-[11px] text-[#9CA3AF]">
+                    <p className="text-[11px] text-[#8FA3B7]">
                       State-machine gated mutations. Every action requires authorization and is recorded in the double-entry audit trail.
                     </p>
                   </div>
@@ -456,19 +456,19 @@ export function WithdrawalDetailModal({
               )}
 
               {/* Immutable Audit Trail Specific to this Withdrawal */}
-              <Card className="bg-[#1A1D24] border-[#2E333B]">
-                <h3 className="text-xs font-bold uppercase tracking-wider text-[#9CA3AF] mb-3 flex items-center gap-2">
-                  <FileText className="w-3.5 h-3.5 text-[#E7B24A]" />
+              <Card className="bg-[#1A1D24] border-[#274056]">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-[#8FA3B7] mb-3 flex items-center gap-2">
+                  <FileText className="w-3.5 h-3.5 text-[#18C986]" />
                   Withdrawal Mutation Audit Trail
                 </h3>
                 {!data.auditHistory || data.auditHistory.length === 0 ? (
-                  <p className="text-xs text-[#6B7280] py-4 text-center">
+                  <p className="text-xs text-[#53677A] py-4 text-center">
                     No administrative audit entries logged for this withdrawal yet.
                   </p>
                 ) : (
                   <div className="overflow-x-auto">
                     <table className="w-full text-left text-xs">
-                      <thead className="bg-[#1E2229] text-[#9CA3AF] border-y border-[#2E333B] uppercase text-[10px]">
+                      <thead className="bg-[#132638] text-[#8FA3B7] border-y border-[#274056] uppercase text-[10px]">
                         <tr>
                           <th className="py-2 px-3">Date</th>
                           <th className="py-2 px-3">Action</th>
@@ -476,13 +476,13 @@ export function WithdrawalDetailModal({
                           <th className="py-2 px-3">Operator ID</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-[#2E333B]">
+                      <tbody className="divide-y divide-[#274056]">
                         {data.auditHistory.map((item) => (
-                          <tr key={item.id} className="hover:bg-[#1E2229]/50">
-                            <td className="py-2 px-3 font-mono text-[11px] text-[#9CA3AF]">
+                          <tr key={item.id} className="hover:bg-[#132638]/50">
+                            <td className="py-2 px-3 font-mono text-[11px] text-[#8FA3B7]">
                               {formatDate(item.createdAt)}
                             </td>
-                            <td className="py-2 px-3 font-bold text-[#F4F2ED]">
+                            <td className="py-2 px-3 font-bold text-[#F5F7FA]">
                               {item.action}
                             </td>
                             <td className="py-2 px-3">
@@ -490,7 +490,7 @@ export function WithdrawalDetailModal({
                                 {item.outcome}
                               </Badge>
                             </td>
-                            <td className="py-2 px-3 font-mono text-[11px] text-[#9CA3AF]">
+                            <td className="py-2 px-3 font-mono text-[11px] text-[#8FA3B7]">
                               {item.adminId.slice(0, 8)}...
                             </td>
                           </tr>
@@ -507,14 +507,14 @@ export function WithdrawalDetailModal({
         {/* Action Confirmation Dialogs */}
         {actionModal === 'approve' && (
           <div className="absolute inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
-            <div className="w-full max-w-md p-6 rounded-xl bg-[#1E2229] border border-[#2E333B] shadow-2xl space-y-4">
-              <h3 className="text-sm font-bold text-[#F4F2ED] flex items-center gap-2">
+            <div className="w-full max-w-md p-6 rounded-xl bg-[#132638] border border-[#274056] shadow-2xl space-y-4">
+              <h3 className="text-sm font-bold text-[#F5F7FA] flex items-center gap-2">
                 <CheckCircle className="w-4 h-4 text-emerald-400" />
                 Confirm Withdrawal Approval
               </h3>
-              <p className="text-xs text-[#9CA3AF]">
+              <p className="text-xs text-[#8FA3B7]">
                 Approve withdrawal of <b className="text-emerald-400 font-mono">{formatNaira(data?.amountMinorUnits || '0')}</b> for{' '}
-                <b className="text-[#F4F2ED]">{data?.user?.email || data?.userId}</b>?
+                <b className="text-[#F5F7FA]">{data?.user?.email || data?.userId}</b>?
                 This transitions the request to APPROVED state awaiting payout initiation.
               </p>
               <div className="flex justify-end gap-2 pt-2">
@@ -531,14 +531,14 @@ export function WithdrawalDetailModal({
 
         {actionModal === 'beginPayout' && (
           <div className="absolute inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
-            <div className="w-full max-w-md p-6 rounded-xl bg-[#1E2229] border border-[#2E333B] shadow-2xl space-y-4">
-              <h3 className="text-sm font-bold text-[#F4F2ED] flex items-center gap-2">
-                <Play className="w-4 h-4 text-[#E7B24A]" />
+            <div className="w-full max-w-md p-6 rounded-xl bg-[#132638] border border-[#274056] shadow-2xl space-y-4">
+              <h3 className="text-sm font-bold text-[#F5F7FA] flex items-center gap-2">
+                <Play className="w-4 h-4 text-[#18C986]" />
                 Initiate Gateway Payout Transfer
               </h3>
-              <p className="text-xs text-[#9CA3AF]">
+              <p className="text-xs text-[#8FA3B7]">
                 Dispatch a real payout transfer of <b className="text-emerald-400 font-mono">{formatNaira(data?.amountMinorUnits || '0')}</b> to{' '}
-                <b className="text-[#F4F2ED]">{data?.bankAccount?.bankName} ({data?.bankAccount?.accountNumber})</b> via {data?.gateway}?
+                <b className="text-[#F5F7FA]">{data?.bankAccount?.bankName} ({data?.bankAccount?.accountNumber})</b> via {data?.gateway}?
               </p>
               <div className="flex justify-end gap-2 pt-2">
                 <Button variant="ghost" size="sm" onClick={() => setActionModal(null)} disabled={actionLoading}>
@@ -554,17 +554,17 @@ export function WithdrawalDetailModal({
 
         {actionModal === 'reject' && (
           <div className="absolute inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
-            <form onSubmit={handleReject} className="w-full max-w-md p-6 rounded-xl bg-[#1E2229] border border-[#2E333B] shadow-2xl space-y-4">
+            <form onSubmit={handleReject} className="w-full max-w-md p-6 rounded-xl bg-[#132638] border border-[#274056] shadow-2xl space-y-4">
               <h3 className="text-sm font-bold text-rose-400 flex items-center gap-2">
                 <XCircle className="w-4 h-4" />
                 Confirm Withdrawal Rejection & Fund Release
               </h3>
-              <p className="text-xs text-[#9CA3AF]">
+              <p className="text-xs text-[#8FA3B7]">
                 Rejecting this request will automatically release the reserved{' '}
                 <b className="text-emerald-400 font-mono">{formatNaira(data?.amountMinorUnits || '0')}</b> back to the player&apos;s available ledger balance.
               </p>
               <div>
-                <label className="block text-xs font-semibold text-[#9CA3AF] mb-1">
+                <label className="block text-xs font-semibold text-[#8FA3B7] mb-1">
                   Rejection Reason (audited and notified to player)
                 </label>
                 <input
@@ -573,7 +573,7 @@ export function WithdrawalDetailModal({
                   placeholder="e.g. Account name mismatch, Suspicious wagering pattern"
                   value={rejectReason}
                   onChange={(e) => setRejectReason(e.target.value)}
-                  className="w-full px-3 py-2 bg-[#15181D] border border-[#2E333B] rounded-lg text-xs text-[#F4F2ED] placeholder-[#6B7280] focus:outline-none focus:border-rose-500"
+                  className="w-full px-3 py-2 bg-[#0C1B2A] border border-[#274056] rounded-lg text-xs text-[#F5F7FA] placeholder-[#53677A] focus:outline-none focus:border-rose-500"
                 />
               </div>
               <div className="flex justify-end gap-2 pt-2">
@@ -590,16 +590,16 @@ export function WithdrawalDetailModal({
 
         {actionModal === 'reportResult' && (
           <div className="absolute inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
-            <form onSubmit={handleReportResult} className="w-full max-w-md p-6 rounded-xl bg-[#1E2229] border border-[#2E333B] shadow-2xl space-y-4">
-              <h3 className="text-sm font-bold text-[#F4F2ED] flex items-center gap-2">
+            <form onSubmit={handleReportResult} className="w-full max-w-md p-6 rounded-xl bg-[#132638] border border-[#274056] shadow-2xl space-y-4">
+              <h3 className="text-sm font-bold text-[#F5F7FA] flex items-center gap-2">
                 <Send className="w-4 h-4 text-sky-400" />
                 Report Provider Transfer Result
               </h3>
-              <p className="text-xs text-[#9CA3AF]">
-                Record the outcome reported by Paystack/Flutterwave for transfer <b className="font-mono text-[#F4F2ED]">{data?.reference}</b>.
+              <p className="text-xs text-[#8FA3B7]">
+                Record the outcome reported by Paystack/Flutterwave for transfer <b className="font-mono text-[#F5F7FA]">{data?.reference}</b>.
               </p>
               <div className="space-y-2">
-                <label className="block text-xs font-semibold text-[#9CA3AF]">
+                <label className="block text-xs font-semibold text-[#8FA3B7]">
                   Gateway Outcome
                 </label>
                 <div className="flex gap-4 text-xs">
@@ -626,7 +626,7 @@ export function WithdrawalDetailModal({
 
               {!reportResultSuccess && (
                 <div>
-                  <label className="block text-xs font-semibold text-[#9CA3AF] mb-1">
+                  <label className="block text-xs font-semibold text-[#8FA3B7] mb-1">
                     Gateway Failure Reason
                   </label>
                   <input
@@ -635,7 +635,7 @@ export function WithdrawalDetailModal({
                     placeholder="e.g. Invalid destination bank account number"
                     value={reportFailureReason}
                     onChange={(e) => setReportFailureReason(e.target.value)}
-                    className="w-full px-3 py-2 bg-[#15181D] border border-[#2E333B] rounded-lg text-xs text-[#F4F2ED] placeholder-[#6B7280] focus:outline-none focus:border-rose-500"
+                    className="w-full px-3 py-2 bg-[#0C1B2A] border border-[#274056] rounded-lg text-xs text-[#F5F7FA] placeholder-[#53677A] focus:outline-none focus:border-rose-500"
                   />
                 </div>
               )}

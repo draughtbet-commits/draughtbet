@@ -36,23 +36,23 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[#0B0D10] flex items-center justify-center p-4">
+    <div className="min-h-screen bg-[#000000] flex items-center justify-center p-4">
       <div className="w-full max-w-md space-y-6">
         {/* Header Branding */}
         <div className="text-center space-y-2">
-          <div className="inline-flex w-12 h-12 rounded-xl bg-[#3A2E17] border border-[#E7B24A]/40 items-center justify-center text-[#E7B24A] shadow-lg mb-2">
+          <div className="inline-flex w-12 h-12 rounded-xl bg-[#0E2E2B] border border-[#18C986]/40 items-center justify-center text-[#18C986] shadow-lg mb-2">
             <Crown className="w-7 h-7" />
           </div>
-          <h1 className="text-2xl font-bold tracking-tight text-[#F4F2ED]">
+          <h1 className="text-2xl font-bold tracking-tight text-[#F5F7FA]">
             Draught Bet Administration
           </h1>
-          <p className="text-xs text-[#9CA3AF]">
+          <p className="text-xs text-[#8FA3B7]">
             Authorized personnel only. Access is monitored and audited.
           </p>
         </div>
 
         {/* Login Form Card */}
-        <Card className="bg-[#15181D] border-[#2E333B] p-6 shadow-xl">
+        <Card className="bg-[#0C1B2A] border-[#274056] p-6 shadow-xl">
           {error && (
             <div className="mb-4 p-3 rounded-lg bg-rose-500/10 border border-rose-500/30 flex items-start gap-2.5 text-xs text-rose-400">
               <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
@@ -89,7 +89,7 @@ export default function LoginPage() {
             </Button>
           </form>
 
-          <div className="mt-6 pt-4 border-t border-[#2E333B]/60 flex items-center justify-center gap-1.5 text-[11px] text-[#6B7280]">
+          <div className="mt-6 pt-4 border-t border-[#274056]/60 flex items-center justify-center gap-1.5 text-[11px] text-[#53677A]">
             <ShieldAlert className="w-3.5 h-3.5" />
             <span>Public self-registration is permanently disabled.</span>
           </div>

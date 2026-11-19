@@ -50,9 +50,9 @@ export function ConfigDiffViewer({
   return (
     <div className="space-y-4">
       {/* Diff Summary Bar */}
-      <div className="flex flex-wrap items-center justify-between gap-3 bg-[#1E2229] border border-[#2E333B] rounded-xl p-3.5">
+      <div className="flex flex-wrap items-center justify-between gap-3 bg-[#132638] border border-[#274056] rounded-xl p-3.5">
         <div className="flex flex-wrap items-center gap-2.5 text-xs">
-          <span className="font-semibold text-[#F4F2ED]">Comparison Summary:</span>
+          <span className="font-semibold text-[#F5F7FA]">Comparison Summary:</span>
           <Badge variant={summary.totalChanged > 0 ? 'warning' : 'default'}>
             {summary.totalChanged} Changed
           </Badge>
@@ -67,22 +67,22 @@ export function ConfigDiffViewer({
           )}
         </div>
 
-        <label className="inline-flex items-center gap-2 text-xs text-[#9CA3AF] cursor-pointer select-none">
+        <label className="inline-flex items-center gap-2 text-xs text-[#8FA3B7] cursor-pointer select-none">
           <input
             type="checkbox"
             checked={showUnchanged}
             onChange={(e) => setShowUnchanged(e.target.checked)}
-            className="rounded border-[#2E333B] bg-[#15181D] text-[#E7B24A] focus:ring-[#E7B24A]"
+            className="rounded border-[#274056] bg-[#0C1B2A] text-[#18C986] focus:ring-[#18C986]"
           />
           <span>Show unchanged parameters ({summary.totalUnchanged})</span>
         </label>
       </div>
 
       {visibleGroups.length === 0 ? (
-        <div className="bg-[#15181D] border border-[#2E333B] rounded-xl p-8 text-center">
+        <div className="bg-[#0C1B2A] border border-[#274056] rounded-xl p-8 text-center">
           <CheckCircle2 className="w-8 h-8 text-emerald-400 mx-auto mb-2 opacity-80" />
-          <p className="text-sm font-semibold text-[#F4F2ED]">No Configuration Differences Detected</p>
-          <p className="text-xs text-[#9CA3AF] mt-1">
+          <p className="text-sm font-semibold text-[#F5F7FA]">No Configuration Differences Detected</p>
+          <p className="text-xs text-[#8FA3B7] mt-1">
             All parameters in {targetLabel} match {baseLabel}. Toggle &ldquo;Show unchanged parameters&rdquo; above to inspect all fields.
           </p>
         </div>
@@ -91,12 +91,12 @@ export function ConfigDiffViewer({
           {visibleGroups.map((group) => (
             <div
               key={group.domain}
-              className="bg-[#15181D] border border-[#2E333B] rounded-xl overflow-hidden"
+              className="bg-[#0C1B2A] border border-[#274056] rounded-xl overflow-hidden"
             >
-              <div className="px-4 py-3 bg-[#1E2229] border-b border-[#2E333B] flex flex-wrap items-center justify-between gap-2">
+              <div className="px-4 py-3 bg-[#132638] border-b border-[#274056] flex flex-wrap items-center justify-between gap-2">
                 <div>
                   <div className="flex items-center gap-2">
-                    <span className="text-xs font-bold uppercase tracking-wider text-[#F4F2ED]">
+                    <span className="text-xs font-bold uppercase tracking-wider text-[#F5F7FA]">
                       {group.metadata.label}
                     </span>
                     <Badge variant="default">{group.domain}</Badge>
@@ -104,9 +104,9 @@ export function ConfigDiffViewer({
                       <Badge variant="gold">Restricted Domain (Maker-Checker)</Badge>
                     )}
                   </div>
-                  <p className="text-[11px] text-[#9CA3AF] mt-0.5">{group.metadata.operationalImpact}</p>
+                  <p className="text-[11px] text-[#8FA3B7] mt-0.5">{group.metadata.operationalImpact}</p>
                 </div>
-                <div className="text-xs text-[#9CA3AF]">
+                <div className="text-xs text-[#8FA3B7]">
                   {group.changedCount} modified / {group.fields.length} total
                 </div>
               </div>
@@ -114,7 +114,7 @@ export function ConfigDiffViewer({
               <div className="overflow-x-auto">
                 <table className="w-full text-left border-collapse">
                   <thead>
-                    <tr className="border-b border-[#2E333B] text-[10px] font-bold uppercase tracking-wider text-[#6B7280] bg-[#0B0D10]/40">
+                    <tr className="border-b border-[#274056] text-[10px] font-bold uppercase tracking-wider text-[#53677A] bg-[#000000]/40">
                       <th className="py-2.5 px-4">Parameter</th>
                       <th className="py-2.5 px-4">{baseLabel}</th>
                       <th className="py-2.5 px-2 w-6"></th>
@@ -122,27 +122,27 @@ export function ConfigDiffViewer({
                       <th className="py-2.5 px-4 text-right">Status</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-[#2E333B] text-xs">
+                  <tbody className="divide-y divide-[#274056] text-xs">
                     {group.visibleFields.map((field) => {
                       const isChanged = field.status !== 'UNCHANGED';
                       return (
                         <tr
                           key={field.path}
-                          className={isChanged ? 'bg-amber-500/5' : 'hover:bg-[#1E2229]/50'}
+                          className={isChanged ? 'bg-amber-500/5' : 'hover:bg-[#132638]/50'}
                         >
                           <td className="py-3 px-4 align-top">
-                            <div className="font-semibold text-[#F4F2ED]">{field.label}</div>
-                            <div className="font-mono text-[11px] text-[#6B7280]">{field.path}</div>
+                            <div className="font-semibold text-[#F5F7FA]">{field.label}</div>
+                            <div className="font-mono text-[11px] text-[#53677A]">{field.path}</div>
                           </td>
-                          <td className="py-3 px-4 align-top font-mono text-[#9CA3AF]">
+                          <td className="py-3 px-4 align-top font-mono text-[#8FA3B7]">
                             {field.beforeFormatted}
                           </td>
-                          <td className="py-3 px-2 align-top text-[#6B7280]">
+                          <td className="py-3 px-2 align-top text-[#53677A]">
                             <ArrowRight className="w-3.5 h-3.5 mt-0.5" />
                           </td>
                           <td
                             className={`py-3 px-4 align-top font-mono ${
-                              isChanged ? 'text-[#E7B24A] font-semibold' : 'text-[#F4F2ED]'
+                              isChanged ? 'text-[#18C986] font-semibold' : 'text-[#F5F7FA]'
                             }`}
                           >
                             {field.afterFormatted}

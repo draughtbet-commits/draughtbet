@@ -259,11 +259,11 @@ export default function ConfigurationVersionsPage() {
         <div className="flex items-start gap-4">
           <Lock className="w-6 h-6 text-amber-400 shrink-0" />
           <div className="space-y-2">
-            <h2 className="text-base font-bold text-[#F4F2ED]">
+            <h2 className="text-base font-bold text-[#F5F7FA]">
               Configuration Read Permission Required (`config.read`)
             </h2>
-            <p className="text-xs text-[#9CA3AF]">
-              Viewing configuration version history requires <code className="font-mono text-[#E7B24A]">config.read</code>.
+            <p className="text-xs text-[#8FA3B7]">
+              Viewing configuration version history requires <code className="font-mono text-[#18C986]">config.read</code>.
             </p>
           </div>
         </div>
@@ -274,14 +274,14 @@ export default function ConfigurationVersionsPage() {
   return (
     <div className="space-y-6">
       {/* Immutability & Non-Destructive Rollback Notice */}
-      <div className="bg-[#15181D] border border-[#2E333B] rounded-xl p-4 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+      <div className="bg-[#0C1B2A] border border-[#274056] rounded-xl p-4 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
         <div className="flex items-start gap-3">
-          <Lock className="w-5 h-5 text-[#E7B24A] shrink-0 mt-0.5" />
+          <Lock className="w-5 h-5 text-[#18C986] shrink-0 mt-0.5" />
           <div className="text-xs space-y-0.5">
-            <div className="font-bold text-[#F4F2ED]">
+            <div className="font-bold text-[#F5F7FA]">
               Immutable Configuration Ledger &amp; Non-Destructive Rollback
             </div>
-            <p className="text-[#9CA3AF]">
+            <p className="text-[#8FA3B7]">
               Submitted (<code className="font-mono">PENDING_APPROVAL</code>), <code className="font-mono">APPROVED</code>,{' '}
               <code className="font-mono">ACTIVE</code>, <code className="font-mono">SUPERSEDED</code>, and{' '}
               <code className="font-mono">REJECTED</code> versions are permanently immutable and cryptographically
@@ -332,7 +332,7 @@ export default function ConfigurationVersionsPage() {
       <Card className="space-y-4">
         <CardHeader>
           <div className="flex items-center gap-2.5">
-            <GitCompare className="w-5 h-5 text-[#E7B24A]" />
+            <GitCompare className="w-5 h-5 text-[#18C986]" />
             <div>
               <CardTitle>Structured Before-and-After Version Comparison</CardTitle>
               <CardDescription>
@@ -344,14 +344,14 @@ export default function ConfigurationVersionsPage() {
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
           <div className="space-y-1.5">
-            <label className="block text-xs font-semibold uppercase tracking-wider text-[#9CA3AF]">
+            <label className="block text-xs font-semibold uppercase tracking-wider text-[#8FA3B7]">
               Baseline Version (Left)
             </label>
             <select
               aria-label="Select baseline version for comparison"
               value={compareLeftNum}
               onChange={(e) => setCompareLeftNum(Number.parseInt(e.target.value, 10))}
-              className="w-full h-10 px-3 bg-[#0B0D10] border border-[#2E333B] rounded-lg text-xs font-mono text-[#F4F2ED]"
+              className="w-full h-10 px-3 bg-[#000000] border border-[#274056] rounded-lg text-xs font-mono text-[#F5F7FA]"
             >
               {versions.map((v) => (
                 <option key={`left-${v.id}`} value={v.version}>
@@ -362,14 +362,14 @@ export default function ConfigurationVersionsPage() {
           </div>
 
           <div className="space-y-1.5">
-            <label className="block text-xs font-semibold uppercase tracking-wider text-[#9CA3AF]">
+            <label className="block text-xs font-semibold uppercase tracking-wider text-[#8FA3B7]">
               Target Version (Right)
             </label>
             <select
               aria-label="Select target version for comparison"
               value={compareRightNum}
               onChange={(e) => setCompareRightNum(Number.parseInt(e.target.value, 10))}
-              className="w-full h-10 px-3 bg-[#0B0D10] border border-[#2E333B] rounded-lg text-xs font-mono text-[#F4F2ED]"
+              className="w-full h-10 px-3 bg-[#000000] border border-[#274056] rounded-lg text-xs font-mono text-[#F5F7FA]"
             >
               {versions.map((v) => (
                 <option key={`right-${v.id}`} value={v.version}>
@@ -409,13 +409,13 @@ export default function ConfigurationVersionsPage() {
 
           <div className="flex flex-wrap items-center gap-2">
             <div className="relative">
-              <Search className="w-4 h-4 text-[#6B7280] absolute left-3 top-2.5" />
+              <Search className="w-4 h-4 text-[#53677A] absolute left-3 top-2.5" />
               <input
                 type="text"
                 placeholder="Search versions…"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="h-9 pl-9 pr-3 bg-[#0B0D10] border border-[#2E333B] rounded-lg text-xs text-[#F4F2ED]"
+                className="h-9 pl-9 pr-3 bg-[#000000] border border-[#274056] rounded-lg text-xs text-[#F5F7FA]"
               />
             </div>
 
@@ -426,7 +426,7 @@ export default function ConfigurationVersionsPage() {
                 setStatusFilter(e.target.value as ConfigVersionStatus | '');
                 setPage(1);
               }}
-              className="h-9 px-3 bg-[#0B0D10] border border-[#2E333B] rounded-lg text-xs text-[#F4F2ED]"
+              className="h-9 px-3 bg-[#000000] border border-[#274056] rounded-lg text-xs text-[#F5F7FA]"
             >
               <option value="">All Statuses</option>
               <option value="ACTIVE">ACTIVE</option>
@@ -442,16 +442,16 @@ export default function ConfigurationVersionsPage() {
         {error ? (
           <div className="py-8 text-center text-xs text-rose-400">{error}</div>
         ) : isLoading ? (
-          <div className="py-10 text-center text-xs text-[#9CA3AF]">Loading version history…</div>
+          <div className="py-10 text-center text-xs text-[#8FA3B7]">Loading version history…</div>
         ) : filteredVersions.length === 0 ? (
-          <div className="py-10 text-center text-xs text-[#6B7280]">
+          <div className="py-10 text-center text-xs text-[#53677A]">
             No configuration versions match your filter criteria.
           </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
-                <tr className="border-b border-[#2E333B] text-[10px] font-bold uppercase tracking-wider text-[#6B7280]">
+                <tr className="border-b border-[#274056] text-[10px] font-bold uppercase tracking-wider text-[#53677A]">
                   <th className="py-3 px-4">Version</th>
                   <th className="py-3 px-4">Status</th>
                   <th className="py-3 px-4">Change Summary &amp; Domains</th>
@@ -461,12 +461,12 @@ export default function ConfigurationVersionsPage() {
                   <th className="py-3 px-4 text-right">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-[#2E333B] text-xs">
+              <tbody className="divide-y divide-[#274056] text-xs">
                 {filteredVersions.map((v) => {
                   const latestApproval = v.approvals?.[0];
                   return (
-                    <tr key={v.id} className="hover:bg-[#1E2229]/60">
-                      <td className="py-3.5 px-4 align-top font-mono font-bold text-[#F4F2ED]">
+                    <tr key={v.id} className="hover:bg-[#132638]/60">
+                      <td className="py-3.5 px-4 align-top font-mono font-bold text-[#F5F7FA]">
                         v{v.version}
                         {v.rolledBackFrom && (
                           <span className="block text-[10px] text-amber-400 font-normal">
@@ -478,38 +478,38 @@ export default function ConfigurationVersionsPage() {
                       <td className="py-3.5 px-4 align-top">
                         {getStatusBadge(v.status)}
                         {v.isRestricted && (
-                          <div className="text-[10px] text-[#E7B24A] font-medium mt-1">
+                          <div className="text-[10px] text-[#18C986] font-medium mt-1">
                             Maker-Checker Required
                           </div>
                         )}
                       </td>
 
                       <td className="py-3.5 px-4 align-top max-w-xs">
-                        <div className="text-[#F4F2ED] font-medium">{v.changeReason}</div>
+                        <div className="text-[#F5F7FA] font-medium">{v.changeReason}</div>
                         <div className="flex flex-wrap gap-1 mt-1">
                           {v.modifiedDomains?.length > 0 ? (
                             v.modifiedDomains.map((d) => (
                               <span
                                 key={d}
-                                className="px-1.5 py-0.5 rounded bg-[#0B0D10] border border-[#2E333B] font-mono text-[10px] text-[#9CA3AF]"
+                                className="px-1.5 py-0.5 rounded bg-[#000000] border border-[#274056] font-mono text-[10px] text-[#8FA3B7]"
                               >
                                 {d}
                               </span>
                             ))
                           ) : (
-                            <span className="text-[10px] text-[#6B7280]">Baseline / Full Snapshot</span>
+                            <span className="text-[10px] text-[#53677A]">Baseline / Full Snapshot</span>
                           )}
                         </div>
                       </td>
 
                       <td className="py-3.5 px-4 align-top text-[11px]">
-                        <div className="text-[#F4F2ED]">
+                        <div className="text-[#F5F7FA]">
                           Author: <span className="font-mono">{v.author?.email || v.authorId.slice(0, 8)}</span>
                         </div>
                         {latestApproval && (
-                          <div className="text-[#9CA3AF] mt-0.5">
+                          <div className="text-[#8FA3B7] mt-0.5">
                             Reviewer ({latestApproval.status}):{' '}
-                            <span className="font-mono text-[#E7B24A]">
+                            <span className="font-mono text-[#18C986]">
                               {latestApproval.reviewer?.email || latestApproval.reviewerId.slice(0, 8)}
                             </span>
                           </div>
@@ -521,17 +521,17 @@ export default function ConfigurationVersionsPage() {
                         )}
                       </td>
 
-                      <td className="py-3.5 px-4 align-top font-mono text-[11px] text-[#E7B24A]">
+                      <td className="py-3.5 px-4 align-top font-mono text-[11px] text-[#18C986]">
                         <span title={v.checksum}>{v.checksum?.slice(0, 14)}…</span>
                       </td>
 
-                      <td className="py-3.5 px-4 align-top font-mono text-[11px] text-[#9CA3AF] space-y-0.5">
+                      <td className="py-3.5 px-4 align-top font-mono text-[11px] text-[#8FA3B7] space-y-0.5">
                         <div>Created: {formatDate(v.createdAt)}</div>
                         {v.activatedAt && (
                           <div className="text-emerald-400">Activated: {formatDate(v.activatedAt)}</div>
                         )}
                         {v.supersededAt && (
-                          <div className="text-[#6B7280]">Superseded: {formatDate(v.supersededAt)}</div>
+                          <div className="text-[#53677A]">Superseded: {formatDate(v.supersededAt)}</div>
                         )}
                       </td>
 
@@ -602,7 +602,7 @@ export default function ConfigurationVersionsPage() {
 
         {/* Pagination Controls */}
         {totalPages > 1 && (
-          <div className="flex items-center justify-between pt-4 mt-4 border-t border-[#2E333B] text-xs text-[#9CA3AF]">
+          <div className="flex items-center justify-between pt-4 mt-4 border-t border-[#274056] text-xs text-[#8FA3B7]">
             <span>
               Page {page} of {totalPages} ({total} total versions)
             </span>
@@ -635,15 +635,15 @@ export default function ConfigurationVersionsPage() {
           aria-modal="true"
           className="fixed inset-0 z-50 bg-black/75 flex items-center justify-center p-4 overflow-y-auto"
         >
-          <div className="bg-[#15181D] border border-[#2E333B] rounded-2xl max-w-4xl w-full max-h-[90vh] flex flex-col p-6 space-y-4 shadow-2xl">
-            <div className="flex items-center justify-between border-b border-[#2E333B] pb-3">
+          <div className="bg-[#0C1B2A] border border-[#274056] rounded-2xl max-w-4xl w-full max-h-[90vh] flex flex-col p-6 space-y-4 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-[#274056] pb-3">
               <div className="flex items-center gap-3">
-                <History className="w-5 h-5 text-[#E7B24A]" />
+                <History className="w-5 h-5 text-[#18C986]" />
                 <div>
-                  <h3 className="text-base font-bold text-[#F4F2ED]">
+                  <h3 className="text-base font-bold text-[#F5F7FA]">
                     Configuration Version v{inspectedVersion.version} Detail
                   </h3>
-                  <p className="text-xs font-mono text-[#9CA3AF]">
+                  <p className="text-xs font-mono text-[#8FA3B7]">
                     SHA-256: {inspectedVersion.checksum}
                   </p>
                 </div>
@@ -651,7 +651,7 @@ export default function ConfigurationVersionsPage() {
               <button
                 type="button"
                 onClick={() => setInspectedVersion(null)}
-                className="text-[#9CA3AF] hover:text-[#F4F2ED]"
+                className="text-[#8FA3B7] hover:text-[#F5F7FA]"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -659,52 +659,52 @@ export default function ConfigurationVersionsPage() {
 
             <div className="overflow-y-auto flex-1 space-y-4">
               {isLoadingDetail ? (
-                <div className="py-10 text-center text-xs text-[#9CA3AF]">
+                <div className="py-10 text-center text-xs text-[#8FA3B7]">
                   Verifying SHA-256 integrity and loading payload…
                 </div>
               ) : (
                 <>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-[#0B0D10] border border-[#2E333B] rounded-xl p-4 text-xs">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-[#000000] border border-[#274056] rounded-xl p-4 text-xs">
                     <div>
-                      <span className="text-[#9CA3AF] block">Status:</span>
+                      <span className="text-[#8FA3B7] block">Status:</span>
                       <div className="mt-1">{getStatusBadge(inspectedVersion.status)}</div>
                     </div>
                     <div>
-                      <span className="text-[#9CA3AF] block">Author:</span>
-                      <span className="font-mono text-[#F4F2ED]">
+                      <span className="text-[#8FA3B7] block">Author:</span>
+                      <span className="font-mono text-[#F5F7FA]">
                         {inspectedVersion.author?.email || inspectedVersion.authorId}
                       </span>
                     </div>
                     <div>
-                      <span className="text-[#9CA3AF] block">Change Reason:</span>
-                      <span className="text-[#F4F2ED] font-medium">{inspectedVersion.changeReason}</span>
+                      <span className="text-[#8FA3B7] block">Change Reason:</span>
+                      <span className="text-[#F5F7FA] font-medium">{inspectedVersion.changeReason}</span>
                     </div>
                   </div>
 
                   {/* Approval History */}
                   {inspectedVersion.approvals && inspectedVersion.approvals.length > 0 && (
                     <div className="space-y-2">
-                      <h4 className="text-xs font-bold uppercase tracking-wider text-[#9CA3AF]">
+                      <h4 className="text-xs font-bold uppercase tracking-wider text-[#8FA3B7]">
                         Maker-Checker Review Records
                       </h4>
                       <div className="space-y-2">
                         {inspectedVersion.approvals.map((a) => (
                           <div
                             key={a.id}
-                            className="bg-[#0B0D10] border border-[#2E333B] rounded-lg p-3 text-xs flex flex-wrap items-center justify-between gap-2"
+                            className="bg-[#000000] border border-[#274056] rounded-lg p-3 text-xs flex flex-wrap items-center justify-between gap-2"
                           >
                             <div>
                               <Badge variant={a.status === 'APPROVED' ? 'success' : 'danger'}>
                                 {a.status}
                               </Badge>
-                              <span className="ml-2 text-[#F4F2ED] font-mono">
+                              <span className="ml-2 text-[#F5F7FA] font-mono">
                                 Reviewer: {a.reviewer?.email || a.reviewerId}
                               </span>
                               {a.reviewNote && (
-                                <p className="text-[#9CA3AF] mt-1 italic">&ldquo;{a.reviewNote}&rdquo;</p>
+                                <p className="text-[#8FA3B7] mt-1 italic">&ldquo;{a.reviewNote}&rdquo;</p>
                               )}
                             </div>
-                            <div className="text-right font-mono text-[11px] text-[#6B7280]">
+                            <div className="text-right font-mono text-[11px] text-[#53677A]">
                               <div>Bound Checksum: {a.checksum?.slice(0, 14)}…</div>
                               <div>{formatDate(a.reviewedAt || a.createdAt)}</div>
                             </div>
@@ -738,15 +738,15 @@ export default function ConfigurationVersionsPage() {
           aria-modal="true"
           className="fixed inset-0 z-50 bg-black/75 flex items-center justify-center p-4"
         >
-          <div className="bg-[#15181D] border border-[#2E333B] rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl">
+          <div className="bg-[#0C1B2A] border border-[#274056] rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl">
             <div className="flex items-center gap-2.5 text-amber-400">
               <RotateCcw className="w-5 h-5" />
-              <h3 className="text-base font-bold text-[#F4F2ED]">
+              <h3 className="text-base font-bold text-[#F5F7FA]">
                 Stage Non-Destructive Rollback to v{rollbackTarget.version}
               </h3>
             </div>
-            <p className="text-xs text-[#9CA3AF]">
-              Historical version <strong className="font-mono text-[#F4F2ED]">v{rollbackTarget.version}</strong> remains
+            <p className="text-xs text-[#8FA3B7]">
+              Historical version <strong className="font-mono text-[#F5F7FA]">v{rollbackTarget.version}</strong> remains
               strictly immutable. This action creates a brand-new sequential configuration version (
               <code className="font-mono">N+1</code>) in <code className="font-mono">DRAFT</code> status using the
               verified payload and SHA-256 checksum of <code className="font-mono">v{rollbackTarget.version}</code>,

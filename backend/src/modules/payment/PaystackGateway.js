@@ -1,6 +1,6 @@
 import crypto from 'crypto';
 import logger from '../../utils/logger.js';
-import { PaymentGateway, PaymentGatewayError } from './PaymentGateway.js';
+import { PaymentGateway, PaymentGatewayError, isSimulationMockPaymentEnabled } from './PaymentGateway.js';
 
 export class PaystackGateway extends PaymentGateway {
   constructor() {
@@ -19,19 +19,19 @@ export class PaystackGateway extends PaymentGateway {
     while (attempt <= retries) {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 5000);
-      
+
       try {
         const response = await fetch(url, {
           ...options,
           signal: controller.signal
         });
         clearTimeout(timeoutId);
-        
+
         if (!response.ok) {
           const body = await response.text();
           throw new Error(`HTTP error! status: ${response.status} body: ${body}`);
         }
-        
+
         return await response.json();
       } catch (error) {
         clearTimeout(timeoutId);
@@ -47,6 +47,10 @@ export class PaystackGateway extends PaymentGateway {
   }
 
   async initiatePayment(amountMinorUnits, userId, email, reference) {
+    if (isSimulationMockPaymentEnabled()) {
+      const ref = reference || `sim-ps-${crypto.randomUUID()}`;
+      return { authorizationUrl: `http://localhost:3000/mock-checkout/paystack?ref=${encodeURIComponent(ref)}`, reference: ref };
+    }
     try {
       // Amount in Paystack is expected in kobo (which matches our NGN minor units)
       const payload = {
@@ -101,6 +105,9 @@ export class PaystackGateway extends PaymentGateway {
    * "not verifiable", never as a verified account).
    */
   async resolveBankAccount({ bankCode, accountNumber }) {
+    if (isSimulationMockPaymentEnabled()) {
+      return { accountName: `SIMULATED ACCOUNT ${String(accountNumber).slice(-4)}`, verified: true };
+    }
     try {
       const data = await this.fetchWithRetry(
         `https://api.paystack.co/bank/resolve?account_number=${encodeURIComponent(accountNumber)}&bank_code=${encodeURIComponent(bankCode)}`,
@@ -123,6 +130,9 @@ export class PaystackGateway extends PaymentGateway {
    * Creates a reusable transfer recipient (nuban) so payouts can reference it.
    */
   async createRecipient({ bankCode, accountNumber, accountName }) {
+    if (isSimulationMockPaymentEnabled()) {
+      return { recipientRef: `RCP_SIM_${bankCode}_${String(accountNumber).slice(-4)}` };
+    }
     try {
       const data = await this.fetchWithRetry('https://api.paystack.co/transferrecipient', {
         method: 'POST',
@@ -153,6 +163,9 @@ export class PaystackGateway extends PaymentGateway {
    * NGN minor units — passed through untouched).
    */
   async initiatePayout({ amountMinorUnits, currency, recipientRef, reference }) {
+    if (isSimulationMockPaymentEnabled()) {
+      return { providerRef: `TRF_SIM_${crypto.randomUUID()}`, status: 'pending' };
+    }
     try {
       const data = await this.fetchWithRetry('https://api.paystack.co/transfer', {
         method: 'POST',
@@ -188,6 +201,9 @@ export class PaystackGateway extends PaymentGateway {
    * any in-flight status is 'processing' and gets re-checked on the next pass.
    */
   async verifyPayoutStatus({ reference, providerRef }) {
+    if (isSimulationMockPaymentEnabled()) {
+      return { status: 'success' };
+    }
     try {
       const key = encodeURIComponent(reference || providerRef || '');
       const data = await this.fetchWithRetry(

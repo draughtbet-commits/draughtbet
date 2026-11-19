@@ -289,12 +289,12 @@ export default function RiskPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-2 border-b border-[#2E333B]">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-2 border-b border-[#274056]">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-[#F4F2ED]">
+          <h1 className="text-2xl font-bold tracking-tight text-[#F5F7FA]">
             Risk & Safer Play Management
           </h1>
-          <p className="text-xs text-[#9CA3AF] mt-0.5">
+          <p className="text-xs text-[#8FA3B7] mt-0.5">
             Collusion detection, velocity alerts, safer-play restrictions, and compliance interventions.
           </p>
         </div>
@@ -324,13 +324,13 @@ export default function RiskPage() {
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-2 border-b border-[#2E333B] pb-2 text-xs">
+      <div className="flex gap-2 border-b border-[#274056] pb-2 text-xs">
         <button
           onClick={() => setActiveTab('CASES')}
           className={`flex items-center gap-2 px-4 py-2 rounded-lg font-bold transition-colors ${
             activeTab === 'CASES'
-              ? 'bg-[#E7B24A] text-[#0B0D10]'
-              : 'bg-[#15181D] text-[#9CA3AF] hover:text-[#F4F2ED] border border-[#2E333B]'
+              ? 'bg-[#18C986] text-[#000000]'
+              : 'bg-[#0C1B2A] text-[#8FA3B7] hover:text-[#F5F7FA] border border-[#274056]'
           }`}
         >
           <ShieldAlert className="w-4 h-4" />
@@ -340,8 +340,8 @@ export default function RiskPage() {
           onClick={() => setActiveTab('SAFER_PLAY')}
           className={`flex items-center gap-2 px-4 py-2 rounded-lg font-bold transition-colors ${
             activeTab === 'SAFER_PLAY'
-              ? 'bg-[#E7B24A] text-[#0B0D10]'
-              : 'bg-[#15181D] text-[#9CA3AF] hover:text-[#F4F2ED] border border-[#2E333B]'
+              ? 'bg-[#18C986] text-[#000000]'
+              : 'bg-[#0C1B2A] text-[#8FA3B7] hover:text-[#F5F7FA] border border-[#274056]'
           }`}
         >
           <Lock className="w-4 h-4" />
@@ -378,8 +378,8 @@ export default function RiskPage() {
                 }}
                 className={`px-3 py-1.5 rounded-lg font-medium whitespace-nowrap transition-colors ${
                   caseStatusFilter === st
-                    ? 'bg-[#E7B24A] text-[#0B0D10] font-bold'
-                    : 'bg-[#15181D] text-[#9CA3AF] hover:text-[#F4F2ED] border border-[#2E333B]'
+                    ? 'bg-[#18C986] text-[#000000] font-bold'
+                    : 'bg-[#0C1B2A] text-[#8FA3B7] hover:text-[#F5F7FA] border border-[#274056]'
                 }`}
               >
                 {st === 'ALL' ? 'All Risk Cases' : st}
@@ -390,7 +390,7 @@ export default function RiskPage() {
           <Card className="overflow-hidden p-0">
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs">
-                <thead className="bg-[#1E2229] text-[#9CA3AF] border-b border-[#2E333B] uppercase text-[10px] tracking-wider">
+                <thead className="bg-[#132638] text-[#8FA3B7] border-b border-[#274056] uppercase text-[10px] tracking-wider">
                   <tr>
                     <th className="py-3 px-4">Created</th>
                     <th className="py-3 px-4">Subject Player</th>
@@ -401,35 +401,35 @@ export default function RiskPage() {
                     <th className="py-3 px-4 text-right">Actions</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-[#2E333B]">
+                <tbody className="divide-y divide-[#274056]">
                   {riskCases.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="py-12 text-center text-[#6B7280]">
+                      <td colSpan={7} className="py-12 text-center text-[#53677A]">
                         {isCasesLoading ? 'Loading risk cases...' : 'No risk cases recorded.'}
                       </td>
                     </tr>
                   ) : (
                     riskCases.map((rc) => (
-                      <tr key={rc.id} className="hover:bg-[#1E2229]/40 transition-colors">
-                        <td className="py-3 px-4 font-mono text-[11px] text-[#9CA3AF]">
+                      <tr key={rc.id} className="hover:bg-[#132638]/40 transition-colors">
+                        <td className="py-3 px-4 font-mono text-[11px] text-[#8FA3B7]">
                           {formatDate(rc.createdAt)}
                         </td>
                         <td className="py-3 px-4">
-                          <div className="font-semibold text-[#F4F2ED]">
+                          <div className="font-semibold text-[#F5F7FA]">
                             {rc.subject?.fullName || rc.subject?.username || rc.subject?.email || rc.subjectId}
                           </div>
-                          <div className="text-[11px] text-[#9CA3AF] font-mono">
+                          <div className="text-[11px] text-[#8FA3B7] font-mono">
                             {rc.subject?.email || rc.subjectId}
                           </div>
                         </td>
                         <td className="py-3 px-4">{getCaseStatusBadge(rc.status)}</td>
-                        <td className="py-3 px-4 font-mono text-[11px] text-[#9CA3AF]">
+                        <td className="py-3 px-4 font-mono text-[11px] text-[#8FA3B7]">
                           {rc.assignedTo || 'Unassigned'}
                         </td>
-                        <td className="py-3 px-4 font-mono text-[11px] text-[#E7B24A]">
+                        <td className="py-3 px-4 font-mono text-[11px] text-[#18C986]">
                           {rc.events ? rc.events.length : 0} events
                         </td>
-                        <td className="py-3 px-4 font-mono text-[11px] text-[#6B7280]">
+                        <td className="py-3 px-4 font-mono text-[11px] text-[#53677A]">
                           {formatDate(rc.updatedAt)}
                         </td>
                         <td className="py-3 px-4 text-right">
@@ -450,9 +450,9 @@ export default function RiskPage() {
               </table>
             </div>
 
-            <div className="p-3 bg-[#15181D] border-t border-[#2E333B] flex items-center justify-between text-xs text-[#9CA3AF]">
+            <div className="p-3 bg-[#0C1B2A] border-t border-[#274056] flex items-center justify-between text-xs text-[#8FA3B7]">
               <span>
-                Total Cases: <strong className="text-[#F4F2ED] font-mono">{caseTotal}</strong>
+                Total Cases: <strong className="text-[#F5F7FA] font-mono">{caseTotal}</strong>
               </span>
               <div className="flex items-center gap-2">
                 <span>Page {casePage} of {caseTotalPages}</span>
@@ -494,8 +494,8 @@ export default function RiskPage() {
                   }}
                   className={`px-3 py-1.5 rounded-lg font-medium capitalize transition-colors ${
                     saferTypeFilter === filterKey
-                      ? 'bg-[#E7B24A] text-[#0B0D10] font-bold'
-                      : 'bg-[#15181D] text-[#9CA3AF] hover:text-[#F4F2ED] border border-[#2E333B]'
+                      ? 'bg-[#18C986] text-[#000000] font-bold'
+                      : 'bg-[#0C1B2A] text-[#8FA3B7] hover:text-[#F5F7FA] border border-[#274056]'
                   }`}
                 >
                   {filterKey}
@@ -527,7 +527,7 @@ export default function RiskPage() {
           <Card className="overflow-hidden p-0">
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs">
-                <thead className="bg-[#1E2229] text-[#9CA3AF] border-b border-[#2E333B] uppercase text-[10px] tracking-wider">
+                <thead className="bg-[#132638] text-[#8FA3B7] border-b border-[#274056] uppercase text-[10px] tracking-wider">
                   <tr>
                     <th className="py-3 px-4">Player</th>
                     <th className="py-3 px-4">Timeout Status</th>
@@ -537,10 +537,10 @@ export default function RiskPage() {
                     <th className="py-3 px-4 text-right">Intervention</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-[#2E333B]">
+                <tbody className="divide-y divide-[#274056]">
                   {restrictions.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="py-12 text-center text-[#6B7280]">
+                      <td colSpan={6} className="py-12 text-center text-[#53677A]">
                         {isSaferLoading ? 'Loading safer play restrictions...' : 'No safer play profiles found.'}
                       </td>
                     </tr>
@@ -550,12 +550,12 @@ export default function RiskPage() {
                       const isExcluded = r.selfExcludedUntil && new Date(r.selfExcludedUntil) > new Date();
 
                       return (
-                        <tr key={r.id} className="hover:bg-[#1E2229]/40 transition-colors">
+                        <tr key={r.id} className="hover:bg-[#132638]/40 transition-colors">
                           <td className="py-3 px-4">
-                            <div className="font-semibold text-[#F4F2ED]">
+                            <div className="font-semibold text-[#F5F7FA]">
                               {r.user?.fullName || r.user?.username || r.user?.email || r.userId}
                             </div>
-                            <div className="text-[11px] text-[#9CA3AF] font-mono">
+                            <div className="text-[11px] text-[#8FA3B7] font-mono">
                               {r.user?.email || r.userId}
                             </div>
                           </td>
@@ -563,30 +563,30 @@ export default function RiskPage() {
                             {isTimedOut ? (
                               <div className="space-y-0.5">
                                 <Badge variant="warning">Timed Out</Badge>
-                                <span className="block text-[10px] text-[#9CA3AF] font-mono">
+                                <span className="block text-[10px] text-[#8FA3B7] font-mono">
                                   Until {formatDate(r.timeoutUntil)}
                                 </span>
                               </div>
                             ) : (
-                              <span className="text-[#6B7280]">None</span>
+                              <span className="text-[#53677A]">None</span>
                             )}
                           </td>
                           <td className="py-3 px-4">
                             {isExcluded ? (
                               <div className="space-y-0.5">
                                 <Badge variant="danger">Self-Excluded</Badge>
-                                <span className="block text-[10px] text-[#9CA3AF] font-mono">
+                                <span className="block text-[10px] text-[#8FA3B7] font-mono">
                                   Until {formatDate(r.selfExcludedUntil)}
                                 </span>
                               </div>
                             ) : (
-                              <span className="text-[#6B7280]">None</span>
+                              <span className="text-[#53677A]">None</span>
                             )}
                           </td>
-                          <td className="py-3 px-4 font-mono text-[#F4F2ED]">
+                          <td className="py-3 px-4 font-mono text-[#F5F7FA]">
                             {r.depositLimitMinorUnits ? formatNaira(r.depositLimitMinorUnits) : 'No Limit'}
                           </td>
-                          <td className="py-3 px-4 font-mono text-[#F4F2ED]">
+                          <td className="py-3 px-4 font-mono text-[#F5F7FA]">
                             {r.stakeLimitMinorUnits ? formatNaira(r.stakeLimitMinorUnits) : 'No Limit'}
                           </td>
                           <td className="py-3 px-4 text-right">
@@ -621,9 +621,9 @@ export default function RiskPage() {
               </table>
             </div>
 
-            <div className="p-3 bg-[#15181D] border-t border-[#2E333B] flex items-center justify-between text-xs text-[#9CA3AF]">
+            <div className="p-3 bg-[#0C1B2A] border-t border-[#274056] flex items-center justify-between text-xs text-[#8FA3B7]">
               <span>
-                Total Profiles: <strong className="text-[#F4F2ED] font-mono">{saferTotal}</strong>
+                Total Profiles: <strong className="text-[#F5F7FA] font-mono">{saferTotal}</strong>
               </span>
               <div className="flex items-center gap-2">
                 <span>Page {saferPage} of {saferTotalPages}</span>
@@ -654,64 +654,64 @@ export default function RiskPage() {
       {/* ===================== RISK CASE INVESTIGATION DRAWER ===================== */}
       {selectedCaseId && (
         <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
-          <div className="bg-[#15181D] border border-[#2E333B] rounded-xl max-w-4xl w-full max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
-            <div className="p-4 bg-[#1E2229] border-b border-[#2E333B] flex items-center justify-between">
+          <div className="bg-[#0C1B2A] border border-[#274056] rounded-xl max-w-4xl w-full max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
+            <div className="p-4 bg-[#132638] border-b border-[#274056] flex items-center justify-between">
               <div className="flex items-center gap-2.5">
                 <AlertTriangle className="w-5 h-5 text-rose-400" />
                 <div>
-                  <h2 className="text-sm font-bold text-[#F4F2ED]">
+                  <h2 className="text-sm font-bold text-[#F5F7FA]">
                     Risk Investigation Case Detail
                   </h2>
-                  <p className="text-[11px] font-mono text-[#9CA3AF]">
+                  <p className="text-[11px] font-mono text-[#8FA3B7]">
                     Case ID: {selectedCaseId}
                   </p>
                 </div>
               </div>
               <button
                 onClick={closeCaseDetail}
-                className="text-[#9CA3AF] hover:text-[#F4F2ED] p-1 rounded-md transition-colors"
+                className="text-[#8FA3B7] hover:text-[#F5F7FA] p-1 rounded-md transition-colors"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="p-6 overflow-y-auto space-y-6 text-xs text-[#F4F2ED]">
+            <div className="p-6 overflow-y-auto space-y-6 text-xs text-[#F5F7FA]">
               {isDetailLoading || !activeCase ? (
-                <div className="py-16 text-center text-[#9CA3AF]">Loading risk case detail...</div>
+                <div className="py-16 text-center text-[#8FA3B7]">Loading risk case detail...</div>
               ) : (
                 <>
                   {/* Subject Details */}
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div className="p-3 bg-[#0B0D10] border border-[#2E333B] rounded-lg space-y-1">
-                      <span className="text-[10px] uppercase text-[#9CA3AF] font-semibold">Subject Account</span>
+                    <div className="p-3 bg-[#000000] border border-[#274056] rounded-lg space-y-1">
+                      <span className="text-[10px] uppercase text-[#8FA3B7] font-semibold">Subject Account</span>
                       <p className="font-semibold text-sm">{activeCase.subject?.fullName || activeCase.subject?.username || 'No display name'}</p>
-                      <p className="font-mono text-[#9CA3AF]">{activeCase.subject?.email}</p>
-                      <p className="font-mono text-[11px] text-[#6B7280]">ID: {activeCase.subjectId}</p>
+                      <p className="font-mono text-[#8FA3B7]">{activeCase.subject?.email}</p>
+                      <p className="font-mono text-[11px] text-[#53677A]">ID: {activeCase.subjectId}</p>
                     </div>
 
-                    <div className="p-3 bg-[#0B0D10] border border-[#2E333B] rounded-lg space-y-1">
-                      <span className="text-[10px] uppercase text-[#9CA3AF] font-semibold">Case Status & Escalation</span>
+                    <div className="p-3 bg-[#000000] border border-[#274056] rounded-lg space-y-1">
+                      <span className="text-[10px] uppercase text-[#8FA3B7] font-semibold">Case Status & Escalation</span>
                       <div className="pt-0.5">{getCaseStatusBadge(activeCase.status)}</div>
-                      <p className="text-[11px] text-[#9CA3AF] pt-1">
-                        Assigned: <strong className="text-[#F4F2ED] font-mono">{activeCase.assignedTo || 'Unassigned'}</strong>
+                      <p className="text-[11px] text-[#8FA3B7] pt-1">
+                        Assigned: <strong className="text-[#F5F7FA] font-mono">{activeCase.assignedTo || 'Unassigned'}</strong>
                       </p>
                     </div>
 
-                    <div className="p-3 bg-[#0B0D10] border border-[#2E333B] rounded-lg space-y-1">
-                      <span className="text-[10px] uppercase text-[#9CA3AF] font-semibold">Timeline</span>
-                      <p className="font-mono text-[#9CA3AF]">Opened: {formatDate(activeCase.createdAt)}</p>
-                      <p className="font-mono text-[#9CA3AF]">Updated: {formatDate(activeCase.updatedAt)}</p>
+                    <div className="p-3 bg-[#000000] border border-[#274056] rounded-lg space-y-1">
+                      <span className="text-[10px] uppercase text-[#8FA3B7] font-semibold">Timeline</span>
+                      <p className="font-mono text-[#8FA3B7]">Opened: {formatDate(activeCase.createdAt)}</p>
+                      <p className="font-mono text-[#8FA3B7]">Updated: {formatDate(activeCase.updatedAt)}</p>
                     </div>
                   </div>
 
                   {/* Associated Risk Events */}
                   <div className="space-y-2">
-                    <h3 className="text-xs font-bold uppercase tracking-wider text-[#9CA3AF]">
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-[#8FA3B7]">
                       Flagged Risk Signals & Events ({activeCase.events?.length || 0})
                     </h3>
-                    <div className="border border-[#2E333B] rounded-lg overflow-hidden">
+                    <div className="border border-[#274056] rounded-lg overflow-hidden">
                       <table className="w-full text-left text-xs">
-                        <thead className="bg-[#1E2229] text-[#9CA3AF] uppercase text-[10px]">
+                        <thead className="bg-[#132638] text-[#8FA3B7] uppercase text-[10px]">
                           <tr>
                             <th className="py-2 px-3">Timestamp</th>
                             <th className="py-2 px-3">Type</th>
@@ -719,20 +719,20 @@ export default function RiskPage() {
                             <th className="py-2 px-3">Metadata</th>
                           </tr>
                         </thead>
-                        <tbody className="divide-y divide-[#2E333B]">
+                        <tbody className="divide-y divide-[#274056]">
                           {!activeCase.events || activeCase.events.length === 0 ? (
                             <tr>
-                              <td colSpan={4} className="py-4 text-center text-[#6B7280]">
+                              <td colSpan={4} className="py-4 text-center text-[#53677A]">
                                 No explicit risk events linked.
                               </td>
                             </tr>
                           ) : (
                             activeCase.events.map((evt) => (
-                              <tr key={evt.id} className="hover:bg-[#1E2229]/20">
-                                <td className="py-2 px-3 font-mono text-[#9CA3AF]">{formatDate(evt.createdAt)}</td>
-                                <td className="py-2 px-3 font-semibold text-[#F4F2ED]">{evt.type}</td>
+                              <tr key={evt.id} className="hover:bg-[#132638]/20">
+                                <td className="py-2 px-3 font-mono text-[#8FA3B7]">{formatDate(evt.createdAt)}</td>
+                                <td className="py-2 px-3 font-semibold text-[#F5F7FA]">{evt.type}</td>
                                 <td className="py-2 px-3">{getSeverityBadge(evt.severity)}</td>
-                                <td className="py-2 px-3 font-mono text-[10px] text-[#9CA3AF] truncate max-w-xs">
+                                <td className="py-2 px-3 font-mono text-[10px] text-[#8FA3B7] truncate max-w-xs">
                                   {evt.metadata ? JSON.stringify(evt.metadata) : '—'}
                                 </td>
                               </tr>
@@ -745,29 +745,29 @@ export default function RiskPage() {
 
                   {/* Investigation Notes & Log */}
                   <div className="space-y-2">
-                    <h3 className="text-xs font-bold uppercase tracking-wider text-[#9CA3AF]">
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-[#8FA3B7]">
                       Investigation Notes & Operator Action Log
                     </h3>
-                    <div className="p-3 bg-[#0B0D10] border border-[#2E333B] rounded-lg max-h-48 overflow-y-auto space-y-2">
+                    <div className="p-3 bg-[#000000] border border-[#274056] rounded-lg max-h-48 overflow-y-auto space-y-2">
                       {Array.isArray(activeCase.notes) && activeCase.notes.length > 0 ? (
                         (activeCase.notes as RiskCaseNote[]).map((n, idx) => (
-                          <div key={idx} className="p-2 bg-[#15181D] border border-[#2E333B] rounded text-xs space-y-1">
-                            <div className="flex items-center justify-between text-[10px] text-[#9CA3AF]">
-                              <span className="font-semibold text-[#E7B24A]">{n.actionType || 'NOTE'}</span>
+                          <div key={idx} className="p-2 bg-[#0C1B2A] border border-[#274056] rounded text-xs space-y-1">
+                            <div className="flex items-center justify-between text-[10px] text-[#8FA3B7]">
+                              <span className="font-semibold text-[#18C986]">{n.actionType || 'NOTE'}</span>
                               <span className="font-mono">{formatDate(n.createdAt)}</span>
                             </div>
-                            <p className="text-[#F4F2ED]">{n.note}</p>
+                            <p className="text-[#F5F7FA]">{n.note}</p>
                           </div>
                         ))
                       ) : (
-                        <p className="text-center text-[#6B7280] py-4">No investigation notes entered yet.</p>
+                        <p className="text-center text-[#53677A] py-4">No investigation notes entered yet.</p>
                       )}
                     </div>
                   </div>
 
                   {/* Case Actions */}
-                  <div className="border-t border-[#2E333B] pt-4 space-y-3">
-                    <span className="text-xs font-bold uppercase tracking-wider text-[#9CA3AF]">
+                  <div className="border-t border-[#274056] pt-4 space-y-3">
+                    <span className="text-xs font-bold uppercase tracking-wider text-[#8FA3B7]">
                       Add Investigation Note / Update Status
                     </span>
                     <Input
@@ -825,15 +825,15 @@ export default function RiskPage() {
       {/* ===================== APPLY SAFER PLAY RESTRICTION MODAL ===================== */}
       {isApplyModalOpen && (
         <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
-          <div className="bg-[#15181D] border border-[#2E333B] rounded-xl max-w-lg w-full shadow-2xl overflow-hidden">
-            <div className="p-4 bg-[#1E2229] border-b border-[#2E333B] flex items-center justify-between">
+          <div className="bg-[#0C1B2A] border border-[#274056] rounded-xl max-w-lg w-full shadow-2xl overflow-hidden">
+            <div className="p-4 bg-[#132638] border-b border-[#274056] flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <Lock className="w-4 h-4 text-[#E7B24A]" />
-                <h3 className="text-sm font-bold text-[#F4F2ED]">Apply Safer Play Restriction</h3>
+                <Lock className="w-4 h-4 text-[#18C986]" />
+                <h3 className="text-sm font-bold text-[#F5F7FA]">Apply Safer Play Restriction</h3>
               </div>
               <button
                 onClick={() => setIsApplyModalOpen(false)}
-                className="text-[#9CA3AF] hover:text-[#F4F2ED]"
+                className="text-[#8FA3B7] hover:text-[#F5F7FA]"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -849,7 +849,7 @@ export default function RiskPage() {
               />
 
               <div className="space-y-1.5">
-                <label className="block text-xs font-semibold uppercase tracking-wider text-[#9CA3AF]">
+                <label className="block text-xs font-semibold uppercase tracking-wider text-[#8FA3B7]">
                   Restriction Type
                 </label>
                 <div className="grid grid-cols-3 gap-2">
@@ -860,8 +860,8 @@ export default function RiskPage() {
                       onClick={() => setRestrictionType(t)}
                       className={`py-2 px-3 rounded-lg border text-xs font-semibold capitalize transition-colors ${
                         restrictionType === t
-                          ? 'bg-[#E7B24A] text-[#0B0D10] border-[#E7B24A]'
-                          : 'bg-[#0B0D10] text-[#9CA3AF] border-[#2E333B]'
+                          ? 'bg-[#18C986] text-[#000000] border-[#18C986]'
+                          : 'bg-[#000000] text-[#8FA3B7] border-[#274056]'
                       }`}
                     >
                       {t}
@@ -918,11 +918,11 @@ export default function RiskPage() {
                 onChange={(e) => setRestrictionReason(e.target.value)}
               />
 
-              <p className="text-[11px] text-[#9CA3AF]">
+              <p className="text-[11px] text-[#8FA3B7]">
                 Safer play restrictions enforce extend-only logic: active timeouts and self-exclusions cannot be shortened.
               </p>
 
-              <div className="flex justify-end gap-2 pt-2 border-t border-[#2E333B]">
+              <div className="flex justify-end gap-2 pt-2 border-t border-[#274056]">
                 <Button
                   type="button"
                   variant="secondary"

@@ -3,7 +3,7 @@ import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import { v4 as uuidv4 } from 'uuid';
 import _prisma from '../../utils/db.js';
-import _redis from '../../utils/redis.js';
+import _redis, { isRedisReady } from '../../utils/redis.js';
 import { GeoService } from '../../services/geoService.js';
 import { getLedgerAvailable, ensureUserAccounts } from '../../services/ledgerService.js';
 
@@ -11,9 +11,6 @@ let prisma = _prisma;
 let redis = _redis;
 import logger from '../../utils/logger.js';
 import { getJwtSecret } from '../../utils/jwtEnv.js';
-import dotenv from 'dotenv';
-
-dotenv.config();
 
 // Prisma initialized in utils/db.js
 
@@ -22,6 +19,22 @@ const jwtSecret = getJwtSecret();
 const ACCESS_TOKEN_EXPIRY = '15m';
 const REFRESH_TOKEN_TTL_SECONDS = 7 * 24 * 60 * 60; // 7 days
 const GEO_BINDING_TTL_SECONDS = 10 * 60; // geo evidence lasts 10 minutes
+const MAX_DEV_GEO_BINDINGS = 5000;
+const devGeoBindings = new Map(); // Strictly development/test fallback when Redis is unreachable
+
+const isDevOrTestEnv = () =>
+  process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'test';
+
+const pruneDevGeoBindings = (now = Date.now()) => {
+  for (const [key, entry] of devGeoBindings) {
+    if (entry.expiresAt < now) devGeoBindings.delete(key);
+  }
+  while (devGeoBindings.size >= MAX_DEV_GEO_BINDINGS) {
+    const oldestKey = devGeoBindings.keys().next().value;
+    if (!oldestKey) break;
+    devGeoBindings.delete(oldestKey);
+  }
+};
 
 // UserSession stores only the SHA-256 of the opaque refresh token, never the
 // token itself, so a DB leak cannot replay a captured row.
@@ -84,15 +97,20 @@ export class AuthService {
 
     try {
       const passwordHash = await bcrypt.hash(password, 12);
+      const normalizedEmail = email ? email.trim().toLowerCase() : undefined;
+      const normalizedPhone = normalizePhone(phone);
+      const fallbackEmail =
+        normalizedEmail ||
+        (normalizedPhone ? `${normalizedPhone.replace(/\D/g, '')}@phone.draughtbet.local` : undefined);
 
 const user = await prisma.$transaction(async (tx) => {
       const newUser = await tx.user.create({
         data: {
-          email,
-          phone: normalizePhone(phone),
-          username,
-          fullName,
-          address,
+          email: fallbackEmail,
+          phone: normalizedPhone,
+          username: username ? username.trim() : undefined,
+          fullName: fullName ? fullName.trim() : undefined,
+          address: address ? address.trim() : undefined,
           passwordHash,
           dateOfBirth: dob,
           isBanned: false, // Explicit requirement
@@ -148,9 +166,10 @@ const user = await prisma.$transaction(async (tx) => {
   }
 
   static async login(identifier, password, fingerprintHash, fcmToken = null, { ip = null, userAgent = null, deviceInfo = null } = {}) {
-    const where = identifier.includes('@')
-      ? { email: identifier }
-      : { phone: normalizePhone(identifier) };
+    const trimmed = typeof identifier === 'string' ? identifier.trim() : '';
+    const where = trimmed.includes('@')
+      ? { email: trimmed.toLowerCase() }
+      : { phone: normalizePhone(trimmed) };
     const user = await prisma.user.findUnique({ where });
     if (!user) {
       throw new Error('Invalid credentials');
@@ -215,10 +234,21 @@ const user = await prisma.$transaction(async (tx) => {
    * Returns null when no token could be minted (Redis unavailable).
    */
   static async createGeoBinding(countryCode) {
-    if (!redis) return null;
     const binding = uuidv4();
-    await redis.set(`geo:binding:${binding}`, countryCode, 'EX', GEO_BINDING_TTL_SECONDS);
-    return binding;
+    if (isRedisReady(redis)) {
+      await redis.set(`geo:binding:${binding}`, countryCode, 'EX', GEO_BINDING_TTL_SECONDS);
+      return binding;
+    }
+    if (isDevOrTestEnv() && redis) {
+      const now = Date.now();
+      pruneDevGeoBindings(now);
+      devGeoBindings.set(binding, {
+        countryCode,
+        expiresAt: now + GEO_BINDING_TTL_SECONDS * 1000
+      });
+      return binding;
+    }
+    return null;
   }
 
   /**
@@ -226,13 +256,22 @@ const user = await prisma.$transaction(async (tx) => {
    * Null when the token is unknown, already used, or Redis is unavailable.
    */
   static async consumeGeoBinding(binding) {
-    if (!binding || !redis) return null;
-    const key = `geo:binding:${binding}`;
-    const code = await redis.get(key);
-    if (code) {
-      await redis.del(key);
+    if (!binding) return null;
+    if (isRedisReady(redis)) {
+      const key = `geo:binding:${binding}`;
+      const code = await redis.get(key);
+      if (code) {
+        await redis.del(key);
+      }
+      return code;
     }
-    return code;
+    if (isDevOrTestEnv()) {
+      const entry = devGeoBindings.get(binding);
+      devGeoBindings.delete(binding);
+      if (!entry || entry.expiresAt < Date.now()) return null;
+      return entry.countryCode;
+    }
+    return null;
   }
 
   static async issueTokens(userId, { family = null, ip = null, userAgent = null, deviceInfo = null } = {}) {
@@ -242,8 +281,10 @@ const user = await prisma.$transaction(async (tx) => {
     // Key: refresh:{userId}:{tokenId} -> value doesn't matter much, TTL is the focus
     const redisKey = `refresh:${userId}:${refreshTokenId}`;
 
-    if (redis) {
+    if (isRedisReady(redis)) {
       await redis.set(redisKey, 'valid', 'EX', REFRESH_TOKEN_TTL_SECONDS);
+    } else if (redis && !isDevOrTestEnv()) {
+      throw new Error('Authentication session store unavailable');
     }
 
     // Durable session row (reuse-detection spine): only the token hash is
@@ -294,6 +335,9 @@ const user = await prisma.$transaction(async (tx) => {
       : null;
 
     // Reuse: the token maps to a row that was already superseded/revoked.
+    if (session && session.userId !== userId) {
+      throw new Error('Invalid or expired refresh token');
+    }
     if (session && session.status !== 'ACTIVE') {
       const revoked = await this.revokeAllRefreshTokens(userId);
       await this.recordSecurityEvent(
@@ -308,10 +352,11 @@ const user = await prisma.$transaction(async (tx) => {
     }
 
     const redisKey = `refresh:${userId}:${oldRefreshTokenId}`;
-    if (redis) {
+    let usedDbAtomicFallback = false;
+    if (isRedisReady(redis)) {
       const consumed = await redis.eval(ROTATE_SCRIPT, 1, redisKey);
       if (!consumed) {
-        // Simply expired (Redis TTL) while the row is still ACTIVE.
+        // Simply expired (Redis TTL) or minted while Redis was down while the row is still ACTIVE.
         if (session && session.status === 'ACTIVE' && prisma) {
           await prisma.userSession
             .update({ where: { refreshTokenHash: hash }, data: { status: 'EXPIRED' } })
@@ -319,6 +364,20 @@ const user = await prisma.$transaction(async (tx) => {
         }
         throw new Error('Invalid or expired refresh token');
       }
+    } else if (redis) {
+      if (!isDevOrTestEnv()) {
+        throw new Error('Authentication session store unavailable');
+      }
+      if (!session || session.status !== 'ACTIVE') {
+        throw new Error('Invalid or expired refresh token');
+      }
+      if (session.expiresAt <= new Date()) {
+        await prisma.userSession
+          .updateMany({ where: { refreshTokenHash: hash, status: 'ACTIVE' }, data: { status: 'EXPIRED' } })
+          .catch(() => {});
+        throw new Error('Invalid or expired refresh token');
+      }
+      usedDbAtomicFallback = true;
     }
 
     // A banned or deleted account must never mint a fresh access token from a
@@ -336,10 +395,26 @@ const user = await prisma.$transaction(async (tx) => {
 
     // Legit rotation: supersede the old row; the next token keeps the family.
     if (session && prisma) {
-      await prisma.userSession.update({
-        where: { refreshTokenHash: hash },
-        data: { status: 'REVOKED' }
-      });
+      if (usedDbAtomicFallback) {
+        // Enforce single-winner rotation in PostgreSQL when Redis is offline in dev/test.
+        const rotated = await prisma.userSession.updateMany({
+          where: {
+            refreshTokenHash: hash,
+            userId,
+            status: 'ACTIVE',
+            expiresAt: { gt: new Date() }
+          },
+          data: { status: 'REVOKED' }
+        });
+        if (rotated.count !== 1) {
+          throw new Error('Invalid or expired refresh token');
+        }
+      } else {
+        await prisma.userSession.update({
+          where: { refreshTokenHash: hash },
+          data: { status: 'REVOKED' }
+        });
+      }
     }
 
     // Issue new tokens
@@ -358,7 +433,7 @@ const user = await prisma.$transaction(async (tx) => {
    */
   static async revokeAllRefreshTokens(userId) {
     let redisCount = 0;
-    if (redis) {
+    if (isRedisReady(redis)) {
       const pattern = `refresh:${userId}:*`;
       const keys = [];
       const stream = redis.scanStream({ match: pattern, count: 100 });
@@ -395,7 +470,7 @@ const user = await prisma.$transaction(async (tx) => {
 
   static async logout(userId, refreshTokenId) {
     const redisKey = `refresh:${userId}:${refreshTokenId}`;
-    if (redis) {
+    if (isRedisReady(redis)) {
       await redis.del(redisKey);
     }
     if (prisma) {

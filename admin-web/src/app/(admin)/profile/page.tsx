@@ -13,10 +13,10 @@ export default function ProfilePage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-xl font-bold tracking-tight text-[#F4F2ED]">
+        <h1 className="text-xl font-bold tracking-tight text-[#F5F7FA]">
           Admin Profile & Security
         </h1>
-        <p className="text-xs text-[#9CA3AF] mt-1">
+        <p className="text-xs text-[#8FA3B7] mt-1">
           Review operator identity, assigned roles, and effective permissions matrix.
         </p>
       </div>
@@ -27,28 +27,28 @@ export default function ProfilePage() {
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-sm">
-                <User className="w-4 h-4 text-[#E7B24A]" />
+                <User className="w-4 h-4 text-[#18C986]" />
                 Operator Identity
               </CardTitle>
             </CardHeader>
             <div className="space-y-3 text-xs">
               <div>
-                <span className="text-[#6B7280] block">Operator ID:</span>
-                <span className="font-mono text-[#F4F2ED] text-[11px] select-all">
+                <span className="text-[#53677A] block">Operator ID:</span>
+                <span className="font-mono text-[#F5F7FA] text-[11px] select-all">
                   {user?.id}
                 </span>
               </div>
               <div>
-                <span className="text-[#6B7280] block">Email:</span>
-                <span className="font-semibold text-[#F4F2ED]">{user?.email}</span>
+                <span className="text-[#53677A] block">Email:</span>
+                <span className="font-semibold text-[#F5F7FA]">{user?.email}</span>
               </div>
               <div>
-                <span className="text-[#6B7280] block">Username:</span>
-                <span className="text-[#F4F2ED]">{user?.username || '—'}</span>
+                <span className="text-[#53677A] block">Username:</span>
+                <span className="text-[#F5F7FA]">{user?.username || '—'}</span>
               </div>
               <div>
-                <span className="text-[#6B7280] block">Full Name:</span>
-                <span className="text-[#F4F2ED]">{user?.fullName || '—'}</span>
+                <span className="text-[#53677A] block">Full Name:</span>
+                <span className="text-[#F5F7FA]">{user?.fullName || '—'}</span>
               </div>
             </div>
           </Card>
@@ -60,11 +60,11 @@ export default function ProfilePage() {
             </CardHeader>
             <div className="space-y-3">
               {user?.roles?.map((role) => (
-                <div key={role} className="p-3 bg-[#1E2229] border border-[#2E333B] rounded-lg space-y-1">
+                <div key={role} className="p-3 bg-[#132638] border border-[#274056] rounded-lg space-y-1">
                   <div className="flex items-center justify-between">
                     <RoleBadge role={role} />
                   </div>
-                  <p className="text-[11px] text-[#9CA3AF] mt-1">
+                  <p className="text-[11px] text-[#8FA3B7] mt-1">
                     {ROLE_DESCRIPTIONS[role]}
                   </p>
                 </div>
@@ -78,26 +78,26 @@ export default function ProfilePage() {
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-sm">
-                <ShieldCheck className="w-4 h-4 text-[#E7B24A]" />
+                <ShieldCheck className="w-4 h-4 text-[#18C986]" />
                 Authentication & Security
               </CardTitle>
               <CardDescription>
                 Session status and credential-based access controls
               </CardDescription>
             </CardHeader>
-            <div className="space-y-3 text-xs text-[#9CA3AF]">
-              <div className="p-3 bg-[#1E2229] border border-[#2E333B] rounded-lg flex items-center justify-between">
+            <div className="space-y-3 text-xs text-[#8FA3B7]">
+              <div className="p-3 bg-[#132638] border border-[#274056] rounded-lg flex items-center justify-between">
                 <div>
-                  <span className="font-semibold text-[#F4F2ED] block">Session Management</span>
+                  <span className="font-semibold text-[#F5F7FA] block">Session Management</span>
                   <span className="text-[11px]">Rotated Bearer tokens with active server-side revocation</span>
                 </div>
                 <span className="text-[10px] text-emerald-400 font-bold uppercase tracking-wider bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
                   Active
                 </span>
               </div>
-              <div className="p-3 bg-[#1E2229] border border-[#2E333B] rounded-lg flex items-center justify-between">
+              <div className="p-3 bg-[#132638] border border-[#274056] rounded-lg flex items-center justify-between">
                 <div>
-                  <span className="font-semibold text-[#F4F2ED] block">Role-Based Access Control</span>
+                  <span className="font-semibold text-[#F5F7FA] block">Role-Based Access Control</span>
                   <span className="text-[11px]">Server-enforced authorization policies for 6 distinct roles</span>
                 </div>
                 <span className="text-[10px] text-emerald-400 font-bold uppercase tracking-wider bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
@@ -119,9 +119,9 @@ export default function ProfilePage() {
               {user?.permissions?.map((perm) => (
                 <div
                   key={perm}
-                  className="p-2.5 bg-[#1E2229] border border-[#2E333B] rounded flex items-center justify-between"
+                  className="p-2.5 bg-[#132638] border border-[#274056] rounded flex items-center justify-between"
                 >
-                  <span className="font-mono text-[#F4F2ED]">{perm}</span>
+                  <span className="font-mono text-[#F5F7FA]">{perm}</span>
                   <span className="text-[10px] text-emerald-400 font-bold uppercase tracking-wider">
                     Granted
                   </span>

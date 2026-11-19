@@ -16,21 +16,27 @@ describeIntegration('Outbox pipeline (real PostgreSQL)', () => {
   const trackKey = (k) => keys.push(k);
 
   const cleanup = async () => {
-    await prisma.outboxEvent.deleteMany({
-      where: { dedupeKey: { in: keys } }
-    });
-    keys.length = 0;
+    if (keys.length === 0) return;
+    try {
+      await prisma.outboxEvent.deleteMany({
+        where: { dedupeKey: { in: keys } }
+      });
+      keys.length = 0;
+    } catch (err) {
+      console.error('[outbox.integration.test] Cleanup failed:', err);
+      throw err;
+    }
   };
 
-  afterEach(cleanup);
+  afterEach(cleanup, 60_000);
 
-  // The drainer sweeps the WHOLE table, so the suites must start from an empty
-  // queue: earlier suites in the shared battery DB may have left PENDING rows
-  // (settlement/withdrawal events) that would otherwise pollute the global
-  // scanned/claimed/delivered counts asserted below.
-  beforeAll(async () => {
-    await prisma.outboxEvent.deleteMany({});
-  });
+  afterAll(async () => {
+    try {
+      await cleanup();
+    } finally {
+      await prisma.$disconnect();
+    }
+  }, 60_000);
 
   const enqueue = (dedupeKey, overrides = {}) =>
     prisma.$transaction((tx) =>

@@ -21,14 +21,15 @@ describeIntegration('One pre-terminal match per player (real PostgreSQL + Redis)
   const settings = { id: 'singleton', commissionPercent: 10 };
   const allUsers = [];
   const allMatches = [];
+  const allTxIds = [];
 
   // Seeds a wallet's opening balance as a ledger ADJUSTMENT (same shape as the
   // legacy backfill) so AVAILABLE == the balance everywhere below.
   const postOpeningBalance = async (wallet, amountMinorUnits) => {
-    await prisma.$transaction(async (tx) => {
+    const res = await prisma.$transaction(async (tx) => {
       const accounts = await ensureUserAccounts(tx, wallet.userId, wallet.currency ?? 'NGN');
       const clearing = await ensureSystemAccount(tx, 'SYSTEM_OPENING_CLEARING', wallet.currency ?? 'NGN');
-      await postLedgerTransaction(tx, {
+      return postLedgerTransaction(tx, {
         type: 'ADJUSTMENT',
         description: 'Opening balance carried over from legacy wallet',
         idempotencyKey: `opening-balance:${wallet.id}`,
@@ -39,6 +40,7 @@ describeIntegration('One pre-terminal match per player (real PostgreSQL + Redis)
         ]
       });
     });
+    allTxIds.push(res.transaction.id);
   };
 
   const makeEligibleUser = async (suffix, balance = 10000000n) => {
@@ -73,72 +75,109 @@ describeIntegration('One pre-terminal match per player (real PostgreSQL + Redis)
 
   const pointer = (userId) => redis.get(`user:${userId}:activeMatch`);
 
+  const cleanup = async () => {
+    const userIds = [...allUsers];
+    const matchIds = [...allMatches];
+    const txIds = [...allTxIds];
+    try {
+      for (const matchId of matchIds) {
+        await redis.del(`match:${matchId}`);
+      }
+      for (const uId of userIds) {
+        await redis.del(`user:${uId}:activeMatch`);
+      }
+
+      if (userIds.length > 0 || matchIds.length > 0 || txIds.length > 0) {
+        await prisma.$transaction(
+          async (tx) => {
+            // 1. Delete ledger entries & transactions BEFORE match/user/account teardown.
+            const userAccounts = userIds.length
+              ? await tx.ledgerAccount.findMany({
+                  where: { userId: { in: userIds } },
+                  select: { id: true }
+                })
+              : [];
+            const accountIds = userAccounts.map((a) => a.id);
+
+            const matchLedgerTxs = matchIds.length
+              ? await tx.ledgerTransaction.findMany({
+                  where: { relatedMatchId: { in: matchIds } },
+                  select: { id: true }
+                })
+              : [];
+            const allLedgerTxIds = [...new Set([...txIds, ...matchLedgerTxs.map((t) => t.id)])];
+
+            if (allLedgerTxIds.length > 0 || accountIds.length > 0) {
+              await tx.ledgerEntry.deleteMany({
+                where: {
+                  OR: [
+                    ...(allLedgerTxIds.length > 0 ? [{ transactionId: { in: allLedgerTxIds } }] : []),
+                    ...(accountIds.length > 0 ? [{ accountId: { in: accountIds } }] : [])
+                  ]
+                }
+              });
+            }
+            if (allLedgerTxIds.length > 0) {
+              await tx.ledgerTransaction.deleteMany({ where: { id: { in: allLedgerTxIds } } });
+            }
+
+            // 2. Delete match-scoped & user-scoped domain rows in dependency order.
+            if (matchIds.length > 0) {
+              await tx.matchMove.deleteMany({ where: { matchId: { in: matchIds } } });
+              await tx.stakeReservation.deleteMany({ where: { matchId: { in: matchIds } } });
+              await tx.gameOutbox.deleteMany({ where: { matchId: { in: matchIds } } });
+              await tx.match.deleteMany({ where: { id: { in: matchIds } } });
+            }
+            if (userIds.length > 0) {
+              await tx.notification.deleteMany({ where: { userId: { in: userIds } } });
+              await tx.depositIntent.deleteMany({ where: { userId: { in: userIds } } });
+              await tx.withdrawal.deleteMany({ where: { userId: { in: userIds } } });
+              await tx.callout.deleteMany({
+                where: { OR: [{ challengerId: { in: userIds } }, { opponentId: { in: userIds } }] }
+              });
+              await tx.ledgerAccount.deleteMany({ where: { userId: { in: userIds } } });
+              await tx.wallet.deleteMany({ where: { userId: { in: userIds } } });
+              await tx.user.deleteMany({ where: { id: { in: userIds } } });
+            }
+          },
+          { timeout: 30_000 }
+        );
+      }
+
+      allUsers.length = 0;
+      allMatches.length = 0;
+      allTxIds.length = 0;
+    } catch (err) {
+      console.error('[activeMatchReservation.integration.test] Cleanup failed:', err);
+      throw err;
+    }
+  };
+
   beforeEach(async () => {
-    // Isolate each test: the invariants assert GLOBAL counts (pre-terminal
-    // rows, pointers), so every row/pointer that a previous test in this suite
-    // left behind must be gone before the next one runs. Prisma awaits run
-    // first: they give the lazy Redis client time to finish connecting (the
-    // offline queue is disabled, so an immediate keys() would throw).
-    await prisma.matchMove.deleteMany({});
-    await prisma.match.deleteMany({});
-    await prisma.depositIntent.deleteMany({});
-    await prisma.withdrawal.deleteMany({});
-    await prisma.wallet.deleteMany({});
-    await prisma.callout.deleteMany({});
-    // V2 ledger rows must go before users: user delete cascades LedgerAccount,
-    // but LedgerEntry.account is onDelete Restrict. Deleting the match's
-    // ledger transactions cascades their entries, unblocking user teardown.
-    await prisma.ledgerTransaction.deleteMany({
-      where: { relatedMatchId: { in: allMatches } }
-    });
-    // Opening-balance backfill transactions carry no matchId; their entries sit
-    // in these users' accounts and would block the user delete. Clear every
-    // user-scoped entry (system accounts carry cross-run history and stay).
-    await prisma.ledgerEntry.deleteMany({
-      where: { account: { isNot: { userId: null } } }
-    });
-    await prisma.ledgerTransaction.deleteMany({
-      where: { metadata: { path: ['source'], equals: 'legacy-wallet-backfill' } }
-    });
-    // Notifications (matchId dedup column) reference users; clear before the user wipe.
-    await prisma.notification.deleteMany({});
-    await prisma.user.deleteMany({});
-    const matchKeys = await redis.keys('match:*');
-    if (matchKeys.length) await redis.del(...matchKeys);
-    const pointerKeys = await redis.keys('user:*:activeMatch');
-    if (pointerKeys.length) await redis.del(...pointerKeys);
     await prisma.platformSettings.upsert({
       where: settings,
       create: settings,
       update: { commissionPercent: 10 }
     });
-  });
+  }, 60_000);
+
+  afterEach(cleanup, 60_000);
 
   afterAll(async () => {
-    await prisma.matchMove.deleteMany({});
-    await prisma.match.deleteMany({});
-    await prisma.gameOutbox.deleteMany({});
-    await prisma.depositIntent.deleteMany({});
-    await prisma.withdrawal.deleteMany({});
-    await prisma.wallet.deleteMany({});
-    await prisma.callout.deleteMany({});
-    await prisma.ledgerTransaction.deleteMany({
-      where: { relatedMatchId: { in: allMatches } }
+    try {
+      await cleanup();
+    } finally {
+      await prisma.$disconnect();
+    }
+  }, 60_000);
+
+  const countScopedPreterminalMatches = () =>
+    prisma.match.count({
+      where: {
+        status: { in: PRETTERMINAL_STATUSES },
+        OR: [{ playerLightId: { in: allUsers } }, { playerDarkId: { in: allUsers } }]
+      }
     });
-    // Opening-balance backfill transactions carry no matchId; their entries sit
-    // in these users' accounts and would also block the user delete.
-    await prisma.ledgerEntry.deleteMany({
-      where: { account: { isNot: { userId: null } } }
-    });
-    await prisma.ledgerTransaction.deleteMany({
-      where: { metadata: { path: ['source'], equals: 'legacy-wallet-backfill' } }
-    });
-    // Matches the beforeEach wipe: settlement creates durable notification rows
-    // (with a userId FK) that otherwise block the user teardown below.
-    await prisma.notification.deleteMany({});
-    await prisma.user.deleteMany({});
-    await prisma.$disconnect();
-  });
 
   it('refuses to fund a second pre-terminal match for a player already in one', async () => {
     const a = await makeEligibleUser('a');
@@ -149,7 +188,7 @@ describeIntegration('One pre-terminal match per player (real PostgreSQL + Redis)
     const match1 = await stakeAndFund(a, b);
     await processGameActivationSweep();
 
-    expect(await prisma.match.count({ where: { status: { in: PRETTERMINAL_STATUSES } } })).toBe(1);
+    expect(await countScopedPreterminalMatches()).toBe(1);
     expect(await pointer(a.id)).toBe(match1.id);
     expect(await pointer(b.id)).toBe(match1.id);
 
@@ -162,7 +201,7 @@ describeIntegration('One pre-terminal match per player (real PostgreSQL + Redis)
     expect(await balance(b.id)).toBe(9000000n);
     expect(await balance(c.id)).toBe(10000000n);
     expect(await balance(d.id)).toBe(10000000n);
-    expect(await prisma.match.count({ where: { status: { in: PRETTERMINAL_STATUSES } } })).toBe(1);
+    expect(await countScopedPreterminalMatches()).toBe(1);
   });
 
   it('blocks the reservation on DB state even when Redis init never ran', async () => {
@@ -175,7 +214,7 @@ describeIntegration('One pre-terminal match per player (real PostgreSQL + Redis)
     await stakeAndFund(e, f);
 
     await expect(stakeAndFund(e, g)).rejects.toBeInstanceOf(ActiveMatchError);
-    expect(await prisma.match.count({ where: { status: { in: PRETTERMINAL_STATUSES } } })).toBe(1);
+    expect(await countScopedPreterminalMatches()).toBe(1);
   });
 
   it('moves both stakes AVAILABLE -> LOCKED and records RESERVED StakeReservation rows', async () => {
@@ -220,7 +259,7 @@ describeIntegration('One pre-terminal match per player (real PostgreSQL + Redis)
 
     // The reservation is released: the same pair can immediately fund a rematch.
     const match2 = await stakeAndFund(a, b);
-    expect(await prisma.match.count({ where: { status: { in: PRETTERMINAL_STATUSES } } })).toBe(1);
+    expect(await countScopedPreterminalMatches()).toBe(1);
     expect(match2.id).not.toBe(match1.id);
     expect((await prisma.match.findUnique({ where: { id: match1.id } })).status).toBe('SETTLED');
   });

@@ -1,10 +1,14 @@
 node_modules/
 .env
+.env.*
+!.env.example
+!.env.sim.example
 .DS_Store
 dist/
 build/
 coverage/
 *.log
+postgresql_*.exe
 .idea/
 flutter/
 

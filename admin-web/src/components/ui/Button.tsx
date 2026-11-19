@@ -13,14 +13,14 @@ export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElemen
 export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
   ({ className, variant = 'primary', size = 'md', isLoading = false, disabled, children, ...props }, ref) => {
     const baseStyles =
-      'inline-flex items-center justify-center font-medium rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/50 disabled:opacity-50 disabled:cursor-not-allowed select-none';
+      'inline-flex items-center justify-center font-medium rounded-lg transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#18C986]/50 disabled:opacity-50 disabled:cursor-not-allowed select-none';
 
     const variants = {
-      primary: 'bg-[#E7B24A] text-[#0B0D10] font-semibold hover:bg-[#B8862E] active:bg-[#B8862E]',
-      secondary: 'bg-[#1E2229] text-[#F4F2ED] hover:bg-[#272C34] active:bg-[#272C34] border border-[#2E333B]',
-      outline: 'border border-[#2E333B] text-[#F4F2ED] hover:bg-[#1E2229] hover:border-[#3A2E17]',
-      danger: 'bg-[#E5484D] text-white hover:bg-[#C93B40] active:bg-[#B03035]',
-      ghost: 'text-[#9CA3AF] hover:text-[#F4F2ED] hover:bg-[#1E2229]'
+      primary: 'bg-[#18C986] text-[#000000] font-semibold hover:bg-[#13A46D] active:bg-[#13A46D]',
+      secondary: 'bg-[#132638] text-[#F5F7FA] hover:bg-[#102131] active:bg-[#102131] border border-[#274056]',
+      outline: 'border border-[#274056] text-[#F5F7FA] hover:bg-[#132638] hover:border-[#0E2E2B]',
+      danger: 'bg-[#F55A67] text-white hover:bg-[#C93B40] active:bg-[#B03035]',
+      ghost: 'text-[#8FA3B7] hover:text-[#F5F7FA] hover:bg-[#132638]'
     };
 
     const sizes = {

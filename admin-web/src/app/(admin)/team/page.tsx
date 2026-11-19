@@ -18,11 +18,11 @@ export default function TeamPage() {
 
   return (
     <div className="space-y-6">
-      <div className="pb-2 border-b border-[#2E333B]">
-        <h1 className="text-2xl font-bold tracking-tight text-[#F4F2ED]">
+      <div className="pb-2 border-b border-[#274056]">
+        <h1 className="text-2xl font-bold tracking-tight text-[#F5F7FA]">
           Staff & RBAC Administration
         </h1>
-        <p className="text-xs text-[#9CA3AF] mt-0.5">
+        <p className="text-xs text-[#8FA3B7] mt-0.5">
           Database-backed roles, permission matrices, and operator assignments.
         </p>
       </div>
@@ -35,20 +35,20 @@ export default function TeamPage() {
                 <RoleBadge role={r.name as AdminRole} />
                 <Badge variant="default">{r.assignedCount} operators</Badge>
               </div>
-              <p className="text-xs text-[#9CA3AF] leading-relaxed mt-2">
+              <p className="text-xs text-[#8FA3B7] leading-relaxed mt-2">
                 {r.description}
               </p>
             </div>
 
-            <div className="mt-4 pt-3 border-t border-[#2E333B]">
-              <span className="text-[10px] uppercase font-bold text-[#6B7280] block mb-1.5">
+            <div className="mt-4 pt-3 border-t border-[#274056]">
+              <span className="text-[10px] uppercase font-bold text-[#53677A] block mb-1.5">
                 Granted Permissions ({r.permissions.length})
               </span>
               <div className="flex flex-wrap gap-1">
                 {r.permissions.map((p) => (
                   <span
                     key={p}
-                    className="text-[10px] font-mono px-1.5 py-0.5 bg-[#1E2229] text-[#F4F2ED] rounded border border-[#2E333B]"
+                    className="text-[10px] font-mono px-1.5 py-0.5 bg-[#132638] text-[#F5F7FA] rounded border border-[#274056]"
                   >
                     {p}
                   </span>

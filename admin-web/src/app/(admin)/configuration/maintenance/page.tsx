@@ -366,17 +366,17 @@ export default function MaintenanceControlsPage() {
             ? 'bg-rose-500/10 border-rose-500/40'
             : maintenance?.effectiveStatus === 'SCHEDULED'
               ? 'bg-amber-500/10 border-amber-500/40'
-              : 'bg-[#15181D] border-[#2E333B]'
+              : 'bg-[#0C1B2A] border-[#274056]'
         }`}
       >
         <div className="space-y-1">
           <div className="flex flex-wrap items-center gap-2.5">
             <Wrench
               className={`w-5 h-5 ${
-                maintenance?.effectivelyActive ? 'text-rose-400' : 'text-[#E7B24A]'
+                maintenance?.effectivelyActive ? 'text-rose-400' : 'text-[#18C986]'
               }`}
             />
-            <h2 className="text-lg font-bold text-[#F4F2ED]">
+            <h2 className="text-lg font-bold text-[#F5F7FA]">
               Platform Maintenance Status:{' '}
               <span className="font-mono">{maintenance?.effectiveStatus || 'INACTIVE'}</span>
             </h2>
@@ -396,10 +396,10 @@ export default function MaintenanceControlsPage() {
                   : 'NORMAL OPERATION'}
             </Badge>
           </div>
-          <p className="text-xs text-[#9CA3AF]">
+          <p className="text-xs text-[#8FA3B7]">
             {maintenance?.headline} — {maintenance?.message}
           </p>
-          <div className="text-[11px] font-mono text-[#9CA3AF] pt-1">
+          <div className="text-[11px] font-mono text-[#8FA3B7] pt-1">
             Permanently Exempt Surfaces: {(maintenance?.exemptPrefixes || ['/health', '/ready', '/webhooks', '/api/v1/auth', '/api/v1/admin']).join(', ')}
           </div>
         </div>
@@ -515,16 +515,16 @@ export default function MaintenanceControlsPage() {
                     canManage ? 'cursor-pointer' : ''
                   } ${
                     isSelected
-                      ? 'bg-[#3A2E17]/30 border-[#E7B24A] text-[#F4F2ED]'
-                      : 'bg-[#0B0D10] border-[#2E333B] text-[#9CA3AF]'
+                      ? 'bg-[#0E2E2B]/30 border-[#18C986] text-[#F5F7FA]'
+                      : 'bg-[#000000] border-[#274056] text-[#8FA3B7]'
                   }`}
                 >
                   <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-[#F4F2ED]">{item.title}</span>
+                    <span className="text-xs font-bold text-[#F5F7FA]">{item.title}</span>
                     {isSelected && <Badge variant="gold">Selected Scope</Badge>}
                   </div>
-                  <p className="text-xs text-[#9CA3AF] mt-1">{item.description}</p>
-                  <div className="mt-2 pt-2 border-t border-[#2E333B]/60 flex flex-wrap gap-1.5 text-[10px] font-mono">
+                  <p className="text-xs text-[#8FA3B7] mt-1">{item.description}</p>
+                  <div className="mt-2 pt-2 border-t border-[#274056]/60 flex flex-wrap gap-1.5 text-[10px] font-mono">
                     <span className="text-rose-400 font-semibold">Blocks:</span>
                     {item.restrictedRoutes.map((r) => (
                       <span
@@ -565,7 +565,7 @@ export default function MaintenanceControlsPage() {
             <div className="space-y-1.5">
               <label
                 htmlFor="maint-message-textarea"
-                className="block text-xs font-semibold uppercase tracking-wider text-[#9CA3AF]"
+                className="block text-xs font-semibold uppercase tracking-wider text-[#8FA3B7]"
               >
                 User-Facing Maintenance Message (`message` — 10–1,000 chars)
               </label>
@@ -575,7 +575,7 @@ export default function MaintenanceControlsPage() {
                 disabled={!canManage}
                 value={message}
                 onChange={(e) => setMessage(e.target.value)}
-                className="w-full p-3 bg-[#0B0D10] border border-[#2E333B] rounded-lg text-xs text-[#F4F2ED] focus:outline-none focus:border-[#E7B24A] disabled:opacity-50"
+                className="w-full p-3 bg-[#000000] border border-[#274056] rounded-lg text-xs text-[#F5F7FA] focus:outline-none focus:border-[#18C986] disabled:opacity-50"
               />
             </div>
 
@@ -600,7 +600,7 @@ export default function MaintenanceControlsPage() {
 
             {/* Allowed Roles with SUPER_ADMIN Lockout Protection */}
             <div className="space-y-1.5">
-              <label className="block text-xs font-semibold uppercase tracking-wider text-[#9CA3AF]">
+              <label className="block text-xs font-semibold uppercase tracking-wider text-[#8FA3B7]">
                 Authorized Bypass Roles (`allowedRoles` — `SUPER_ADMIN` Locked Against Lockout)
               </label>
               <div className="flex flex-wrap gap-1.5">
@@ -615,8 +615,8 @@ export default function MaintenanceControlsPage() {
                       onClick={() => toggleAllowedRole(role)}
                       className={`px-2.5 py-1 rounded-md text-[11px] font-mono border inline-flex items-center gap-1 ${
                         isSelected
-                          ? 'bg-[#3A2E17] text-[#E7B24A] border-[#E7B24A]/50 font-bold'
-                          : 'bg-[#0B0D10] text-[#9CA3AF] border-[#2E333B]'
+                          ? 'bg-[#0E2E2B] text-[#18C986] border-[#18C986]/50 font-bold'
+                          : 'bg-[#000000] text-[#8FA3B7] border-[#274056]'
                       } disabled:cursor-not-allowed`}
                     >
                       {isSuper && <Lock className="w-3 h-3" />}
@@ -629,24 +629,24 @@ export default function MaintenanceControlsPage() {
 
             {/* Allowed IP / CIDR Allowlist */}
             <div className="space-y-2">
-              <label className="block text-xs font-semibold uppercase tracking-wider text-[#9CA3AF]">
+              <label className="block text-xs font-semibold uppercase tracking-wider text-[#8FA3B7]">
                 Allowed IPv4 / IPv6 / CIDR Bypass List (`allowedIps`)
               </label>
-              <div className="flex flex-wrap gap-1.5 bg-[#0B0D10] border border-[#2E333B] rounded-lg p-2.5 min-h-[40px]">
+              <div className="flex flex-wrap gap-1.5 bg-[#000000] border border-[#274056] rounded-lg p-2.5 min-h-[40px]">
                 {allowedIps.length === 0 ? (
-                  <span className="text-xs text-[#6B7280]">No bypass IPs configured.</span>
+                  <span className="text-xs text-[#53677A]">No bypass IPs configured.</span>
                 ) : (
                   allowedIps.map((ip) => (
                     <span
                       key={ip}
-                      className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-[#1E2229] border border-[#2E333B] font-mono text-xs text-[#F4F2ED]"
+                      className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-[#132638] border border-[#274056] font-mono text-xs text-[#F5F7FA]"
                     >
                       {ip}
                       {canManage && (
                         <button
                           type="button"
                           onClick={() => handleRemoveIp(ip)}
-                          className="text-[#9CA3AF] hover:text-rose-400"
+                          className="text-[#8FA3B7] hover:text-rose-400"
                         >
                           <X className="w-3 h-3" />
                         </button>
@@ -663,7 +663,7 @@ export default function MaintenanceControlsPage() {
                     placeholder="e.g., 127.0.0.1 or 10.0.0.0/24"
                     value={ipInput}
                     onChange={(e) => setIpInput(e.target.value)}
-                    className="h-9 px-3 bg-[#0B0D10] border border-[#2E333B] rounded-lg text-xs font-mono text-[#F4F2ED] flex-1"
+                    className="h-9 px-3 bg-[#000000] border border-[#274056] rounded-lg text-xs font-mono text-[#F5F7FA] flex-1"
                   />
                   <Button type="button" variant="secondary" size="sm" onClick={handleAddIp}>
                     <Plus className="w-3.5 h-3.5" />
@@ -719,14 +719,14 @@ export default function MaintenanceControlsPage() {
               placeholder="192.0.2.10"
             />
             <div className="space-y-1.5">
-              <label className="block text-xs font-semibold uppercase tracking-wider text-[#9CA3AF]">
+              <label className="block text-xs font-semibold uppercase tracking-wider text-[#8FA3B7]">
                 Caller Role
               </label>
               <select
                 aria-label="Simulated caller role"
                 value={evalRole}
                 onChange={(e) => setEvalRole(e.target.value)}
-                className="w-full h-10 px-3 bg-[#0B0D10] border border-[#2E333B] rounded-lg text-xs font-mono text-[#F4F2ED]"
+                className="w-full h-10 px-3 bg-[#000000] border border-[#274056] rounded-lg text-xs font-mono text-[#F5F7FA]"
               >
                 <option value="NONE">Regular Player (No Admin Role)</option>
                 {ADMIN_ROLES.map((r) => (
@@ -737,22 +737,22 @@ export default function MaintenanceControlsPage() {
               </select>
             </div>
             <Button type="submit" variant="secondary" isLoading={isEvaluating}>
-              <Play className="w-3.5 h-3.5 text-[#E7B24A]" />
+              <Play className="w-3.5 h-3.5 text-[#18C986]" />
               Test Access
             </Button>
           </form>
 
           {evalDecision && (
-            <div className="bg-[#0B0D10] border border-[#2E333B] rounded-xl p-4 flex flex-wrap items-center justify-between gap-3 text-xs">
+            <div className="bg-[#000000] border border-[#274056] rounded-xl p-4 flex flex-wrap items-center justify-between gap-3 text-xs">
               <div className="flex flex-wrap items-center gap-2.5">
-                <span className="font-mono font-bold text-[#F4F2ED]">{evalDecision.path}:</span>
+                <span className="font-mono font-bold text-[#F5F7FA]">{evalDecision.path}:</span>
                 <Badge variant={evalDecision.allowed ? 'success' : 'danger'}>
                   {evalDecision.allowed ? 'ALLOWED (200)' : 'BLOCKED (503 MAINTENANCE_MODE)'}
                 </Badge>
-                <span className="font-mono text-[#E7B24A]">Reason: {evalDecision.reason}</span>
+                <span className="font-mono text-[#18C986]">Reason: {evalDecision.reason}</span>
               </div>
               {evalDecision.scope && (
-                <span className="font-mono text-[#9CA3AF]">Scope: {evalDecision.scope}</span>
+                <span className="font-mono text-[#8FA3B7]">Scope: {evalDecision.scope}</span>
               )}
             </div>
           )}
@@ -761,17 +761,17 @@ export default function MaintenanceControlsPage() {
         {/* Out-of-Band CLI Recovery Card */}
         <Card className="space-y-3">
           <div className="flex items-center gap-2">
-            <Terminal className="w-5 h-5 text-[#E7B24A]" />
+            <Terminal className="w-5 h-5 text-[#18C986]" />
             <CardTitle className="text-sm">Out-of-Band CLI Recovery</CardTitle>
           </div>
-          <p className="text-xs text-[#9CA3AF]">
+          <p className="text-xs text-[#8FA3B7]">
             If the admin web interface is unreachable during a network incident, operators can immediately disable
             maintenance directly against PostgreSQL and flush Redis caches via:
           </p>
-          <pre className="bg-[#0B0D10] border border-[#2E333B] rounded-lg p-3 font-mono text-[11px] text-[#E7B24A] overflow-x-auto">
+          <pre className="bg-[#000000] border border-[#274056] rounded-lg p-3 font-mono text-[11px] text-[#18C986] overflow-x-auto">
             node backend/scripts/emergencyMaintenanceReset.js
           </pre>
-          <p className="text-[11px] text-[#6B7280]">
+          <p className="text-[11px] text-[#53677A]">
             Sets <code className="font-mono">MaintenanceState.active = false</code>, purges{' '}
             <code className="font-mono">maintenance:state:v2</code>, and publishes{' '}
             <code className="font-mono">platform:maintenance:invalidated</code>.
@@ -791,37 +791,37 @@ export default function MaintenanceControlsPage() {
         </CardHeader>
 
         {history.length === 0 ? (
-          <div className="py-8 text-center text-xs text-[#6B7280]">
+          <div className="py-8 text-center text-xs text-[#53677A]">
             No maintenance audit records found.
           </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
-                <tr className="border-b border-[#2E333B] text-[10px] font-bold uppercase tracking-wider text-[#6B7280]">
+                <tr className="border-b border-[#274056] text-[10px] font-bold uppercase tracking-wider text-[#53677A]">
                   <th className="py-2.5 px-4">Timestamp</th>
                   <th className="py-2.5 px-4">Action</th>
                   <th className="py-2.5 px-4">Actor</th>
                   <th className="py-2.5 px-4">Reason &amp; State Change</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-[#2E333B] text-xs">
+              <tbody className="divide-y divide-[#274056] text-xs">
                 {history.map((log) => {
                   const meta = (log.metadata || {}) as {
                     reason?: string;
                     after?: { scope?: string; active?: boolean };
                   };
                   return (
-                    <tr key={log.id} className="hover:bg-[#1E2229]/60">
-                      <td className="py-3 px-4 font-mono text-[11px] text-[#9CA3AF]">
+                    <tr key={log.id} className="hover:bg-[#132638]/60">
+                      <td className="py-3 px-4 font-mono text-[11px] text-[#8FA3B7]">
                         {formatDate(log.createdAt)}
                       </td>
-                      <td className="py-3 px-4 font-mono font-bold text-[#E7B24A]">{log.action}</td>
-                      <td className="py-3 px-4 font-mono text-[#F4F2ED]">{log.adminId}</td>
-                      <td className="py-3 px-4 text-[#9CA3AF]">
-                        <div className="text-[#F4F2ED] font-medium">{meta.reason || '—'}</div>
+                      <td className="py-3 px-4 font-mono font-bold text-[#18C986]">{log.action}</td>
+                      <td className="py-3 px-4 font-mono text-[#F5F7FA]">{log.adminId}</td>
+                      <td className="py-3 px-4 text-[#8FA3B7]">
+                        <div className="text-[#F5F7FA] font-medium">{meta.reason || '—'}</div>
                         {meta.after && (
-                          <div className="font-mono text-[11px] text-[#6B7280]">
+                          <div className="font-mono text-[11px] text-[#53677A]">
                             active: {String(meta.after.active)} • scope: {meta.after.scope}
                           </div>
                         )}
@@ -842,38 +842,38 @@ export default function MaintenanceControlsPage() {
           aria-modal="true"
           className="fixed inset-0 z-50 bg-black/75 flex items-center justify-center p-4"
         >
-          <div className="bg-[#15181D] border border-rose-500/40 rounded-2xl max-w-lg w-full p-6 space-y-4 shadow-2xl">
+          <div className="bg-[#0C1B2A] border border-rose-500/40 rounded-2xl max-w-lg w-full p-6 space-y-4 shadow-2xl">
             <div className="flex items-center gap-3">
               <ShieldAlert className="w-6 h-6 text-rose-400 shrink-0" />
               <div>
-                <h3 className="text-base font-bold text-[#F4F2ED]">
+                <h3 className="text-base font-bold text-[#F5F7FA]">
                   Confirm Maintenance Mode Activation
                 </h3>
-                <p className="text-xs text-[#9CA3AF]">
+                <p className="text-xs text-[#8FA3B7]">
                   Review the affected scope and operational impact before enabling maintenance mode.
                 </p>
               </div>
             </div>
 
-            <div className="bg-[#0B0D10] border border-[#2E333B] rounded-xl p-4 text-xs space-y-2">
+            <div className="bg-[#000000] border border-[#274056] rounded-xl p-4 text-xs space-y-2">
               <div className="flex justify-between">
-                <span className="text-[#9CA3AF]">Target Scope:</span>
+                <span className="text-[#8FA3B7]">Target Scope:</span>
                 <Badge variant="danger">{activeScopeDetail.scope}</Badge>
               </div>
-              <p className="text-[#9CA3AF]">{activeScopeDetail.description}</p>
-              <div className="pt-2 border-t border-[#2E333B] space-y-1">
+              <p className="text-[#8FA3B7]">{activeScopeDetail.description}</p>
+              <div className="pt-2 border-t border-[#274056] space-y-1">
                 <div className="font-semibold text-rose-400">
                   Restricted Player Surfaces ({activeScopeDetail.restrictedRoutes.length}):
                 </div>
-                <div className="font-mono text-[11px] text-[#F4F2ED]">
+                <div className="font-mono text-[11px] text-[#F5F7FA]">
                   {activeScopeDetail.restrictedRoutes.join(', ')}
                 </div>
               </div>
-              <div className="pt-2 border-t border-[#2E333B] space-y-1">
+              <div className="pt-2 border-t border-[#274056] space-y-1">
                 <div className="font-semibold text-emerald-400">
                   Preserved Surfaces (Lockout Protection):
                 </div>
-                <div className="font-mono text-[11px] text-[#9CA3AF]">
+                <div className="font-mono text-[11px] text-[#8FA3B7]">
                   /api/v1/auth/*, /api/v1/admin/*, /webhooks/*, /health, /ready, plus SUPER_ADMIN
                 </div>
               </div>
@@ -910,9 +910,9 @@ export default function MaintenanceControlsPage() {
           aria-modal="true"
           className="fixed inset-0 z-50 bg-black/75 flex items-center justify-center p-4"
         >
-          <div className="bg-[#15181D] border border-[#2E333B] rounded-2xl max-w-md w-full p-6 space-y-4">
-            <h3 className="text-base font-bold text-[#F4F2ED]">Disable Maintenance Mode</h3>
-            <p className="text-xs text-[#9CA3AF]">
+          <div className="bg-[#0C1B2A] border border-[#274056] rounded-2xl max-w-md w-full p-6 space-y-4">
+            <h3 className="text-base font-bold text-[#F5F7FA]">Disable Maintenance Mode</h3>
+            <p className="text-xs text-[#8FA3B7]">
               This will immediately restore normal player access across all platform routes and broadcast a cache
               invalidation event.
             </p>
@@ -946,14 +946,14 @@ export default function MaintenanceControlsPage() {
           aria-modal="true"
           className="fixed inset-0 z-50 bg-black/75 flex items-center justify-center p-4"
         >
-          <div className="bg-[#15181D] border border-rose-500/50 rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl">
+          <div className="bg-[#0C1B2A] border border-rose-500/50 rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl">
             <div className="flex items-center gap-2.5 text-rose-400">
               <ShieldAlert className="w-6 h-6 shrink-0" />
-              <h3 className="text-base font-bold text-[#F4F2ED]">
+              <h3 className="text-base font-bold text-[#F5F7FA]">
                 Emergency Maintenance Reset
               </h3>
             </div>
-            <p className="text-xs text-[#9CA3AF]">
+            <p className="text-xs text-[#8FA3B7]">
               This emergency recovery action immediately forces <code className="font-mono">MaintenanceState.active = false</code>,
               clears any scheduled window timestamps, purges the Redis <code className="font-mono">maintenance:state:v2</code>{' '}
               cache, and records an emergency audit event.

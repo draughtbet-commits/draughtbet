@@ -110,25 +110,65 @@ describeIntegration('Call-out acceptance policy (real PostgreSQL)', () => {
   });
 
   afterAll(async () => {
-    for (const matchId of allMatches) {
-      await prisma.matchMove.deleteMany({ where: { matchId } });
-      await prisma.match.delete({ where: { id: matchId } });
-    }
-    await prisma.callout.deleteMany({ where: { id: { in: allCallouts } } });
-    await prisma.wallet.deleteMany({ where: { userId: { in: allUsers } } });
-    // V2 ledger rows must go before users: user delete cascades LedgerAccount,
-    // but LedgerEntry.account is onDelete Restrict.
-    await prisma.ledgerTransaction.deleteMany({
-      where: {
-        OR: [
-          { relatedMatchId: { in: allMatches } },
-          { idempotencyKey: { startsWith: 'callout:test:seed:' } }
-        ]
+    try {
+      if (allUsers.length > 0 || allMatches.length > 0 || allCallouts.length > 0) {
+        const seedKeys = allUsers.map((uId) => `callout:test:seed:${uId}`);
+        await prisma.$transaction(
+          async (tx) => {
+            const userAccounts = allUsers.length
+              ? await tx.ledgerAccount.findMany({
+                where: { userId: { in: allUsers } },
+                select: { id: true }
+              })
+              : [];
+            const accountIds = userAccounts.map((a) => a.id);
+            const txs = await tx.ledgerTransaction.findMany({
+              where: {
+                OR: [
+                  ...(allMatches.length > 0 ? [{ relatedMatchId: { in: allMatches } }] : []),
+                  ...(seedKeys.length > 0 ? [{ idempotencyKey: { in: seedKeys } }] : [])
+                ]
+              },
+              select: { id: true }
+            });
+            const ledgerTxIds = txs.map((t) => t.id);
+
+            if (ledgerTxIds.length > 0 || accountIds.length > 0) {
+              await tx.ledgerEntry.deleteMany({
+                where: {
+                  OR: [
+                    ...(ledgerTxIds.length > 0 ? [{ transactionId: { in: ledgerTxIds } }] : []),
+                    ...(accountIds.length > 0 ? [{ accountId: { in: accountIds } }] : [])
+                  ]
+                }
+              });
+            }
+            if (ledgerTxIds.length > 0) {
+              await tx.ledgerTransaction.deleteMany({ where: { id: { in: ledgerTxIds } } });
+            }
+            if (allMatches.length > 0) {
+              await tx.matchMove.deleteMany({ where: { matchId: { in: allMatches } } });
+              await tx.match.deleteMany({ where: { id: { in: allMatches } } });
+            }
+            if (allCallouts.length > 0) {
+              await tx.callout.deleteMany({ where: { id: { in: allCallouts } } });
+            }
+            if (allUsers.length > 0) {
+              await tx.ledgerAccount.deleteMany({ where: { userId: { in: allUsers } } });
+              await tx.wallet.deleteMany({ where: { userId: { in: allUsers } } });
+              await tx.user.deleteMany({ where: { id: { in: allUsers } } });
+            }
+          },
+          { timeout: 30_000 }
+        );
       }
-    });
-    await prisma.user.deleteMany({ where: { id: { in: allUsers } } });
-    await prisma.$disconnect();
-  });
+    } catch (err) {
+      console.error('[callout.integration.test] Cleanup failed:', err);
+      throw err;
+    } finally {
+      await prisma.$disconnect();
+    }
+  }, 60_000);
 
   it('accepts an eligible player: one match, one STAKE_LOCK posting, callout ACCEPTED', async () => {
     const challenger = await makeUser('c');

@@ -35,7 +35,11 @@ import type {
   MaintenanceStateItem,
   MaintenanceScope,
   MaintenanceAccessDecision,
-  MaintenanceHistoryResponse
+  MaintenanceHistoryResponse,
+  AdminNotificationsResponse,
+  AdminDepositsResponse,
+  AdminLedgerTransactionsResponse,
+  SimulationStatusSnapshot
 } from './types';
 import type { AdminRole } from '../permissions/roles';
 
@@ -768,6 +772,107 @@ export const adminApi = {
       '/admin/maintenance/emergency-reset',
       { reason }
     );
+  },
+
+  // ==========================================================================
+  // Notification History & Dev-Gated Simulation Lab
+  // ==========================================================================
+  async getNotifications(params: {
+    page?: number;
+    limit?: number;
+    type?: string;
+    isRead?: 'true' | 'false';
+    search?: string;
+  } = {}): Promise<AdminNotificationsResponse> {
+    const q = new URLSearchParams();
+    if (params.page) q.set('page', params.page.toString());
+    if (params.limit) q.set('limit', params.limit.toString());
+    if (params.type) q.set('type', params.type);
+    if (params.isRead) q.set('isRead', params.isRead);
+    if (params.search) q.set('search', params.search);
+    return apiClient.get<AdminNotificationsResponse>(`/admin/notifications?${q.toString()}`);
+  },
+
+  async getSimulationStatus(): Promise<{ simulation: SimulationStatusSnapshot }> {
+    return apiClient.get<{ simulation: SimulationStatusSnapshot }>('/admin/simulation/status');
+  },
+
+  async startSimulation(config: {
+    userCount?: number;
+    concurrency?: number;
+    durationMs?: number;
+    actionIntervalMs?: number;
+    scenarios?: string[];
+  }): Promise<{ simulation: SimulationStatusSnapshot }> {
+    return apiClient.post<{ simulation: SimulationStatusSnapshot }>('/admin/simulation/start', config);
+  },
+
+  async pauseSimulation(): Promise<{ simulation: SimulationStatusSnapshot }> {
+    return apiClient.post<{ simulation: SimulationStatusSnapshot }>('/admin/simulation/pause', {});
+  },
+
+  async resumeSimulation(): Promise<{ simulation: SimulationStatusSnapshot }> {
+    return apiClient.post<{ simulation: SimulationStatusSnapshot }>('/admin/simulation/resume', {});
+  },
+
+  async stopSimulation(): Promise<{ simulation: SimulationStatusSnapshot }> {
+    return apiClient.post<{ simulation: SimulationStatusSnapshot }>('/admin/simulation/stop', {});
+  },
+
+  async resetSimulation(runId?: string | null): Promise<{
+    summary: { runId: string; removedUsers: number; removedMatches: number; removedTransactions: number };
+    simulation: SimulationStatusSnapshot;
+  }> {
+    return apiClient.post('/admin/simulation/reset', runId ? { runId } : {});
+  },
+
+  async runSimulationReconciliation(): Promise<{
+    reconciliationRun: { id: string; status: string; discrepancies: string[] };
+  }> {
+    return apiClient.post('/admin/simulation/reconcile', {});
+  },
+
+  // ==========================================================================
+  // Balance Top-Ups (Deposits) & Non-Withdrawal Money Ledger
+  // ==========================================================================
+  async getDeposits(params: {
+    page?: number;
+    limit?: number;
+    status?: string;
+    gateway?: string;
+    userId?: string;
+    search?: string;
+  } = {}): Promise<AdminDepositsResponse> {
+    const q = new URLSearchParams();
+    if (params.page) q.set('page', params.page.toString());
+    if (params.limit) q.set('limit', params.limit.toString());
+    if (params.status) q.set('status', params.status);
+    if (params.gateway) q.set('gateway', params.gateway);
+    if (params.userId) q.set('userId', params.userId);
+    if (params.search) q.set('search', params.search);
+    return apiClient.get<AdminDepositsResponse>(`/admin/deposits?${q.toString()}`);
+  },
+
+  async getLedgerTransactions(params: {
+    page?: number;
+    limit?: number;
+    type?: string;
+    excludeWithdrawals?: boolean;
+    userId?: string;
+    matchId?: string;
+    search?: string;
+  } = {}): Promise<AdminLedgerTransactionsResponse> {
+    const q = new URLSearchParams();
+    if (params.page) q.set('page', params.page.toString());
+    if (params.limit) q.set('limit', params.limit.toString());
+    if (params.type) q.set('type', params.type);
+    if (typeof params.excludeWithdrawals === 'boolean') {
+      q.set('excludeWithdrawals', params.excludeWithdrawals ? 'true' : 'false');
+    }
+    if (params.userId) q.set('userId', params.userId);
+    if (params.matchId) q.set('matchId', params.matchId);
+    if (params.search) q.set('search', params.search);
+    return apiClient.get<AdminLedgerTransactionsResponse>(`/admin/ledger/transactions?${q.toString()}`);
   }
 };
 

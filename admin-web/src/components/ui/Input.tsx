@@ -16,7 +16,7 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(
     return (
       <div className="w-full space-y-1.5">
         {label && (
-          <label htmlFor={inputId} className="block text-xs font-semibold uppercase tracking-wider text-[#9CA3AF]">
+          <label htmlFor={inputId} className="block text-xs font-semibold uppercase tracking-wider text-[#8FA3B7]">
             {label}
           </label>
         )}
@@ -25,18 +25,18 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(
           id={inputId}
           type={type}
           className={cn(
-            'w-full h-10 px-3 bg-[#15181D] border border-[#2E333B] rounded-lg text-sm text-[#F4F2ED] placeholder-[#6B7280]',
-            'focus:outline-none focus:border-[#E7B24A] focus:ring-1 focus:ring-[#E7B24A]',
-            'disabled:opacity-50 disabled:bg-[#0B0D10] transition-colors duration-150',
-            error && 'border-[#E5484D] focus:border-[#E5484D] focus:ring-[#E5484D]',
+            'w-full h-10 px-3 bg-[#0C1B2A] border border-[#274056] rounded-lg text-sm text-[#F5F7FA] placeholder-[#53677A]',
+            'focus:outline-none focus:border-[#18C986] focus:ring-1 focus:ring-[#18C986]',
+            'disabled:opacity-50 disabled:bg-[#000000] transition-colors duration-150',
+            error && 'border-[#F55A67] focus:border-[#F55A67] focus:ring-[#F55A67]',
             className
           )}
           {...props}
         />
         {error ? (
-          <p className="text-xs text-[#E5484D] font-medium">{error}</p>
+          <p className="text-xs text-[#F55A67] font-medium">{error}</p>
         ) : helperText ? (
-          <p className="text-xs text-[#6B7280]">{helperText}</p>
+          <p className="text-xs text-[#53677A]">{helperText}</p>
         ) : null}
       </div>
     );

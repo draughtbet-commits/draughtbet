@@ -86,7 +86,7 @@ export default function KycEligibilityConfigurationPage() {
               <Card className="space-y-5">
                 <CardHeader>
                   <div className="flex items-center gap-2.5">
-                    <ShieldCheck className="w-5 h-5 text-[#E7B24A]" />
+                    <ShieldCheck className="w-5 h-5 text-[#18C986]" />
                     <div>
                       <CardTitle>Verification Thresholds &amp; Feature Gates</CardTitle>
                       <CardDescription>
@@ -99,17 +99,17 @@ export default function KycEligibilityConfigurationPage() {
 
                 <div className="space-y-4">
                   <div className="flex items-center justify-between">
-                    <span className="text-xs font-semibold uppercase tracking-wider text-[#9CA3AF]">
+                    <span className="text-xs font-semibold uppercase tracking-wider text-[#8FA3B7]">
                       Threshold Input Unit
                     </span>
-                    <div className="inline-flex bg-[#0B0D10] border border-[#2E333B] rounded-lg p-0.5 text-xs font-mono">
+                    <div className="inline-flex bg-[#000000] border border-[#274056] rounded-lg p-0.5 text-xs font-mono">
                       <button
                         type="button"
                         onClick={() => setUnitInputMode('KOBO')}
                         className={`px-2.5 py-1 rounded ${
                           unitInputMode === 'KOBO'
-                            ? 'bg-[#3A2E17] text-[#E7B24A]'
-                            : 'text-[#9CA3AF]'
+                            ? 'bg-[#0E2E2B] text-[#18C986]'
+                            : 'text-[#8FA3B7]'
                         }`}
                       >
                         Kobo
@@ -119,8 +119,8 @@ export default function KycEligibilityConfigurationPage() {
                         onClick={() => setUnitInputMode('NAIRA')}
                         className={`px-2.5 py-1 rounded ${
                           unitInputMode === 'NAIRA'
-                            ? 'bg-[#3A2E17] text-[#E7B24A]'
-                            : 'text-[#9CA3AF]'
+                            ? 'bg-[#0E2E2B] text-[#18C986]'
+                            : 'text-[#8FA3B7]'
                         }`}
                       >
                         Naira (₦)
@@ -128,15 +128,15 @@ export default function KycEligibilityConfigurationPage() {
                     </div>
                   </div>
 
-                  <div className="bg-[#0B0D10] border border-[#2E333B] rounded-xl p-4 space-y-2">
+                  <div className="bg-[#000000] border border-[#274056] rounded-xl p-4 space-y-2">
                     <div className="flex items-center justify-between">
                       <label
                         htmlFor="kyc-withdrawal-threshold"
-                        className="text-xs font-semibold uppercase tracking-wider text-[#F4F2ED]"
+                        className="text-xs font-semibold uppercase tracking-wider text-[#F5F7FA]"
                       >
                         Mandatory Withdrawal KYC Threshold (`mandatoryWithdrawalThresholdMinorUnits`)
                       </label>
-                      <span className="font-mono text-xs font-bold text-[#E7B24A]">
+                      <span className="font-mono text-xs font-bold text-[#18C986]">
                         {formatNaira(thresholdKobo)}
                       </span>
                     </div>
@@ -148,10 +148,10 @@ export default function KycEligibilityConfigurationPage() {
                       disabled={!canEdit}
                       value={displayThreshold}
                       onChange={(e) => handleThresholdChange(e.target.value)}
-                      className="w-full h-10 px-3 bg-[#15181D] border border-[#2E333B] rounded-lg font-mono text-sm text-[#F4F2ED] focus:outline-none focus:border-[#E7B24A] disabled:opacity-50"
+                      className="w-full h-10 px-3 bg-[#0C1B2A] border border-[#274056] rounded-lg font-mono text-sm text-[#F5F7FA] focus:outline-none focus:border-[#18C986] disabled:opacity-50"
                     />
 
-                    <div className="flex flex-wrap justify-between text-[11px] text-[#9CA3AF]">
+                    <div className="flex flex-wrap justify-between text-[11px] text-[#8FA3B7]">
                       <span className="font-mono">Canonical: {thresholdKobo} kobo</span>
                       <span className="font-mono">
                         Active: {formatNairaWithKobo(activePayload.kyc.mandatoryWithdrawalThresholdMinorUnits)}
@@ -165,15 +165,15 @@ export default function KycEligibilityConfigurationPage() {
                   </div>
 
                   {/* Toggle: Require Verification for Callouts */}
-                  <div className="bg-[#0B0D10] border border-[#2E333B] rounded-xl p-4 flex items-center justify-between gap-4">
+                  <div className="bg-[#000000] border border-[#274056] rounded-xl p-4 flex items-center justify-between gap-4">
                     <div className="space-y-1">
-                      <div className="text-xs font-bold text-[#F4F2ED]">
+                      <div className="text-xs font-bold text-[#F5F7FA]">
                         Require Verified KYC for High-Stakes Call-Outs (`kyc.requireVerificationForCallouts`)
                       </div>
-                      <p className="text-xs text-[#9CA3AF]">
+                      <p className="text-xs text-[#8FA3B7]">
                         When enabled, players must hold <code className="font-mono">VERIFIED</code> KYC status before creating or accepting direct call-out challenges.
                       </p>
-                      <p className="text-[11px] font-mono text-[#6B7280]">
+                      <p className="text-[11px] font-mono text-[#53677A]">
                         Current Active: {activePayload.kyc.requireVerificationForCallouts ? 'Enabled (true)' : 'Disabled (false)'}
                       </p>
                     </div>
@@ -192,7 +192,7 @@ export default function KycEligibilityConfigurationPage() {
                       className={`px-3.5 py-2 rounded-lg text-xs font-bold uppercase tracking-wider border transition-colors shrink-0 ${
                         draftPayload.kyc.requireVerificationForCallouts
                           ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/40'
-                          : 'bg-[#1E2229] text-[#9CA3AF] border-[#2E333B]'
+                          : 'bg-[#132638] text-[#8FA3B7] border-[#274056]'
                       } disabled:opacity-50`}
                     >
                       {draftPayload.kyc.requireVerificationForCallouts ? 'Required' : 'Not Required'}
@@ -205,7 +205,7 @@ export default function KycEligibilityConfigurationPage() {
               <Card className="space-y-5">
                 <CardHeader>
                   <div className="flex items-center gap-2.5">
-                    <Globe2 className="w-5 h-5 text-[#E7B24A]" />
+                    <Globe2 className="w-5 h-5 text-[#18C986]" />
                     <div>
                       <CardTitle>Regional &amp; Account Eligibility (`allowedCountries`)</CardTitle>
                       <CardDescription>
@@ -218,21 +218,21 @@ export default function KycEligibilityConfigurationPage() {
 
                 <div className="space-y-4">
                   <div className="space-y-2">
-                    <label className="block text-xs font-semibold uppercase tracking-wider text-[#9CA3AF]">
+                    <label className="block text-xs font-semibold uppercase tracking-wider text-[#8FA3B7]">
                       Allowed Country Codes (`kyc.allowedCountries`)
                     </label>
-                    <div className="flex flex-wrap items-center gap-2 bg-[#0B0D10] border border-[#2E333B] rounded-xl p-3.5 min-h-[52px]">
+                    <div className="flex flex-wrap items-center gap-2 bg-[#000000] border border-[#274056] rounded-xl p-3.5 min-h-[52px]">
                       {draftPayload.kyc.allowedCountries.map((code) => (
                         <span
                           key={code}
-                          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-[#1E2229] border border-[#2E333B] font-mono text-xs text-[#F4F2ED]"
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-[#132638] border border-[#274056] font-mono text-xs text-[#F5F7FA]"
                         >
                           {code}
                           {canEdit && draftPayload.kyc.allowedCountries.length > 1 && (
                             <button
                               type="button"
                               onClick={() => handleRemoveCountry(code)}
-                              className="text-[#9CA3AF] hover:text-rose-400"
+                              className="text-[#8FA3B7] hover:text-rose-400"
                               aria-label={`Remove country ${code}`}
                             >
                               <X className="w-3 h-3" />
@@ -250,7 +250,7 @@ export default function KycEligibilityConfigurationPage() {
                           placeholder="2-letter ISO code (e.g. NG, GB)"
                           value={countryInput}
                           onChange={(e) => setCountryInput(e.target.value.toUpperCase())}
-                          className="h-9 px-3 bg-[#15181D] border border-[#2E333B] rounded-lg text-xs font-mono text-[#F4F2ED] placeholder-[#6B7280] focus:outline-none focus:border-[#E7B24A]"
+                          className="h-9 px-3 bg-[#0C1B2A] border border-[#274056] rounded-lg text-xs font-mono text-[#F5F7FA] placeholder-[#53677A] focus:outline-none focus:border-[#18C986]"
                         />
                         <Button variant="secondary" size="sm" type="button" onClick={handleAddCountry}>
                           <Plus className="w-3.5 h-3.5" />
@@ -259,20 +259,20 @@ export default function KycEligibilityConfigurationPage() {
                       </div>
                     )}
 
-                    <p className="text-xs text-[#6B7280]">
-                      Current Active: <span className="font-mono text-[#F4F2ED]">{activePayload.kyc.allowedCountries.join(', ')}</span> • Minimum 1 country code required.
+                    <p className="text-xs text-[#53677A]">
+                      Current Active: <span className="font-mono text-[#F5F7FA]">{activePayload.kyc.allowedCountries.join(', ')}</span> • Minimum 1 country code required.
                     </p>
                     {fieldErrors['kyc.allowedCountries'] && (
                       <p className="text-xs text-rose-400">{fieldErrors['kyc.allowedCountries']}</p>
                     )}
                   </div>
 
-                  <div className="bg-[#0B0D10] border border-[#2E333B] rounded-xl p-4 space-y-2 text-xs">
-                    <div className="flex items-center gap-2 font-bold text-[#F4F2ED]">
+                  <div className="bg-[#000000] border border-[#274056] rounded-xl p-4 space-y-2 text-xs">
+                    <div className="flex items-center gap-2 font-bold text-[#F5F7FA]">
                       <CheckCircle2 className="w-4 h-4 text-emerald-400" />
                       <span>Hardcoded Server Eligibility Invariants (`eligibilityService.js`)</span>
                     </div>
-                    <ul className="list-disc list-inside text-[#9CA3AF] space-y-1">
+                    <ul className="list-disc list-inside text-[#8FA3B7] space-y-1">
                       <li>
                         <strong>18+ Age Verification:</strong> Enforced at registration from claimed <code className="font-mono">dateOfBirth</code> and verified before any money operation (<code className="font-mono">assertEligibleForMoney</code>). Cannot be disabled via configuration.
                       </li>
@@ -288,12 +288,12 @@ export default function KycEligibilityConfigurationPage() {
             {/* Privacy & Compliance Notice Card */}
             <Card className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
               <div className="flex items-start gap-3">
-                <FileLock2 className="w-5 h-5 text-[#E7B24A] shrink-0 mt-0.5" />
+                <FileLock2 className="w-5 h-5 text-[#18C986] shrink-0 mt-0.5" />
                 <div className="text-xs space-y-0.5">
-                  <div className="font-bold text-[#F4F2ED]">
+                  <div className="font-bold text-[#F5F7FA]">
                     Document Privacy &amp; Least-Privilege Separation
                   </div>
-                  <p className="text-[#9CA3AF]">
+                  <p className="text-[#8FA3B7]">
                     This module manages policy thresholds only. Individual KYC verification cases and short-lived,
                     audited document access tokens are restricted to authorized <code className="font-mono">RISK_COMPLIANCE</code>{' '}
                     reviewers in the KYC Review Queue.

@@ -51,6 +51,7 @@ import {
 } from '../saferPlay/service.js';
 import { AdminService, UserNotFoundError, ResourceNotFoundError } from './service.js';
 import { InsufficientFundsError, InvalidAmountError } from '../../services/ledgerService.js';
+import { simulationRouter } from '../../simulation/simulationController.js';
 import redis from '../../utils/redis.js';
 
 export const adminRouter = express.Router();
@@ -112,6 +113,7 @@ adminRouter.use('/flags', featureFlagRouter);
 adminRouter.use('/notification-templates', notificationTemplateRouter);
 adminRouter.use('/templates', notificationTemplateRouter);
 adminRouter.use('/maintenance', maintenanceRouter);
+adminRouter.use('/simulation', simulationRouter);
 
 // ---------------------------------------------------------------------------
 // Dashboard Summary — aggregated operational and financial statistics
@@ -991,6 +993,59 @@ adminRouter.post(
 );
 
 // ---------------------------------------------------------------------------
+// Deposits / Top-Ups & Ledger Explorer (FINANCE / SUPER_ADMIN / AUDITOR)
+// ---------------------------------------------------------------------------
+
+adminRouter.get(
+  '/deposits',
+  requirePermission(PERMISSIONS.WITHDRAWALS_READ),
+  async (req, res, next) => {
+    try {
+      const parsed = parsePagination(req.query);
+      if (!parsed.ok) return res.status(400).json({ error: 'Invalid pagination params' });
+      const { page, limit } = parsed.data;
+      const { status, gateway, userId, search } = req.query;
+      const data = await AdminService.listDeposits({
+        page,
+        limit,
+        status: typeof status === 'string' ? status : undefined,
+        gateway: typeof gateway === 'string' ? gateway : undefined,
+        userId: typeof userId === 'string' ? userId : undefined,
+        search: typeof search === 'string' ? search : undefined
+      });
+      res.json(data);
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+adminRouter.get(
+  '/ledger/transactions',
+  requirePermission(PERMISSIONS.WITHDRAWALS_READ),
+  async (req, res, next) => {
+    try {
+      const parsed = parsePagination(req.query);
+      if (!parsed.ok) return res.status(400).json({ error: 'Invalid pagination params' });
+      const { page, limit } = parsed.data;
+      const { type, excludeWithdrawals, userId, matchId, search } = req.query;
+      const data = await AdminService.listLedgerTransactions({
+        page,
+        limit,
+        type: typeof type === 'string' ? type : undefined,
+        excludeWithdrawals: excludeWithdrawals !== 'false',
+        userId: typeof userId === 'string' ? userId : undefined,
+        matchId: typeof matchId === 'string' ? matchId : undefined,
+        search: typeof search === 'string' ? search : undefined
+      });
+      res.json(data);
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+// ---------------------------------------------------------------------------
 // Ledger adjustments (FINANCE / SUPER_ADMIN)
 // ---------------------------------------------------------------------------
 
@@ -1208,14 +1263,15 @@ adminRouter.patch(
   requirePermission(PERMISSIONS.USERS_MANAGE),
   async (req, res, next) => {
     try {
-      const { status, priority, assignedTo, resolutionNote, noteBody } = req.body ?? {};
+      const { status, priority, assignedTo, resolutionNote, noteBody, note } = req.body ?? {};
+      const resolvedNote = noteBody ?? note;
       const supportCase = await AdminService.updateSupportCase({
         caseId: req.params.id,
         status,
         priority,
         assignedTo,
         resolutionNote,
-        noteBody,
+        noteBody: resolvedNote,
         adminId: req.user.id,
         adminEmail: req.user.email
       });
@@ -1227,6 +1283,59 @@ adminRouter.patch(
       res.json({ supportCase });
     } catch (error) {
       if (error.name === 'ResourceNotFoundError') return res.status(404).json({ error: error.message });
+      next(error);
+    }
+  }
+);
+
+adminRouter.get(
+  '/notifications',
+  requireAnyAdminRole,
+  async (req, res, next) => {
+    try {
+      const parsed = parsePagination(req.query);
+      if (!parsed.ok) return res.status(400).json({ error: 'Invalid pagination params' });
+      const { page, limit } = parsed.data;
+      const { userId, type, isRead, search } = req.query;
+
+      const where = {};
+      if (typeof userId === 'string' && userId.trim()) where.userId = userId.trim();
+      if (typeof type === 'string' && type.trim()) where.type = type.trim();
+      if (isRead === 'true') where.isRead = true;
+      if (isRead === 'false') where.isRead = false;
+      if (typeof search === 'string' && search.trim()) {
+        const term = search.trim();
+        where.OR = [
+          { title: { contains: term, mode: 'insensitive' } },
+          { message: { contains: term, mode: 'insensitive' } },
+          { type: { contains: term, mode: 'insensitive' } },
+          { user: { email: { contains: term, mode: 'insensitive' } } }
+        ];
+      }
+
+      const skip = (page - 1) * limit;
+      const [notifications, total] = await Promise.all([
+        prisma.notification.findMany({
+          where,
+          orderBy: { createdAt: 'desc' },
+          skip,
+          take: limit,
+          include: {
+            user: {
+              select: { id: true, email: true, username: true }
+            }
+          }
+        }),
+        prisma.notification.count({ where })
+      ]);
+
+      res.json({
+        notifications,
+        total,
+        page,
+        totalPages: Math.max(1, Math.ceil(total / limit))
+      });
+    } catch (error) {
       next(error);
     }
   }

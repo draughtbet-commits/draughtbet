@@ -226,12 +226,12 @@ export default function ConfigurationApprovalsPage() {
         <div className="flex items-start gap-4">
           <Lock className="w-6 h-6 text-amber-400 shrink-0" />
           <div className="space-y-2">
-            <h2 className="text-base font-bold text-[#F4F2ED]">
+            <h2 className="text-base font-bold text-[#F5F7FA]">
               Configuration Read Permission Required (`config.read`)
             </h2>
-            <p className="text-xs text-[#9CA3AF]">
-              Inspecting the Maker-Checker approval queue requires <code className="font-mono text-[#E7B24A]">config.read</code>.
-              Approving/rejecting requires <code className="font-mono text-[#E7B24A]">config.approve</code>.
+            <p className="text-xs text-[#8FA3B7]">
+              Inspecting the Maker-Checker approval queue requires <code className="font-mono text-[#18C986]">config.read</code>.
+              Approving/rejecting requires <code className="font-mono text-[#18C986]">config.approve</code>.
             </p>
           </div>
         </div>
@@ -242,18 +242,18 @@ export default function ConfigurationApprovalsPage() {
   return (
     <div className="space-y-6">
       {/* Maker-Checker Lifecycle Header */}
-      <div className="bg-[#15181D] border border-[#2E333B] rounded-xl p-4 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+      <div className="bg-[#0C1B2A] border border-[#274056] rounded-xl p-4 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
         <div className="space-y-1">
           <div className="flex flex-wrap items-center gap-2 text-xs font-mono">
             <Badge variant="default">1. DRAFT</Badge>
-            <ArrowRight className="w-3.5 h-3.5 text-[#6B7280]" />
+            <ArrowRight className="w-3.5 h-3.5 text-[#53677A]" />
             <Badge variant="warning">2. PENDING_APPROVAL ({pendingQueue.length})</Badge>
-            <ArrowRight className="w-3.5 h-3.5 text-[#6B7280]" />
+            <ArrowRight className="w-3.5 h-3.5 text-[#53677A]" />
             <Badge variant="info">3. APPROVED ({approvedQueue.length}) / REJECTED</Badge>
-            <ArrowRight className="w-3.5 h-3.5 text-[#6B7280]" />
+            <ArrowRight className="w-3.5 h-3.5 text-[#53677A]" />
             <Badge variant="success">4. ACTIVE (v{activeVersion?.version ?? 1})</Badge>
           </div>
-          <p className="text-xs text-[#9CA3AF]">
+          <p className="text-xs text-[#8FA3B7]">
             Author/Reviewer separation is strictly enforced on the backend (<code className="font-mono">authorId !== reviewerId</code>).
             Every approval binds the reviewer&apos;s sign-off to the exact RFC 8785 SHA-256 payload checksum.
           </p>
@@ -316,7 +316,7 @@ export default function ConfigurationApprovalsPage() {
             </CardHeader>
 
             {pendingQueue.length === 0 ? (
-              <div className="py-6 text-center text-xs text-[#6B7280]">
+              <div className="py-6 text-center text-xs text-[#53677A]">
                 No proposals are currently awaiting approval.
               </div>
             ) : (
@@ -330,30 +330,30 @@ export default function ConfigurationApprovalsPage() {
                       onClick={() => handleSelectVersionForReview(item)}
                       className={`w-full text-left rounded-xl p-3.5 border transition-colors space-y-1.5 ${
                         isSelected
-                          ? 'bg-[#3A2E17]/35 border-[#E7B24A]'
-                          : 'bg-[#0B0D10] border-[#2E333B] hover:bg-[#1E2229]'
+                          ? 'bg-[#0E2E2B]/35 border-[#18C986]'
+                          : 'bg-[#000000] border-[#274056] hover:bg-[#132638]'
                       }`}
                     >
                       <div className="flex items-center justify-between">
-                        <span className="font-mono font-bold text-sm text-[#F4F2ED]">
+                        <span className="font-mono font-bold text-sm text-[#F5F7FA]">
                           Version v{item.version}
                         </span>
                         <Badge variant="warning">PENDING_APPROVAL</Badge>
                       </div>
-                      <p className="text-xs text-[#F4F2ED] font-medium line-clamp-2">
+                      <p className="text-xs text-[#F5F7FA] font-medium line-clamp-2">
                         {item.changeReason}
                       </p>
                       <div className="flex flex-wrap gap-1">
                         {item.modifiedDomains?.map((d) => (
                           <span
                             key={d}
-                            className="px-1.5 py-0.5 rounded bg-[#15181D] border border-[#2E333B] font-mono text-[10px] text-[#E7B24A]"
+                            className="px-1.5 py-0.5 rounded bg-[#0C1B2A] border border-[#274056] font-mono text-[10px] text-[#18C986]"
                           >
                             {d}
                           </span>
                         ))}
                       </div>
-                      <div className="flex items-center justify-between text-[11px] text-[#9CA3AF] pt-1">
+                      <div className="flex items-center justify-between text-[11px] text-[#8FA3B7] pt-1">
                         <span>Proposer: {item.author?.email || item.authorId.slice(0, 8)}</span>
                         <span className="font-mono">{formatDate(item.createdAt)}</span>
                       </div>
@@ -374,7 +374,7 @@ export default function ConfigurationApprovalsPage() {
             </CardHeader>
 
             {approvedQueue.length === 0 ? (
-              <div className="py-6 text-center text-xs text-[#6B7280]">
+              <div className="py-6 text-center text-xs text-[#53677A]">
                 No approved versions awaiting activation.
               </div>
             ) : (
@@ -387,19 +387,19 @@ export default function ConfigurationApprovalsPage() {
                       onClick={() => handleSelectVersionForReview(item)}
                       className={`cursor-pointer rounded-xl p-3.5 border transition-colors space-y-2 ${
                         isSelected
-                          ? 'bg-[#3A2E17]/35 border-[#E7B24A]'
-                          : 'bg-[#0B0D10] border-[#2E333B] hover:bg-[#1E2229]'
+                          ? 'bg-[#0E2E2B]/35 border-[#18C986]'
+                          : 'bg-[#000000] border-[#274056] hover:bg-[#132638]'
                       }`}
                     >
                       <div className="flex items-center justify-between">
-                        <span className="font-mono font-bold text-sm text-[#F4F2ED]">
+                        <span className="font-mono font-bold text-sm text-[#F5F7FA]">
                           Version v{item.version}
                         </span>
                         <Badge variant="info">APPROVED</Badge>
                       </div>
-                      <p className="text-xs text-[#F4F2ED] line-clamp-2">{item.changeReason}</p>
+                      <p className="text-xs text-[#F5F7FA] line-clamp-2">{item.changeReason}</p>
                       <div className="flex items-center justify-between pt-1">
-                        <span className="font-mono text-[10px] text-[#9CA3AF]">
+                        <span className="font-mono text-[10px] text-[#8FA3B7]">
                           SHA: {item.checksum.slice(0, 12)}…
                         </span>
                         {canActivate && (
@@ -429,21 +429,21 @@ export default function ConfigurationApprovalsPage() {
         <div className="lg:col-span-2 space-y-6">
           {!selectedVersion ? (
             <Card className="p-12 text-center space-y-2">
-              <CheckSquare className="w-10 h-10 text-[#E7B24A] mx-auto opacity-60" />
-              <h3 className="text-base font-bold text-[#F4F2ED]">
+              <CheckSquare className="w-10 h-10 text-[#18C986] mx-auto opacity-60" />
+              <h3 className="text-base font-bold text-[#F5F7FA]">
                 Select a Configuration Proposal to Review
               </h3>
-              <p className="text-xs text-[#9CA3AF] max-w-md mx-auto">
+              <p className="text-xs text-[#8FA3B7] max-w-md mx-auto">
                 Choose a version from the Pending Approval queue, Approved queue, or Approval History below to inspect its SHA-256 checksum and domain diff.
               </p>
             </Card>
           ) : isLoadingDetail ? (
-            <Card className="p-12 text-center text-xs text-[#9CA3AF]">
+            <Card className="p-12 text-center text-xs text-[#8FA3B7]">
               Loading proposal payload and verifying SHA-256 checksum…
             </Card>
           ) : (
             <Card className="space-y-5">
-              <CardHeader className="border-b border-[#2E333B] pb-4">
+              <CardHeader className="border-b border-[#274056] pb-4">
                 <div>
                   <div className="flex flex-wrap items-center gap-2">
                     <CardTitle className="text-lg">
@@ -474,38 +474,38 @@ export default function ConfigurationApprovalsPage() {
 
               {/* Metadata & Checksum Verification Grid */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
-                <div className="bg-[#0B0D10] border border-[#2E333B] rounded-xl p-4 space-y-1.5">
-                  <div className="flex items-center gap-2 font-bold text-[#F4F2ED]">
-                    <UserCheck className="w-4 h-4 text-[#E7B24A]" />
+                <div className="bg-[#000000] border border-[#274056] rounded-xl p-4 space-y-1.5">
+                  <div className="flex items-center gap-2 font-bold text-[#F5F7FA]">
+                    <UserCheck className="w-4 h-4 text-[#18C986]" />
                     <span>Proposer &amp; Maker-Checker Identity</span>
                   </div>
-                  <div className="flex justify-between text-[#9CA3AF]">
+                  <div className="flex justify-between text-[#8FA3B7]">
                     <span>Proposer (Author):</span>
-                    <span className="font-mono text-[#F4F2ED]">
+                    <span className="font-mono text-[#F5F7FA]">
                       {selectedVersion.author?.email || selectedVersion.authorId}
                     </span>
                   </div>
-                  <div className="flex justify-between text-[#9CA3AF]">
+                  <div className="flex justify-between text-[#8FA3B7]">
                     <span>Submitted / Created:</span>
-                    <span className="font-mono text-[#F4F2ED]">
+                    <span className="font-mono text-[#F5F7FA]">
                       {formatDate(selectedVersion.updatedAt || selectedVersion.createdAt)}
                     </span>
                   </div>
-                  <div className="flex justify-between text-[#9CA3AF]">
+                  <div className="flex justify-between text-[#8FA3B7]">
                     <span>Current Reviewer:</span>
-                    <span className="font-mono text-[#E7B24A]">{user?.email || '—'}</span>
+                    <span className="font-mono text-[#18C986]">{user?.email || '—'}</span>
                   </div>
                 </div>
 
-                <div className="bg-[#0B0D10] border border-[#2E333B] rounded-xl p-4 space-y-1.5">
-                  <div className="flex items-center gap-2 font-bold text-[#F4F2ED]">
+                <div className="bg-[#000000] border border-[#274056] rounded-xl p-4 space-y-1.5">
+                  <div className="flex items-center gap-2 font-bold text-[#F5F7FA]">
                     <Hash className="w-4 h-4 text-emerald-400" />
                     <span>Cryptographic Checksum Binding (SHA-256)</span>
                   </div>
-                  <div className="font-mono text-[11px] text-[#E7B24A] break-all">
+                  <div className="font-mono text-[11px] text-[#18C986] break-all">
                     {selectedVersion.checksum}
                   </div>
-                  <p className="text-[11px] text-[#9CA3AF]">
+                  <p className="text-[11px] text-[#8FA3B7]">
                     This SHA-256 digest is computed from the RFC 8785 canonical JSON payload and bound to your approval record.
                   </p>
                 </div>
@@ -519,7 +519,7 @@ export default function ConfigurationApprovalsPage() {
                     <div className="font-bold text-amber-300">
                       Maker-Checker Separation: Self-Approval Prohibited
                     </div>
-                    <p className="text-[#F4F2ED]/90">
+                    <p className="text-[#F5F7FA]/90">
                       You authored Proposal v{selectedVersion.version} (<code className="font-mono">{user?.email}</code>).
                       Per platform governance rules (enforced by <code className="font-mono">ConfigService.approveVersion</code>),
                       an independent reviewer holding <code className="font-mono">config.approve</code> must review and
@@ -531,8 +531,8 @@ export default function ConfigurationApprovalsPage() {
 
               {/* Approval / Rejection Controls for PENDING_APPROVAL */}
               {selectedVersion.status === 'PENDING_APPROVAL' && canApprove && (
-                <div className="bg-[#1E2229] border border-[#2E333B] rounded-xl p-4 space-y-4">
-                  <div className="text-xs font-bold uppercase tracking-wider text-[#F4F2ED]">
+                <div className="bg-[#132638] border border-[#274056] rounded-xl p-4 space-y-4">
+                  <div className="text-xs font-bold uppercase tracking-wider text-[#F5F7FA]">
                     Independent Checker Decision (`config.approve`)
                   </div>
 
@@ -578,7 +578,7 @@ export default function ConfigurationApprovalsPage() {
                     <div className="font-bold text-sky-300">
                       Version v{selectedVersion.version} is APPROVED and Checksum-Verified
                     </div>
-                    <p className="text-[#9CA3AF]">
+                    <p className="text-[#8FA3B7]">
                       Activating this version will atomically supersede Active v{activeVersion?.version ?? 1}, update{' '}
                       <code className="font-mono">PlatformSettings</code>, and broadcast an outbox cache invalidation event.
                     </p>
@@ -602,7 +602,7 @@ export default function ConfigurationApprovalsPage() {
 
               {/* Structured Domain Diff against Active Baseline */}
               <div className="space-y-2">
-                <h4 className="text-xs font-bold uppercase tracking-wider text-[#9CA3AF]">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-[#8FA3B7]">
                   Configuration Diff: Active v{activeVersion?.version ?? 1} → Proposal v{selectedVersion.version}
                 </h4>
                 <ConfigDiffViewer
@@ -629,14 +629,14 @@ export default function ConfigurationApprovalsPage() {
         </CardHeader>
 
         {reviewedHistory.length === 0 ? (
-          <div className="py-8 text-center text-xs text-[#6B7280]">
+          <div className="py-8 text-center text-xs text-[#53677A]">
             No reviewed configuration versions recorded yet.
           </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
-                <tr className="border-b border-[#2E333B] text-[10px] font-bold uppercase tracking-wider text-[#6B7280]">
+                <tr className="border-b border-[#274056] text-[10px] font-bold uppercase tracking-wider text-[#53677A]">
                   <th className="py-2.5 px-4">Version</th>
                   <th className="py-2.5 px-4">Current Status</th>
                   <th className="py-2.5 px-4">Proposer</th>
@@ -646,12 +646,12 @@ export default function ConfigurationApprovalsPage() {
                   <th className="py-2.5 px-4 text-right">Action</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-[#2E333B] text-xs">
+              <tbody className="divide-y divide-[#274056] text-xs">
                 {reviewedHistory.map((v) => {
                   const appr = v.approvals?.[0];
                   return (
-                    <tr key={v.id} className="hover:bg-[#1E2229]/60">
-                      <td className="py-3 px-4 font-mono font-bold text-[#F4F2ED]">v{v.version}</td>
+                    <tr key={v.id} className="hover:bg-[#132638]/60">
+                      <td className="py-3 px-4 font-mono font-bold text-[#F5F7FA]">v{v.version}</td>
                       <td className="py-3 px-4">
                         <Badge
                           variant={
@@ -667,7 +667,7 @@ export default function ConfigurationApprovalsPage() {
                           {v.status}
                         </Badge>
                       </td>
-                      <td className="py-3 px-4 font-mono text-[#9CA3AF]">
+                      <td className="py-3 px-4 font-mono text-[#8FA3B7]">
                         {v.author?.email || v.authorId.slice(0, 8)}
                       </td>
                       <td className="py-3 px-4">
@@ -676,18 +676,18 @@ export default function ConfigurationApprovalsPage() {
                             <Badge variant={appr.status === 'APPROVED' ? 'success' : 'danger'}>
                               {appr.status}
                             </Badge>
-                            <span className="ml-2 font-mono text-[#F4F2ED]">
+                            <span className="ml-2 font-mono text-[#F5F7FA]">
                               {appr.reviewer?.email || appr.reviewerId.slice(0, 8)}
                             </span>
                           </div>
                         ) : (
-                          <span className="text-[#6B7280]">Bootstrap / Direct</span>
+                          <span className="text-[#53677A]">Bootstrap / Direct</span>
                         )}
                       </td>
-                      <td className="py-3 px-4 text-[#9CA3AF]">
+                      <td className="py-3 px-4 text-[#8FA3B7]">
                         {appr?.reviewNote || v.changeReason}
                       </td>
-                      <td className="py-3 px-4 font-mono text-[11px] text-[#E7B24A]">
+                      <td className="py-3 px-4 font-mono text-[11px] text-[#18C986]">
                         {(appr?.checksum || v.checksum)?.slice(0, 14)}…
                       </td>
                       <td className="py-3 px-4 text-right">
@@ -715,14 +715,14 @@ export default function ConfigurationApprovalsPage() {
           aria-modal="true"
           className="fixed inset-0 z-50 bg-black/75 flex items-center justify-center p-4"
         >
-          <div className="bg-[#15181D] border border-rose-500/40 rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl">
+          <div className="bg-[#0C1B2A] border border-rose-500/40 rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl">
             <div className="flex items-center gap-2.5 text-rose-400">
               <XCircle className="w-5 h-5" />
-              <h3 className="text-base font-bold text-[#F4F2ED]">
+              <h3 className="text-base font-bold text-[#F5F7FA]">
                 Reject Proposal v{selectedVersion.version}
               </h3>
             </div>
-            <p className="text-xs text-[#9CA3AF]">
+            <p className="text-xs text-[#8FA3B7]">
               Rejecting transitions v{selectedVersion.version} to <code className="font-mono">REJECTED</code> status.
               Provide a clear reason (minimum 5 characters) for the proposer and audit trail.
             </p>

@@ -1,6 +1,8 @@
 import type { ApiErrorResponse } from './types';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000/api/v1';
+const ACCESS_TOKEN_KEY = 'draughtbet_admin_token';
+const REFRESH_TOKEN_KEY = 'draughtbet_admin_refresh';
 
 export class ApiError extends Error {
   statusCode: number;
@@ -14,35 +16,84 @@ export class ApiError extends Error {
   }
 }
 
+function decodeJwtPayload(token: string): Record<string, unknown> | null {
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) return null;
+    const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    const padded = base64.padEnd(base64.length + ((4 - (base64.length % 4)) % 4), '=');
+    return JSON.parse(atob(padded)) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
 class ApiClient {
   private accessToken: string | null = null;
   private refreshToken: string | null = null;
+  private refreshInFlight: Promise<boolean> | null = null;
 
   constructor() {
     if (typeof window !== 'undefined') {
-      this.accessToken = localStorage.getItem('draughtbet_admin_token');
-      this.refreshToken = localStorage.getItem('draughtbet_admin_refresh');
+      this.syncTokensFromStorage();
+      window.addEventListener('storage', (ev) => {
+        if (ev.key === ACCESS_TOKEN_KEY || ev.key === REFRESH_TOKEN_KEY || ev.key === null) {
+          this.syncTokensFromStorage();
+        }
+      });
     }
+  }
+
+  private syncTokensFromStorage() {
+    if (typeof window === 'undefined') return;
+    this.accessToken = localStorage.getItem(ACCESS_TOKEN_KEY);
+    this.refreshToken = localStorage.getItem(REFRESH_TOKEN_KEY);
   }
 
   setTokens(accessToken: string | null, refreshToken: string | null) {
     this.accessToken = accessToken;
     this.refreshToken = refreshToken;
     if (typeof window !== 'undefined') {
-      if (accessToken) localStorage.setItem('draughtbet_admin_token', accessToken);
-      else localStorage.removeItem('draughtbet_admin_token');
+      if (accessToken) localStorage.setItem(ACCESS_TOKEN_KEY, accessToken);
+      else localStorage.removeItem(ACCESS_TOKEN_KEY);
 
-      if (refreshToken) localStorage.setItem('draughtbet_admin_refresh', refreshToken);
-      else localStorage.removeItem('draughtbet_admin_refresh');
+      if (refreshToken) localStorage.setItem(REFRESH_TOKEN_KEY, refreshToken);
+      else localStorage.removeItem(REFRESH_TOKEN_KEY);
     }
   }
 
   getAccessToken() {
+    if (typeof window !== 'undefined') {
+      this.syncTokensFromStorage();
+    }
     return this.accessToken;
+  }
+
+  getRefreshToken() {
+    if (typeof window !== 'undefined') {
+      this.syncTokensFromStorage();
+    }
+    return this.refreshToken;
+  }
+
+  getAccessTokenExpiryMs(): number | null {
+    const token = this.getAccessToken();
+    if (!token) return null;
+    const payload = decodeJwtPayload(token);
+    return typeof payload?.exp === 'number' ? payload.exp * 1000 : null;
   }
 
   clearAuth() {
     this.setTokens(null, null);
+  }
+
+  async ensureFreshToken(minRemainingMs = 3 * 60 * 1000): Promise<boolean> {
+    const expMs = this.getAccessTokenExpiryMs();
+    if (!this.getRefreshToken()) return false;
+    if (expMs !== null && expMs - Date.now() > minRemainingMs) {
+      return true;
+    }
+    return this.tryRefresh();
   }
 
   async request<T>(
@@ -51,14 +102,15 @@ class ApiClient {
     retryOn401 = true
   ): Promise<T> {
     const url = endpoint.startsWith('http') ? endpoint : `${API_BASE_URL}${endpoint}`;
+    const token = this.getAccessToken();
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       'x-app-version': '2.1.0',
       ...(options.headers as Record<string, string>)
     };
 
-    if (this.accessToken) {
-      headers['Authorization'] = `Bearer ${this.accessToken}`;
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
     }
 
     let response: Response;
@@ -72,8 +124,14 @@ class ApiClient {
       );
     }
 
-    // Handle 401 token refresh retry
-    if (response.status === 401 && retryOn401 && this.refreshToken && !endpoint.includes('/auth/login')) {
+    // Handle 401 with single-flight token refresh retry (avoids single-use rotation races)
+    if (
+      response.status === 401 &&
+      retryOn401 &&
+      this.getRefreshToken() &&
+      !endpoint.includes('/auth/login') &&
+      !endpoint.includes('/auth/refresh')
+    ) {
       const refreshed = await this.tryRefresh();
       if (refreshed) {
         return this.request<T>(endpoint, options, false);
@@ -108,38 +166,47 @@ class ApiClient {
   }
 
   private async tryRefresh(): Promise<boolean> {
-    if (!this.refreshToken || !this.accessToken) return false;
-    let userId: string | null = null;
-    try {
-      const parts = this.accessToken.split('.');
-      if (parts.length === 3) {
-        const payload = JSON.parse(atob(parts[1]));
-        userId = payload.userId || payload.sub || null;
-      }
-    } catch {
-      return false;
+    if (this.refreshInFlight) {
+      return this.refreshInFlight;
     }
-    if (!userId) return false;
 
-    try {
-      const res = await fetch(`${API_BASE_URL}/auth/refresh`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-app-version': '2.1.0'
-        },
-        body: JSON.stringify({ userId, refreshToken: this.refreshToken })
-      });
-      if (!res.ok) return false;
-      const data = await res.json();
-      if (data.accessToken) {
-        this.setTokens(data.accessToken, data.refreshToken || this.refreshToken);
-        return true;
+    this.refreshInFlight = (async () => {
+      this.syncTokensFromStorage();
+      const currentRefresh = this.refreshToken;
+      const currentAccess = this.accessToken;
+      if (!currentRefresh || !currentAccess) return false;
+
+      const payload = decodeJwtPayload(currentAccess);
+      const userId =
+        (typeof payload?.userId === 'string' && payload.userId) ||
+        (typeof payload?.sub === 'string' && payload.sub) ||
+        null;
+      if (!userId) return false;
+
+      try {
+        const res = await fetch(`${API_BASE_URL}/auth/refresh`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-app-version': '2.1.0'
+          },
+          body: JSON.stringify({ userId, refreshToken: currentRefresh })
+        });
+        if (!res.ok) return false;
+        const data = await res.json();
+        if (data.accessToken) {
+          this.setTokens(data.accessToken, data.refreshToken || currentRefresh);
+          return true;
+        }
+        return false;
+      } catch {
+        return false;
       }
-      return false;
-    } catch {
-      return false;
-    }
+    })().finally(() => {
+      this.refreshInFlight = null;
+    });
+
+    return this.refreshInFlight;
   }
 
   get<T>(endpoint: string, options?: RequestInit) {
@@ -168,4 +235,3 @@ class ApiClient {
 }
 
 export const apiClient = new ApiClient();
-

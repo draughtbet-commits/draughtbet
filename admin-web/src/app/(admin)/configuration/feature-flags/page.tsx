@@ -320,17 +320,17 @@ export default function FeatureFlagsPage() {
   return (
     <div className="space-y-6">
       {/* Security Boundary Notice */}
-      <div className="bg-[#15181D] border border-[#2E333B] rounded-xl p-4 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+      <div className="bg-[#0C1B2A] border border-[#274056] rounded-xl p-4 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
         <div className="flex items-start gap-3">
-          <Lock className="w-5 h-5 text-[#E7B24A] shrink-0 mt-0.5" />
+          <Lock className="w-5 h-5 text-[#18C986] shrink-0 mt-0.5" />
           <div className="text-xs space-y-0.5">
-            <div className="font-bold text-[#F4F2ED]">
+            <div className="font-bold text-[#F5F7FA]">
               Authoritative RBAC Boundary &amp; Protected Invariant Enforcement
             </div>
-            <p className="text-[#9CA3AF]">
+            <p className="text-[#8FA3B7]">
               Feature flags control progressive rollout, tier targeting, operational kill-switches, and admin UI
               visibility only. They <strong>never grant administrative permissions</strong> or bypass backend RBAC,
-              KYC, safer-play, or ledger invariants. Flags marked <code className="font-mono text-[#E7B24A]">Protected Invariant</code>{' '}
+              KYC, safer-play, or ledger invariants. Flags marked <code className="font-mono text-[#18C986]">Protected Invariant</code>{' '}
               are locked at 100% enabled.
             </p>
           </div>
@@ -387,13 +387,13 @@ export default function FeatureFlagsPage() {
       <Card className="p-4">
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
           <div className="relative">
-            <Search className="w-4 h-4 text-[#6B7280] absolute left-3 top-2.5" />
+            <Search className="w-4 h-4 text-[#53677A] absolute left-3 top-2.5" />
             <input
               type="text"
               placeholder="Search by key, name, or description…"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full h-9 pl-9 pr-3 bg-[#0B0D10] border border-[#2E333B] rounded-lg text-xs text-[#F4F2ED] placeholder-[#6B7280] focus:outline-none focus:border-[#E7B24A]"
+              className="w-full h-9 pl-9 pr-3 bg-[#000000] border border-[#274056] rounded-lg text-xs text-[#F5F7FA] placeholder-[#53677A] focus:outline-none focus:border-[#18C986]"
             />
           </div>
 
@@ -401,7 +401,7 @@ export default function FeatureFlagsPage() {
             aria-label="Filter feature flags by status"
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value as 'ALL' | 'ENABLED' | 'DISABLED')}
-            className="h-9 px-3 bg-[#0B0D10] border border-[#2E333B] rounded-lg text-xs text-[#F4F2ED]"
+            className="h-9 px-3 bg-[#000000] border border-[#274056] rounded-lg text-xs text-[#F5F7FA]"
           >
             <option value="ALL">All Statuses</option>
             <option value="ENABLED">Enabled Only</option>
@@ -412,7 +412,7 @@ export default function FeatureFlagsPage() {
             aria-label="Filter feature flags by rollout percentage"
             value={rolloutFilter}
             onChange={(e) => setRolloutFilter(e.target.value as 'ALL' | 'FULL' | 'PARTIAL' | 'ZERO')}
-            className="h-9 px-3 bg-[#0B0D10] border border-[#2E333B] rounded-lg text-xs text-[#F4F2ED]"
+            className="h-9 px-3 bg-[#000000] border border-[#274056] rounded-lg text-xs text-[#F5F7FA]"
           >
             <option value="ALL">All Rollout Percentages</option>
             <option value="FULL">100% Full Rollout</option>
@@ -424,7 +424,7 @@ export default function FeatureFlagsPage() {
             aria-label="Filter feature flags by classification"
             value={typeFilter}
             onChange={(e) => setTypeFilter(e.target.value as 'ALL' | 'KILL_SWITCH' | 'PROTECTED')}
-            className="h-9 px-3 bg-[#0B0D10] border border-[#2E333B] rounded-lg text-xs text-[#F4F2ED]"
+            className="h-9 px-3 bg-[#000000] border border-[#274056] rounded-lg text-xs text-[#F5F7FA]"
           >
             <option value="ALL">All Flag Classifications</option>
             <option value="KILL_SWITCH">Operational Kill Switches Only</option>
@@ -447,16 +447,16 @@ export default function FeatureFlagsPage() {
         {error ? (
           <div className="py-8 text-center text-xs text-rose-400">{error}</div>
         ) : isLoading ? (
-          <div className="py-10 text-center text-xs text-[#9CA3AF]">Loading feature flags…</div>
+          <div className="py-10 text-center text-xs text-[#8FA3B7]">Loading feature flags…</div>
         ) : filteredFlags.length === 0 ? (
-          <div className="py-10 text-center text-xs text-[#6B7280]">
+          <div className="py-10 text-center text-xs text-[#53677A]">
             No feature flags match your filter criteria.
           </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
-                <tr className="border-b border-[#2E333B] text-[10px] font-bold uppercase tracking-wider text-[#6B7280]">
+                <tr className="border-b border-[#274056] text-[10px] font-bold uppercase tracking-wider text-[#53677A]">
                   <th className="py-3 px-4">Flag Key &amp; Description</th>
                   <th className="py-3 px-4">State</th>
                   <th className="py-3 px-4">Rollout %</th>
@@ -466,12 +466,12 @@ export default function FeatureFlagsPage() {
                   <th className="py-3 px-4 text-right">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-[#2E333B] text-xs">
+              <tbody className="divide-y divide-[#274056] text-xs">
                 {filteredFlags.map((flag) => (
-                  <tr key={flag.id || flag.key} className="hover:bg-[#1E2229]/60">
+                  <tr key={flag.id || flag.key} className="hover:bg-[#132638]/60">
                     <td className="py-3.5 px-4 align-top max-w-xs">
                       <div className="flex flex-wrap items-center gap-1.5">
-                        <span className="font-mono font-bold text-[#F4F2ED]">{flag.key}</span>
+                        <span className="font-mono font-bold text-[#F5F7FA]">{flag.key}</span>
                         {flag.isKillSwitch && (
                           <Badge variant="warning">
                             <Zap className="w-3 h-3" />
@@ -485,12 +485,12 @@ export default function FeatureFlagsPage() {
                           </Badge>
                         )}
                       </div>
-                      <div className="text-[#F4F2ED]/90 font-medium mt-0.5">{flag.name}</div>
+                      <div className="text-[#F5F7FA]/90 font-medium mt-0.5">{flag.name}</div>
                       {flag.description && (
-                        <div className="text-[11px] text-[#9CA3AF] mt-0.5">{flag.description}</div>
+                        <div className="text-[11px] text-[#8FA3B7] mt-0.5">{flag.description}</div>
                       )}
                       {flag.isProtectedInvariant && (
-                        <div className="text-[10px] text-[#E7B24A] mt-1">
+                        <div className="text-[10px] text-[#18C986] mt-1">
                           Locked: Core compliance/financial invariant cannot be disabled or diluted.
                         </div>
                       )}
@@ -507,12 +507,12 @@ export default function FeatureFlagsPage() {
                     </td>
 
                     <td className="py-3.5 px-4 align-top">
-                      <div className="font-mono font-bold text-[#F4F2ED]">
+                      <div className="font-mono font-bold text-[#F5F7FA]">
                         {flag.rolloutPercentage}%
                       </div>
-                      <div className="w-20 h-1.5 bg-[#0B0D10] rounded-full overflow-hidden mt-1 border border-[#2E333B]">
+                      <div className="w-20 h-1.5 bg-[#000000] rounded-full overflow-hidden mt-1 border border-[#274056]">
                         <div
-                          className="h-full bg-[#E7B24A]"
+                          className="h-full bg-[#18C986]"
                           style={{ width: `${Math.min(100, Math.max(0, flag.rolloutPercentage))}%` }}
                         />
                       </div>
@@ -524,14 +524,14 @@ export default function FeatureFlagsPage() {
                           {flag.allowedTiers.map((t) => (
                             <span
                               key={t}
-                              className="px-1.5 py-0.5 rounded bg-[#0B0D10] border border-[#2E333B] font-mono text-[10px] text-[#F4F2ED]"
+                              className="px-1.5 py-0.5 rounded bg-[#000000] border border-[#274056] font-mono text-[10px] text-[#F5F7FA]"
                             >
                               {t}
                             </span>
                           ))}
                         </div>
                       ) : (
-                        <span className="text-[#9CA3AF] text-[11px]">All Tiers</span>
+                        <span className="text-[#8FA3B7] text-[11px]">All Tiers</span>
                       )}
                     </td>
 
@@ -541,24 +541,24 @@ export default function FeatureFlagsPage() {
                           flag.allowedRoles.map((r) => (
                             <span
                               key={r}
-                              className="px-1.5 py-0.5 rounded bg-[#0B0D10] border border-[#2E333B] font-mono text-[10px] text-[#9CA3AF]"
+                              className="px-1.5 py-0.5 rounded bg-[#000000] border border-[#274056] font-mono text-[10px] text-[#8FA3B7]"
                             >
                               {r}
                             </span>
                           ))
                         ) : (
-                          <span className="text-[#9CA3AF] text-[11px]">All Admin Roles</span>
+                          <span className="text-[#8FA3B7] text-[11px]">All Admin Roles</span>
                         )}
                       </div>
-                      <div className="text-[10px] text-[#6B7280] mt-1">
+                      <div className="text-[10px] text-[#53677A] mt-1">
                         UI visibility only • RBAC authoritative
                       </div>
                     </td>
 
-                    <td className="py-3.5 px-4 align-top text-[11px] text-[#9CA3AF]">
+                    <td className="py-3.5 px-4 align-top text-[11px] text-[#8FA3B7]">
                       <div className="font-mono">{formatDate(flag.updatedAt)}</div>
                       {flag.updatedBy?.email && (
-                        <div className="text-[#6B7280]">by {flag.updatedBy.email}</div>
+                        <div className="text-[#53677A]">by {flag.updatedBy.email}</div>
                       )}
                     </td>
 
@@ -649,7 +649,7 @@ export default function FeatureFlagsPage() {
       <Card className="space-y-4">
         <CardHeader>
           <div className="flex items-center gap-2.5">
-            <Flag className="w-5 h-5 text-[#E7B24A]" />
+            <Flag className="w-5 h-5 text-[#18C986]" />
             <div>
               <CardTitle>Deterministic SHA-256 Rollout &amp; Tier Evaluator (`POST /:key/evaluate`)</CardTitle>
               <CardDescription>
@@ -662,14 +662,14 @@ export default function FeatureFlagsPage() {
 
         <form onSubmit={handleRunEvaluator} className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
           <div className="space-y-1.5">
-            <label className="block text-xs font-semibold uppercase tracking-wider text-[#9CA3AF]">
+            <label className="block text-xs font-semibold uppercase tracking-wider text-[#8FA3B7]">
               Feature Flag Key
             </label>
             <select
               aria-label="Select feature flag to evaluate"
               value={evalFlagKey}
               onChange={(e) => setEvalFlagKey(e.target.value)}
-              className="w-full h-10 px-3 bg-[#0B0D10] border border-[#2E333B] rounded-lg text-xs font-mono text-[#F4F2ED]"
+              className="w-full h-10 px-3 bg-[#000000] border border-[#274056] rounded-lg text-xs font-mono text-[#F5F7FA]"
             >
               {flags.map((f) => (
                 <option key={f.key} value={f.key}>
@@ -687,14 +687,14 @@ export default function FeatureFlagsPage() {
           />
 
           <div className="space-y-1.5">
-            <label className="block text-xs font-semibold uppercase tracking-wider text-[#9CA3AF]">
+            <label className="block text-xs font-semibold uppercase tracking-wider text-[#8FA3B7]">
               Player Tier (`userTier`)
             </label>
             <select
               aria-label="Select player tier to evaluate"
               value={evalUserTier}
               onChange={(e) => setEvalUserTier(e.target.value as PlayerTier)}
-              className="w-full h-10 px-3 bg-[#0B0D10] border border-[#2E333B] rounded-lg text-xs font-mono text-[#F4F2ED]"
+              className="w-full h-10 px-3 bg-[#000000] border border-[#274056] rounded-lg text-xs font-mono text-[#F5F7FA]"
             >
               {ALL_TIERS.map((t) => (
                 <option key={t} value={t}>
@@ -705,21 +705,21 @@ export default function FeatureFlagsPage() {
           </div>
 
           <Button type="submit" variant="secondary" isLoading={isEvaluating}>
-            <Play className="w-3.5 h-3.5 text-[#E7B24A]" />
+            <Play className="w-3.5 h-3.5 text-[#18C986]" />
             Evaluate Cohort
           </Button>
         </form>
 
         {evalResult && (
-          <div className="bg-[#0B0D10] border border-[#2E333B] rounded-xl p-4 flex flex-wrap items-center justify-between gap-4 text-xs">
+          <div className="bg-[#000000] border border-[#274056] rounded-xl p-4 flex flex-wrap items-center justify-between gap-4 text-xs">
             <div className="flex flex-wrap items-center gap-3">
-              <span className="font-mono font-bold text-[#F4F2ED]">{evalResult.key}:</span>
+              <span className="font-mono font-bold text-[#F5F7FA]">{evalResult.key}:</span>
               <Badge variant={evalResult.enabled ? 'success' : 'danger'}>
                 {evalResult.enabled ? 'ENABLED FOR SUBJECT' : 'DISABLED FOR SUBJECT'}
               </Badge>
-              <span className="font-mono text-[#9CA3AF]">Reason: {evalResult.reason}</span>
+              <span className="font-mono text-[#8FA3B7]">Reason: {evalResult.reason}</span>
               {evalResult.bucket !== null && (
-                <span className="font-mono text-[#E7B24A]">
+                <span className="font-mono text-[#18C986]">
                   SHA-256 Bucket: {evalResult.bucket} / 99 (Threshold: &lt;{evalResult.rolloutPercentage}%)
                 </span>
               )}
@@ -740,10 +740,10 @@ export default function FeatureFlagsPage() {
         >
           <form
             onSubmit={handleSaveFlagForm}
-            className="bg-[#15181D] border border-[#2E333B] rounded-2xl max-w-2xl w-full p-6 space-y-4 shadow-2xl"
+            className="bg-[#0C1B2A] border border-[#274056] rounded-2xl max-w-2xl w-full p-6 space-y-4 shadow-2xl"
           >
-            <div className="flex items-center justify-between border-b border-[#2E333B] pb-3">
-              <h3 className="text-base font-bold text-[#F4F2ED]">
+            <div className="flex items-center justify-between border-b border-[#274056] pb-3">
+              <h3 className="text-base font-bold text-[#F5F7FA]">
                 {editorMode === 'CREATE'
                   ? 'Create New Feature Flag'
                   : `Edit Feature Flag: ${editingFlag?.key}`}
@@ -751,7 +751,7 @@ export default function FeatureFlagsPage() {
               <button
                 type="button"
                 onClick={() => setEditorMode(null)}
-                className="text-[#9CA3AF] hover:text-[#F4F2ED]"
+                className="text-[#8FA3B7] hover:text-[#F5F7FA]"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -794,22 +794,22 @@ export default function FeatureFlagsPage() {
               />
 
               <div className="space-y-2 pt-1">
-                <label className="flex items-center gap-2 text-xs text-[#F4F2ED] cursor-pointer">
+                <label className="flex items-center gap-2 text-xs text-[#F5F7FA] cursor-pointer">
                   <input
                     type="checkbox"
                     checked={formEnabled}
                     onChange={(e) => setFormEnabled(e.target.checked)}
-                    className="rounded border-[#2E333B] bg-[#0B0D10]"
+                    className="rounded border-[#274056] bg-[#000000]"
                   />
                   <span className="font-semibold">Enabled (`enabled: true`)</span>
                 </label>
 
-                <label className="flex items-center gap-2 text-xs text-[#F4F2ED] cursor-pointer">
+                <label className="flex items-center gap-2 text-xs text-[#F5F7FA] cursor-pointer">
                   <input
                     type="checkbox"
                     checked={formIsKillSwitch}
                     onChange={(e) => setFormIsKillSwitch(e.target.checked)}
-                    className="rounded border-[#2E333B] bg-[#0B0D10]"
+                    className="rounded border-[#274056] bg-[#000000]"
                   />
                   <span className="font-semibold text-amber-400">
                     Designate as Operational Kill Switch (`isKillSwitch`)
@@ -820,7 +820,7 @@ export default function FeatureFlagsPage() {
 
             {/* Allowed Player Tiers */}
             <div className="space-y-1.5">
-              <label className="block text-xs font-semibold uppercase tracking-wider text-[#9CA3AF]">
+              <label className="block text-xs font-semibold uppercase tracking-wider text-[#8FA3B7]">
                 Target Player Tiers (`allowedTiers` — Leave empty for All Tiers)
               </label>
               <div className="flex flex-wrap gap-2">
@@ -831,8 +831,8 @@ export default function FeatureFlagsPage() {
                     onClick={() => toggleTierSelection(tier)}
                     className={`px-3 py-1.5 rounded-lg text-xs font-mono border ${
                       formTiers.includes(tier)
-                        ? 'bg-[#3A2E17] text-[#E7B24A] border-[#E7B24A]/50 font-bold'
-                        : 'bg-[#0B0D10] text-[#9CA3AF] border-[#2E333B]'
+                        ? 'bg-[#0E2E2B] text-[#18C986] border-[#18C986]/50 font-bold'
+                        : 'bg-[#000000] text-[#8FA3B7] border-[#274056]'
                     }`}
                   >
                     {tier}
@@ -843,7 +843,7 @@ export default function FeatureFlagsPage() {
 
             {/* Admin Role Visibility Metadata */}
             <div className="space-y-1.5">
-              <label className="block text-xs font-semibold uppercase tracking-wider text-[#9CA3AF]">
+              <label className="block text-xs font-semibold uppercase tracking-wider text-[#8FA3B7]">
                 Admin Role UI Visibility (`allowedRoles` — UI Visibility Only, Never Grants RBAC)
               </label>
               <div className="flex flex-wrap gap-1.5">
@@ -854,8 +854,8 @@ export default function FeatureFlagsPage() {
                     onClick={() => toggleRoleSelection(role)}
                     className={`px-2.5 py-1 rounded-md text-[11px] font-mono border ${
                       formRoles.includes(role)
-                        ? 'bg-[#3A2E17] text-[#E7B24A] border-[#E7B24A]/50 font-bold'
-                        : 'bg-[#0B0D10] text-[#9CA3AF] border-[#2E333B]'
+                        ? 'bg-[#0E2E2B] text-[#18C986] border-[#18C986]/50 font-bold'
+                        : 'bg-[#000000] text-[#8FA3B7] border-[#274056]'
                     }`}
                   >
                     {role}
@@ -871,7 +871,7 @@ export default function FeatureFlagsPage() {
               placeholder="Explain why this flag is being created or updated"
             />
 
-            <div className="flex justify-end gap-2 pt-3 border-t border-[#2E333B]">
+            <div className="flex justify-end gap-2 pt-3 border-t border-[#274056]">
               <Button variant="ghost" size="sm" type="button" onClick={() => setEditorMode(null)}>
                 Cancel
               </Button>
@@ -890,10 +890,10 @@ export default function FeatureFlagsPage() {
           aria-modal="true"
           className="fixed inset-0 z-50 bg-black/75 flex items-center justify-center p-4"
         >
-          <div className="bg-[#15181D] border border-[#2E333B] rounded-xl max-w-md w-full p-6 space-y-4">
+          <div className="bg-[#0C1B2A] border border-[#274056] rounded-xl max-w-md w-full p-6 space-y-4">
             <div className="flex items-center gap-2.5">
               <ShieldAlert className="w-5 h-5 text-amber-400" />
-              <h3 className="text-base font-bold text-[#F4F2ED]">
+              <h3 className="text-base font-bold text-[#F5F7FA]">
                 {actionModal.mode === 'KILL_SWITCH'
                   ? `${actionModal.targetEnabled ? 'Restore' : 'Trip'} Kill Switch: ${actionModal.flag.key}`
                   : actionModal.mode === 'DELETE'
@@ -902,7 +902,7 @@ export default function FeatureFlagsPage() {
               </h3>
             </div>
 
-            <p className="text-xs text-[#9CA3AF]">
+            <p className="text-xs text-[#8FA3B7]">
               {actionModal.mode === 'KILL_SWITCH'
                 ? 'This operational circuit breaker action will be immediately persisted to PostgreSQL, broadcast via the transactional outbox to purge Redis caches, and logged in AdminAuditLog.'
                 : 'Provide an auditable operational reason (minimum 5 characters) to execute this change.'}
@@ -939,20 +939,20 @@ export default function FeatureFlagsPage() {
           aria-modal="true"
           className="fixed inset-0 z-50 bg-black/75 flex items-center justify-center p-4 overflow-y-auto"
         >
-          <div className="bg-[#15181D] border border-[#2E333B] rounded-2xl max-w-3xl w-full max-h-[85vh] flex flex-col p-6 space-y-4">
-            <div className="flex items-center justify-between border-b border-[#2E333B] pb-3">
+          <div className="bg-[#0C1B2A] border border-[#274056] rounded-2xl max-w-3xl w-full max-h-[85vh] flex flex-col p-6 space-y-4">
+            <div className="flex items-center justify-between border-b border-[#274056] pb-3">
               <div>
-                <h3 className="text-base font-bold text-[#F4F2ED]">
-                  Feature Flag Audit History: <span className="font-mono text-[#E7B24A]">{historyFlag.key}</span>
+                <h3 className="text-base font-bold text-[#F5F7FA]">
+                  Feature Flag Audit History: <span className="font-mono text-[#18C986]">{historyFlag.key}</span>
                 </h3>
-                <p className="text-xs text-[#9CA3AF]">
+                <p className="text-xs text-[#8FA3B7]">
                   Chronological record of creations, updates, toggles, and kill-switch events.
                 </p>
               </div>
               <button
                 type="button"
                 onClick={() => setHistoryFlag(null)}
-                className="text-[#9CA3AF] hover:text-[#F4F2ED]"
+                className="text-[#8FA3B7] hover:text-[#F5F7FA]"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -960,28 +960,28 @@ export default function FeatureFlagsPage() {
 
             <div className="overflow-y-auto flex-1 space-y-3">
               {isLoadingHistory ? (
-                <div className="py-8 text-center text-xs text-[#9CA3AF]">Loading audit trail…</div>
+                <div className="py-8 text-center text-xs text-[#8FA3B7]">Loading audit trail…</div>
               ) : historyLogs.length === 0 ? (
-                <div className="py-8 text-center text-xs text-[#6B7280]">
+                <div className="py-8 text-center text-xs text-[#53677A]">
                   No audit records found for this feature flag.
                 </div>
               ) : (
                 historyLogs.map((log) => (
                   <div
                     key={log.id}
-                    className="bg-[#0B0D10] border border-[#2E333B] rounded-xl p-3.5 text-xs space-y-1.5"
+                    className="bg-[#000000] border border-[#274056] rounded-xl p-3.5 text-xs space-y-1.5"
                   >
                     <div className="flex items-center justify-between">
-                      <span className="font-mono font-bold text-[#E7B24A]">{log.action}</span>
-                      <span className="font-mono text-[11px] text-[#9CA3AF]">
+                      <span className="font-mono font-bold text-[#18C986]">{log.action}</span>
+                      <span className="font-mono text-[11px] text-[#8FA3B7]">
                         {formatDate(log.createdAt)}
                       </span>
                     </div>
-                    <div className="text-[#9CA3AF]">
-                      Actor: <span className="font-mono text-[#F4F2ED]">{log.adminId}</span>
+                    <div className="text-[#8FA3B7]">
+                      Actor: <span className="font-mono text-[#F5F7FA]">{log.adminId}</span>
                     </div>
                     {log.metadata && (
-                      <pre className="bg-[#15181D] border border-[#2E333B] rounded-lg p-2.5 font-mono text-[11px] text-[#9CA3AF] overflow-x-auto">
+                      <pre className="bg-[#0C1B2A] border border-[#274056] rounded-lg p-2.5 font-mono text-[11px] text-[#8FA3B7] overflow-x-auto">
                         {JSON.stringify(log.metadata, null, 2)}
                       </pre>
                     )}

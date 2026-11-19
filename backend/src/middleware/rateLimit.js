@@ -1,4 +1,4 @@
-import { rateLimit, MemoryStore } from 'express-rate-limit';
+import { rateLimit, MemoryStore, ipKeyGenerator } from 'express-rate-limit';
 import { RedisStore } from 'rate-limit-redis';
 import logger from '../utils/logger.js';
 import redis, { isRedisReady } from '../utils/redis.js';
@@ -12,7 +12,19 @@ const LIMITER_DEFAULTS = {
   legacyHeaders: false, // Disable the `X-RateLimit-*` headers
   // Limiters are stacked (route bucket over the global one); singleCount would
   // abort the stacked increment and defeat the route-specific budgets.
-  validate: { singleCount: false, xForwardedForHeader: false, validationsConfig: false },
+  validate: { singleCount: false, xForwardedForHeader: false, validationsConfig: false, keyGeneratorIpFallback: false },
+  // When local dev simulation is active, isolate rate-limit buckets per simulated
+  // identity (`x-sim-user`) so 20 independent users do not share one localhost IP bucket.
+  keyGenerator: (req) => {
+    const baseIp = ipKeyGenerator(req.ip || '127.0.0.1');
+    if (process.env.NODE_ENV === 'development' && process.env.SIMULATION_ENABLED === 'true') {
+      const simTag = req.get('x-sim-user');
+      if (typeof simTag === 'string' && /^[A-Za-z0-9_.+-]{4,80}$/.test(simTag)) {
+        return `${baseIp}:sim:${simTag}`;
+      }
+    }
+    return baseIp;
+  }
 };
 
 /**

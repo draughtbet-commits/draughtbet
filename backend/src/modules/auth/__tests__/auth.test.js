@@ -459,6 +459,55 @@ describe('Auth System', () => {
       expect(res.body.error).toBe('Invalid or expired refresh token');
       expect(mockRedis.set).not.toHaveBeenCalled();
     });
+
+    it('fails closed outside development/test when Redis is unavailable', async () => {
+      const prevEnv = process.env.NODE_ENV;
+      const offlineRedis = { ...mockRedis, status: 'reconnecting' };
+      AuthService.__setRedis(offlineRedis);
+
+      try {
+        for (const env of ['production', 'staging', undefined]) {
+          if (env === undefined) delete process.env.NODE_ENV;
+          else process.env.NODE_ENV = env;
+
+          await expect(AuthService.issueTokens('user-id')).rejects.toThrow(
+            'Authentication session store unavailable'
+          );
+          await expect(AuthService.refresh('user-id', 'old-token')).rejects.toThrow(
+            'Authentication session store unavailable'
+          );
+          await expect(AuthService.createGeoBinding('ng')).resolves.toBeNull();
+        }
+      } finally {
+        process.env.NODE_ENV = prevEnv;
+        AuthService.__setRedis(mockRedis);
+      }
+    });
+
+    it('enforces single-winner atomic PostgreSQL CAS rotation during dev/test Redis fallback', async () => {
+      const offlineRedis = { ...mockRedis, status: 'reconnecting' };
+      AuthService.__setRedis(offlineRedis);
+
+      try {
+        mockPrisma.userSession.findUnique.mockResolvedValue({
+          id: 'sess-1',
+          userId: 'user-id',
+          family: 'fam-1',
+          status: 'ACTIVE',
+          expiresAt: new Date(Date.now() + 60_000)
+        });
+        mockPrisma.user.findUnique.mockResolvedValue({ id: 'user-id', isBanned: false });
+        // Simulate concurrent loser where another worker already flipped status != ACTIVE
+        mockPrisma.userSession.updateMany.mockResolvedValueOnce({ count: 0 });
+
+        await expect(AuthService.refresh('user-id', 'race-token')).rejects.toThrow(
+          'Invalid or expired refresh token'
+        );
+        expect(mockPrisma.userSession.create).not.toHaveBeenCalled();
+      } finally {
+        AuthService.__setRedis(mockRedis);
+      }
+    });
   });
 
   describe('PATCH /admin/users/:userId/ban', () => {

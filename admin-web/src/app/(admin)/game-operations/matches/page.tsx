@@ -60,8 +60,41 @@ export default function MatchesPage() {
   }, [page, statusFilter, tierFilter]);
 
   useEffect(() => {
-    fetchMatches();
-  }, [fetchMatches]);
+    let active = true;
+    const poll = () => {
+      adminApi.getMatches({
+        page,
+        limit: 10,
+        status: statusFilter === 'ALL' ? undefined : statusFilter,
+        tier: tierFilter === 'ALL' ? undefined : tierFilter
+      })
+        .then((data) => {
+          if (!active) return;
+          setMatches(data.matches || []);
+          setTotalPages(data.totalPages || 1);
+          setTotal(data.total || 0);
+          setError(null);
+        })
+        .catch((err: unknown) => {
+          if (!active) return;
+          setError(err instanceof Error ? err.message : 'Failed to fetch matches');
+        })
+        .finally(() => {
+          if (active) setIsLoading(false);
+        });
+    };
+
+    poll();
+    const timer = setInterval(() => {
+      if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+        poll();
+      }
+    }, 5000);
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
+  }, [page, statusFilter, tierFilter]);
 
   const openMatchDetail = async (id: string) => {
     setSelectedMatchId(id);
@@ -84,13 +117,20 @@ export default function MatchesPage() {
   const getMatchStatusBadge = (status: string) => {
     switch (status) {
       case 'IN_PROGRESS':
-        return <Badge variant="warning">In Progress</Badge>;
+      case 'IN_PLAY':
+      case 'ACTIVE':
+      case 'READY':
+      case 'FUNDED':
+        return <Badge variant="warning">{status.replace(/_/g, ' ')}</Badge>;
       case 'COMPLETED':
-        return <Badge variant="success">Completed</Badge>;
+      case 'SETTLED':
+        return <Badge variant="success">{status === 'SETTLED' ? 'Settled' : 'Completed'}</Badge>;
       case 'CANCELLED':
         return <Badge variant="default">Cancelled</Badge>;
       case 'ABANDONED':
-        return <Badge variant="danger">Abandoned</Badge>;
+      case 'FORFEITED':
+      case 'EXPIRED':
+        return <Badge variant="danger">{status === 'FORFEITED' ? 'Forfeited' : 'Abandoned'}</Badge>;
       case 'DISPUTED':
         return <Badge variant="gold">Disputed</Badge>;
       default:
@@ -101,12 +141,12 @@ export default function MatchesPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-2 border-b border-[#2E333B]">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-2 border-b border-[#274056]">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-[#F4F2ED]">
+          <h1 className="text-2xl font-bold tracking-tight text-[#F5F7FA]">
             Match Operations & Lifecycle Directory
           </h1>
-          <p className="text-xs text-[#9CA3AF] mt-0.5">
+          <p className="text-xs text-[#8FA3B7] mt-0.5">
             Active games, move history, turn clocks, connection telemetry, and ledger reconciliation references.
           </p>
         </div>
@@ -133,8 +173,8 @@ export default function MatchesPage() {
             }}
             className={`px-3 py-1.5 rounded-lg font-medium whitespace-nowrap transition-colors ${
               statusFilter === st
-                ? 'bg-[#E7B24A] text-[#0B0D10] font-bold'
-                : 'bg-[#15181D] text-[#9CA3AF] hover:text-[#F4F2ED] border border-[#2E333B]'
+                ? 'bg-[#18C986] text-[#000000] font-bold'
+                : 'bg-[#0C1B2A] text-[#8FA3B7] hover:text-[#F5F7FA] border border-[#274056]'
             }`}
           >
             {st === 'ALL' ? 'All Statuses' : st.replace(/_/g, ' ')}
@@ -155,7 +195,7 @@ export default function MatchesPage() {
       <Card className="overflow-hidden p-0">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
-            <thead className="bg-[#1E2229] text-[#9CA3AF] border-b border-[#2E333B] uppercase text-[10px] tracking-wider">
+            <thead className="bg-[#132638] text-[#8FA3B7] border-b border-[#274056] uppercase text-[10px] tracking-wider">
               <tr>
                 <th className="py-3 px-4">Created</th>
                 <th className="py-3 px-4">Match ID</th>
@@ -166,39 +206,39 @@ export default function MatchesPage() {
                 <th className="py-3 px-4 text-right">Inspection</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-[#2E333B]">
+            <tbody className="divide-y divide-[#274056]">
               {matches.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="py-12 text-center text-[#6B7280]">
+                  <td colSpan={7} className="py-12 text-center text-[#53677A]">
                     {isLoading ? 'Loading matches...' : 'No matches found.'}
                   </td>
                 </tr>
               ) : (
                 matches.map((m) => (
-                  <tr key={m.id} className="hover:bg-[#1E2229]/40 transition-colors">
-                    <td className="py-3 px-4 font-mono text-[11px] text-[#9CA3AF]">
+                  <tr key={m.id} className="hover:bg-[#132638]/40 transition-colors">
+                    <td className="py-3 px-4 font-mono text-[11px] text-[#8FA3B7]">
                       {formatDate(m.createdAt)}
                     </td>
-                    <td className="py-3 px-4 font-mono text-[11px] text-[#E7B24A]">
+                    <td className="py-3 px-4 font-mono text-[11px] text-[#18C986]">
                       {m.id.slice(0, 8)}...
                     </td>
                     <td className="py-3 px-4">
-                      <div className="font-semibold text-[#F4F2ED]">
+                      <div className="font-semibold text-[#F5F7FA]">
                         {m.playerLight?.username || m.playerLight?.fullName || m.playerLight?.id.slice(0, 8)}
                       </div>
-                      <div className="text-[11px] text-[#9CA3AF] font-mono">
+                      <div className="text-[11px] text-[#8FA3B7] font-mono">
                         {m.playerLight?.email}
                       </div>
                     </td>
                     <td className="py-3 px-4">
-                      <div className="font-semibold text-[#F4F2ED]">
+                      <div className="font-semibold text-[#F5F7FA]">
                         {m.playerDark?.username || m.playerDark?.fullName || m.playerDark?.id.slice(0, 8)}
                       </div>
-                      <div className="text-[11px] text-[#9CA3AF] font-mono">
+                      <div className="text-[11px] text-[#8FA3B7] font-mono">
                         {m.playerDark?.email}
                       </div>
                     </td>
-                    <td className="py-3 px-4 font-mono text-sm font-semibold text-[#F4F2ED]">
+                    <td className="py-3 px-4 font-mono text-sm font-semibold text-[#F5F7FA]">
                       {formatNaira(m.stakeMinorUnits)}
                     </td>
                     <td className="py-3 px-4">
@@ -223,9 +263,9 @@ export default function MatchesPage() {
         </div>
 
         {/* Pagination Bar */}
-        <div className="p-3 bg-[#15181D] border-t border-[#2E333B] flex items-center justify-between text-xs text-[#9CA3AF]">
+        <div className="p-3 bg-[#0C1B2A] border-t border-[#274056] flex items-center justify-between text-xs text-[#8FA3B7]">
           <span>
-            Total Matches: <strong className="text-[#F4F2ED] font-mono">{total}</strong>
+            Total Matches: <strong className="text-[#F5F7FA] font-mono">{total}</strong>
           </span>
           <div className="flex items-center gap-2">
             <span>Page {page} of {totalPages}</span>
@@ -254,76 +294,76 @@ export default function MatchesPage() {
       {/* ===================== MATCH DETAIL MODAL ===================== */}
       {selectedMatchId && (
         <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
-          <div className="bg-[#15181D] border border-[#2E333B] rounded-xl max-w-5xl w-full max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
-            <div className="p-4 bg-[#1E2229] border-b border-[#2E333B] flex items-center justify-between">
+          <div className="bg-[#0C1B2A] border border-[#274056] rounded-xl max-w-5xl w-full max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
+            <div className="p-4 bg-[#132638] border-b border-[#274056] flex items-center justify-between">
               <div className="flex items-center gap-2.5">
-                <Swords className="w-5 h-5 text-[#E7B24A]" />
+                <Swords className="w-5 h-5 text-[#18C986]" />
                 <div>
-                  <h2 className="text-sm font-bold text-[#F4F2ED]">
+                  <h2 className="text-sm font-bold text-[#F5F7FA]">
                     10x10 International Draughts Match Inspector
                   </h2>
-                  <p className="text-[11px] font-mono text-[#9CA3AF]">
+                  <p className="text-[11px] font-mono text-[#8FA3B7]">
                     Match ID: {selectedMatchId}
                   </p>
                 </div>
               </div>
               <button
                 onClick={closeMatchDetail}
-                className="text-[#9CA3AF] hover:text-[#F4F2ED] p-1 rounded-md transition-colors"
+                className="text-[#8FA3B7] hover:text-[#F5F7FA] p-1 rounded-md transition-colors"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="p-6 overflow-y-auto space-y-6 text-xs text-[#F4F2ED]">
+            <div className="p-6 overflow-y-auto space-y-6 text-xs text-[#F5F7FA]">
               {isDetailLoading || !matchDetail ? (
-                <div className="py-16 text-center text-[#9CA3AF]">Loading full match details...</div>
+                <div className="py-16 text-center text-[#8FA3B7]">Loading full match details...</div>
               ) : (
                 <>
                   {/* Match Overview Grid */}
                   <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-                    <div className="p-3 bg-[#0B0D10] border border-[#2E333B] rounded-lg space-y-1">
-                      <span className="text-[10px] uppercase text-[#9CA3AF] font-semibold">Light Player (White)</span>
+                    <div className="p-3 bg-[#000000] border border-[#274056] rounded-lg space-y-1">
+                      <span className="text-[10px] uppercase text-[#8FA3B7] font-semibold">Light Player (White)</span>
                       <p className="font-semibold text-sm">{matchDetail.playerLight?.username || matchDetail.playerLight?.id.slice(0, 8)}</p>
-                      <p className="text-[11px] text-[#9CA3AF] font-mono">{matchDetail.playerLight?.email}</p>
-                      <p className="text-[10px] text-[#E7B24A]">Tier: {matchDetail.playerLight?.tier || 'TIER_1'}</p>
+                      <p className="text-[11px] text-[#8FA3B7] font-mono">{matchDetail.playerLight?.email}</p>
+                      <p className="text-[10px] text-[#18C986]">Tier: {matchDetail.playerLight?.tier || 'TIER_1'}</p>
                     </div>
 
-                    <div className="p-3 bg-[#0B0D10] border border-[#2E333B] rounded-lg space-y-1">
-                      <span className="text-[10px] uppercase text-[#9CA3AF] font-semibold">Dark Player (Black)</span>
+                    <div className="p-3 bg-[#000000] border border-[#274056] rounded-lg space-y-1">
+                      <span className="text-[10px] uppercase text-[#8FA3B7] font-semibold">Dark Player (Black)</span>
                       <p className="font-semibold text-sm">{matchDetail.playerDark?.username || matchDetail.playerDark?.id.slice(0, 8)}</p>
-                      <p className="text-[11px] text-[#9CA3AF] font-mono">{matchDetail.playerDark?.email}</p>
-                      <p className="text-[10px] text-[#E7B24A]">Tier: {matchDetail.playerDark?.tier || 'TIER_1'}</p>
+                      <p className="text-[11px] text-[#8FA3B7] font-mono">{matchDetail.playerDark?.email}</p>
+                      <p className="text-[10px] text-[#18C986]">Tier: {matchDetail.playerDark?.tier || 'TIER_1'}</p>
                     </div>
 
-                    <div className="p-3 bg-[#0B0D10] border border-[#2E333B] rounded-lg space-y-1">
-                      <span className="text-[10px] uppercase text-[#9CA3AF] font-semibold">Financial & Stake</span>
-                      <p className="font-mono text-base font-bold text-[#E7B24A]">{formatNaira(matchDetail.stakeMinorUnits)}</p>
-                      <p className="text-[11px] text-[#9CA3AF]">
-                        Commission: <strong className="text-[#F4F2ED]">{matchDetail.settlementCommissionPercent || 5}%</strong>
+                    <div className="p-3 bg-[#000000] border border-[#274056] rounded-lg space-y-1">
+                      <span className="text-[10px] uppercase text-[#8FA3B7] font-semibold">Financial & Stake</span>
+                      <p className="font-mono text-base font-bold text-[#18C986]">{formatNaira(matchDetail.stakeMinorUnits)}</p>
+                      <p className="text-[11px] text-[#8FA3B7]">
+                        Commission: <strong className="text-[#F5F7FA]">{matchDetail.settlementCommissionPercent || 5}%</strong>
                       </p>
-                      <p className="text-[11px] text-[#9CA3AF]">
-                        Status: <strong className="text-[#F4F2ED]">{matchDetail.status}</strong>
+                      <p className="text-[11px] text-[#8FA3B7]">
+                        Status: <strong className="text-[#F5F7FA]">{matchDetail.status}</strong>
                       </p>
                     </div>
 
-                    <div className="p-3 bg-[#0B0D10] border border-[#2E333B] rounded-lg space-y-1">
-                      <span className="text-[10px] uppercase text-[#9CA3AF] font-semibold">Ruleset & Configuration</span>
-                      <p className="text-[11px] text-[#F4F2ED]">Ruleset: <strong className="text-[#E7B24A]">v{matchDetail.rulesetVersion || 1}</strong></p>
-                      <p className="text-[11px] text-[#F4F2ED]">Config: <strong className="text-[#E7B24A]">v{matchDetail.configurationVersion || 1}</strong></p>
-                      <p className="text-[11px] text-[#9CA3AF]">Clock: {matchDetail.timeControlSeconds || 300}s</p>
+                    <div className="p-3 bg-[#000000] border border-[#274056] rounded-lg space-y-1">
+                      <span className="text-[10px] uppercase text-[#8FA3B7] font-semibold">Ruleset & Configuration</span>
+                      <p className="text-[11px] text-[#F5F7FA]">Ruleset: <strong className="text-[#18C986]">v{matchDetail.rulesetVersion || 1}</strong></p>
+                      <p className="text-[11px] text-[#F5F7FA]">Config: <strong className="text-[#18C986]">v{matchDetail.configurationVersion || 1}</strong></p>
+                      <p className="text-[11px] text-[#8FA3B7]">Clock: {matchDetail.timeControlSeconds || 300}s</p>
                     </div>
                   </div>
 
                   {/* Move History Log */}
                   <div className="space-y-2">
-                    <h3 className="text-xs font-bold uppercase tracking-wider text-[#9CA3AF] flex items-center gap-1.5">
-                      <History className="w-3.5 h-3.5 text-[#E7B24A]" />
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-[#8FA3B7] flex items-center gap-1.5">
+                      <History className="w-3.5 h-3.5 text-[#18C986]" />
                       <span>Authoritative Move History ({matchDetail.moves?.length || 0} moves)</span>
                     </h3>
-                    <div className="border border-[#2E333B] rounded-lg max-h-48 overflow-y-auto">
+                    <div className="border border-[#274056] rounded-lg max-h-48 overflow-y-auto">
                       <table className="w-full text-left text-xs">
-                        <thead className="bg-[#1E2229] text-[#9CA3AF] uppercase text-[10px] sticky top-0">
+                        <thead className="bg-[#132638] text-[#8FA3B7] uppercase text-[10px] sticky top-0">
                           <tr>
                             <th className="py-2 px-3">#</th>
                             <th className="py-2 px-3">Player</th>
@@ -334,25 +374,25 @@ export default function MatchesPage() {
                             <th className="py-2 px-3">Timestamp</th>
                           </tr>
                         </thead>
-                        <tbody className="divide-y divide-[#2E333B]">
+                        <tbody className="divide-y divide-[#274056]">
                           {!matchDetail.moves || matchDetail.moves.length === 0 ? (
                             <tr>
-                              <td colSpan={7} className="py-4 text-center text-[#6B7280]">
+                              <td colSpan={7} className="py-4 text-center text-[#53677A]">
                                 No moves made in this match yet.
                               </td>
                             </tr>
                           ) : (
                             matchDetail.moves.map((mv) => (
-                              <tr key={mv.id} className="hover:bg-[#1E2229]/20">
-                                <td className="py-1.5 px-3 font-mono font-bold text-[#E7B24A]">{mv.moveNumber}</td>
-                                <td className="py-1.5 px-3 font-mono text-[11px] text-[#9CA3AF]">{mv.playerId.slice(0, 8)}...</td>
+                              <tr key={mv.id} className="hover:bg-[#132638]/20">
+                                <td className="py-1.5 px-3 font-mono font-bold text-[#18C986]">{mv.moveNumber}</td>
+                                <td className="py-1.5 px-3 font-mono text-[11px] text-[#8FA3B7]">{mv.playerId.slice(0, 8)}...</td>
                                 <td className="py-1.5 px-3 font-mono">{mv.fromSquare}</td>
                                 <td className="py-1.5 px-3 font-mono">{mv.toSquare}</td>
                                 <td className="py-1.5 px-3">{mv.isKingMove ? <span className="text-amber-400 font-bold">KING</span> : '—'}</td>
                                 <td className="py-1.5 px-3 font-mono text-[11px]">
                                   {mv.capturedSquares && mv.capturedSquares.length > 0 ? mv.capturedSquares.join(', ') : '—'}
                                 </td>
-                                <td className="py-1.5 px-3 font-mono text-[10px] text-[#6B7280]">{formatDate(mv.createdAt)}</td>
+                                <td className="py-1.5 px-3 font-mono text-[10px] text-[#53677A]">{formatDate(mv.createdAt)}</td>
                               </tr>
                             ))
                           )}
@@ -363,13 +403,13 @@ export default function MatchesPage() {
 
                   {/* Connection Telemetry */}
                   <div className="space-y-2">
-                    <h3 className="text-xs font-bold uppercase tracking-wider text-[#9CA3AF] flex items-center gap-1.5">
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-[#8FA3B7] flex items-center gap-1.5">
                       <Wifi className="w-3.5 h-3.5 text-sky-400" />
                       <span>Connection & Socket Events ({matchDetail.connectionEvents?.length || 0})</span>
                     </h3>
-                    <div className="border border-[#2E333B] rounded-lg max-h-36 overflow-y-auto">
+                    <div className="border border-[#274056] rounded-lg max-h-36 overflow-y-auto">
                       <table className="w-full text-left text-xs">
-                        <thead className="bg-[#1E2229] text-[#9CA3AF] uppercase text-[10px] sticky top-0">
+                        <thead className="bg-[#132638] text-[#8FA3B7] uppercase text-[10px] sticky top-0">
                           <tr>
                             <th className="py-1.5 px-3">Timestamp</th>
                             <th className="py-1.5 px-3">User</th>
@@ -378,23 +418,23 @@ export default function MatchesPage() {
                             <th className="py-1.5 px-3">User Agent</th>
                           </tr>
                         </thead>
-                        <tbody className="divide-y divide-[#2E333B]">
+                        <tbody className="divide-y divide-[#274056]">
                           {!matchDetail.connectionEvents || matchDetail.connectionEvents.length === 0 ? (
                             <tr>
-                              <td colSpan={5} className="py-3 text-center text-[#6B7280]">No connection events recorded.</td>
+                              <td colSpan={5} className="py-3 text-center text-[#53677A]">No connection events recorded.</td>
                             </tr>
                           ) : (
                             matchDetail.connectionEvents.map((ce) => (
-                              <tr key={ce.id} className="hover:bg-[#1E2229]/20">
-                                <td className="py-1.5 px-3 font-mono text-[10px] text-[#9CA3AF]">{formatDate(ce.createdAt)}</td>
-                                <td className="py-1.5 px-3 font-mono text-[11px] text-[#F4F2ED]">{ce.userId.slice(0, 8)}...</td>
+                              <tr key={ce.id} className="hover:bg-[#132638]/20">
+                                <td className="py-1.5 px-3 font-mono text-[10px] text-[#8FA3B7]">{formatDate(ce.createdAt)}</td>
+                                <td className="py-1.5 px-3 font-mono text-[11px] text-[#F5F7FA]">{ce.userId.slice(0, 8)}...</td>
                                 <td className="py-1.5 px-3">
                                   <Badge variant={ce.state === 'CONNECTED' ? 'success' : 'danger'}>
                                     {ce.state}
                                   </Badge>
                                 </td>
-                                <td className="py-1.5 px-3 font-mono text-[10px] text-[#9CA3AF]">{ce.ipAddress || '—'}</td>
-                                <td className="py-1.5 px-3 text-[10px] text-[#6B7280] truncate max-w-xs">{ce.userAgent || '—'}</td>
+                                <td className="py-1.5 px-3 font-mono text-[10px] text-[#8FA3B7]">{ce.ipAddress || '—'}</td>
+                                <td className="py-1.5 px-3 text-[10px] text-[#53677A] truncate max-w-xs">{ce.userAgent || '—'}</td>
                               </tr>
                             ))
                           )}
@@ -405,38 +445,38 @@ export default function MatchesPage() {
 
                   {/* Ledger Reconciliation References */}
                   <div className="space-y-2">
-                    <h3 className="text-xs font-bold uppercase tracking-wider text-[#9CA3AF] flex items-center gap-1.5">
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-[#8FA3B7] flex items-center gap-1.5">
                       <Receipt className="w-3.5 h-3.5 text-emerald-400" />
                       <span>Ledger Settlements & Financial References</span>
                     </h3>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                      <div className="p-3 bg-[#0B0D10] border border-[#2E333B] rounded-lg space-y-1.5">
-                        <span className="text-[10px] uppercase text-[#9CA3AF] font-semibold">Stake Reservations</span>
+                      <div className="p-3 bg-[#000000] border border-[#274056] rounded-lg space-y-1.5">
+                        <span className="text-[10px] uppercase text-[#8FA3B7] font-semibold">Stake Reservations</span>
                         {matchDetail.stakeReservations && matchDetail.stakeReservations.length > 0 ? (
                           matchDetail.stakeReservations.map((sr) => (
-                            <div key={sr.id} className="flex justify-between items-center text-[11px] border-b border-[#2E333B] pb-1">
-                              <span className="font-mono text-[#9CA3AF]">{sr.userId.slice(0, 8)}...</span>
-                              <span className="font-mono text-[#E7B24A]">{formatNaira(sr.amountMinorUnits)}</span>
+                            <div key={sr.id} className="flex justify-between items-center text-[11px] border-b border-[#274056] pb-1">
+                              <span className="font-mono text-[#8FA3B7]">{sr.userId.slice(0, 8)}...</span>
+                              <span className="font-mono text-[#18C986]">{formatNaira(sr.amountMinorUnits)}</span>
                               <Badge variant="info">{sr.status}</Badge>
                             </div>
                           ))
                         ) : (
-                          <p className="text-[11px] text-[#6B7280]">No reservations found.</p>
+                          <p className="text-[11px] text-[#53677A]">No reservations found.</p>
                         )}
                       </div>
 
-                      <div className="p-3 bg-[#0B0D10] border border-[#2E333B] rounded-lg space-y-1.5">
-                        <span className="text-[10px] uppercase text-[#9CA3AF] font-semibold">Settlement Receipts</span>
+                      <div className="p-3 bg-[#000000] border border-[#274056] rounded-lg space-y-1.5">
+                        <span className="text-[10px] uppercase text-[#8FA3B7] font-semibold">Settlement Receipts</span>
                         {matchDetail.receipts && matchDetail.receipts.length > 0 ? (
                           matchDetail.receipts.map((rc) => (
-                            <div key={rc.id} className="flex justify-between items-center text-[11px] border-b border-[#2E333B] pb-1">
-                              <span className="font-mono text-[#9CA3AF]">{rc.userId.slice(0, 8)}...</span>
+                            <div key={rc.id} className="flex justify-between items-center text-[11px] border-b border-[#274056] pb-1">
+                              <span className="font-mono text-[#8FA3B7]">{rc.userId.slice(0, 8)}...</span>
                               <span className="font-mono text-emerald-400">Payout: {formatNaira(rc.payoutMinorUnits)}</span>
-                              <span className="font-mono text-[10px] text-[#6B7280]">Fee: {formatNaira(rc.feeMinorUnits)}</span>
+                              <span className="font-mono text-[10px] text-[#53677A]">Fee: {formatNaira(rc.feeMinorUnits)}</span>
                             </div>
                           ))
                         ) : (
-                          <p className="text-[11px] text-[#6B7280]">No settlement receipts recorded.</p>
+                          <p className="text-[11px] text-[#53677A]">No settlement receipts recorded.</p>
                         )}
                       </div>
                     </div>

@@ -224,15 +224,15 @@ export default function ConfigurationOverviewPage() {
   return (
     <div className="space-y-6">
       {/* Top Action & Status Bar */}
-      <div className="flex flex-wrap items-center justify-between gap-4 bg-[#15181D] border border-[#2E333B] rounded-xl p-4">
+      <div className="flex flex-wrap items-center justify-between gap-4 bg-[#0C1B2A] border border-[#274056] rounded-xl p-4">
         <div className="flex flex-wrap items-center gap-3 text-xs">
-          <span className="font-bold uppercase tracking-wider text-[#9CA3AF]">
+          <span className="font-bold uppercase tracking-wider text-[#8FA3B7]">
             Global Governance Status:
           </span>
           {activeConfig ? (
             <>
               <Badge variant="gold">Active Config v{activeConfig.version}</Badge>
-              <span className="font-mono text-[#9CA3AF]">
+              <span className="font-mono text-[#8FA3B7]">
                 SHA-256: {activeConfig.checksum.slice(0, 16)}…
               </span>
             </>
@@ -296,46 +296,46 @@ export default function ConfigurationOverviewPage() {
         {/* Card 1: Active Configuration Version */}
         <Card className="space-y-3">
           <div className="flex items-center justify-between">
-            <span className="text-[11px] font-bold uppercase tracking-wider text-[#9CA3AF]">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-[#8FA3B7]">
               Active Configuration
             </span>
-            <GitBranch className="w-4 h-4 text-[#E7B24A]" />
+            <GitBranch className="w-4 h-4 text-[#18C986]" />
           </div>
           {canReadConfig ? (
             activeConfig ? (
               <>
                 <div className="flex items-baseline justify-between">
-                  <span className="text-2xl font-bold font-mono text-[#F4F2ED]">
+                  <span className="text-2xl font-bold font-mono text-[#F5F7FA]">
                     v{activeConfig.version}
                   </span>
                   {getVersionBadge(activeConfig.status)}
                 </div>
-                <div className="space-y-1 text-[11px] text-[#9CA3AF] pt-1 border-t border-[#2E333B]">
+                <div className="space-y-1 text-[11px] text-[#8FA3B7] pt-1 border-t border-[#274056]">
                   <div className="flex justify-between">
                     <span>Activated:</span>
-                    <span className="font-mono text-[#F4F2ED]">
+                    <span className="font-mono text-[#F5F7FA]">
                       {formatDate(activeConfig.activatedAt || activeConfig.createdAt)}
                     </span>
                   </div>
                   <div className="flex justify-between">
                     <span>Last Modified:</span>
-                    <span className="font-mono text-[#F4F2ED]">
+                    <span className="font-mono text-[#F5F7FA]">
                       {formatDate(activeConfig.updatedAt || activeConfig.createdAt)}
                     </span>
                   </div>
                   <div className="flex justify-between">
                     <span>Checksum:</span>
-                    <span className="font-mono text-[#E7B24A]" title={activeConfig.checksum}>
+                    <span className="font-mono text-[#18C986]" title={activeConfig.checksum}>
                       {activeConfig.checksum.slice(0, 14)}…
                     </span>
                   </div>
                 </div>
               </>
             ) : (
-              <p className="text-xs text-[#6B7280] py-4">No active configuration loaded.</p>
+              <p className="text-xs text-[#53677A] py-4">No active configuration loaded.</p>
             )
           ) : (
-            <div className="flex items-center gap-2 text-xs text-[#9CA3AF] py-4">
+            <div className="flex items-center gap-2 text-xs text-[#8FA3B7] py-4">
               <Lock className="w-4 h-4 text-amber-400" />
               <span>Requires `config.read`</span>
             </div>
@@ -345,7 +345,7 @@ export default function ConfigurationOverviewPage() {
         {/* Card 2: Drafts, Approvals & Scheduled Pipeline */}
         <Card className="space-y-3">
           <div className="flex items-center justify-between">
-            <span className="text-[11px] font-bold uppercase tracking-wider text-[#9CA3AF]">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-[#8FA3B7]">
               Maker-Checker Pipeline
             </span>
             <CheckSquare className="w-4 h-4 text-amber-400" />
@@ -353,36 +353,36 @@ export default function ConfigurationOverviewPage() {
           {canReadConfig ? (
             <>
               <div className="grid grid-cols-3 gap-2 pt-1">
-                <div className="bg-[#0B0D10] border border-[#2E333B] rounded-lg p-2.5 text-center">
-                  <div className="text-lg font-bold font-mono text-[#F4F2ED]">
+                <div className="bg-[#000000] border border-[#274056] rounded-lg p-2.5 text-center">
+                  <div className="text-lg font-bold font-mono text-[#F5F7FA]">
                     {pendingDrafts.length}
                   </div>
-                  <div className="text-[10px] uppercase text-[#9CA3AF]">Drafts</div>
+                  <div className="text-[10px] uppercase text-[#8FA3B7]">Drafts</div>
                 </div>
-                <div className="bg-[#0B0D10] border border-amber-500/30 rounded-lg p-2.5 text-center">
+                <div className="bg-[#000000] border border-amber-500/30 rounded-lg p-2.5 text-center">
                   <div className="text-lg font-bold font-mono text-amber-400">
                     {pendingApprovals.length}
                   </div>
                   <div className="text-[10px] uppercase text-amber-400">Awaiting</div>
                 </div>
-                <div className="bg-[#0B0D10] border border-sky-500/30 rounded-lg p-2.5 text-center">
+                <div className="bg-[#000000] border border-sky-500/30 rounded-lg p-2.5 text-center">
                   <div className="text-lg font-bold font-mono text-sky-400">
                     {approvedReadyToActivate.length}
                   </div>
                   <div className="text-[10px] uppercase text-sky-400">Approved</div>
                 </div>
               </div>
-              <div className="flex items-center justify-between text-[11px] text-[#9CA3AF] pt-1 border-t border-[#2E333B]">
+              <div className="flex items-center justify-between text-[11px] text-[#8FA3B7] pt-1 border-t border-[#274056]">
                 <span>Scheduled Target Window:</span>
-                <span className="font-mono text-[#F4F2ED]">{scheduledVersions.length} version(s)</span>
+                <span className="font-mono text-[#F5F7FA]">{scheduledVersions.length} version(s)</span>
               </div>
-              <div className="flex items-center justify-between text-[11px] text-[#9CA3AF]">
+              <div className="flex items-center justify-between text-[11px] text-[#8FA3B7]">
                 <span>Validation / Denied Events:</span>
-                <span className="font-mono text-[#F4F2ED]">{validationOrDeniedLogs.length}</span>
+                <span className="font-mono text-[#F5F7FA]">{validationOrDeniedLogs.length}</span>
               </div>
             </>
           ) : (
-            <div className="flex items-center gap-2 text-xs text-[#9CA3AF] py-4">
+            <div className="flex items-center gap-2 text-xs text-[#8FA3B7] py-4">
               <Lock className="w-4 h-4 text-amber-400" />
               <span>Requires `config.read`</span>
             </div>
@@ -392,13 +392,13 @@ export default function ConfigurationOverviewPage() {
         {/* Card 3: Feature Flags & Kill Switches Summary */}
         <Card className="space-y-3">
           <div className="flex items-center justify-between">
-            <span className="text-[11px] font-bold uppercase tracking-wider text-[#9CA3AF]">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-[#8FA3B7]">
               Feature Flags &amp; Kill Switches
             </span>
             <Flag className="w-4 h-4 text-emerald-400" />
           </div>
           <div className="flex items-baseline justify-between">
-            <span className="text-2xl font-bold font-mono text-[#F4F2ED]">
+            <span className="text-2xl font-bold font-mono text-[#F5F7FA]">
               {enabledFlagsCount} / {flags.length}
             </span>
             <Badge variant={trippedKillSwitches.length > 0 ? 'danger' : 'success'}>
@@ -407,21 +407,21 @@ export default function ConfigurationOverviewPage() {
                 : 'Operational'}
             </Badge>
           </div>
-          <div className="space-y-1 text-[11px] text-[#9CA3AF] pt-1 border-t border-[#2E333B]">
+          <div className="space-y-1 text-[11px] text-[#8FA3B7] pt-1 border-t border-[#274056]">
             <div className="flex justify-between">
               <span>Designated Kill Switches:</span>
-              <span className="font-mono text-[#F4F2ED]">{killSwitchCount}</span>
+              <span className="font-mono text-[#F5F7FA]">{killSwitchCount}</span>
             </div>
             <div className="flex justify-between">
               <span>Protected Invariants:</span>
-              <span className="font-mono text-[#E7B24A]">
+              <span className="font-mono text-[#18C986]">
                 {flags.filter((f) => f.isProtectedInvariant).length}
               </span>
             </div>
             <div className="pt-1">
               <Link
                 href="/configuration/feature-flags"
-                className="inline-flex items-center gap-1 text-[#E7B24A] hover:underline font-medium"
+                className="inline-flex items-center gap-1 text-[#18C986] hover:underline font-medium"
               >
                 Manage Feature Flags <ArrowRight className="w-3 h-3" />
               </Link>
@@ -432,23 +432,23 @@ export default function ConfigurationOverviewPage() {
         {/* Card 4: Maintenance & Notification Templates Summary */}
         <Card className="space-y-3">
           <div className="flex items-center justify-between">
-            <span className="text-[11px] font-bold uppercase tracking-wider text-[#9CA3AF]">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-[#8FA3B7]">
               Maintenance &amp; Templates
             </span>
             <Wrench className="w-4 h-4 text-sky-400" />
           </div>
           <div className="flex items-baseline justify-between">
-            <span className="text-lg font-bold text-[#F4F2ED]">
+            <span className="text-lg font-bold text-[#F5F7FA]">
               {maintenance?.effectiveStatus || 'INACTIVE'}
             </span>
             <Badge variant={maintenance?.effectivelyActive ? 'danger' : 'success'}>
               {maintenance?.effectivelyActive ? maintenance.scope : 'Normal Traffic'}
             </Badge>
           </div>
-          <div className="space-y-1 text-[11px] text-[#9CA3AF] pt-1 border-t border-[#2E333B]">
+          <div className="space-y-1 text-[11px] text-[#8FA3B7] pt-1 border-t border-[#274056]">
             <div className="flex justify-between">
               <span>Active Notification Templates:</span>
-              <span className="font-mono text-[#F4F2ED]">
+              <span className="font-mono text-[#F5F7FA]">
                 {canReadConfig ? `${activeTemplatesCount} / ${templates.length}` : '—'}
               </span>
             </div>
@@ -461,14 +461,14 @@ export default function ConfigurationOverviewPage() {
             <div className="pt-1 flex items-center justify-between">
               <Link
                 href="/configuration/maintenance"
-                className="inline-flex items-center gap-1 text-[#E7B24A] hover:underline font-medium"
+                className="inline-flex items-center gap-1 text-[#18C986] hover:underline font-medium"
               >
                 Maintenance <ArrowRight className="w-3 h-3" />
               </Link>
               {canReadConfig && (
                 <Link
                   href="/configuration/notifications"
-                  className="inline-flex items-center gap-1 text-[#E7B24A] hover:underline font-medium"
+                  className="inline-flex items-center gap-1 text-[#18C986] hover:underline font-medium"
                 >
                   Templates <ArrowRight className="w-3 h-3" />
                 </Link>
@@ -493,23 +493,23 @@ export default function ConfigurationOverviewPage() {
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {/* Domain 1: Platform */}
-            <div className="bg-[#0B0D10] border border-[#2E333B] rounded-xl p-4 space-y-2">
+            <div className="bg-[#000000] border border-[#274056] rounded-xl p-4 space-y-2">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-[#F4F2ED]">Platform Settings</span>
+                <span className="text-xs font-bold text-[#F5F7FA]">Platform Settings</span>
                 <Badge variant="default">PLATFORM</Badge>
               </div>
-              <div className="text-xs space-y-1 text-[#9CA3AF]">
+              <div className="text-xs space-y-1 text-[#8FA3B7]">
                 <div className="flex justify-between">
                   <span>Identity:</span>
-                  <span className="text-[#F4F2ED] font-medium">{activeConfig.payload.platform.identity}</span>
+                  <span className="text-[#F5F7FA] font-medium">{activeConfig.payload.platform.identity}</span>
                 </div>
                 <div className="flex justify-between">
                   <span>Default Currency:</span>
-                  <span className="font-mono text-[#E7B24A]">{activeConfig.payload.platform.defaultCurrency}</span>
+                  <span className="font-mono text-[#18C986]">{activeConfig.payload.platform.defaultCurrency}</span>
                 </div>
                 <div className="flex justify-between">
                   <span>Support Email:</span>
-                  <span className="font-mono text-[#F4F2ED]">{activeConfig.payload.platform.supportEmail}</span>
+                  <span className="font-mono text-[#F5F7FA]">{activeConfig.payload.platform.supportEmail}</span>
                 </div>
               </div>
               <div className="pt-2">
@@ -522,28 +522,28 @@ export default function ConfigurationOverviewPage() {
             </div>
 
             {/* Domain 2: Financial & Tiers */}
-            <div className="bg-[#0B0D10] border border-[#2E333B] rounded-xl p-4 space-y-2">
+            <div className="bg-[#000000] border border-[#274056] rounded-xl p-4 space-y-2">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-[#F4F2ED]">Financial &amp; Tier Stakes</span>
+                <span className="text-xs font-bold text-[#F5F7FA]">Financial &amp; Tier Stakes</span>
                 <Badge variant="gold">RESTRICTED</Badge>
               </div>
-              <div className="text-xs space-y-1 text-[#9CA3AF]">
+              <div className="text-xs space-y-1 text-[#8FA3B7]">
                 <div className="flex justify-between">
                   <span>Commission Rake:</span>
-                  <span className="font-mono text-[#E7B24A] font-bold">
+                  <span className="font-mono text-[#18C986] font-bold">
                     {activeConfig.payload.financial.commissionPercent}%
                   </span>
                 </div>
                 <div className="flex justify-between">
                   <span>Deposit Bounds:</span>
-                  <span className="font-mono text-[#F4F2ED]">
+                  <span className="font-mono text-[#F5F7FA]">
                     {formatNaira(activeConfig.payload.financial.minDepositMinorUnits)} –{' '}
                     {formatNaira(activeConfig.payload.financial.maxDepositMinorUnits)}
                   </span>
                 </div>
                 <div className="flex justify-between">
                   <span>Withdrawal Bounds:</span>
-                  <span className="font-mono text-[#F4F2ED]">
+                  <span className="font-mono text-[#F5F7FA]">
                     {formatNaira(activeConfig.payload.financial.minWithdrawalMinorUnits)} –{' '}
                     {formatNaira(activeConfig.payload.financial.maxWithdrawalMinorUnits)}
                   </span>
@@ -559,26 +559,26 @@ export default function ConfigurationOverviewPage() {
             </div>
 
             {/* Domain 3: Game Configuration */}
-            <div className="bg-[#0B0D10] border border-[#2E333B] rounded-xl p-4 space-y-2">
+            <div className="bg-[#000000] border border-[#274056] rounded-xl p-4 space-y-2">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-[#F4F2ED]">Game Engine &amp; Clocks</span>
+                <span className="text-xs font-bold text-[#F5F7FA]">Game Engine &amp; Clocks</span>
                 <Badge variant="default">GAME</Badge>
               </div>
-              <div className="text-xs space-y-1 text-[#9CA3AF]">
+              <div className="text-xs space-y-1 text-[#8FA3B7]">
                 <div className="flex justify-between">
                   <span>Ruleset Version:</span>
-                  <span className="font-mono text-[#F4F2ED]">v{activeConfig.payload.game.rulesetVersion}</span>
+                  <span className="font-mono text-[#F5F7FA]">v{activeConfig.payload.game.rulesetVersion}</span>
                 </div>
                 <div className="flex justify-between">
                   <span>Turn Clock / Grace:</span>
-                  <span className="font-mono text-[#F4F2ED]">
+                  <span className="font-mono text-[#F5F7FA]">
                     {activeConfig.payload.game.timeControlSeconds}s /{' '}
                     {activeConfig.payload.game.disconnectGraceMs / 1000}s
                   </span>
                 </div>
                 <div className="flex justify-between">
                   <span>King Moves / Draw Ply:</span>
-                  <span className="font-mono text-[#F4F2ED]">
+                  <span className="font-mono text-[#F5F7FA]">
                     {activeConfig.payload.game.maxConsecutiveKingMoves} /{' '}
                     {activeConfig.payload.game.canOfferDrawPlyCount}
                   </span>
@@ -594,27 +594,27 @@ export default function ConfigurationOverviewPage() {
             </div>
 
             {/* Domain 4: KYC & Eligibility */}
-            <div className="bg-[#0B0D10] border border-[#2E333B] rounded-xl p-4 space-y-2">
+            <div className="bg-[#000000] border border-[#274056] rounded-xl p-4 space-y-2">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-[#F4F2ED]">KYC &amp; Eligibility</span>
+                <span className="text-xs font-bold text-[#F5F7FA]">KYC &amp; Eligibility</span>
                 <Badge variant="gold">RESTRICTED</Badge>
               </div>
-              <div className="text-xs space-y-1 text-[#9CA3AF]">
+              <div className="text-xs space-y-1 text-[#8FA3B7]">
                 <div className="flex justify-between">
                   <span>Mandatory KYC Threshold:</span>
-                  <span className="font-mono text-[#F4F2ED]">
+                  <span className="font-mono text-[#F5F7FA]">
                     {formatNaira(activeConfig.payload.kyc.mandatoryWithdrawalThresholdMinorUnits)}
                   </span>
                 </div>
                 <div className="flex justify-between">
                   <span>Call-Out KYC Gate:</span>
-                  <span className="font-mono text-[#F4F2ED]">
+                  <span className="font-mono text-[#F5F7FA]">
                     {activeConfig.payload.kyc.requireVerificationForCallouts ? 'Required' : 'Optional'}
                   </span>
                 </div>
                 <div className="flex justify-between">
                   <span>Allowed Countries:</span>
-                  <span className="font-mono text-[#F4F2ED]">
+                  <span className="font-mono text-[#F5F7FA]">
                     {activeConfig.payload.kyc.allowedCountries.join(', ')}
                   </span>
                 </div>
@@ -629,27 +629,27 @@ export default function ConfigurationOverviewPage() {
             </div>
 
             {/* Domain 5: Safer Play */}
-            <div className="bg-[#0B0D10] border border-[#2E333B] rounded-xl p-4 space-y-2">
+            <div className="bg-[#000000] border border-[#274056] rounded-xl p-4 space-y-2">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-[#F4F2ED]">Safer-Play Policy</span>
+                <span className="text-xs font-bold text-[#F5F7FA]">Safer-Play Policy</span>
                 <Badge variant="gold">RESTRICTED</Badge>
               </div>
-              <div className="text-xs space-y-1 text-[#9CA3AF]">
+              <div className="text-xs space-y-1 text-[#8FA3B7]">
                 <div className="flex justify-between">
                   <span>Limit Raise Cooling-Off:</span>
-                  <span className="font-mono text-[#F4F2ED]">
+                  <span className="font-mono text-[#F5F7FA]">
                     {activeConfig.payload.saferPlay.limitRaiseCoolingHours} hours
                   </span>
                 </div>
                 <div className="flex justify-between">
                   <span>Min Timeout Break:</span>
-                  <span className="font-mono text-[#F4F2ED]">
+                  <span className="font-mono text-[#F5F7FA]">
                     {activeConfig.payload.saferPlay.minTimeoutDurationMinutes} mins
                   </span>
                 </div>
                 <div className="flex justify-between">
                   <span>Min Self-Exclusion:</span>
-                  <span className="font-mono text-[#F4F2ED]">
+                  <span className="font-mono text-[#F5F7FA]">
                     {activeConfig.payload.saferPlay.minSelfExclusionDays} days
                   </span>
                 </div>
@@ -664,27 +664,27 @@ export default function ConfigurationOverviewPage() {
             </div>
 
             {/* Domain 6: Matchmaking */}
-            <div className="bg-[#0B0D10] border border-[#2E333B] rounded-xl p-4 space-y-2">
+            <div className="bg-[#000000] border border-[#274056] rounded-xl p-4 space-y-2">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-[#F4F2ED]">Matchmaking Queue</span>
+                <span className="text-xs font-bold text-[#F5F7FA]">Matchmaking Queue</span>
                 <Badge variant="default">MATCHMAKING</Badge>
               </div>
-              <div className="text-xs space-y-1 text-[#9CA3AF]">
+              <div className="text-xs space-y-1 text-[#8FA3B7]">
                 <div className="flex justify-between">
                   <span>Queue Timeout:</span>
-                  <span className="font-mono text-[#F4F2ED]">
+                  <span className="font-mono text-[#F5F7FA]">
                     {activeConfig.payload.matchmaking.queueTimeoutSeconds}s
                   </span>
                 </div>
                 <div className="flex justify-between">
                   <span>Worker Sweep Interval:</span>
-                  <span className="font-mono text-[#F4F2ED]">
+                  <span className="font-mono text-[#F5F7FA]">
                     {activeConfig.payload.matchmaking.cronTickSeconds}s
                   </span>
                 </div>
                 <div className="flex justify-between">
                   <span>Max Queue Per Player:</span>
-                  <span className="font-mono text-[#F4F2ED]">
+                  <span className="font-mono text-[#F5F7FA]">
                     {activeConfig.payload.matchmaking.maxConcurrentQueuePerPlayer}
                   </span>
                 </div>
@@ -722,20 +722,20 @@ export default function ConfigurationOverviewPage() {
 
             <div className="flex flex-col sm:flex-row gap-3 mb-4">
               <div className="relative flex-1">
-                <Search className="w-4 h-4 text-[#6B7280] absolute left-3 top-3" />
+                <Search className="w-4 h-4 text-[#53677A] absolute left-3 top-3" />
                 <input
                   type="text"
                   placeholder="Search by version, reason, author, domain, or checksum…"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full h-9 pl-9 pr-3 bg-[#0B0D10] border border-[#2E333B] rounded-lg text-xs text-[#F4F2ED] placeholder-[#6B7280] focus:outline-none focus:border-[#E7B24A]"
+                  className="w-full h-9 pl-9 pr-3 bg-[#000000] border border-[#274056] rounded-lg text-xs text-[#F5F7FA] placeholder-[#53677A] focus:outline-none focus:border-[#18C986]"
                 />
               </div>
               <select
                 aria-label="Filter configuration versions by status"
                 value={statusFilter}
                 onChange={(e) => setStatusFilter(e.target.value)}
-                className="h-9 px-3 bg-[#0B0D10] border border-[#2E333B] rounded-lg text-xs text-[#F4F2ED] focus:outline-none focus:border-[#E7B24A]"
+                className="h-9 px-3 bg-[#000000] border border-[#274056] rounded-lg text-xs text-[#F5F7FA] focus:outline-none focus:border-[#18C986]"
               >
                 <option value="ALL">All Statuses</option>
                 <option value="ACTIVE">ACTIVE</option>
@@ -748,14 +748,14 @@ export default function ConfigurationOverviewPage() {
             </div>
 
             {filteredVersions.length === 0 ? (
-              <div className="py-10 text-center text-xs text-[#6B7280]">
+              <div className="py-10 text-center text-xs text-[#53677A]">
                 No configuration versions match your current filter criteria.
               </div>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-left border-collapse">
                   <thead>
-                    <tr className="border-b border-[#2E333B] text-[10px] font-bold uppercase tracking-wider text-[#6B7280]">
+                    <tr className="border-b border-[#274056] text-[10px] font-bold uppercase tracking-wider text-[#53677A]">
                       <th className="py-2.5 px-3">Ver</th>
                       <th className="py-2.5 px-3">Status</th>
                       <th className="py-2.5 px-3">Reason &amp; Domains</th>
@@ -764,10 +764,10 @@ export default function ConfigurationOverviewPage() {
                       <th className="py-2.5 px-3 text-right">Action</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-[#2E333B] text-xs">
+                  <tbody className="divide-y divide-[#274056] text-xs">
                     {filteredVersions.slice(0, 8).map((v) => (
-                      <tr key={v.id} className="hover:bg-[#1E2229]/60">
-                        <td className="py-3 px-3 font-mono font-bold text-[#F4F2ED]">
+                      <tr key={v.id} className="hover:bg-[#132638]/60">
+                        <td className="py-3 px-3 font-mono font-bold text-[#F5F7FA]">
                           v{v.version}
                           {v.rolledBackFrom && (
                             <span className="block text-[10px] text-amber-400">
@@ -777,31 +777,31 @@ export default function ConfigurationOverviewPage() {
                         </td>
                         <td className="py-3 px-3">{getVersionBadge(v.status)}</td>
                         <td className="py-3 px-3">
-                          <div className="font-medium text-[#F4F2ED] line-clamp-1">{v.changeReason}</div>
+                          <div className="font-medium text-[#F5F7FA] line-clamp-1">{v.changeReason}</div>
                           <div className="flex flex-wrap items-center gap-1 mt-1">
                             {v.modifiedDomains?.length > 0 ? (
                               v.modifiedDomains.map((d) => (
                                 <span
                                   key={d}
-                                  className="px-1.5 py-0.5 rounded bg-[#0B0D10] border border-[#2E333B] text-[10px] font-mono text-[#9CA3AF]"
+                                  className="px-1.5 py-0.5 rounded bg-[#000000] border border-[#274056] text-[10px] font-mono text-[#8FA3B7]"
                                 >
                                   {d}
                                 </span>
                               ))
                             ) : (
-                              <span className="text-[10px] text-[#6B7280]">Baseline / No domain diff</span>
+                              <span className="text-[10px] text-[#53677A]">Baseline / No domain diff</span>
                             )}
                             {v.isRestricted && (
-                              <span className="text-[10px] text-[#E7B24A] font-semibold ml-1">
+                              <span className="text-[10px] text-[#18C986] font-semibold ml-1">
                                 • Maker-Checker
                               </span>
                             )}
                           </div>
                         </td>
-                        <td className="py-3 px-3 text-[#9CA3AF]">
+                        <td className="py-3 px-3 text-[#8FA3B7]">
                           {v.author?.email || v.authorId.slice(0, 8)}
                         </td>
-                        <td className="py-3 px-3 font-mono text-[11px] text-[#9CA3AF]">
+                        <td className="py-3 px-3 font-mono text-[11px] text-[#8FA3B7]">
                           {formatDate(v.createdAt)}
                         </td>
                         <td className="py-3 px-3 text-right">
@@ -834,7 +834,7 @@ export default function ConfigurationOverviewPage() {
               </CardHeader>
 
               {recentApprovalDecisions.length === 0 ? (
-                <p className="text-xs text-[#6B7280] py-6 text-center">
+                <p className="text-xs text-[#53677A] py-6 text-center">
                   No Maker-Checker approval decisions recorded yet.
                 </p>
               ) : (
@@ -842,25 +842,25 @@ export default function ConfigurationOverviewPage() {
                   {recentApprovalDecisions.map((dec, idx) => (
                     <div
                       key={`${dec.versionId}-${idx}`}
-                      className="bg-[#0B0D10] border border-[#2E333B] rounded-lg p-3 text-xs space-y-1"
+                      className="bg-[#000000] border border-[#274056] rounded-lg p-3 text-xs space-y-1"
                     >
                       <div className="flex items-center justify-between">
-                        <span className="font-mono font-bold text-[#F4F2ED]">
+                        <span className="font-mono font-bold text-[#F5F7FA]">
                           Version v{dec.version}
                         </span>
                         <Badge variant={dec.status === 'APPROVED' ? 'success' : 'danger'}>
                           {dec.status}
                         </Badge>
                       </div>
-                      <div className="text-[#9CA3AF]">
-                        Reviewer: <span className="text-[#F4F2ED]">{dec.reviewerEmail}</span>
+                      <div className="text-[#8FA3B7]">
+                        Reviewer: <span className="text-[#F5F7FA]">{dec.reviewerEmail}</span>
                       </div>
                       {dec.reviewNote && (
-                        <div className="text-[11px] text-[#9CA3AF] italic">
+                        <div className="text-[11px] text-[#8FA3B7] italic">
                           &ldquo;{dec.reviewNote}&rdquo;
                         </div>
                       )}
-                      <div className="flex items-center justify-between text-[10px] font-mono text-[#6B7280] pt-1">
+                      <div className="flex items-center justify-between text-[10px] font-mono text-[#53677A] pt-1">
                         <span>SHA: {dec.checksum?.slice(0, 10)}…</span>
                         <span>{formatDate(dec.reviewedAt)}</span>
                       </div>
@@ -881,7 +881,7 @@ export default function ConfigurationOverviewPage() {
               {validationOrDeniedLogs.length === 0 ? (
                 <div className="py-6 text-center space-y-1">
                   <CheckCircle2 className="w-6 h-6 text-emerald-400 mx-auto opacity-80" />
-                  <p className="text-xs text-[#9CA3AF]">Zero validation or permission violations logged.</p>
+                  <p className="text-xs text-[#8FA3B7]">Zero validation or permission violations logged.</p>
                 </div>
               ) : (
                 <div className="space-y-2.5">
@@ -894,7 +894,7 @@ export default function ConfigurationOverviewPage() {
                         <span className="font-mono font-semibold text-rose-300">{log.action}</span>
                         <Badge variant="danger">{log.outcome}</Badge>
                       </div>
-                      <div className="text-[11px] text-[#9CA3AF]">
+                      <div className="text-[11px] text-[#8FA3B7]">
                         Actor: {log.actor?.email || log.adminId.slice(0, 8)} • {formatDate(log.createdAt)}
                       </div>
                     </div>

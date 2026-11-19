@@ -71,13 +71,13 @@ export default function SaferPlayConfigurationPage() {
         return (
           <div className="space-y-6">
             {/* Non-Weakening & Anti-Loss-Chasing Guarantee Banner */}
-            <div className="bg-[#15181D] border border-emerald-500/30 rounded-xl p-4 flex items-start gap-3">
+            <div className="bg-[#0C1B2A] border border-emerald-500/30 rounded-xl p-4 flex items-start gap-3">
               <HeartHandshake className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
               <div className="text-xs space-y-1">
-                <div className="font-bold text-[#F4F2ED]">
+                <div className="font-bold text-[#F5F7FA]">
                   Responsible Gaming &amp; Individual Protection Immutability Invariant
                 </div>
-                <p className="text-[#9CA3AF]">
+                <p className="text-[#8FA3B7]">
                   1. Lowering a personal deposit or stake limit takes effect <strong>immediately</strong>, whereas
                   raising an existing limit is held in <code className="font-mono">pendingDepositLimitMinorUnits</code>{' '}
                   / <code className="font-mono">pendingStakeLimitMinorUnits</code> until the configured cooling-off
@@ -95,7 +95,7 @@ export default function SaferPlayConfigurationPage() {
               <Card className="space-y-5">
                 <CardHeader>
                   <div className="flex items-center gap-2.5">
-                    <Clock className="w-5 h-5 text-[#E7B24A]" />
+                    <Clock className="w-5 h-5 text-[#18C986]" />
                     <div>
                       <CardTitle>Cooling-Off &amp; Minimum Protection Floors</CardTitle>
                       <CardDescription>
@@ -161,43 +161,43 @@ export default function SaferPlayConfigurationPage() {
                 </CardHeader>
 
                 <div className="space-y-3 text-xs">
-                  <div className="bg-[#0B0D10] border border-[#2E333B] rounded-lg p-3.5 space-y-1">
-                    <div className="flex items-center justify-between font-bold text-[#F4F2ED]">
+                  <div className="bg-[#000000] border border-[#274056] rounded-lg p-3.5 space-y-1">
+                    <div className="flex items-center justify-between font-bold text-[#F5F7FA]">
                       <span>Daily Deposit Ceiling (`depositLimitMinorUnits`)</span>
                       <Badge variant="info">Deposit Intent Gate</Badge>
                     </div>
-                    <p className="text-[#9CA3AF]">
+                    <p className="text-[#8FA3B7]">
                       Checked before creating any Paystack or Flutterwave <code className="font-mono">DepositIntent</code>.
                     </p>
                   </div>
 
-                  <div className="bg-[#0B0D10] border border-[#2E333B] rounded-lg p-3.5 space-y-1">
-                    <div className="flex items-center justify-between font-bold text-[#F4F2ED]">
+                  <div className="bg-[#000000] border border-[#274056] rounded-lg p-3.5 space-y-1">
+                    <div className="flex items-center justify-between font-bold text-[#F5F7FA]">
                       <span>Per-Match Stake Ceiling (`stakeLimitMinorUnits`)</span>
                       <Badge variant="info">Funding Gate</Badge>
                     </div>
-                    <p className="text-[#9CA3AF]">
+                    <p className="text-[#8FA3B7]">
                       Checked inside <code className="font-mono">assertEligibleForMoney</code> before locking wallets in matchmaking or call-outs.
                     </p>
                   </div>
 
-                  <div className="bg-[#0B0D10] border border-[#2E333B] rounded-lg p-3.5 space-y-1">
-                    <div className="flex items-center justify-between font-bold text-[#F4F2ED]">
+                  <div className="bg-[#000000] border border-[#274056] rounded-lg p-3.5 space-y-1">
+                    <div className="flex items-center justify-between font-bold text-[#F5F7FA]">
                       <span>Timeout &amp; Self-Exclusion (`timeoutUntil` / `selfExcludedUntil`)</span>
                       <Badge variant="gold">Hard Block</Badge>
                     </div>
-                    <p className="text-[#9CA3AF]">
+                    <p className="text-[#8FA3B7]">
                       Blocks matchmaking queue entry, call-out creation/acceptance, and deposit intents across all sessions.
                     </p>
                   </div>
 
-                  <div className="bg-[#1E2229] border border-[#2E333B] rounded-lg p-3.5 flex items-center justify-between">
+                  <div className="bg-[#132638] border border-[#274056] rounded-lg p-3.5 flex items-center justify-between">
                     <div className="space-y-0.5">
-                      <div className="font-bold text-[#F4F2ED] flex items-center gap-1.5">
-                        <UserCheck className="w-4 h-4 text-[#E7B24A]" />
+                      <div className="font-bold text-[#F5F7FA] flex items-center gap-1.5">
+                        <UserCheck className="w-4 h-4 text-[#18C986]" />
                         <span>Active Player Restrictions Registry</span>
                       </div>
-                      <p className="text-[11px] text-[#9CA3AF]">
+                      <p className="text-[11px] text-[#8FA3B7]">
                         {canReadRestrictions
                           ? `${restrictionsTotal} player profile(s) currently have active limits, timeouts, or exclusions.`
                           : 'Individual player restrictions are managed in Risk & Safer Play.'}
@@ -212,7 +212,7 @@ export default function SaferPlayConfigurationPage() {
                   </div>
 
                   {canReadRestrictions && activeRestrictions.length > 0 && (
-                    <div className="text-[11px] text-[#6B7280] flex items-center gap-1.5 pt-1">
+                    <div className="text-[11px] text-[#53677A] flex items-center gap-1.5 pt-1">
                       <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
                       <span>
                         Showing live connection to <code className="font-mono">/admin/safer-play/restrictions</code> ({activeRestrictions.length} recent profiles verified).

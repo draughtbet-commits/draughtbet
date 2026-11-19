@@ -415,17 +415,17 @@ export function DomainConfigWorkspace({
 
   if (permissionDenied || (!canRead && !isLoading)) {
     return (
-      <Card className="p-8 border-amber-500/30 bg-[#15181D]">
+      <Card className="p-8 border-amber-500/30 bg-[#0C1B2A]">
         <div className="flex items-start gap-4">
           <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400 shrink-0">
             <Lock className="w-5 h-5" />
           </div>
           <div className="space-y-2">
-            <h2 className="text-base font-bold text-[#F4F2ED]">
+            <h2 className="text-base font-bold text-[#F5F7FA]">
               Configuration Read Permission Required (`config.read`)
             </h2>
-            <p className="text-xs text-[#9CA3AF] max-w-2xl">
-              Your current role assignment does not include <code className="font-mono text-[#E7B24A]">config.read</code>.
+            <p className="text-xs text-[#8FA3B7] max-w-2xl">
+              Your current role assignment does not include <code className="font-mono text-[#18C986]">config.read</code>.
               You can still inspect Feature Flags (<code className="font-mono">flags.read</code>) and Maintenance Mode (<code className="font-mono">maintenance.read</code>).
             </p>
             <div className="flex items-center gap-2 pt-2">
@@ -445,10 +445,10 @@ export function DomainConfigWorkspace({
   return (
     <div className="space-y-6">
       {/* Page Header & Active Version Telemetry Bar */}
-      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 bg-[#15181D] border border-[#2E333B] rounded-xl p-5">
+      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 bg-[#0C1B2A] border border-[#274056] rounded-xl p-5">
         <div className="space-y-1">
           <div className="flex flex-wrap items-center gap-2">
-            <h2 className="text-lg font-bold text-[#F4F2ED]">{title}</h2>
+            <h2 className="text-lg font-bold text-[#F5F7FA]">{title}</h2>
             {domains.map((dom) => {
               const meta = CONFIG_DOMAIN_METADATA[dom];
               return (
@@ -464,19 +464,19 @@ export function DomainConfigWorkspace({
               );
             })}
           </div>
-          <p className="text-xs text-[#9CA3AF]">{subtitle}</p>
-          <p className="text-[11px] text-[#E7B24A]/90 font-medium pt-0.5">{impactNotice}</p>
+          <p className="text-xs text-[#8FA3B7]">{subtitle}</p>
+          <p className="text-[11px] text-[#18C986]/90 font-medium pt-0.5">{impactNotice}</p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2.5 shrink-0">
           {activeVersion && (
-            <div className="bg-[#0B0D10] border border-[#2E333B] rounded-lg px-3 py-2 text-xs">
+            <div className="bg-[#000000] border border-[#274056] rounded-lg px-3 py-2 text-xs">
               <div className="flex items-center gap-2">
-                <span className="text-[#9CA3AF]">Active:</span>
-                <span className="font-mono font-bold text-[#F4F2ED]">v{activeVersion.version}</span>
+                <span className="text-[#8FA3B7]">Active:</span>
+                <span className="font-mono font-bold text-[#F5F7FA]">v{activeVersion.version}</span>
                 <Badge variant="success" size="sm">ACTIVE</Badge>
               </div>
-              <div className="font-mono text-[10px] text-[#6B7280] mt-0.5" title={activeVersion.checksum}>
+              <div className="font-mono text-[10px] text-[#53677A] mt-0.5" title={activeVersion.checksum}>
                 SHA-256: {activeVersion.checksum?.slice(0, 16)}…
               </div>
             </div>
@@ -515,12 +515,12 @@ export function DomainConfigWorkspace({
 
       {/* Role / Propose Governance Banner */}
       {!canEdit && (
-        <div className="bg-[#1E2229] border border-[#2E333B] rounded-xl p-4 flex items-center justify-between gap-4">
+        <div className="bg-[#132638] border border-[#274056] rounded-xl p-4 flex items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <Lock className="w-4 h-4 text-[#E7B24A] shrink-0" />
+            <Lock className="w-4 h-4 text-[#18C986] shrink-0" />
             <div className="text-xs">
-              <span className="font-semibold text-[#F4F2ED]">Read-Only Governance Mode: </span>
-              <span className="text-[#9CA3AF]">
+              <span className="font-semibold text-[#F5F7FA]">Read-Only Governance Mode: </span>
+              <span className="text-[#8FA3B7]">
                 Proposing changes in {domains.join(' & ')} requires{' '}
                 {domains.map((d) => CONFIG_DOMAIN_METADATA[d]?.proposePermissionLabel).join(' / ')}.
                 You can inspect all active values and historical diffs.
@@ -533,17 +533,17 @@ export function DomainConfigWorkspace({
 
       {/* Draft Selector & Editing Controls Bar */}
       {canEdit && (
-        <div className="bg-[#15181D] border border-[#2E333B] rounded-xl p-4 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+        <div className="bg-[#0C1B2A] border border-[#274056] rounded-xl p-4 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <div className="flex flex-wrap items-center gap-3">
-            <div className="flex items-center gap-2 text-xs font-semibold text-[#F4F2ED]">
-              <FileEdit className="w-4 h-4 text-[#E7B24A]" />
+            <div className="flex items-center gap-2 text-xs font-semibold text-[#F5F7FA]">
+              <FileEdit className="w-4 h-4 text-[#18C986]" />
               <span>Working Context:</span>
             </div>
             <select
               aria-label="Select configuration draft context"
               value={selectedDraftId}
               onChange={(e) => handleSelectDraft(e.target.value)}
-              className="h-9 px-3 bg-[#0B0D10] border border-[#2E333B] rounded-lg text-xs text-[#F4F2ED] focus:outline-none focus:border-[#E7B24A]"
+              className="h-9 px-3 bg-[#000000] border border-[#274056] rounded-lg text-xs text-[#F5F7FA] focus:outline-none focus:border-[#18C986]"
             >
               <option value="NEW">
                 New Draft (cloned from Active v{activeVersion?.version ?? 1})
@@ -592,7 +592,7 @@ export function DomainConfigWorkspace({
               onClick={handleValidateDraft}
               isLoading={isValidating}
             >
-              <Sparkles className="w-3.5 h-3.5 text-[#E7B24A]" />
+              <Sparkles className="w-3.5 h-3.5 text-[#18C986]" />
               Validate Payload
             </Button>
 
@@ -655,16 +655,16 @@ export function DomainConfigWorkspace({
       {loadError ? (
         <Card className="p-8 border-rose-500/30 text-center space-y-3">
           <AlertTriangle className="w-8 h-8 text-rose-400 mx-auto" />
-          <div className="text-sm font-bold text-[#F4F2ED]">Unable to Load Configuration</div>
-          <p className="text-xs text-[#9CA3AF] max-w-md mx-auto">{loadError}</p>
+          <div className="text-sm font-bold text-[#F5F7FA]">Unable to Load Configuration</div>
+          <p className="text-xs text-[#8FA3B7] max-w-md mx-auto">{loadError}</p>
           <Button variant="secondary" size="sm" onClick={() => loadConfigurationData(false)}>
             Retry
           </Button>
         </Card>
       ) : isLoading ? (
         <Card className="p-10 text-center space-y-2">
-          <RefreshCw className="w-6 h-6 text-[#E7B24A] animate-spin mx-auto" />
-          <p className="text-xs text-[#9CA3AF]">Loading authoritative configuration from PostgreSQL…</p>
+          <RefreshCw className="w-6 h-6 text-[#18C986] animate-spin mx-auto" />
+          <p className="text-xs text-[#8FA3B7]">Loading authoritative configuration from PostgreSQL…</p>
         </Card>
       ) : (
         /* Domain Form Children */
@@ -686,20 +686,20 @@ export function DomainConfigWorkspace({
           aria-labelledby="review-config-modal-title"
           className="fixed inset-0 z-50 bg-black/75 flex items-center justify-center p-4 overflow-y-auto"
         >
-          <div className="bg-[#15181D] border border-[#2E333B] rounded-2xl max-w-4xl w-full max-h-[90vh] flex flex-col shadow-2xl">
-            <div className="px-6 py-4 border-b border-[#2E333B] flex items-center justify-between">
+          <div className="bg-[#0C1B2A] border border-[#274056] rounded-2xl max-w-4xl w-full max-h-[90vh] flex flex-col shadow-2xl">
+            <div className="px-6 py-4 border-b border-[#274056] flex items-center justify-between">
               <div>
-                <h3 id="review-config-modal-title" className="text-base font-bold text-[#F4F2ED]">
+                <h3 id="review-config-modal-title" className="text-base font-bold text-[#F5F7FA]">
                   Review Configuration Changes Before Saving / Submitting
                 </h3>
-                <p className="text-xs text-[#9CA3AF] mt-0.5">
+                <p className="text-xs text-[#8FA3B7] mt-0.5">
                   Verify modified parameters, Maker-Checker requirements, and provide an auditable change reason.
                 </p>
               </div>
               <button
                 type="button"
                 onClick={() => setShowReviewModal(false)}
-                className="text-[#9CA3AF] hover:text-[#F4F2ED]"
+                className="text-[#8FA3B7] hover:text-[#F5F7FA]"
                 aria-label="Close review modal"
               >
                 <X className="w-5 h-5" />
@@ -708,13 +708,13 @@ export function DomainConfigWorkspace({
 
             <div className="p-6 overflow-y-auto space-y-5 flex-1">
               {diffSummary.isRestricted && (
-                <div className="bg-[#3A2E17]/40 border border-[#E7B24A]/40 rounded-xl p-4 flex items-start gap-3">
-                  <ShieldAlert className="w-5 h-5 text-[#E7B24A] shrink-0 mt-0.5" />
+                <div className="bg-[#0E2E2B]/40 border border-[#18C986]/40 rounded-xl p-4 flex items-start gap-3">
+                  <ShieldAlert className="w-5 h-5 text-[#18C986] shrink-0 mt-0.5" />
                   <div className="text-xs space-y-1">
-                    <div className="font-bold text-[#E7B24A]">
+                    <div className="font-bold text-[#18C986]">
                       Maker-Checker Dual Control Required ({diffSummary.modifiedDomains.join(', ')})
                     </div>
-                    <p className="text-[#F4F2ED]/90">
+                    <p className="text-[#F5F7FA]/90">
                       This proposal modifies restricted financial, tier, safer-play, or KYC parameters. Once submitted,
                       the version becomes strictly immutable and requires approval from an independent administrator
                       (author cannot self-approve) before a <code className="font-mono">SUPER_ADMIN</code> can activate it.
@@ -748,7 +748,7 @@ export function DomainConfigWorkspace({
               />
             </div>
 
-            <div className="px-6 py-4 border-t border-[#2E333B] bg-[#0B0D10]/60 flex flex-wrap items-center justify-between gap-3">
+            <div className="px-6 py-4 border-t border-[#274056] bg-[#000000]/60 flex flex-wrap items-center justify-between gap-3">
               <Button variant="ghost" size="sm" onClick={() => setShowReviewModal(false)}>
                 Cancel
               </Button>
@@ -786,14 +786,14 @@ export function DomainConfigWorkspace({
           aria-modal="true"
           className="fixed inset-0 z-50 bg-black/75 flex items-center justify-center p-4"
         >
-          <div className="bg-[#15181D] border border-[#2E333B] rounded-xl max-w-md w-full p-6 space-y-4">
+          <div className="bg-[#0C1B2A] border border-[#274056] rounded-xl max-w-md w-full p-6 space-y-4">
             <div className="flex items-center gap-3">
               <AlertTriangle className="w-5 h-5 text-rose-400 shrink-0" />
-              <h3 className="text-base font-bold text-[#F4F2ED]">
+              <h3 className="text-base font-bold text-[#F5F7FA]">
                 {selectedDraftId === 'NEW' ? 'Reset Unsaved Edits?' : 'Discard Un-Submitted Draft?'}
               </h3>
             </div>
-            <p className="text-xs text-[#9CA3AF]">
+            <p className="text-xs text-[#8FA3B7]">
               {selectedDraftId === 'NEW'
                 ? 'All unsaved edits in the current form will be reverted back to the currently active configuration values.'
                 : 'This un-submitted DRAFT version will be permanently deleted from the database and recorded in the admin audit trail. Submitted or active versions can never be deleted.'}

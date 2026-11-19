@@ -3,7 +3,7 @@ import helmet from 'helmet';
 import cors from 'cors';
 import logger, { httpLogger } from './utils/logger.js';
 import prisma from './utils/db.js';
-import Redis from 'ioredis';
+import redis, { isRedisReady } from './utils/redis.js';
 import {
   globalRateLimiter,
   adminRateLimiter,
@@ -41,11 +41,7 @@ const trustProxyRaw = process.env.TRUST_PROXY ?? (process.env.NODE_ENV === 'prod
 const trustProxy = trustProxyRaw === 'true' ? true : (parseInt(trustProxyRaw, 10) || false);
 app.set('trust proxy', trustProxy);
 
-// Setup Redis correctly
-let redis;
-if (process.env.REDIS_URL) {
-  redis = new Redis(process.env.REDIS_URL);
-}
+// Redis client is shared from utils/redis.js with safe error handling and readiness gating
 
 // Global middlewares
 app.use(helmet());
@@ -54,9 +50,20 @@ if (!corsOrigin && process.env.NODE_ENV === 'production') {
   throw new Error('FATAL: ADMIN_CORS_ORIGIN is missing. Refusing to start with open CORS.');
 }
 // Allow open CORS in tests (so imports/startup don't fail) and use a sensible default in dev
+const allowedOrigins = corsOrigin
+  ? corsOrigin.split(',').map((o) => o.trim()).filter(Boolean)
+  : ['http://localhost:3000', 'http://localhost:3001'];
 const corsOptions = corsOrigin
-  ? { origin: (origin, done) => done(null, origin === corsOrigin ? corsOrigin : false) }
-  : (process.env.NODE_ENV === 'test' ? { origin: true } : { origin: 'http://localhost:3000' });
+  ? {
+      origin: (origin, done) => {
+        if (!origin || allowedOrigins.includes(origin)) return done(null, origin || allowedOrigins[0]);
+        if (process.env.NODE_ENV === 'development' && /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) {
+          return done(null, origin);
+        }
+        return done(null, false);
+      }
+    }
+  : (process.env.NODE_ENV === 'test' ? { origin: true } : { origin: allowedOrigins });
 app.use(cors(corsOptions));
 
 // TLS enforcement for production fronting (APP_ENFORCE_TLS=true). HTTP GET/HEAD
@@ -140,11 +147,15 @@ app.get('/ready', async (_req, res) => {
   }
 
   if (redis) {
-    try {
-      await redis.ping();
-    } catch (err) {
-      logger.error({ err }, 'Redis readiness check failed');
+    if (!isRedisReady(redis)) {
       redisStatus = 'failed';
+    } else {
+      try {
+        await redis.ping();
+      } catch (err) {
+        logger.error({ err }, 'Redis readiness check failed');
+        redisStatus = 'failed';
+      }
     }
   } else {
     redisStatus = 'not_configured';

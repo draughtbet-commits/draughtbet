@@ -185,12 +185,12 @@ export default function WithdrawalsPage() {
   return (
     <div className="space-y-6">
       {/* Top Banner */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-2 border-b border-[#2E333B]">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-2 border-b border-[#274056]">
         <div>
-          <h1 className="text-2xl font-bold font-serif tracking-tight text-[#F4F2ED]">
+          <h1 className="text-2xl font-bold font-serif tracking-tight text-[#F5F7FA]">
             Withdrawals Operations & Queue
           </h1>
-          <p className="text-xs text-[#9CA3AF] mt-0.5">
+          <p className="text-xs text-[#8FA3B7] mt-0.5">
             Finance operational queue. Authoritative review, payout dispatching, provider result reporting, and ledger releases.
           </p>
         </div>
@@ -221,7 +221,7 @@ export default function WithdrawalsPage() {
       )}
 
       {/* Filter Tabs and Search Bar */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[#2E333B] pb-3">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[#274056] pb-3">
         <div className="flex gap-2 overflow-x-auto text-xs">
           {[
             { label: 'Pending Review', value: 'PENDING_REVIEW' },
@@ -239,8 +239,8 @@ export default function WithdrawalsPage() {
               }}
               className={`px-3 py-1.5 rounded-lg font-medium transition-colors whitespace-nowrap ${
                 statusFilter === tab.value
-                  ? 'bg-[#E7B24A] text-[#0B0D10] font-bold'
-                  : 'bg-[#15181D] text-[#9CA3AF] hover:text-[#F4F2ED] border border-[#2E333B]'
+                  ? 'bg-[#18C986] text-[#000000] font-bold'
+                  : 'bg-[#0C1B2A] text-[#8FA3B7] hover:text-[#F5F7FA] border border-[#274056]'
               }`}
             >
               {tab.label}
@@ -249,22 +249,22 @@ export default function WithdrawalsPage() {
         </div>
 
         <div className="relative w-full sm:w-64">
-          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-[#9CA3AF]" />
+          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-[#8FA3B7]" />
           <input
             type="text"
             placeholder="Filter queue by reference or user..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full pl-9 pr-3 py-1.5 bg-[#15181D] border border-[#2E333B] rounded-lg text-xs text-[#F4F2ED] placeholder-[#6B7280] focus:outline-none focus:border-[#E7B24A]"
+            className="w-full pl-9 pr-3 py-1.5 bg-[#0C1B2A] border border-[#274056] rounded-lg text-xs text-[#F5F7FA] placeholder-[#53677A] focus:outline-none focus:border-[#18C986]"
           />
         </div>
       </div>
 
       {/* Withdrawal Queue Table */}
-      <Card className="overflow-hidden p-0 border-[#2E333B]">
+      <Card className="overflow-hidden p-0 border-[#274056]">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
-            <thead className="bg-[#1E2229] text-[#9CA3AF] border-b border-[#2E333B] uppercase text-[10px] tracking-wider">
+            <thead className="bg-[#132638] text-[#8FA3B7] border-b border-[#274056] uppercase text-[10px] tracking-wider">
               <tr>
                 <th className="py-3 px-4">Date</th>
                 <th className="py-3 px-4">Amount</th>
@@ -275,39 +275,39 @@ export default function WithdrawalsPage() {
                 <th className="py-3 px-4 text-right">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-[#2E333B]">
+            <tbody className="divide-y divide-[#274056]">
               {isLoading ? (
                 <tr>
-                  <td colSpan={7} className="py-12 text-center text-[#9CA3AF]">
-                    <RefreshCw className="w-5 h-5 animate-spin mx-auto mb-2 text-[#E7B24A]" />
+                  <td colSpan={7} className="py-12 text-center text-[#8FA3B7]">
+                    <RefreshCw className="w-5 h-5 animate-spin mx-auto mb-2 text-[#18C986]" />
                     Loading withdrawal queue...
                   </td>
                 </tr>
               ) : filteredWithdrawals.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="py-12 text-center text-[#6B7280]">
-                    <Wallet className="w-8 h-8 mx-auto mb-2 opacity-40 text-[#E7B24A]" />
+                  <td colSpan={7} className="py-12 text-center text-[#53677A]">
+                    <Wallet className="w-8 h-8 mx-auto mb-2 opacity-40 text-[#18C986]" />
                     No withdrawal records matching criteria.
                   </td>
                 </tr>
               ) : (
                 filteredWithdrawals.map((w) => (
-                  <tr key={w.id} className="hover:bg-[#1E2229]/40 transition-colors">
-                    <td className="py-3 px-4 font-mono text-[11px] text-[#9CA3AF] whitespace-nowrap">
+                  <tr key={w.id} className="hover:bg-[#132638]/40 transition-colors">
+                    <td className="py-3 px-4 font-mono text-[11px] text-[#8FA3B7] whitespace-nowrap">
                       {formatDate(w.createdAt)}
                     </td>
-                    <td className="py-3 px-4 font-bold font-mono text-sm text-[#F4F2ED]">
+                    <td className="py-3 px-4 font-bold font-mono text-sm text-[#F5F7FA]">
                       {formatNaira(w.amountMinorUnits)}
                     </td>
                     <td className="py-3 px-4">
                       <Badge variant={getStatusBadgeVariant(w.status)}>{w.status}</Badge>
                     </td>
                     <td className="py-3 px-4">
-                      <span className="block font-semibold text-[#F4F2ED]">
+                      <span className="block font-semibold text-[#F5F7FA]">
                         {w.user?.username || w.user?.email || w.userId.slice(0, 8)}
                       </span>
                       {w.user?.email && (
-                        <span className="text-[10px] text-[#9CA3AF] font-mono block">
+                        <span className="text-[10px] text-[#8FA3B7] font-mono block">
                           {w.user.email}
                         </span>
                       )}
@@ -315,18 +315,18 @@ export default function WithdrawalsPage() {
                     <td className="py-3 px-4">
                       {w.bankAccount ? (
                         <div>
-                          <span className="block font-semibold text-[#F4F2ED]">
+                          <span className="block font-semibold text-[#F5F7FA]">
                             {w.bankAccount.bankName}
                           </span>
-                          <span className="text-[11px] font-mono text-[#9CA3AF]">
+                          <span className="text-[11px] font-mono text-[#8FA3B7]">
                             {w.bankAccount.accountNumber} ({w.bankAccount.accountName || '—'})
                           </span>
                         </div>
                       ) : (
-                        <span className="text-[#6B7280] italic">No bank attached</span>
+                        <span className="text-[#53677A] italic">No bank attached</span>
                       )}
                     </td>
-                    <td className="py-3 px-4 font-mono text-[11px] text-[#9CA3AF] select-all">
+                    <td className="py-3 px-4 font-mono text-[11px] text-[#8FA3B7] select-all">
                       {w.reference}
                     </td>
                     <td className="py-3 px-4 text-right whitespace-nowrap">
@@ -383,11 +383,11 @@ export default function WithdrawalsPage() {
         </div>
 
         {/* Pagination Footer */}
-        <div className="p-3 bg-[#111317] border-t border-[#2E333B] flex items-center justify-between text-xs text-[#9CA3AF]">
+        <div className="p-3 bg-[#111317] border-t border-[#274056] flex items-center justify-between text-xs text-[#8FA3B7]">
           <span>
-            Total: <strong className="text-[#F4F2ED] font-mono">{total}</strong> | Page{' '}
-            <strong className="text-[#F4F2ED] font-mono">{page}</strong> of{' '}
-            <strong className="text-[#F4F2ED] font-mono">{totalPages}</strong>
+            Total: <strong className="text-[#F5F7FA] font-mono">{total}</strong> | Page{' '}
+            <strong className="text-[#F5F7FA] font-mono">{page}</strong> of{' '}
+            <strong className="text-[#F5F7FA] font-mono">{totalPages}</strong>
           </span>
           <div className="flex gap-1.5">
             <Button
@@ -415,18 +415,18 @@ export default function WithdrawalsPage() {
       {/* Quick Reject Modal */}
       {rejectingItem && (
         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <Card className="max-w-md w-full bg-[#15181D] border-[#2E333B] p-6 space-y-4 shadow-2xl">
+          <Card className="max-w-md w-full bg-[#0C1B2A] border-[#274056] p-6 space-y-4 shadow-2xl">
             <div className="flex items-center gap-2.5 text-rose-400">
               <XCircle className="w-5 h-5" />
-              <h3 className="font-bold text-base text-[#F4F2ED]">Reject & Release Funds</h3>
+              <h3 className="font-bold text-base text-[#F5F7FA]">Reject & Release Funds</h3>
             </div>
-            <p className="text-xs text-[#9CA3AF]">
+            <p className="text-xs text-[#8FA3B7]">
               Rejecting withdrawal <b className="text-emerald-400 font-mono">{formatNaira(rejectingItem.amountMinorUnits)}</b> for{' '}
-              <b className="text-[#F4F2ED]">{rejectingItem.user?.email || rejectingItem.userId}</b> will return the locked balance to their available wallet.
+              <b className="text-[#F5F7FA]">{rejectingItem.user?.email || rejectingItem.userId}</b> will return the locked balance to their available wallet.
             </p>
             <form onSubmit={handleConfirmReject} className="space-y-4">
               <div>
-                <label className="block text-xs font-semibold text-[#9CA3AF] mb-1">
+                <label className="block text-xs font-semibold text-[#8FA3B7] mb-1">
                   Reason for rejection (audited & notified to player)
                 </label>
                 <input
@@ -435,7 +435,7 @@ export default function WithdrawalsPage() {
                   placeholder="e.g. Bank name mismatch, Fraud check failure"
                   value={rejectReason}
                   onChange={(e) => setRejectReason(e.target.value)}
-                  className="w-full px-3 py-2 bg-[#1E2229] border border-[#2E333B] rounded-lg text-xs text-[#F4F2ED] placeholder-[#6B7280] focus:outline-none focus:border-rose-500"
+                  className="w-full px-3 py-2 bg-[#132638] border border-[#274056] rounded-lg text-xs text-[#F5F7FA] placeholder-[#53677A] focus:outline-none focus:border-rose-500"
                 />
               </div>
               <div className="flex justify-end gap-2 pt-2">

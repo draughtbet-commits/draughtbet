@@ -61,38 +61,65 @@ describeIntegration('LedgerService (real PostgreSQL)', () => {
   };
 
   const cleanup = async () => {
-    for (const userId of createdUsers) {
-      const wallet = await prisma.wallet.findUnique({ where: { userId } });
-      if (wallet) {
-        const accounts = await prisma.ledgerAccount.findMany({
-          where: { userId },
-          select: { id: true }
-        });
-        await prisma.ledgerEntry.deleteMany({
-          where: { accountId: { in: accounts.map((a) => a.id) } }
-        });
-        await prisma.wallet.delete({ where: { id: wallet.id } });
-      }
-      await prisma.ledgerAccount.deleteMany({ where: { userId } });
-      await prisma.user.delete({ where: { id: userId } });
+    const userIds = [...createdUsers];
+    const txIds = [...createdTxIds];
+    if (userIds.length === 0 && txIds.length === 0) return;
+
+    try {
+      await prisma.$transaction(
+        async (tx) => {
+          // 1. Delete ledger transactions & entries BEFORE user/account records
+          //    so a mid-cleanup interruption never leaves half-deleted ledger legs.
+          const userAccounts = userIds.length
+            ? await tx.ledgerAccount.findMany({
+                where: { userId: { in: userIds } },
+                select: { id: true }
+              })
+            : [];
+          const accountIds = userAccounts.map((a) => a.id);
+
+          if (txIds.length > 0 || accountIds.length > 0) {
+            await tx.ledgerEntry.deleteMany({
+              where: {
+                OR: [
+                  ...(txIds.length > 0 ? [{ transactionId: { in: txIds } }] : []),
+                  ...(accountIds.length > 0 ? [{ accountId: { in: accountIds } }] : [])
+                ]
+              }
+            });
+          }
+          if (txIds.length > 0) {
+            await tx.ledgerTransaction.deleteMany({
+              where: { id: { in: txIds } }
+            });
+          }
+
+          // 2. Delete dependent wallets, accounts, and users strictly scoped to this suite.
+          if (userIds.length > 0) {
+            await tx.wallet.deleteMany({ where: { userId: { in: userIds } } });
+            await tx.ledgerAccount.deleteMany({ where: { userId: { in: userIds } } });
+            await tx.user.deleteMany({ where: { id: { in: userIds } } });
+          }
+        },
+        { timeout: 30_000 }
+      );
+      createdUsers.length = 0;
+      createdTxIds.length = 0;
+    } catch (err) {
+      console.error('[ledger.integration.test] Cleanup failed:', err);
+      throw err;
     }
-    // System singleton accounts keep their identity, but this suite's own
-    // entries (opening-closing credits, revenue slices) must go so the shared
-    // dev DB does not accumulate drift between runs.
-    await prisma.ledgerEntry.deleteMany({
-      where: { transactionId: { in: createdTxIds } }
-    });
-    await prisma.ledgerTransaction.deleteMany({
-      where: { id: { in: createdTxIds } }
-    });
-    createdUsers.length = 0;
-    createdTxIds.length = 0;
   };
 
+  afterEach(cleanup, 60_000);
+
   afterAll(async () => {
-    await cleanup();
-    await prisma.$disconnect();
-  });
+    try {
+      await cleanup();
+    } finally {
+      await prisma.$disconnect();
+    }
+  }, 60_000);
 
   it('seeds a wallet balance via the ledger and projections reflect it', async () => {
     const { user } = await makeEligibleUser(250000n);

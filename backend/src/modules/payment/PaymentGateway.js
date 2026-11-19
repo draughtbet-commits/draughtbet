@@ -19,6 +19,21 @@ export const toMajorUnits = (amountMinorUnits) => {
 };
 
 /**
+ * Enables offline mock responses for external gateway HTTP calls strictly inside
+ * explicit development simulation sessions (`SIMULATION_MOCK_PAYMENTS=true`),
+ * never in production and never when live provider credentials are present.
+ */
+export const isSimulationMockPaymentEnabled = () => {
+  if (process.env.NODE_ENV !== 'development') return false;
+  if (process.env.SIMULATION_MOCK_PAYMENTS !== 'true') return false;
+  const paystack = String(process.env.PAYSTACK_SECRET_KEY || '');
+  const flutterwave = String(process.env.FLUTTERWAVE_SECRET_KEY || '');
+  if (paystack.startsWith('sk_live_')) return false;
+  if (flutterwave.startsWith('FLWSECK-') && !flutterwave.startsWith('FLWSECK_TEST')) return false;
+  return true;
+};
+
+/**
  * Interface/Base class for Payment Gateways.
  */
 export class PaymentGateway {

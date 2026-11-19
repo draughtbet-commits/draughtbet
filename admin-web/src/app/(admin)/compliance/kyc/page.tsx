@@ -178,12 +178,12 @@ export default function KycPage() {
   return (
     <div className="space-y-6">
       {/* Page Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-2 border-b border-[#2E333B]">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-2 border-b border-[#274056]">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-[#F4F2ED]">
+          <h1 className="text-2xl font-bold tracking-tight text-[#F5F7FA]">
             KYC & Compliance Queue
           </h1>
-          <p className="text-xs text-[#9CA3AF] mt-0.5">
+          <p className="text-xs text-[#8FA3B7] mt-0.5">
             Identity documents, age-verification evidence, ephemeral signed access, and regulatory reviews.
           </p>
         </div>
@@ -211,8 +211,8 @@ export default function KycPage() {
               }}
               className={`px-3 py-1.5 rounded-lg font-medium whitespace-nowrap transition-colors ${
                 statusFilter === st
-                  ? 'bg-[#E7B24A] text-[#0B0D10] font-bold'
-                  : 'bg-[#15181D] text-[#9CA3AF] hover:text-[#F4F2ED] border border-[#2E333B]'
+                  ? 'bg-[#18C986] text-[#000000] font-bold'
+                  : 'bg-[#0C1B2A] text-[#8FA3B7] hover:text-[#F5F7FA] border border-[#274056]'
               }`}
             >
               {st === 'ALL' ? 'All Applications' : st.replace(/_/g, ' ')}
@@ -253,7 +253,7 @@ export default function KycPage() {
       <Card className="overflow-hidden p-0">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
-            <thead className="bg-[#1E2229] text-[#9CA3AF] border-b border-[#2E333B] uppercase text-[10px] tracking-wider">
+            <thead className="bg-[#132638] text-[#8FA3B7] border-b border-[#274056] uppercase text-[10px] tracking-wider">
               <tr>
                 <th className="py-3 px-4">Created</th>
                 <th className="py-3 px-4">Applicant / Player</th>
@@ -264,36 +264,36 @@ export default function KycPage() {
                 <th className="py-3 px-4 text-right">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-[#2E333B]">
+            <tbody className="divide-y divide-[#274056]">
               {cases.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="py-12 text-center text-[#6B7280]">
+                  <td colSpan={7} className="py-12 text-center text-[#53677A]">
                     {isLoading ? 'Loading KYC applications...' : 'No verification applications found.'}
                   </td>
                 </tr>
               ) : (
                 cases.map((c) => (
-                  <tr key={c.id} className="hover:bg-[#1E2229]/40 transition-colors">
-                    <td className="py-3 px-4 font-mono text-[11px] text-[#9CA3AF]">
+                  <tr key={c.id} className="hover:bg-[#132638]/40 transition-colors">
+                    <td className="py-3 px-4 font-mono text-[11px] text-[#8FA3B7]">
                       {formatDate(c.createdAt)}
                     </td>
                     <td className="py-3 px-4">
-                      <div className="font-semibold text-[#F4F2ED]">
+                      <div className="font-semibold text-[#F5F7FA]">
                         {c.user?.fullName || c.user?.username || c.user?.email || c.userId}
                       </div>
-                      <div className="text-[11px] text-[#9CA3AF] font-mono">
+                      <div className="text-[11px] text-[#8FA3B7] font-mono">
                         {c.user?.email || c.userId}
                       </div>
                     </td>
                     <td className="py-3 px-4">
                       {getStatusBadge(c.status)}
                     </td>
-                    <td className="py-3 px-4 text-[#9CA3AF]">
-                      <span className="font-mono uppercase text-[11px] text-[#F4F2ED]">
+                    <td className="py-3 px-4 text-[#8FA3B7]">
+                      <span className="font-mono uppercase text-[11px] text-[#F5F7FA]">
                         {c.provider || 'Dojah / manual'}
                       </span>
                       {c.checks && c.checks.length > 0 && (
-                        <span className="block text-[10px] text-[#6B7280]">
+                        <span className="block text-[10px] text-[#53677A]">
                           {c.checks.length} check{c.checks.length > 1 ? 's' : ''} recorded
                         </span>
                       )}
@@ -309,7 +309,7 @@ export default function KycPage() {
                         </span>
                       )}
                     </td>
-                    <td className="py-3 px-4 font-mono text-[11px] text-[#E7B24A]">
+                    <td className="py-3 px-4 font-mono text-[11px] text-[#18C986]">
                       {c.user?.tier || 'TIER_1'}
                     </td>
                     <td className="py-3 px-4 text-right">
@@ -331,9 +331,9 @@ export default function KycPage() {
         </div>
 
         {/* Pagination Bar */}
-        <div className="p-3 bg-[#15181D] border-t border-[#2E333B] flex items-center justify-between text-xs text-[#9CA3AF]">
+        <div className="p-3 bg-[#0C1B2A] border-t border-[#274056] flex items-center justify-between text-xs text-[#8FA3B7]">
           <span>
-            Total Applications: <strong className="text-[#F4F2ED] font-mono">{total}</strong>
+            Total Applications: <strong className="text-[#F5F7FA] font-mono">{total}</strong>
           </span>
           <div className="flex items-center gap-2">
             <span className="text-[11px]">
@@ -364,32 +364,32 @@ export default function KycPage() {
       {/* KYC Detail Drawer / Modal */}
       {selectedCaseId && (
         <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
-          <div className="bg-[#15181D] border border-[#2E333B] rounded-xl max-w-4xl w-full max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
+          <div className="bg-[#0C1B2A] border border-[#274056] rounded-xl max-w-4xl w-full max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
             {/* Modal Header */}
-            <div className="p-4 bg-[#1E2229] border-b border-[#2E333B] flex items-center justify-between">
+            <div className="p-4 bg-[#132638] border-b border-[#274056] flex items-center justify-between">
               <div className="flex items-center gap-2.5">
-                <Shield className="w-5 h-5 text-[#E7B24A]" />
+                <Shield className="w-5 h-5 text-[#18C986]" />
                 <div>
-                  <h2 className="text-sm font-bold text-[#F4F2ED]">
+                  <h2 className="text-sm font-bold text-[#F5F7FA]">
                     KYC Verification Case Review
                   </h2>
-                  <p className="text-[11px] font-mono text-[#9CA3AF]">
+                  <p className="text-[11px] font-mono text-[#8FA3B7]">
                     Case ID: {selectedCaseId}
                   </p>
                 </div>
               </div>
               <button
                 onClick={closeDetail}
-                className="text-[#9CA3AF] hover:text-[#F4F2ED] p-1 rounded-md transition-colors"
+                className="text-[#8FA3B7] hover:text-[#F5F7FA] p-1 rounded-md transition-colors"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
             {/* Modal Body */}
-            <div className="p-6 overflow-y-auto space-y-6 text-xs text-[#F4F2ED]">
+            <div className="p-6 overflow-y-auto space-y-6 text-xs text-[#F5F7FA]">
               {isDetailLoading || !activeCase ? (
-                <div className="py-16 text-center text-[#9CA3AF]">Loading case details...</div>
+                <div className="py-16 text-center text-[#8FA3B7]">Loading case details...</div>
               ) : (
                 <>
                   {actionSuccessMsg && (
@@ -400,15 +400,15 @@ export default function KycPage() {
 
                   {/* Summary Grid */}
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div className="p-3 bg-[#0B0D10] border border-[#2E333B] rounded-lg space-y-1">
-                      <span className="text-[10px] uppercase text-[#9CA3AF] font-semibold">Applicant Profile</span>
+                    <div className="p-3 bg-[#000000] border border-[#274056] rounded-lg space-y-1">
+                      <span className="text-[10px] uppercase text-[#8FA3B7] font-semibold">Applicant Profile</span>
                       <p className="font-semibold text-sm">{activeCase.user?.fullName || 'No legal name on file'}</p>
-                      <p className="text-[#9CA3AF] font-mono">{activeCase.user?.email}</p>
-                      <p className="text-[#9CA3AF] font-mono">{activeCase.user?.phone || 'No phone'}</p>
+                      <p className="text-[#8FA3B7] font-mono">{activeCase.user?.email}</p>
+                      <p className="text-[#8FA3B7] font-mono">{activeCase.user?.phone || 'No phone'}</p>
                     </div>
 
-                    <div className="p-3 bg-[#0B0D10] border border-[#2E333B] rounded-lg space-y-1">
-                      <span className="text-[10px] uppercase text-[#9CA3AF] font-semibold">Status & Regulatory Compliance</span>
+                    <div className="p-3 bg-[#000000] border border-[#274056] rounded-lg space-y-1">
+                      <span className="text-[10px] uppercase text-[#8FA3B7] font-semibold">Status & Regulatory Compliance</span>
                       <div className="flex items-center gap-2 pt-0.5">
                         {getStatusBadge(activeCase.status)}
                         <Badge variant="gold">{activeCase.user?.tier || 'TIER_1'}</Badge>
@@ -423,28 +423,28 @@ export default function KycPage() {
                       </p>
                     </div>
 
-                    <div className="p-3 bg-[#0B0D10] border border-[#2E333B] rounded-lg space-y-1">
-                      <span className="text-[10px] uppercase text-[#9CA3AF] font-semibold">Submission Metadata</span>
-                      <p className="font-mono text-[11px] text-[#9CA3AF]">
+                    <div className="p-3 bg-[#000000] border border-[#274056] rounded-lg space-y-1">
+                      <span className="text-[10px] uppercase text-[#8FA3B7] font-semibold">Submission Metadata</span>
+                      <p className="font-mono text-[11px] text-[#8FA3B7]">
                         Submitted: {formatDate(activeCase.createdAt)}
                       </p>
-                      <p className="font-mono text-[11px] text-[#9CA3AF]">
+                      <p className="font-mono text-[11px] text-[#8FA3B7]">
                         Updated: {formatDate(activeCase.updatedAt)}
                       </p>
-                      <p className="text-[11px] text-[#9CA3AF]">
-                        Provider: <strong className="text-[#F4F2ED] uppercase">{activeCase.provider || 'Dojah'}</strong>
+                      <p className="text-[11px] text-[#8FA3B7]">
+                        Provider: <strong className="text-[#F5F7FA] uppercase">{activeCase.provider || 'Dojah'}</strong>
                       </p>
                     </div>
                   </div>
 
                   {/* Verification Checks Table */}
                   <div className="space-y-2">
-                    <h3 className="text-xs font-bold uppercase tracking-wider text-[#9CA3AF]">
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-[#8FA3B7]">
                       Verification Checks & Evidence
                     </h3>
-                    <div className="border border-[#2E333B] rounded-lg overflow-hidden">
+                    <div className="border border-[#274056] rounded-lg overflow-hidden">
                       <table className="w-full text-left text-xs">
-                        <thead className="bg-[#1E2229] text-[#9CA3AF] uppercase text-[10px]">
+                        <thead className="bg-[#132638] text-[#8FA3B7] uppercase text-[10px]">
                           <tr>
                             <th className="py-2.5 px-3">Check Type</th>
                             <th className="py-2.5 px-3">Status</th>
@@ -453,17 +453,17 @@ export default function KycPage() {
                             <th className="py-2.5 px-3 text-right">Access</th>
                           </tr>
                         </thead>
-                        <tbody className="divide-y divide-[#2E333B]">
+                        <tbody className="divide-y divide-[#274056]">
                           {!activeCase.checks || activeCase.checks.length === 0 ? (
                             <tr>
-                              <td colSpan={5} className="py-4 text-center text-[#6B7280]">
+                              <td colSpan={5} className="py-4 text-center text-[#53677A]">
                                 No discrete verification checks registered.
                               </td>
                             </tr>
                           ) : (
                             activeCase.checks.map((chk) => (
-                              <tr key={chk.id} className="hover:bg-[#1E2229]/20">
-                                <td className="py-2.5 px-3 font-semibold text-[#F4F2ED]">
+                              <tr key={chk.id} className="hover:bg-[#132638]/20">
+                                <td className="py-2.5 px-3 font-semibold text-[#F5F7FA]">
                                   {chk.type}
                                 </td>
                                 <td className="py-2.5 px-3">
@@ -471,10 +471,10 @@ export default function KycPage() {
                                     {chk.status}
                                   </Badge>
                                 </td>
-                                <td className="py-2.5 px-3 font-mono text-[11px] text-[#9CA3AF]">
+                                <td className="py-2.5 px-3 font-mono text-[11px] text-[#8FA3B7]">
                                   {chk.providerCheckId || '—'}
                                 </td>
-                                <td className="py-2.5 px-3 font-mono text-[11px] text-[#9CA3AF]">
+                                <td className="py-2.5 px-3 font-mono text-[11px] text-[#8FA3B7]">
                                   {formatDate(chk.createdAt)}
                                 </td>
                                 <td className="py-2.5 px-3 text-right">
@@ -484,7 +484,7 @@ export default function KycPage() {
                                     onClick={() => handleRequestDocumentAccess(chk.id)}
                                     className="h-7 text-[11px] gap-1"
                                   >
-                                    <Lock className="w-3 h-3 text-[#E7B24A]" />
+                                    <Lock className="w-3 h-3 text-[#18C986]" />
                                     <span>Signed Access</span>
                                   </Button>
                                 </td>
@@ -497,11 +497,11 @@ export default function KycPage() {
                   </div>
 
                   {/* Ephemeral Signed Access Box */}
-                  <div className="p-4 bg-[#0B0D10] border border-[#2E333B] rounded-lg space-y-3">
+                  <div className="p-4 bg-[#000000] border border-[#274056] rounded-lg space-y-3">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
-                        <Lock className="w-4 h-4 text-[#E7B24A]" />
-                        <span className="font-bold text-xs uppercase tracking-wider text-[#F4F2ED]">
+                        <Lock className="w-4 h-4 text-[#18C986]" />
+                        <span className="font-bold text-xs uppercase tracking-wider text-[#F5F7FA]">
                           Secure Ephemeral Document Access (HMAC Watermarked)
                         </span>
                       </div>
@@ -523,21 +523,21 @@ export default function KycPage() {
                     )}
 
                     {docAccess && (
-                      <div className="p-3 bg-[#15181D] border border-[#E7B24A]/30 rounded space-y-2">
+                      <div className="p-3 bg-[#0C1B2A] border border-[#18C986]/30 rounded space-y-2">
                         <div className="flex items-center justify-between text-[11px]">
                           <span className="text-emerald-400 font-semibold flex items-center gap-1">
                             <CheckCircle2 className="w-3.5 h-3.5" /> Ephemeral Token Active
                           </span>
-                          <span className="font-mono text-[#9CA3AF]">
+                          <span className="font-mono text-[#8FA3B7]">
                             Expires: {formatDate(docAccess.expiresAt || docAccess.access?.expiresAt)} (120s TTL)
                           </span>
                         </div>
-                        <div className="font-mono text-[11px] bg-[#0B0D10] p-2 rounded border border-[#2E333B] break-all text-[#9CA3AF]">
-                          <span className="text-[#E7B24A]">Token:</span> {docAccess.signedToken || docAccess.access?.signedToken}
+                        <div className="font-mono text-[11px] bg-[#000000] p-2 rounded border border-[#274056] break-all text-[#8FA3B7]">
+                          <span className="text-[#18C986]">Token:</span> {docAccess.signedToken || docAccess.access?.signedToken}
                         </div>
-                        <div className="text-[11px] text-[#9CA3AF] flex items-center gap-3">
-                          <span>Check Type: <strong className="text-[#F4F2ED]">{docAccess.checkType || docAccess.access?.checkType}</strong></span>
-                          <span>Watermark: <strong className="text-[#E7B24A]">{docAccess.watermark || docAccess.access?.watermark}</strong></span>
+                        <div className="text-[11px] text-[#8FA3B7] flex items-center gap-3">
+                          <span>Check Type: <strong className="text-[#F5F7FA]">{docAccess.checkType || docAccess.access?.checkType}</strong></span>
+                          <span>Watermark: <strong className="text-[#18C986]">{docAccess.watermark || docAccess.access?.watermark}</strong></span>
                         </div>
                       </div>
                     )}
@@ -546,7 +546,7 @@ export default function KycPage() {
                   {/* Audit History Timeline */}
                   {activeCase.auditHistory && activeCase.auditHistory.length > 0 && (
                     <div className="space-y-2">
-                      <h3 className="text-xs font-bold uppercase tracking-wider text-[#9CA3AF] flex items-center gap-1.5">
+                      <h3 className="text-xs font-bold uppercase tracking-wider text-[#8FA3B7] flex items-center gap-1.5">
                         <Clock className="w-3.5 h-3.5" />
                         <span>Compliance Decision History</span>
                       </h3>
@@ -554,13 +554,13 @@ export default function KycPage() {
                         {activeCase.auditHistory.map((item) => (
                           <div
                             key={item.id}
-                            className="p-2 bg-[#0B0D10] border border-[#2E333B] rounded flex items-center justify-between text-[11px]"
+                            className="p-2 bg-[#000000] border border-[#274056] rounded flex items-center justify-between text-[11px]"
                           >
                             <div>
-                              <span className="font-bold text-[#F4F2ED]">{item.action}</span>
-                              <span className="text-[#9CA3AF] ml-2">by {item.admin?.email || item.adminId}</span>
+                              <span className="font-bold text-[#F5F7FA]">{item.action}</span>
+                              <span className="text-[#8FA3B7] ml-2">by {item.admin?.email || item.adminId}</span>
                             </div>
-                            <span className="font-mono text-[#6B7280]">{formatDate(item.createdAt)}</span>
+                            <span className="font-mono text-[#53677A]">{formatDate(item.createdAt)}</span>
                           </div>
                         ))}
                       </div>
@@ -569,8 +569,8 @@ export default function KycPage() {
 
                   {/* Action Section */}
                   {activeCase.status !== 'VERIFIED' && (
-                    <div className="border-t border-[#2E333B] pt-4 space-y-3">
-                      <span className="text-xs font-bold uppercase tracking-wider text-[#9CA3AF]">
+                    <div className="border-t border-[#274056] pt-4 space-y-3">
+                      <span className="text-xs font-bold uppercase tracking-wider text-[#8FA3B7]">
                         Regulatory Adjudication
                       </span>
 
@@ -600,21 +600,21 @@ export default function KycPage() {
                             onClick={() => setActionType('REQUEST_INFO')}
                             className="gap-1.5"
                           >
-                            <HelpCircle className="w-3.5 h-3.5 text-[#E7B24A]" />
+                            <HelpCircle className="w-3.5 h-3.5 text-[#18C986]" />
                             <span>Request Additional Information</span>
                           </Button>
                         </div>
                       ) : (
-                        <div className="p-3 bg-[#0B0D10] border border-[#2E333B] rounded-lg space-y-3">
+                        <div className="p-3 bg-[#000000] border border-[#274056] rounded-lg space-y-3">
                           <div className="flex items-center justify-between">
-                            <span className="font-bold text-[#F4F2ED]">
+                            <span className="font-bold text-[#F5F7FA]">
                               {actionType === 'APPROVE' && 'Confirm Approval'}
                               {actionType === 'REJECT' && 'Specify Rejection Reason (Mandatory)'}
                               {actionType === 'REQUEST_INFO' && 'Specify Required Additional Documents / Information'}
                             </span>
                             <button
                               onClick={() => setActionType(null)}
-                              className="text-xs text-[#9CA3AF] hover:text-[#F4F2ED]"
+                              className="text-xs text-[#8FA3B7] hover:text-[#F5F7FA]"
                             >
                               Cancel
                             </button>

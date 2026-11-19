@@ -6,15 +6,15 @@ import { ArrowLeft, FileQuestion } from 'lucide-react';
 
 export default function NotFound() {
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen bg-[#0B0D10] text-center p-4">
-      <Card className="max-w-md w-full p-8 space-y-5 bg-[#15181D] border-[#2E333B]">
+    <div className="flex flex-col items-center justify-center min-h-screen bg-[#000000] text-center p-4">
+      <Card className="max-w-md w-full p-8 space-y-5 bg-[#0C1B2A] border-[#274056]">
         <div className="inline-flex w-14 h-14 rounded-full bg-amber-500/10 border border-amber-500/30 items-center justify-center text-amber-400 mx-auto">
           <FileQuestion className="w-8 h-8" />
         </div>
 
         <div className="space-y-1">
-          <h2 className="text-xl font-bold text-[#F4F2ED]">404 — Page Not Found</h2>
-          <p className="text-xs text-[#9CA3AF]">
+          <h2 className="text-xl font-bold text-[#F5F7FA]">404 — Page Not Found</h2>
+          <p className="text-xs text-[#8FA3B7]">
             The requested administration view does not exist or has been relocated.
           </p>
         </div>

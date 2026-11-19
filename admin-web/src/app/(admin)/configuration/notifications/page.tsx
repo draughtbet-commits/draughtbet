@@ -350,12 +350,12 @@ export default function NotificationTemplatesPage() {
         <div className="flex items-start gap-4">
           <Lock className="w-6 h-6 text-amber-400 shrink-0" />
           <div className="space-y-2">
-            <h2 className="text-base font-bold text-[#F4F2ED]">
+            <h2 className="text-base font-bold text-[#F5F7FA]">
               Configuration Read Permission Required (`config.read`)
             </h2>
-            <p className="text-xs text-[#9CA3AF]">
-              Inspecting notification templates requires <code className="font-mono text-[#E7B24A]">config.read</code>.
-              Creating or editing templates requires <code className="font-mono text-[#E7B24A]">templates.manage</code>.
+            <p className="text-xs text-[#8FA3B7]">
+              Inspecting notification templates requires <code className="font-mono text-[#18C986]">config.read</code>.
+              Creating or editing templates requires <code className="font-mono text-[#18C986]">templates.manage</code>.
             </p>
             <div className="flex gap-2 pt-2">
               <Link href="/configuration/feature-flags">
@@ -403,8 +403,8 @@ export default function NotificationTemplatesPage() {
         ).map((cap) => (
           <Card key={cap.channel} className="p-4 space-y-2">
             <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2 font-mono text-xs font-bold text-[#F4F2ED]">
-                <Radio className="w-4 h-4 text-[#E7B24A]" />
+              <div className="flex items-center gap-2 font-mono text-xs font-bold text-[#F5F7FA]">
+                <Radio className="w-4 h-4 text-[#18C986]" />
                 <span>{cap.channel} Channel</span>
               </div>
               {cap.implemented ? (
@@ -415,19 +415,19 @@ export default function NotificationTemplatesPage() {
                 <Badge variant="default">Template-Only (No Provider)</Badge>
               )}
             </div>
-            <div className="font-mono text-[10px] text-[#E7B24A]">{cap.deliveryMode}</div>
-            <p className="text-[11px] text-[#9CA3AF]">{cap.description}</p>
+            <div className="font-mono text-[10px] text-[#18C986]">{cap.deliveryMode}</div>
+            <p className="text-[11px] text-[#8FA3B7]">{cap.description}</p>
           </Card>
         ))}
       </div>
 
       {/* Top Action Bar */}
-      <div className="flex flex-wrap items-center justify-between gap-4 bg-[#15181D] border border-[#2E333B] rounded-xl p-4">
+      <div className="flex flex-wrap items-center justify-between gap-4 bg-[#0C1B2A] border border-[#274056] rounded-xl p-4">
         <div className="space-y-0.5 text-xs">
-          <div className="font-bold text-[#F4F2ED]">
+          <div className="font-bold text-[#F5F7FA]">
             Versioned Transactional &amp; Operational Notification Templates
           </div>
-          <p className="text-[#9CA3AF]">
+          <p className="text-[#8FA3B7]">
             All templates enforce balanced <code className="font-mono">{'{{variable}}'}</code> placeholders, reject raw
             HTML/scripts, and block predatory loss-chasing phrases.
           </p>
@@ -482,13 +482,13 @@ export default function NotificationTemplatesPage() {
       <Card className="p-4">
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
           <div className="relative">
-            <Search className="w-4 h-4 text-[#6B7280] absolute left-3 top-2.5" />
+            <Search className="w-4 h-4 text-[#53677A] absolute left-3 top-2.5" />
             <input
               type="text"
               placeholder="Search code, title, or body template…"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full h-9 pl-9 pr-3 bg-[#0B0D10] border border-[#2E333B] rounded-lg text-xs text-[#F4F2ED] placeholder-[#6B7280]"
+              className="w-full h-9 pl-9 pr-3 bg-[#000000] border border-[#274056] rounded-lg text-xs text-[#F5F7FA] placeholder-[#53677A]"
             />
           </div>
 
@@ -496,7 +496,7 @@ export default function NotificationTemplatesPage() {
             aria-label="Filter notification templates by category"
             value={categoryFilter}
             onChange={(e) => setCategoryFilter(e.target.value)}
-            className="h-9 px-3 bg-[#0B0D10] border border-[#2E333B] rounded-lg text-xs text-[#F4F2ED]"
+            className="h-9 px-3 bg-[#000000] border border-[#274056] rounded-lg text-xs text-[#F5F7FA]"
           >
             <option value="ALL">All Categories</option>
             {ALL_CATEGORIES.map((c) => (
@@ -510,7 +510,7 @@ export default function NotificationTemplatesPage() {
             aria-label="Filter notification templates by channel"
             value={channelFilter}
             onChange={(e) => setChannelFilter(e.target.value)}
-            className="h-9 px-3 bg-[#0B0D10] border border-[#2E333B] rounded-lg text-xs text-[#F4F2ED]"
+            className="h-9 px-3 bg-[#000000] border border-[#274056] rounded-lg text-xs text-[#F5F7FA]"
           >
             <option value="ALL">All Channels</option>
             {ALL_CHANNELS.map((ch) => (
@@ -524,7 +524,7 @@ export default function NotificationTemplatesPage() {
             aria-label="Filter notification templates by active state"
             value={activeFilter}
             onChange={(e) => setActiveFilter(e.target.value as 'ALL' | 'ACTIVE' | 'INACTIVE')}
-            className="h-9 px-3 bg-[#0B0D10] border border-[#2E333B] rounded-lg text-xs text-[#F4F2ED]"
+            className="h-9 px-3 bg-[#000000] border border-[#274056] rounded-lg text-xs text-[#F5F7FA]"
           >
             <option value="ALL">All States</option>
             <option value="ACTIVE">Active Templates Only</option>
@@ -547,16 +547,16 @@ export default function NotificationTemplatesPage() {
         {error ? (
           <div className="py-8 text-center text-xs text-rose-400">{error}</div>
         ) : isLoading ? (
-          <div className="py-10 text-center text-xs text-[#9CA3AF]">Loading notification templates…</div>
+          <div className="py-10 text-center text-xs text-[#8FA3B7]">Loading notification templates…</div>
         ) : filteredTemplates.length === 0 ? (
-          <div className="py-10 text-center text-xs text-[#6B7280]">
+          <div className="py-10 text-center text-xs text-[#53677A]">
             No notification templates found.
           </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
-                <tr className="border-b border-[#2E333B] text-[10px] font-bold uppercase tracking-wider text-[#6B7280]">
+                <tr className="border-b border-[#274056] text-[10px] font-bold uppercase tracking-wider text-[#53677A]">
                   <th className="py-3 px-4">Code &amp; Version</th>
                   <th className="py-3 px-4">Title &amp; Body Template</th>
                   <th className="py-3 px-4">Category &amp; Channels</th>
@@ -565,22 +565,22 @@ export default function NotificationTemplatesPage() {
                   <th className="py-3 px-4 text-right">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-[#2E333B] text-xs">
+              <tbody className="divide-y divide-[#274056] text-xs">
                 {filteredTemplates.map((tpl) => (
-                  <tr key={tpl.id || tpl.code} className="hover:bg-[#1E2229]/60">
+                  <tr key={tpl.id || tpl.code} className="hover:bg-[#132638]/60">
                     <td className="py-3.5 px-4 align-top">
-                      <div className="font-mono font-bold text-[#F4F2ED]">{tpl.code}</div>
+                      <div className="font-mono font-bold text-[#F5F7FA]">{tpl.code}</div>
                       <div className="flex items-center gap-1.5 mt-1">
                         <Badge variant="gold">v{tpl.version}</Badge>
                       </div>
-                      <div className="font-mono text-[10px] text-[#6B7280] mt-1">
+                      <div className="font-mono text-[10px] text-[#53677A] mt-1">
                         {formatDate(tpl.updatedAt)}
                       </div>
                     </td>
 
                     <td className="py-3.5 px-4 align-top max-w-md">
-                      <div className="font-semibold text-[#F4F2ED]">{tpl.title}</div>
-                      <div className="font-mono text-[11px] text-[#9CA3AF] mt-1 bg-[#0B0D10] border border-[#2E333B] rounded p-2">
+                      <div className="font-semibold text-[#F5F7FA]">{tpl.title}</div>
+                      <div className="font-mono text-[11px] text-[#8FA3B7] mt-1 bg-[#000000] border border-[#274056] rounded p-2">
                         {tpl.bodyTemplate}
                       </div>
                     </td>
@@ -603,7 +603,7 @@ export default function NotificationTemplatesPage() {
                               className={`px-1.5 py-0.5 rounded font-mono text-[10px] border ${
                                 isImpl
                                   ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
-                                  : 'bg-[#0B0D10] text-[#9CA3AF] border-[#2E333B]'
+                                  : 'bg-[#000000] text-[#8FA3B7] border-[#274056]'
                               }`}
                             >
                               {ch} {isImpl ? '✓' : '(stub)'}
@@ -615,7 +615,7 @@ export default function NotificationTemplatesPage() {
 
                     <td className="py-3.5 px-4 align-top">
                       {tpl.variables.length === 0 ? (
-                        <span className="text-[#6B7280]">None</span>
+                        <span className="text-[#53677A]">None</span>
                       ) : (
                         <div className="flex flex-wrap gap-1">
                           {tpl.variables.map((v) => {
@@ -625,8 +625,8 @@ export default function NotificationTemplatesPage() {
                                 key={v}
                                 className={`px-1.5 py-0.5 rounded font-mono text-[10px] border ${
                                   isSysReq
-                                    ? 'bg-[#3A2E17] text-[#E7B24A] border-[#E7B24A]/40'
-                                    : 'bg-[#0B0D10] text-[#F4F2ED] border-[#2E333B]'
+                                    ? 'bg-[#0E2E2B] text-[#18C986] border-[#18C986]/40'
+                                    : 'bg-[#000000] text-[#F5F7FA] border-[#274056]'
                                 }`}
                               >
                                 {`{{${v}}}`}
@@ -652,7 +652,7 @@ export default function NotificationTemplatesPage() {
                           size="sm"
                           onClick={() => openPreviewForSaved(tpl)}
                         >
-                          <Eye className="w-3.5 h-3.5 text-[#E7B24A]" />
+                          <Eye className="w-3.5 h-3.5 text-[#18C986]" />
                           Preview
                         </Button>
 
@@ -694,25 +694,25 @@ export default function NotificationTemplatesPage() {
         >
           <form
             onSubmit={handleSaveTemplate}
-            className="bg-[#15181D] border border-[#2E333B] rounded-2xl max-w-2xl w-full p-6 space-y-4 shadow-2xl"
+            className="bg-[#0C1B2A] border border-[#274056] rounded-2xl max-w-2xl w-full p-6 space-y-4 shadow-2xl"
           >
-            <div className="flex items-center justify-between border-b border-[#2E333B] pb-3">
+            <div className="flex items-center justify-between border-b border-[#274056] pb-3">
               <div>
-                <h3 className="text-base font-bold text-[#F4F2ED]">
+                <h3 className="text-base font-bold text-[#F5F7FA]">
                   {editorMode === 'CREATE'
                     ? 'Create Notification Template (v1)'
                     : `Edit Template: ${editingTemplate?.code} (v${editingTemplate?.version} → v${
                         (editingTemplate?.version ?? 1) + 1
                       })`}
                 </h3>
-                <p className="text-xs text-[#9CA3AF]">
+                <p className="text-xs text-[#8FA3B7]">
                   Placeholders must use <code className="font-mono">{'{{variableName}}'}</code> syntax and match declared variables.
                 </p>
               </div>
               <button
                 type="button"
                 onClick={() => setEditorMode(null)}
-                className="text-[#9CA3AF] hover:text-[#F4F2ED]"
+                className="text-[#8FA3B7] hover:text-[#F5F7FA]"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -729,13 +729,13 @@ export default function NotificationTemplatesPage() {
               />
 
               <div className="space-y-1.5">
-                <label className="block text-xs font-semibold uppercase tracking-wider text-[#9CA3AF]">
+                <label className="block text-xs font-semibold uppercase tracking-wider text-[#8FA3B7]">
                   Category (`category`)
                 </label>
                 <select
                   value={formCategory}
                   onChange={(e) => setFormCategory(e.target.value as NotificationCategory)}
-                  className="w-full h-10 px-3 bg-[#0B0D10] border border-[#2E333B] rounded-lg text-xs text-[#F4F2ED]"
+                  className="w-full h-10 px-3 bg-[#000000] border border-[#274056] rounded-lg text-xs text-[#F5F7FA]"
                 >
                   {ALL_CATEGORIES.map((c) => (
                     <option key={c} value={c}>
@@ -756,7 +756,7 @@ export default function NotificationTemplatesPage() {
             <div className="space-y-1.5">
               <label
                 htmlFor="tpl-body-textarea"
-                className="block text-xs font-semibold uppercase tracking-wider text-[#9CA3AF]"
+                className="block text-xs font-semibold uppercase tracking-wider text-[#8FA3B7]"
               >
                 Body Template (`bodyTemplate` — No raw HTML or scripts allowed)
               </label>
@@ -766,15 +766,15 @@ export default function NotificationTemplatesPage() {
                 value={formBody}
                 onChange={(e) => setFormBody(e.target.value)}
                 placeholder="Your deposit of {{amount}} has been credited to your available balance."
-                className="w-full p-3 bg-[#0B0D10] border border-[#2E333B] rounded-lg font-mono text-xs text-[#F4F2ED] focus:outline-none focus:border-[#E7B24A]"
+                className="w-full p-3 bg-[#000000] border border-[#274056] rounded-lg font-mono text-xs text-[#F5F7FA] focus:outline-none focus:border-[#18C986]"
               />
             </div>
 
             {/* Detected Variables & Sync */}
-            <div className="bg-[#0B0D10] border border-[#2E333B] rounded-xl p-3.5 space-y-2 text-xs">
+            <div className="bg-[#000000] border border-[#274056] rounded-xl p-3.5 space-y-2 text-xs">
               <div className="flex items-center justify-between">
-                <span className="font-semibold text-[#F4F2ED] flex items-center gap-1.5">
-                  <Code2 className="w-4 h-4 text-[#E7B24A]" />
+                <span className="font-semibold text-[#F5F7FA] flex items-center gap-1.5">
+                  <Code2 className="w-4 h-4 text-[#18C986]" />
                   <span>Detected Placeholders:</span>
                 </span>
                 <Button
@@ -788,7 +788,7 @@ export default function NotificationTemplatesPage() {
               </div>
               <div className="flex flex-wrap gap-1.5">
                 {detectedPlaceholders.length === 0 ? (
-                  <span className="text-[#6B7280]">No `{'{{variable}}'}` placeholders detected in title or body.</span>
+                  <span className="text-[#53677A]">No `{'{{variable}}'}` placeholders detected in title or body.</span>
                 ) : (
                   detectedPlaceholders.map((v) => (
                     <Badge key={v} variant="gold">
@@ -801,7 +801,7 @@ export default function NotificationTemplatesPage() {
 
             {/* Channels */}
             <div className="space-y-1.5">
-              <label className="block text-xs font-semibold uppercase tracking-wider text-[#9CA3AF]">
+              <label className="block text-xs font-semibold uppercase tracking-wider text-[#8FA3B7]">
                 Target Channels (`channels`)
               </label>
               <div className="flex flex-wrap gap-2">
@@ -812,8 +812,8 @@ export default function NotificationTemplatesPage() {
                     onClick={() => toggleChannel(ch)}
                     className={`px-3 py-1.5 rounded-lg text-xs font-mono border ${
                       formChannels.includes(ch)
-                        ? 'bg-[#3A2E17] text-[#E7B24A] border-[#E7B24A]/50 font-bold'
-                        : 'bg-[#0B0D10] text-[#9CA3AF] border-[#2E333B]'
+                        ? 'bg-[#0E2E2B] text-[#18C986] border-[#18C986]/50 font-bold'
+                        : 'bg-[#000000] text-[#8FA3B7] border-[#274056]'
                     }`}
                   >
                     {ch} {ch === 'IN_APP' ? '(Live)' : ch === 'PUSH' ? '(Mock Fallback)' : '(Template Only)'}
@@ -823,12 +823,12 @@ export default function NotificationTemplatesPage() {
             </div>
 
             <div className="flex items-center gap-3">
-              <label className="inline-flex items-center gap-2 text-xs text-[#F4F2ED] cursor-pointer">
+              <label className="inline-flex items-center gap-2 text-xs text-[#F5F7FA] cursor-pointer">
                 <input
                   type="checkbox"
                   checked={formIsActive}
                   onChange={(e) => setFormIsActive(e.target.checked)}
-                  className="rounded border-[#2E333B] bg-[#0B0D10]"
+                  className="rounded border-[#274056] bg-[#000000]"
                 />
                 <span>Template is Active (`isActive: true`)</span>
               </label>
@@ -841,7 +841,7 @@ export default function NotificationTemplatesPage() {
               placeholder="Explain why this template is being created or updated"
             />
 
-            <div className="flex justify-between items-center pt-3 border-t border-[#2E333B]">
+            <div className="flex justify-between items-center pt-3 border-t border-[#274056]">
               <Button
                 type="button"
                 variant="secondary"
@@ -863,7 +863,7 @@ export default function NotificationTemplatesPage() {
                   setPreviewError(null);
                 }}
               >
-                <Eye className="w-3.5 h-3.5 text-[#E7B24A]" />
+                <Eye className="w-3.5 h-3.5 text-[#18C986]" />
                 Test Draft Preview
               </Button>
 
@@ -887,14 +887,14 @@ export default function NotificationTemplatesPage() {
           aria-modal="true"
           className="fixed inset-0 z-50 bg-black/75 flex items-center justify-center p-4 overflow-y-auto"
         >
-          <div className="bg-[#15181D] border border-[#2E333B] rounded-2xl max-w-2xl w-full p-6 space-y-4 shadow-2xl">
-            <div className="flex items-center justify-between border-b border-[#2E333B] pb-3">
+          <div className="bg-[#0C1B2A] border border-[#274056] rounded-2xl max-w-2xl w-full p-6 space-y-4 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-[#274056] pb-3">
               <div>
-                <h3 className="text-base font-bold text-[#F4F2ED]">
+                <h3 className="text-base font-bold text-[#F5F7FA]">
                   Server-Rendered Notification Preview:{' '}
-                  <span className="font-mono text-[#E7B24A]">{previewTarget.code}</span>
+                  <span className="font-mono text-[#18C986]">{previewTarget.code}</span>
                 </h3>
-                <p className="text-xs text-[#9CA3AF]">
+                <p className="text-xs text-[#8FA3B7]">
                   Validated and rendered via <code className="font-mono">POST /admin/notification-templates/preview</code>.
                   Untrusted HTML is escaped server-side and rendered strictly as plain text.
                 </p>
@@ -902,7 +902,7 @@ export default function NotificationTemplatesPage() {
               <button
                 type="button"
                 onClick={() => setPreviewTarget(null)}
-                className="text-[#9CA3AF] hover:text-[#F4F2ED]"
+                className="text-[#8FA3B7] hover:text-[#F5F7FA]"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -910,7 +910,7 @@ export default function NotificationTemplatesPage() {
 
             <form onSubmit={handleRunPreview} className="space-y-4">
               {previewTarget.variables.length === 0 ? (
-                <p className="text-xs text-[#9CA3AF]">This template has no required variables.</p>
+                <p className="text-xs text-[#8FA3B7]">This template has no required variables.</p>
               ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   {previewTarget.variables.map((varName) => (
@@ -955,7 +955,7 @@ export default function NotificationTemplatesPage() {
             )}
 
             {previewResult && (
-              <div className="bg-[#0B0D10] border border-emerald-500/30 rounded-xl p-4 space-y-3">
+              <div className="bg-[#000000] border border-emerald-500/30 rounded-xl p-4 space-y-3">
                 <div className="flex items-center justify-between">
                   <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-400">
                     Rendered Output (Escaped &amp; Validated)
@@ -963,16 +963,16 @@ export default function NotificationTemplatesPage() {
                   {previewResult.version && <Badge variant="gold">v{previewResult.version}</Badge>}
                 </div>
 
-                <div className="bg-[#15181D] border border-[#2E333B] rounded-lg p-3.5 space-y-1.5">
-                  <div className="text-sm font-bold text-[#F4F2ED]">{previewResult.renderedTitle}</div>
-                  <div className="text-xs text-[#9CA3AF] whitespace-pre-wrap">
+                <div className="bg-[#0C1B2A] border border-[#274056] rounded-lg p-3.5 space-y-1.5">
+                  <div className="text-sm font-bold text-[#F5F7FA]">{previewResult.renderedTitle}</div>
+                  <div className="text-xs text-[#8FA3B7] whitespace-pre-wrap">
                     {previewResult.renderedBody}
                   </div>
                 </div>
 
-                <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-[#9CA3AF]">
+                <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-[#8FA3B7]">
                   <span>
-                    Used Variables: <code className="font-mono text-[#F4F2ED]">{previewResult.usedVariables.join(', ') || 'None'}</code>
+                    Used Variables: <code className="font-mono text-[#F5F7FA]">{previewResult.usedVariables.join(', ') || 'None'}</code>
                   </span>
                   <div className="flex flex-wrap gap-1.5">
                     {previewResult.channelDetails.map((ch) => (
@@ -998,22 +998,22 @@ export default function NotificationTemplatesPage() {
           aria-modal="true"
           className="fixed inset-0 z-50 bg-black/75 flex items-center justify-center p-4 overflow-y-auto"
         >
-          <div className="bg-[#15181D] border border-[#2E333B] rounded-2xl max-w-3xl w-full max-h-[85vh] flex flex-col p-6 space-y-4">
-            <div className="flex items-center justify-between border-b border-[#2E333B] pb-3">
+          <div className="bg-[#0C1B2A] border border-[#274056] rounded-2xl max-w-3xl w-full max-h-[85vh] flex flex-col p-6 space-y-4">
+            <div className="flex items-center justify-between border-b border-[#274056] pb-3">
               <div>
-                <h3 className="text-base font-bold text-[#F4F2ED]">
+                <h3 className="text-base font-bold text-[#F5F7FA]">
                   Template Version &amp; Audit History:{' '}
-                  <span className="font-mono text-[#E7B24A]">{historyTemplate.code}</span> (Current: v
+                  <span className="font-mono text-[#18C986]">{historyTemplate.code}</span> (Current: v
                   {historyTemplate.version})
                 </h3>
-                <p className="text-xs text-[#9CA3AF]">
+                <p className="text-xs text-[#8FA3B7]">
                   Every template modification increments its version number and records before/after snapshots.
                 </p>
               </div>
               <button
                 type="button"
                 onClick={() => setHistoryTemplate(null)}
-                className="text-[#9CA3AF] hover:text-[#F4F2ED]"
+                className="text-[#8FA3B7] hover:text-[#F5F7FA]"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -1021,28 +1021,28 @@ export default function NotificationTemplatesPage() {
 
             <div className="overflow-y-auto flex-1 space-y-3">
               {isLoadingHistory ? (
-                <div className="py-8 text-center text-xs text-[#9CA3AF]">Loading template history…</div>
+                <div className="py-8 text-center text-xs text-[#8FA3B7]">Loading template history…</div>
               ) : historyLogs.length === 0 ? (
-                <div className="py-8 text-center text-xs text-[#6B7280]">
+                <div className="py-8 text-center text-xs text-[#53677A]">
                   No audit records found for this template.
                 </div>
               ) : (
                 historyLogs.map((log) => (
                   <div
                     key={log.id}
-                    className="bg-[#0B0D10] border border-[#2E333B] rounded-xl p-3.5 text-xs space-y-1.5"
+                    className="bg-[#000000] border border-[#274056] rounded-xl p-3.5 text-xs space-y-1.5"
                   >
                     <div className="flex items-center justify-between">
-                      <span className="font-mono font-bold text-[#E7B24A]">{log.action}</span>
-                      <span className="font-mono text-[11px] text-[#9CA3AF]">
+                      <span className="font-mono font-bold text-[#18C986]">{log.action}</span>
+                      <span className="font-mono text-[11px] text-[#8FA3B7]">
                         {formatDate(log.createdAt)}
                       </span>
                     </div>
-                    <div className="text-[#9CA3AF]">
-                      Actor: <span className="font-mono text-[#F4F2ED]">{log.adminId}</span>
+                    <div className="text-[#8FA3B7]">
+                      Actor: <span className="font-mono text-[#F5F7FA]">{log.adminId}</span>
                     </div>
                     {log.metadata && (
-                      <pre className="bg-[#15181D] border border-[#2E333B] rounded-lg p-2.5 font-mono text-[11px] text-[#9CA3AF] overflow-x-auto">
+                      <pre className="bg-[#0C1B2A] border border-[#274056] rounded-lg p-2.5 font-mono text-[11px] text-[#8FA3B7] overflow-x-auto">
                         {JSON.stringify(log.metadata, null, 2)}
                       </pre>
                     )}

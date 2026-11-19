@@ -7,30 +7,26 @@ import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { Input } from '@/components/ui/Input';
-import { formatDate, formatNaira } from '@/lib/utils';
+import { formatDate } from '@/lib/utils';
 import {
   LifeBuoy,
   RefreshCw,
   Search,
   PlusCircle,
   Eye,
-  Clock,
-  User,
-  Shield,
   MessageSquare,
   CheckCircle2,
   X,
   ChevronLeft,
   ChevronRight,
-  Send,
-  AlertCircle
+  Send
 } from 'lucide-react';
 
 export default function SupportPage() {
   const [cases, setCases] = useState<SupportCaseItem[]>([]);
   const [statusFilter, setStatusFilter] = useState('ALL');
-  const [priorityFilter, setPriorityFilter] = useState('ALL');
-  const [categoryFilter, setCategoryFilter] = useState('ALL');
+  const [priorityFilter] = useState('ALL');
+  const [categoryFilter] = useState('ALL');
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
@@ -59,38 +55,39 @@ export default function SupportPage() {
 
   const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
-  const fetchCases = useCallback((
+  const fetchCases = useCallback(async (
     targetPage = page,
     status = statusFilter,
     priority = priorityFilter,
     category = categoryFilter,
     query = search
   ) => {
-    setIsLoading(true);
-    adminApi.getSupportCases({
-      page: targetPage,
-      limit: 10,
-      status: status === 'ALL' ? undefined : status,
-      priority: priority === 'ALL' ? undefined : priority,
-      category: category === 'ALL' ? undefined : category,
-      search: query.trim() || undefined
-    })
-      .then((data) => {
-        setCases(data.cases || []);
-        setTotalPages(data.totalPages || 1);
-        setTotal(data.total || 0);
-      })
-      .catch((err: unknown) => {
-        setNotification({
-          type: 'error',
-          message: err instanceof Error ? err.message : 'Failed to fetch support cases'
-        });
-      })
-      .finally(() => setIsLoading(false));
+    try {
+      const data = await adminApi.getSupportCases({
+        page: targetPage,
+        limit: 10,
+        status: status === 'ALL' ? undefined : status,
+        priority: priority === 'ALL' ? undefined : priority,
+        category: category === 'ALL' ? undefined : category,
+        search: query.trim() || undefined
+      });
+      setCases(data.cases || []);
+      setTotalPages(data.totalPages || 1);
+      setTotal(data.total || 0);
+    } catch (err: unknown) {
+      setNotification({
+        type: 'error',
+        message: err instanceof Error ? err.message : 'Failed to fetch support cases'
+      });
+    } finally {
+      setIsLoading(false);
+    }
   }, [page, statusFilter, priorityFilter, categoryFilter, search]);
 
   useEffect(() => {
-    fetchCases();
+    void (async () => {
+      await fetchCases();
+    })();
   }, [fetchCases]);
 
   const openCaseDetail = async (id: string) => {
@@ -253,12 +250,12 @@ export default function SupportPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-2 border-b border-[#2E333B]">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-2 border-b border-[#274056]">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-[#F4F2ED]">
+          <h1 className="text-2xl font-bold tracking-tight text-[#F5F7FA]">
             Customer Support Directory
           </h1>
-          <p className="text-xs text-[#9CA3AF] mt-0.5">
+          <p className="text-xs text-[#8FA3B7] mt-0.5">
             Player inquiries, ticket triage, dispute linkages, and internal operator notes.
           </p>
         </div>
@@ -286,11 +283,11 @@ export default function SupportPage() {
       </div>
 
       {/* Advisory Banner */}
-      <div className="p-3 bg-[#15181D] border border-[#2E333B] rounded-lg flex items-start gap-2.5 text-xs text-[#9CA3AF]">
-        <LifeBuoy className="w-4 h-4 text-[#E7B24A] shrink-0 mt-0.5" />
+      <div className="p-3 bg-[#0C1B2A] border border-[#274056] rounded-lg flex items-start gap-2.5 text-xs text-[#8FA3B7]">
+        <LifeBuoy className="w-4 h-4 text-[#18C986] shrink-0 mt-0.5" />
         <div>
           Support agents can assign, escalate, and record resolution notes for player inquiries.
-          <strong className="text-[#F4F2ED]"> Ledger Integrity Rule:</strong> Support agents do not have direct ledger modification access. Any financial adjustments must be escalated to Finance operators.
+          <strong className="text-[#F5F7FA]"> Ledger Integrity Rule:</strong> Support agents do not have direct ledger modification access. Any financial adjustments must be escalated to Finance operators.
         </div>
       </div>
 
@@ -306,8 +303,8 @@ export default function SupportPage() {
               }}
               className={`px-3 py-1.5 rounded-lg font-medium whitespace-nowrap transition-colors ${
                 statusFilter === st
-                  ? 'bg-[#E7B24A] text-[#0B0D10] font-bold'
-                  : 'bg-[#15181D] text-[#9CA3AF] hover:text-[#F4F2ED] border border-[#2E333B]'
+                  ? 'bg-[#18C986] text-[#000000] font-bold'
+                  : 'bg-[#0C1B2A] text-[#8FA3B7] hover:text-[#F5F7FA] border border-[#274056]'
               }`}
             >
               {st === 'ALL' ? 'All Tickets' : st.replace(/_/g, ' ')}
@@ -354,7 +351,7 @@ export default function SupportPage() {
       <Card className="overflow-hidden p-0">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
-            <thead className="bg-[#1E2229] text-[#9CA3AF] border-b border-[#2E333B] uppercase text-[10px] tracking-wider">
+            <thead className="bg-[#132638] text-[#8FA3B7] border-b border-[#274056] uppercase text-[10px] tracking-wider">
               <tr>
                 <th className="py-3 px-4">Created</th>
                 <th className="py-3 px-4">Reference</th>
@@ -366,34 +363,34 @@ export default function SupportPage() {
                 <th className="py-3 px-4 text-right">Action</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-[#2E333B]">
+            <tbody className="divide-y divide-[#274056]">
               {cases.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="py-12 text-center text-[#6B7280]">
+                  <td colSpan={8} className="py-12 text-center text-[#53677A]">
                     {isLoading ? 'Loading support cases...' : 'No support cases recorded.'}
                   </td>
                 </tr>
               ) : (
                 cases.map((sc) => (
-                  <tr key={sc.id} className="hover:bg-[#1E2229]/40 transition-colors">
-                    <td className="py-3 px-4 font-mono text-[11px] text-[#9CA3AF]">
+                  <tr key={sc.id} className="hover:bg-[#132638]/40 transition-colors">
+                    <td className="py-3 px-4 font-mono text-[11px] text-[#8FA3B7]">
                       {formatDate(sc.createdAt)}
                     </td>
-                    <td className="py-3 px-4 font-mono font-bold text-[11px] text-[#E7B24A]">
+                    <td className="py-3 px-4 font-mono font-bold text-[11px] text-[#18C986]">
                       {sc.reference}
                     </td>
-                    <td className="py-3 px-4 font-semibold text-[#F4F2ED] max-w-xs truncate">
+                    <td className="py-3 px-4 font-semibold text-[#F5F7FA] max-w-xs truncate">
                       {sc.subject}
                     </td>
                     <td className="py-3 px-4">
-                      <div className="text-[#F4F2ED]">
+                      <div className="text-[#F5F7FA]">
                         {sc.user?.fullName || sc.user?.username || sc.userId.slice(0, 8)}
                       </div>
-                      <div className="text-[11px] text-[#9CA3AF] font-mono">
+                      <div className="text-[11px] text-[#8FA3B7] font-mono">
                         {sc.user?.email || sc.userId}
                       </div>
                     </td>
-                    <td className="py-3 px-4 uppercase text-[10px] text-[#9CA3AF]">
+                    <td className="py-3 px-4 uppercase text-[10px] text-[#8FA3B7]">
                       {sc.category.replace(/_/g, ' ')}
                     </td>
                     <td className="py-3 px-4">{getPriorityBadge(sc.priority)}</td>
@@ -417,9 +414,9 @@ export default function SupportPage() {
         </div>
 
         {/* Pagination Bar */}
-        <div className="p-3 bg-[#15181D] border-t border-[#2E333B] flex items-center justify-between text-xs text-[#9CA3AF]">
+        <div className="p-3 bg-[#0C1B2A] border-t border-[#274056] flex items-center justify-between text-xs text-[#8FA3B7]">
           <span>
-            Total Cases: <strong className="text-[#F4F2ED] font-mono">{total}</strong>
+            Total Cases: <strong className="text-[#F5F7FA] font-mono">{total}</strong>
           </span>
           <div className="flex items-center gap-2">
             <span>Page {page} of {totalPages}</span>
@@ -448,15 +445,15 @@ export default function SupportPage() {
       {/* ===================== NEW SUPPORT CASE MODAL ===================== */}
       {isNewCaseOpen && (
         <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
-          <div className="bg-[#15181D] border border-[#2E333B] rounded-xl max-w-lg w-full shadow-2xl overflow-hidden">
-            <div className="p-4 bg-[#1E2229] border-b border-[#2E333B] flex items-center justify-between">
+          <div className="bg-[#0C1B2A] border border-[#274056] rounded-xl max-w-lg w-full shadow-2xl overflow-hidden">
+            <div className="p-4 bg-[#132638] border-b border-[#274056] flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <PlusCircle className="w-4 h-4 text-[#E7B24A]" />
-                <h3 className="text-sm font-bold text-[#F4F2ED]">Open New Support Case</h3>
+                <PlusCircle className="w-4 h-4 text-[#18C986]" />
+                <h3 className="text-sm font-bold text-[#F5F7FA]">Open New Support Case</h3>
               </div>
               <button
                 onClick={() => setIsNewCaseOpen(false)}
-                className="text-[#9CA3AF] hover:text-[#F4F2ED]"
+                className="text-[#8FA3B7] hover:text-[#F5F7FA]"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -480,12 +477,12 @@ export default function SupportPage() {
               />
 
               <div className="space-y-1">
-                <label className="block text-xs font-semibold uppercase tracking-wider text-[#9CA3AF]">
+                <label className="block text-xs font-semibold uppercase tracking-wider text-[#8FA3B7]">
                   Description
                 </label>
                 <textarea
                   rows={3}
-                  className="w-full p-2.5 bg-[#0B0D10] border border-[#2E333B] rounded-lg text-xs text-[#F4F2ED] focus:border-[#E7B24A] focus:outline-none"
+                  className="w-full p-2.5 bg-[#000000] border border-[#274056] rounded-lg text-xs text-[#F5F7FA] focus:border-[#18C986] focus:outline-none"
                   placeholder="Detailed customer claim or inquiry..."
                   value={newDescription}
                   onChange={(e) => setNewDescription(e.target.value)}
@@ -495,11 +492,11 @@ export default function SupportPage() {
 
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
-                  <label className="block text-xs font-semibold uppercase tracking-wider text-[#9CA3AF]">
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-[#8FA3B7]">
                     Category
                   </label>
                   <select
-                    className="w-full h-10 px-3 bg-[#0B0D10] border border-[#2E333B] rounded-lg text-xs text-[#F4F2ED] focus:border-[#E7B24A] focus:outline-none"
+                    className="w-full h-10 px-3 bg-[#000000] border border-[#274056] rounded-lg text-xs text-[#F5F7FA] focus:border-[#18C986] focus:outline-none"
                     value={newCategory}
                     onChange={(e) => setNewCategory(e.target.value)}
                   >
@@ -514,11 +511,11 @@ export default function SupportPage() {
                 </div>
 
                 <div className="space-y-1">
-                  <label className="block text-xs font-semibold uppercase tracking-wider text-[#9CA3AF]">
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-[#8FA3B7]">
                     Priority
                   </label>
                   <select
-                    className="w-full h-10 px-3 bg-[#0B0D10] border border-[#2E333B] rounded-lg text-xs text-[#F4F2ED] focus:border-[#E7B24A] focus:outline-none"
+                    className="w-full h-10 px-3 bg-[#000000] border border-[#274056] rounded-lg text-xs text-[#F5F7FA] focus:border-[#18C986] focus:outline-none"
                     value={newPriority}
                     onChange={(e) => setNewPriority(e.target.value)}
                   >
@@ -545,7 +542,7 @@ export default function SupportPage() {
                 />
               </div>
 
-              <div className="flex justify-end gap-2 pt-2 border-t border-[#2E333B]">
+              <div className="flex justify-end gap-2 pt-2 border-t border-[#274056]">
                 <Button
                   type="button"
                   variant="secondary"
@@ -571,64 +568,64 @@ export default function SupportPage() {
       {/* ===================== CASE DETAIL & NOTES MODAL ===================== */}
       {selectedCaseId && (
         <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
-          <div className="bg-[#15181D] border border-[#2E333B] rounded-xl max-w-4xl w-full max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
-            <div className="p-4 bg-[#1E2229] border-b border-[#2E333B] flex items-center justify-between">
+          <div className="bg-[#0C1B2A] border border-[#274056] rounded-xl max-w-4xl w-full max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
+            <div className="p-4 bg-[#132638] border-b border-[#274056] flex items-center justify-between">
               <div className="flex items-center gap-2.5">
-                <LifeBuoy className="w-5 h-5 text-[#E7B24A]" />
+                <LifeBuoy className="w-5 h-5 text-[#18C986]" />
                 <div>
-                  <h2 className="text-sm font-bold text-[#F4F2ED]">
+                  <h2 className="text-sm font-bold text-[#F5F7FA]">
                     Support Case Details
                   </h2>
-                  <p className="text-[11px] font-mono text-[#E7B24A]">
+                  <p className="text-[11px] font-mono text-[#18C986]">
                     {activeCase?.reference || selectedCaseId}
                   </p>
                 </div>
               </div>
               <button
                 onClick={closeCaseDetail}
-                className="text-[#9CA3AF] hover:text-[#F4F2ED] p-1 rounded-md transition-colors"
+                className="text-[#8FA3B7] hover:text-[#F5F7FA] p-1 rounded-md transition-colors"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="p-6 overflow-y-auto space-y-6 text-xs text-[#F4F2ED]">
+            <div className="p-6 overflow-y-auto space-y-6 text-xs text-[#F5F7FA]">
               {isDetailLoading || !activeCase ? (
-                <div className="py-16 text-center text-[#9CA3AF]">Loading support case...</div>
+                <div className="py-16 text-center text-[#8FA3B7]">Loading support case...</div>
               ) : (
                 <>
                   {/* Context Grid */}
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                    <div className="p-3 bg-[#0B0D10] border border-[#2E333B] rounded-lg space-y-1">
-                      <span className="text-[10px] uppercase text-[#9CA3AF] font-semibold">Customer Account</span>
+                    <div className="p-3 bg-[#000000] border border-[#274056] rounded-lg space-y-1">
+                      <span className="text-[10px] uppercase text-[#8FA3B7] font-semibold">Customer Account</span>
                       <p className="font-semibold text-sm">{activeCase.user?.fullName || activeCase.user?.username || 'No display name'}</p>
-                      <p className="font-mono text-[#9CA3AF]">{activeCase.user?.email}</p>
-                      <p className="text-[10px] text-[#6B7280]">User ID: {activeCase.userId}</p>
+                      <p className="font-mono text-[#8FA3B7]">{activeCase.user?.email}</p>
+                      <p className="text-[10px] text-[#53677A]">User ID: {activeCase.userId}</p>
                     </div>
 
-                    <div className="p-3 bg-[#0B0D10] border border-[#2E333B] rounded-lg space-y-1">
-                      <span className="text-[10px] uppercase text-[#9CA3AF] font-semibold">Classification & Urgency</span>
+                    <div className="p-3 bg-[#000000] border border-[#274056] rounded-lg space-y-1">
+                      <span className="text-[10px] uppercase text-[#8FA3B7] font-semibold">Classification & Urgency</span>
                       <div className="flex items-center gap-2 pt-0.5">
                         {getStatusBadge(activeCase.status)}
                         {getPriorityBadge(activeCase.priority)}
                       </div>
-                      <p className="text-[11px] text-[#9CA3AF] pt-1">
-                        Category: <strong className="text-[#F4F2ED] uppercase">{activeCase.category}</strong>
+                      <p className="text-[11px] text-[#8FA3B7] pt-1">
+                        Category: <strong className="text-[#F5F7FA] uppercase">{activeCase.category}</strong>
                       </p>
                     </div>
 
-                    <div className="p-3 bg-[#0B0D10] border border-[#2E333B] rounded-lg space-y-1">
-                      <span className="text-[10px] uppercase text-[#9CA3AF] font-semibold">Timestamps</span>
-                      <p className="font-mono text-[#9CA3AF]">Opened: {formatDate(activeCase.createdAt)}</p>
-                      <p className="font-mono text-[#9CA3AF]">Updated: {formatDate(activeCase.updatedAt)}</p>
+                    <div className="p-3 bg-[#000000] border border-[#274056] rounded-lg space-y-1">
+                      <span className="text-[10px] uppercase text-[#8FA3B7] font-semibold">Timestamps</span>
+                      <p className="font-mono text-[#8FA3B7]">Opened: {formatDate(activeCase.createdAt)}</p>
+                      <p className="font-mono text-[#8FA3B7]">Updated: {formatDate(activeCase.updatedAt)}</p>
                     </div>
                   </div>
 
                   {/* Subject & Description */}
-                  <div className="p-4 bg-[#0B0D10] border border-[#2E333B] rounded-lg space-y-1.5">
-                    <span className="text-[10px] uppercase font-bold text-[#9CA3AF]">Customer Inquiry</span>
-                    <h3 className="font-bold text-sm text-[#F4F2ED]">{activeCase.subject}</h3>
-                    <p className="text-xs text-[#9CA3AF] whitespace-pre-wrap">{activeCase.description}</p>
+                  <div className="p-4 bg-[#000000] border border-[#274056] rounded-lg space-y-1.5">
+                    <span className="text-[10px] uppercase font-bold text-[#8FA3B7]">Customer Inquiry</span>
+                    <h3 className="font-bold text-sm text-[#F5F7FA]">{activeCase.subject}</h3>
+                    <p className="text-xs text-[#8FA3B7] whitespace-pre-wrap">{activeCase.description}</p>
                   </div>
 
                   {/* Resolution Notes (if resolved) */}
@@ -637,27 +634,27 @@ export default function SupportPage() {
                       <span className="text-xs font-bold uppercase tracking-wider text-emerald-400">
                         Resolution Summary
                       </span>
-                      <p className="text-xs text-[#F4F2ED]">{activeCase.resolutionNote}</p>
+                      <p className="text-xs text-[#F5F7FA]">{activeCase.resolutionNote}</p>
                     </div>
                   )}
 
                   {/* Timeline Notes */}
                   <div className="space-y-2">
-                    <h3 className="text-xs font-bold uppercase tracking-wider text-[#9CA3AF] flex items-center gap-1.5">
-                      <MessageSquare className="w-3.5 h-3.5 text-[#E7B24A]" />
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-[#8FA3B7] flex items-center gap-1.5">
+                      <MessageSquare className="w-3.5 h-3.5 text-[#18C986]" />
                       <span>Case Timeline & Internal Notes ({activeCase.notes?.length || 0})</span>
                     </h3>
-                    <div className="p-3 bg-[#0B0D10] border border-[#2E333B] rounded-lg max-h-48 overflow-y-auto space-y-2">
+                    <div className="p-3 bg-[#000000] border border-[#274056] rounded-lg max-h-48 overflow-y-auto space-y-2">
                       {!activeCase.notes || activeCase.notes.length === 0 ? (
-                        <p className="text-center text-[#6B7280] py-3">No timeline notes recorded.</p>
+                        <p className="text-center text-[#53677A] py-3">No timeline notes recorded.</p>
                       ) : (
                         activeCase.notes.map((nt) => (
-                          <div key={nt.id} className="p-2 bg-[#15181D] border border-[#2E333B] rounded space-y-1">
-                            <div className="flex items-center justify-between text-[10px] text-[#9CA3AF]">
-                              <span className="font-semibold text-[#E7B24A]">{nt.eventType}</span>
+                          <div key={nt.id} className="p-2 bg-[#0C1B2A] border border-[#274056] rounded space-y-1">
+                            <div className="flex items-center justify-between text-[10px] text-[#8FA3B7]">
+                              <span className="font-semibold text-[#18C986]">{nt.eventType}</span>
                               <span className="font-mono">{formatDate(nt.createdAt)}</span>
                             </div>
-                            <p className="text-xs text-[#F4F2ED]">{nt.body}</p>
+                            <p className="text-xs text-[#F5F7FA]">{nt.body}</p>
                           </div>
                         ))
                       )}
@@ -666,7 +663,7 @@ export default function SupportPage() {
 
                   {/* Add Internal Note */}
                   <form onSubmit={handleAddNote} className="space-y-2">
-                    <span className="text-xs font-bold uppercase tracking-wider text-[#9CA3AF]">
+                    <span className="text-xs font-bold uppercase tracking-wider text-[#8FA3B7]">
                       Add Internal Operator Note
                     </span>
                     <div className="flex gap-2">
@@ -690,8 +687,8 @@ export default function SupportPage() {
                   </form>
 
                   {/* Status & Resolution Controls */}
-                  <div className="border-t border-[#2E333B] pt-4 space-y-3">
-                    <span className="text-xs font-bold uppercase tracking-wider text-[#9CA3AF]">
+                  <div className="border-t border-[#274056] pt-4 space-y-3">
+                    <span className="text-xs font-bold uppercase tracking-wider text-[#8FA3B7]">
                       Status Transitions
                     </span>
                     <div className="flex flex-wrap gap-2">
@@ -734,8 +731,8 @@ export default function SupportPage() {
                     </div>
 
                     {activeCase.status !== 'RESOLVED' && (
-                      <div className="p-3 bg-[#0B0D10] border border-[#2E333B] rounded-lg space-y-2">
-                        <span className="font-bold text-xs text-[#F4F2ED]">Resolve Support Ticket</span>
+                      <div className="p-3 bg-[#000000] border border-[#274056] rounded-lg space-y-2">
+                        <span className="font-bold text-xs text-[#F5F7FA]">Resolve Support Ticket</span>
                         <div className="flex gap-2">
                           <Input
                             placeholder="Enter final resolution note..."

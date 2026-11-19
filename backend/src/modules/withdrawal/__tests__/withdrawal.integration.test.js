@@ -84,20 +84,80 @@ describeIntegration('Withdrawal V2 (real PostgreSQL concurrency + lifecycle)', (
   };
 
   const cleanup = async () => {
-    await prisma.withdrawal.deleteMany({ where: { userId } });
-    await prisma.bankAccount.deleteMany({ where: { userId } });
-    await prisma.outboxEvent.deleteMany({ where: { aggregateId: walletId, eventType: 'wallet.updated' } });
-    await prisma.notification.deleteMany({ where: { userId } });
-    await prisma.ledgerTransaction.deleteMany({
-      where: { OR: [{ idempotencyKey: { startsWith: 'withdrawal:' } }] }
-    });
-    await prisma.wallet.delete({ where: { id: walletId } });
-    await prisma.user.delete({ where: { id: userId } });
+    if (!userId) return;
+    try {
+      await prisma.$transaction(
+        async (tx) => {
+          const withdrawals = await tx.withdrawal.findMany({
+            where: { userId },
+            select: { id: true }
+          });
+          const keys = [
+            `withdrawal:test:seed:${userId}`,
+            ...withdrawals.flatMap((w) => [
+              `withdrawal:reserve:${w.id}`,
+              `withdrawal:complete:${w.id}`,
+              `withdrawal:release:${w.id}`
+            ])
+          ];
+          const userAccounts = await tx.ledgerAccount.findMany({
+            where: { userId },
+            select: { id: true }
+          });
+          const accountIds = userAccounts.map((a) => a.id);
+
+          // Delete ledger entries & transactions BEFORE user/wallet/account teardown.
+          const matchingTxs = await tx.ledgerTransaction.findMany({
+            where: { idempotencyKey: { in: keys } },
+            select: { id: true }
+          });
+          const txIds = matchingTxs.map((t) => t.id);
+
+          if (txIds.length > 0 || accountIds.length > 0) {
+            await tx.ledgerEntry.deleteMany({
+              where: {
+                OR: [
+                  ...(txIds.length > 0 ? [{ transactionId: { in: txIds } }] : []),
+                  ...(accountIds.length > 0 ? [{ accountId: { in: accountIds } }] : [])
+                ]
+              }
+            });
+          }
+          if (txIds.length > 0) {
+            await tx.ledgerTransaction.deleteMany({ where: { id: { in: txIds } } });
+          }
+
+          await tx.withdrawal.deleteMany({ where: { userId } });
+          await tx.bankAccount.deleteMany({ where: { userId } });
+          if (walletId) {
+            await tx.outboxEvent.deleteMany({ where: { aggregateId: walletId, eventType: 'wallet.updated' } });
+          }
+          await tx.notification.deleteMany({ where: { userId } });
+          await tx.ledgerAccount.deleteMany({ where: { userId } });
+          if (walletId) {
+            await tx.wallet.deleteMany({ where: { id: walletId } });
+          }
+          await tx.user.deleteMany({ where: { id: userId } });
+        },
+        { timeout: 30_000 }
+      );
+      userId = undefined;
+      walletId = undefined;
+    } catch (err) {
+      console.error('[withdrawal.integration.test] Cleanup failed:', err);
+      throw err;
+    }
   };
 
+  afterEach(cleanup, 60_000);
+
   afterAll(async () => {
-    await prisma.$disconnect();
-  });
+    try {
+      await cleanup();
+    } finally {
+      await prisma.$disconnect();
+    }
+  }, 60_000);
 
   it('serializes concurrent withdrawals: 2x80 on a 100 balance -> exactly one succeeds, balance 20', async () => {
     await createFixture(100n);

@@ -66,15 +66,15 @@ function KoboMoneyField({
   };
 
   return (
-    <div className="bg-[#0B0D10] border border-[#2E333B] rounded-xl p-3.5 space-y-2">
+    <div className="bg-[#000000] border border-[#274056] rounded-xl p-3.5 space-y-2">
       <div className="flex items-center justify-between gap-2">
         <label
           htmlFor={`fin-${pathKey}`}
-          className="text-xs font-semibold uppercase tracking-wider text-[#F4F2ED]"
+          className="text-xs font-semibold uppercase tracking-wider text-[#F5F7FA]"
         >
           {label}
         </label>
-        <span className="font-mono text-xs font-bold text-[#E7B24A]">
+        <span className="font-mono text-xs font-bold text-[#18C986]">
           {formatNaira(koboValue || '0')}
         </span>
       </div>
@@ -87,20 +87,20 @@ function KoboMoneyField({
           disabled={disabled}
           value={displayVal}
           onChange={(e) => handleChange(e.target.value)}
-          className={`w-full h-9 px-3 pr-20 bg-[#15181D] border rounded-lg font-mono text-xs text-[#F4F2ED] focus:outline-none focus:border-[#E7B24A] disabled:opacity-50 ${
-            error ? 'border-rose-500' : 'border-[#2E333B]'
+          className={`w-full h-9 px-3 pr-20 bg-[#0C1B2A] border rounded-lg font-mono text-xs text-[#F5F7FA] focus:outline-none focus:border-[#18C986] disabled:opacity-50 ${
+            error ? 'border-rose-500' : 'border-[#274056]'
           }`}
         />
-        <span className="absolute right-3 top-2 text-[10px] font-mono uppercase text-[#9CA3AF]">
+        <span className="absolute right-3 top-2 text-[10px] font-mono uppercase text-[#8FA3B7]">
           {inputMode === 'KOBO' ? 'kobo (minor)' : 'NGN (₦)'}
         </span>
       </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-1 text-[11px] text-[#9CA3AF]">
+      <div className="flex flex-wrap items-center justify-between gap-1 text-[11px] text-[#8FA3B7]">
         <span className="font-mono">
-          Canonical: <strong className="text-[#F4F2ED]">{koboValue || '0'}</strong> kobo (100 kobo = ₦1.00)
+          Canonical: <strong className="text-[#F5F7FA]">{koboValue || '0'}</strong> kobo (100 kobo = ₦1.00)
         </span>
-        <span className="font-mono text-[#6B7280]">
+        <span className="font-mono text-[#53677A]">
           Active: {formatNairaWithKobo(activeKoboValue)}
         </span>
       </div>
@@ -201,30 +201,30 @@ export default function FinancialConfigurationPage() {
         return (
           <div className="space-y-6">
             {/* Unit Mode Switcher & Financial Invariant Guardrail Banner */}
-            <div className="bg-[#15181D] border border-[#2E333B] rounded-xl p-4 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+            <div className="bg-[#0C1B2A] border border-[#274056] rounded-xl p-4 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
               <div className="flex items-start gap-3">
-                <Lock className="w-5 h-5 text-[#E7B24A] shrink-0 mt-0.5" />
+                <Lock className="w-5 h-5 text-[#18C986] shrink-0 mt-0.5" />
                 <div className="text-xs space-y-0.5">
-                  <div className="font-bold text-[#F4F2ED]">
+                  <div className="font-bold text-[#F5F7FA]">
                     BigInt Minor-Unit (Kobo) Precision &amp; Double-Entry Ledger Invariance
                   </div>
-                  <p className="text-[#9CA3AF]">
+                  <p className="text-[#8FA3B7]">
                     All monetary configuration values are stored as exact integer strings in minor units (kobo, where{' '}
-                    <code className="font-mono text-[#E7B24A]">100 kobo = ₦1.00</code>). Floating-point arithmetic is
+                    <code className="font-mono text-[#18C986]">100 kobo = ₦1.00</code>). Floating-point arithmetic is
                     never used. Configuration settings govern transaction thresholds and future match rake only — they
                     can never directly set wallet balances, mutate posted ledger entries, or alter settled match payouts.
                   </p>
                 </div>
               </div>
 
-              <div className="flex items-center gap-2 shrink-0 bg-[#0B0D10] border border-[#2E333B] rounded-lg p-1">
+              <div className="flex items-center gap-2 shrink-0 bg-[#000000] border border-[#274056] rounded-lg p-1">
                 <button
                   type="button"
                   onClick={() => setUnitInputMode('KOBO')}
                   className={`px-3 py-1.5 rounded-md text-xs font-mono font-semibold transition-colors ${
                     unitInputMode === 'KOBO'
-                      ? 'bg-[#3A2E17] text-[#E7B24A] border border-[#E7B24A]/40'
-                      : 'text-[#9CA3AF] hover:text-[#F4F2ED]'
+                      ? 'bg-[#0E2E2B] text-[#18C986] border border-[#18C986]/40'
+                      : 'text-[#8FA3B7] hover:text-[#F5F7FA]'
                   }`}
                 >
                   Edit in Kobo (Canonical)
@@ -234,8 +234,8 @@ export default function FinancialConfigurationPage() {
                   onClick={() => setUnitInputMode('NAIRA')}
                   className={`px-3 py-1.5 rounded-md text-xs font-mono font-semibold transition-colors ${
                     unitInputMode === 'NAIRA'
-                      ? 'bg-[#3A2E17] text-[#E7B24A] border border-[#E7B24A]/40'
-                      : 'text-[#9CA3AF] hover:text-[#F4F2ED]'
+                      ? 'bg-[#0E2E2B] text-[#18C986] border border-[#18C986]/40'
+                      : 'text-[#8FA3B7] hover:text-[#F5F7FA]'
                   }`}
                 >
                   Edit in Naira (₦)
@@ -263,7 +263,7 @@ export default function FinancialConfigurationPage() {
               <Card className="space-y-4">
                 <CardHeader>
                   <div className="flex items-center gap-2">
-                    <Percent className="w-5 h-5 text-[#E7B24A]" />
+                    <Percent className="w-5 h-5 text-[#18C986]" />
                     <div>
                       <CardTitle>Platform Commission Rake</CardTitle>
                       <CardDescription>Whole-percent fee deducted from decided match pots.</CardDescription>
@@ -290,22 +290,22 @@ export default function FinancialConfigurationPage() {
                   helperText={`Current Active: ${activePayload.financial.commissionPercent}% • Allowed Range: 1% – 25% (Draws charge 0% commission)`}
                 />
 
-                <div className="bg-[#0B0D10] border border-[#2E333B] rounded-lg p-3.5 text-xs space-y-1.5">
-                  <div className="font-semibold text-[#F4F2ED]">Example Payout Preview (₦10,000 Stake / Player):</div>
-                  <div className="flex justify-between text-[#9CA3AF]">
+                <div className="bg-[#000000] border border-[#274056] rounded-lg p-3.5 text-xs space-y-1.5">
+                  <div className="font-semibold text-[#F5F7FA]">Example Payout Preview (₦10,000 Stake / Player):</div>
+                  <div className="flex justify-between text-[#8FA3B7]">
                     <span>Total Match Pot (2 × Stake):</span>
-                    <span className="font-mono text-[#F4F2ED]">₦20,000.00 (2,000,000 kobo)</span>
+                    <span className="font-mono text-[#F5F7FA]">₦20,000.00 (2,000,000 kobo)</span>
                   </div>
-                  <div className="flex justify-between text-[#9CA3AF]">
+                  <div className="flex justify-between text-[#8FA3B7]">
                     <span>Platform Commission ({draftPayload.financial.commissionPercent}%):</span>
-                    <span className="font-mono text-[#E7B24A]">
+                    <span className="font-mono text-[#18C986]">
                       {formatNaira(
                         (BigInt(2000000) * BigInt(Math.max(0, draftPayload.financial.commissionPercent))) /
                           BigInt(100)
                       )}
                     </span>
                   </div>
-                  <div className="flex justify-between text-[#9CA3AF] pt-1 border-t border-[#2E333B]">
+                  <div className="flex justify-between text-[#8FA3B7] pt-1 border-t border-[#274056]">
                     <span>Winner Net Payout:</span>
                     <span className="font-mono text-emerald-400 font-bold">
                       {formatNaira(
@@ -322,7 +322,7 @@ export default function FinancialConfigurationPage() {
               <Card className="lg:col-span-2 space-y-4">
                 <CardHeader>
                   <div className="flex items-center gap-2">
-                    <Coins className="w-5 h-5 text-[#E7B24A]" />
+                    <Coins className="w-5 h-5 text-[#18C986]" />
                     <div>
                       <CardTitle>Deposit &amp; Withdrawal Transaction Thresholds (NGN)</CardTitle>
                       <CardDescription>
@@ -423,7 +423,7 @@ export default function FinancialConfigurationPage() {
             <Card className="space-y-5">
               <CardHeader>
                 <div className="flex items-center gap-2.5">
-                  <Layers className="w-5 h-5 text-[#E7B24A]" />
+                  <Layers className="w-5 h-5 text-[#18C986]" />
                   <div>
                     <CardTitle>Player Tier Stake Boundaries &amp; Call-Out Ceilings (`tiers`)</CardTitle>
                     <CardDescription>
@@ -438,12 +438,12 @@ export default function FinancialConfigurationPage() {
                 {tiersList.map(({ tier, title, subtitle }) => (
                   <div
                     key={tier}
-                    className="bg-[#1E2229]/60 border border-[#2E333B] rounded-xl p-4 space-y-3"
+                    className="bg-[#132638]/60 border border-[#274056] rounded-xl p-4 space-y-3"
                   >
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <div>
-                        <h4 className="text-sm font-bold text-[#F4F2ED]">{title}</h4>
-                        <p className="text-xs text-[#9CA3AF]">{subtitle}</p>
+                        <h4 className="text-sm font-bold text-[#F5F7FA]">{title}</h4>
+                        <p className="text-xs text-[#8FA3B7]">{subtitle}</p>
                       </div>
                       <Badge variant="default">{tier}</Badge>
                     </div>
@@ -531,25 +531,25 @@ export default function FinancialConfigurationPage() {
               </CardHeader>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
-                <div className="bg-[#0B0D10] border border-[#2E333B] rounded-lg p-4 space-y-1">
-                  <div className="flex items-center gap-2 font-bold text-[#F4F2ED]">
+                <div className="bg-[#000000] border border-[#274056] rounded-lg p-4 space-y-1">
+                  <div className="flex items-center gap-2 font-bold text-[#F5F7FA]">
                     <CheckCircle2 className="w-4 h-4 text-emerald-400" />
                     <span>Gateway Secrets &amp; Webhook Verification</span>
                   </div>
-                  <p className="text-[#9CA3AF]">
+                  <p className="text-[#8FA3B7]">
                     Paystack (<code className="font-mono">x-paystack-signature</code> HMAC-SHA512) and Flutterwave (
                     <code className="font-mono">verif-hash</code>) secrets remain strictly in server environment stores
                     and are never exposed in configuration payloads or browser responses. Operational withdrawal
-                    kill-switches are managed under <Link href="/configuration/feature-flags" className="text-[#E7B24A] hover:underline">Feature Flags</Link>.
+                    kill-switches are managed under <Link href="/configuration/feature-flags" className="text-[#18C986] hover:underline">Feature Flags</Link>.
                   </p>
                 </div>
 
-                <div className="bg-[#0B0D10] border border-[#2E333B] rounded-lg p-4 space-y-1">
-                  <div className="flex items-center gap-2 font-bold text-[#F4F2ED]">
-                    <Lock className="w-4 h-4 text-[#E7B24A]" />
+                <div className="bg-[#000000] border border-[#274056] rounded-lg p-4 space-y-1">
+                  <div className="flex items-center gap-2 font-bold text-[#F5F7FA]">
+                    <Lock className="w-4 h-4 text-[#18C986]" />
                     <span>PlatformSettings Singleton Synchronization</span>
                   </div>
-                  <p className="text-[#9CA3AF]">
+                  <p className="text-[#8FA3B7]">
                     When an approved configuration version is atomically activated, the backend updates both{' '}
                     <code className="font-mono">PlatformConfigVersion</code> and the legacy{' '}
                     <code className="font-mono">PlatformSettings</code> singleton inside the same ACID PostgreSQL

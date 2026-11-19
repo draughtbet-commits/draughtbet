@@ -80,4 +80,17 @@ describe('processGameActivationSweep', () => {
     expect(mockFinalize).toHaveBeenCalledTimes(2);
     expect(logger.error).toHaveBeenCalled();
   });
+
+  it('catches transient top-level DB errors (e.g., Neon P1001) without crashing and recovers on next run', async () => {
+    const p1001 = Object.assign(new Error("Can't reach database server"), { code: 'P1001' });
+    mockPrisma.gameOutbox.findMany.mockRejectedValueOnce(p1001);
+
+    const failedRun = await processGameActivationSweep();
+    expect(failedRun.ok).toBe(false);
+    expect(logger.error).toHaveBeenCalled();
+
+    mockPrisma.gameOutbox.findMany.mockResolvedValueOnce([]);
+    const recoveredRun = await processGameActivationSweep();
+    expect(recoveredRun).toEqual({ ok: true, scanned: 0 });
+  });
 });

@@ -21,14 +21,15 @@ describeIntegration('Turn deadlines (real PostgreSQL + Redis)', () => {
   const settings = { id: 'singleton', commissionPercent: 10, timeControlSeconds: 60 };
   const allUsers = [];
   const allMatches = [];
+  const allTxIds = [];
 
   // Seeds a wallet's opening balance as a ledger ADJUSTMENT (same shape as the
   // legacy backfill) so AVAILABLE == the balance everywhere below.
   const postOpeningBalance = async (wallet, amountMinorUnits) => {
-    await prisma.$transaction(async (tx) => {
+    const res = await prisma.$transaction(async (tx) => {
       const accounts = await ensureUserAccounts(tx, wallet.userId, wallet.currency ?? 'NGN');
       const clearing = await ensureSystemAccount(tx, 'SYSTEM_OPENING_CLEARING', wallet.currency ?? 'NGN');
-      await postLedgerTransaction(tx, {
+      return postLedgerTransaction(tx, {
         type: 'ADJUSTMENT',
         description: 'Opening balance carried over from legacy wallet',
         idempotencyKey: `opening-balance:${wallet.id}`,
@@ -39,6 +40,7 @@ describeIntegration('Turn deadlines (real PostgreSQL + Redis)', () => {
         ]
       });
     });
+    allTxIds.push(res.transaction.id);
   };
 
   const makeEligibleUser = async (suffix, balance = 10000000n) => {
@@ -80,30 +82,65 @@ describeIntegration('Turn deadlines (real PostgreSQL + Redis)', () => {
   });
 
   afterAll(async () => {
-    for (const matchId of allMatches) {
-      await redis.del(`match:${matchId}`);
-      await prisma.matchMove.deleteMany({ where: { matchId } });
-      await prisma.match.delete({ where: { id: matchId } });
-    }
-    for (const userId of allUsers) {
-      await redis.del(`user:${userId}:activeMatch`);
-    }
-    await prisma.wallet.deleteMany({ where: { userId: { in: allUsers } } });
-    // V2 ledger rows must go before users: user delete cascades LedgerAccount,
-    // but LedgerEntry.account is onDelete Restrict. Opening-balance postings
-    // (source: legacy-wallet-backfill) carry no matchId and must be removed too.
-    await prisma.ledgerTransaction.deleteMany({
-      where: {
-        OR: [
-          { relatedMatchId: { in: allMatches } },
-          { metadata: { path: ['source'], equals: 'legacy-wallet-backfill' } }
-        ]
+    try {
+      for (const matchId of allMatches) {
+        await redis.del(`match:${matchId}`);
       }
-    });
-    await prisma.notification.deleteMany({ where: { userId: { in: allUsers } } });
-    await prisma.user.deleteMany({ where: { id: { in: allUsers } } });
-    await prisma.$disconnect();
-  });
+      for (const userId of allUsers) {
+        await redis.del(`user:${userId}:activeMatch`);
+      }
+      if (allUsers.length > 0 || allMatches.length > 0 || allTxIds.length > 0) {
+        await prisma.$transaction(
+          async (tx) => {
+            const userAccounts = allUsers.length
+              ? await tx.ledgerAccount.findMany({
+                  where: { userId: { in: allUsers } },
+                  select: { id: true }
+                })
+              : [];
+            const accountIds = userAccounts.map((a) => a.id);
+            const matchTxs = allMatches.length
+              ? await tx.ledgerTransaction.findMany({
+                  where: { relatedMatchId: { in: allMatches } },
+                  select: { id: true }
+                })
+              : [];
+            const ledgerTxIds = [...new Set([...allTxIds, ...matchTxs.map((t) => t.id)])];
+
+            if (ledgerTxIds.length > 0 || accountIds.length > 0) {
+              await tx.ledgerEntry.deleteMany({
+                where: {
+                  OR: [
+                    ...(ledgerTxIds.length > 0 ? [{ transactionId: { in: ledgerTxIds } }] : []),
+                    ...(accountIds.length > 0 ? [{ accountId: { in: accountIds } }] : [])
+                  ]
+                }
+              });
+            }
+            if (ledgerTxIds.length > 0) {
+              await tx.ledgerTransaction.deleteMany({ where: { id: { in: ledgerTxIds } } });
+            }
+            if (allMatches.length > 0) {
+              await tx.matchMove.deleteMany({ where: { matchId: { in: allMatches } } });
+              await tx.match.deleteMany({ where: { id: { in: allMatches } } });
+            }
+            if (allUsers.length > 0) {
+              await tx.notification.deleteMany({ where: { userId: { in: allUsers } } });
+              await tx.ledgerAccount.deleteMany({ where: { userId: { in: allUsers } } });
+              await tx.wallet.deleteMany({ where: { userId: { in: allUsers } } });
+              await tx.user.deleteMany({ where: { id: { in: allUsers } } });
+            }
+          },
+          { timeout: 30_000 }
+        );
+      }
+    } catch (err) {
+      console.error('[timeControl.integration.test] Cleanup failed:', err);
+      throw err;
+    } finally {
+      await prisma.$disconnect();
+    }
+  }, 60_000);
 
   it('CAS script compiles and refuses transitions on an expired turn', async () => {
     const key = `match:tc-gate-${Date.now()}`;

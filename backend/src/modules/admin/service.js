@@ -91,8 +91,8 @@ export class AdminService {
       dbp.user.count({ where: { isBanned: false } }),
       dbp.user.count({ where: { isBanned: true } }),
       dbp.match.count(),
-      dbp.match.count({ where: { status: 'ACTIVE' } }),
-      dbp.match.count({ where: { status: 'COMPLETED' } }),
+      dbp.match.count({ where: { status: { in: ['ACTIVE', 'FUNDED', 'READY', 'IN_PLAY'] } } }),
+      dbp.match.count({ where: { status: { in: ['COMPLETED', 'SETTLED'] } } }),
       dbp.disputeCase.count({ where: { status: { in: ['OPEN', 'UNDER_REVIEW'] } } }),
       dbp.verificationCase.count({
         where: { status: { in: ['PENDING', 'UNDER_REVIEW', 'REQUIRED', 'STARTED'] } }
@@ -116,19 +116,19 @@ export class AdminService {
 
     const financialQueries = canAccessFinancials
       ? [
-          dbp.withdrawal.count({ where: { status: 'PENDING_REVIEW' } }),
-          dbp.withdrawal.aggregate({
-            where: { status: 'PENDING_REVIEW' },
-            _sum: { amountMinorUnits: true }
-          }),
-          dbp.withdrawal.count({
-            where: { status: 'COMPLETED', updatedAt: { gte: last24h } }
-          }),
-          dbp.withdrawal.aggregate({
-            where: { status: 'COMPLETED', updatedAt: { gte: last24h } },
-            _sum: { amountMinorUnits: true }
-          })
-        ]
+        dbp.withdrawal.count({ where: { status: 'PENDING_REVIEW' } }),
+        dbp.withdrawal.aggregate({
+          where: { status: 'PENDING_REVIEW' },
+          _sum: { amountMinorUnits: true }
+        }),
+        dbp.withdrawal.count({
+          where: { status: 'COMPLETED', updatedAt: { gte: last24h } }
+        }),
+        dbp.withdrawal.aggregate({
+          where: { status: 'COMPLETED', updatedAt: { gte: last24h } },
+          _sum: { amountMinorUnits: true }
+        })
+      ]
       : [];
 
     const results = await Promise.all([...baseQueries, ...financialQueries]);
@@ -212,9 +212,11 @@ export class AdminService {
     if (search && typeof search === 'string' && search.trim() !== '') {
       const term = search.trim();
       where.OR = [
+        { id: { contains: term, mode: 'insensitive' } },
         { email: { contains: term, mode: 'insensitive' } },
         { username: { contains: term, mode: 'insensitive' } },
         { fullName: { contains: term, mode: 'insensitive' } },
+        { displayName: { contains: term, mode: 'insensitive' } },
         { phone: { contains: term, mode: 'insensitive' } }
       ];
     }
@@ -271,7 +273,7 @@ export class AdminService {
       users,
       total,
       page,
-      totalPages: Math.ceil(total / limit)
+      totalPages: Math.max(1, Math.ceil(total / limit))
     };
   }
 
@@ -393,11 +395,11 @@ export class AdminService {
       const recentLedgerEntries =
         accountIds.length > 0
           ? await dbp.ledgerEntry.findMany({
-              where: { accountId: { in: accountIds } },
-              take: 20,
-              orderBy: { createdAt: 'desc' },
-              include: { transaction: true }
-            })
+            where: { accountId: { in: accountIds } },
+            take: 20,
+            orderBy: { createdAt: 'desc' },
+            include: { transaction: true }
+          })
           : [];
 
       financials = {
@@ -472,16 +474,16 @@ export class AdminService {
     const subjectIds = [...new Set(rows.map((r) => r.subjectId).filter(Boolean))];
     const subjects = subjectIds.length > 0
       ? await dbp.user.findMany({
-          where: { id: { in: subjectIds } },
-          select: {
-            id: true,
-            email: true,
-            username: true,
-            fullName: true,
-            kycStatus: true,
-            isBanned: true
-          }
-        })
+        where: { id: { in: subjectIds } },
+        select: {
+          id: true,
+          email: true,
+          username: true,
+          fullName: true,
+          kycStatus: true,
+          isBanned: true
+        }
+      })
       : [];
     const subjectMap = new Map(subjects.map((s) => [s.id, s]));
 
@@ -592,9 +594,26 @@ export class AdminService {
   // =========================================================================
 
   static async listMatches({ page = 1, limit = 20, status, search, dbp = prisma } = {}) {
+    const VALID_MATCH_STATUSES = new Set([
+      'PENDING', 'ACTIVE', 'COMPLETED', 'FORFEITED', 'DISPUTED', 'RELEASED',
+      'DRAFT', 'OPEN', 'FUNDED', 'READY', 'IN_PLAY', 'SETTLED', 'CANCELLED', 'EXPIRED'
+    ]);
+    const STATUS_ALIASES = {
+      IN_PROGRESS: { in: ['ACTIVE', 'FUNDED', 'READY', 'IN_PLAY'] },
+      COMPLETED: { in: ['COMPLETED', 'SETTLED'] },
+      ABANDONED: { in: ['FORFEITED', 'EXPIRED'] }
+    };
+
     const where = {};
     if (status && typeof status === 'string' && status.trim() !== '') {
-      where.status = status.trim();
+      const normalized = status.trim().toUpperCase();
+      if (STATUS_ALIASES[normalized]) {
+        where.status = STATUS_ALIASES[normalized];
+      } else if (VALID_MATCH_STATUSES.has(normalized)) {
+        where.status = normalized;
+      } else {
+        return { matches: [], total: 0, page, totalPages: 1 };
+      }
     }
     if (search && typeof search === 'string' && search.trim() !== '') {
       const term = search.trim();
@@ -624,9 +643,9 @@ export class AdminService {
     ];
     const players = playerIds.length > 0
       ? await dbp.user.findMany({
-          where: { id: { in: playerIds } },
-          select: { id: true, email: true, username: true, fullName: true, tier: true, kycStatus: true }
-        })
+        where: { id: { in: playerIds } },
+        select: { id: true, email: true, username: true, fullName: true, tier: true, kycStatus: true }
+      })
       : [];
     const playerMap = new Map(players.map((p) => [p.id, p]));
 
@@ -799,9 +818,9 @@ export class AdminService {
 
     const users = userIds.length > 0
       ? await dbp.user.findMany({
-          where: { id: { in: userIds } },
-          select: { id: true, email: true, username: true, fullName: true }
-        })
+        where: { id: { in: userIds } },
+        select: { id: true, email: true, username: true, fullName: true }
+      })
       : [];
     const userMap = new Map(users.map((u) => [u.id, u]));
 
@@ -818,17 +837,17 @@ export class AdminService {
       }),
       dispute.matchId
         ? dbp.matchMove.findMany({
-            where: { matchId: dispute.matchId },
-            orderBy: { moveNumber: 'asc' },
-            take: 100
-          })
+          where: { matchId: dispute.matchId },
+          orderBy: { moveNumber: 'asc' },
+          take: 100
+        })
         : Promise.resolve([]),
       dispute.matchId
         ? dbp.matchConnectionEvent.findMany({
-            where: { matchId: dispute.matchId },
-            orderBy: { createdAt: 'desc' },
-            take: 30
-          })
+          where: { matchId: dispute.matchId },
+          orderBy: { createdAt: 'desc' },
+          take: 30
+        })
         : Promise.resolve([])
     ]);
 
@@ -907,10 +926,14 @@ export class AdminService {
     ]);
 
     return {
-      cases: rows,
-      total,
+      cases: (rows || []).map((r) => ({
+        ...r,
+        user: r.user ?? null,
+        notes: Array.isArray(r.notes) ? r.notes : []
+      })),
+      total: total ?? 0,
       page,
-      totalPages: Math.ceil(total / limit)
+      totalPages: Math.max(1, Math.ceil((total ?? 0) / limit))
     };
   }
 
@@ -943,32 +966,32 @@ export class AdminService {
     const [relatedMatch, relatedWithdrawal, auditHistory] = await Promise.all([
       row.relatedMatchId
         ? dbp.match.findUnique({
-            where: { id: row.relatedMatchId },
-            select: {
-              id: true,
-              status: true,
-              tier: true,
-              stakeMinorUnits: true,
-              winnerId: true,
-              endReason: true,
-              createdAt: true
-            }
-          })
+          where: { id: row.relatedMatchId },
+          select: {
+            id: true,
+            status: true,
+            tier: true,
+            stakeMinorUnits: true,
+            winnerId: true,
+            endReason: true,
+            createdAt: true
+          }
+        })
         : Promise.resolve(null),
       row.relatedTransactionRef
         ? dbp.withdrawal.findFirst({
-            where: {
-              OR: [{ id: row.relatedTransactionRef }, { reference: row.relatedTransactionRef }]
-            },
-            select: {
-              id: true,
-              reference: true,
-              amountMinorUnits: true,
-              status: true,
-              gateway: true,
-              createdAt: true
-            }
-          })
+          where: {
+            OR: [{ id: row.relatedTransactionRef }, { reference: row.relatedTransactionRef }]
+          },
+          select: {
+            id: true,
+            reference: true,
+            amountMinorUnits: true,
+            status: true,
+            gateway: true,
+            createdAt: true
+          }
+        })
         : Promise.resolve(null),
       dbp.adminAuditLog.findMany({
         where: {
@@ -985,15 +1008,17 @@ export class AdminService {
     return {
       supportCase: {
         ...row,
+        user: row.user ?? null,
+        notes: Array.isArray(row.notes) ? row.notes : [],
         relatedMatch: relatedMatch ? {
           ...relatedMatch,
-          stakeMinorUnits: relatedMatch.stakeMinorUnits.toString()
+          stakeMinorUnits: relatedMatch.stakeMinorUnits?.toString() ?? '0'
         } : null,
         relatedWithdrawal: relatedWithdrawal ? {
           ...relatedWithdrawal,
-          amountMinorUnits: relatedWithdrawal.amountMinorUnits.toString()
+          amountMinorUnits: relatedWithdrawal.amountMinorUnits?.toString() ?? '0'
         } : null,
-        auditHistory
+        auditHistory: auditHistory || []
       }
     };
   }
@@ -1230,5 +1255,219 @@ export class AdminService {
         available: available.toString()
       };
     });
+  }
+
+  /**
+   * Lists player balance top-up attempts (`DepositIntent`) with user attribution,
+   * gateway, reference, and completion timestamps for admin traceability.
+   */
+  static async listDeposits({ page = 1, limit = 20, status, gateway, userId, search, dbp = prisma } = {}) {
+    const VALID_STATUSES = new Set(['PENDING', 'COMPLETED', 'FAILED']);
+    const VALID_GATEWAYS = new Set(['PAYSTACK', 'FLUTTERWAVE']);
+
+    const where = {};
+    if (typeof status === 'string' && VALID_STATUSES.has(status.trim().toUpperCase())) {
+      where.status = status.trim().toUpperCase();
+    }
+    if (typeof gateway === 'string' && VALID_GATEWAYS.has(gateway.trim().toUpperCase())) {
+      where.gateway = gateway.trim().toUpperCase();
+    }
+    if (typeof userId === 'string' && userId.trim()) {
+      where.userId = userId.trim();
+    }
+    if (typeof search === 'string' && search.trim()) {
+      const term = search.trim();
+      where.OR = [
+        { reference: { contains: term, mode: 'insensitive' } },
+        { userId: { contains: term, mode: 'insensitive' } },
+        { user: { email: { contains: term, mode: 'insensitive' } } },
+        { user: { username: { contains: term, mode: 'insensitive' } } }
+      ];
+    }
+
+    const skip = (page - 1) * limit;
+    const [rows, total, completedAgg, statusCounts] = await Promise.all([
+      dbp.depositIntent.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limit,
+        include: {
+          user: {
+            select: { id: true, email: true, username: true, fullName: true, tier: true }
+          }
+        }
+      }),
+      dbp.depositIntent.count({ where }),
+      dbp.depositIntent.aggregate({
+        where: { ...where, status: 'COMPLETED' },
+        _sum: { amountMinorUnits: true },
+        _count: { _all: true }
+      }),
+      dbp.depositIntent.groupBy({
+        by: ['status'],
+        where,
+        _count: { _all: true }
+      })
+    ]);
+
+    const countsByStatus = Object.fromEntries(statusCounts.map((s) => [s.status, s._count._all]));
+
+    const deposits = rows.map((d) => ({
+      id: d.id,
+      userId: d.userId,
+      walletId: d.walletId,
+      gateway: d.gateway,
+      reference: d.reference,
+      amountMinorUnits: d.amountMinorUnits.toString(),
+      currency: d.currency,
+      status: d.status,
+      appliedAt: d.appliedAt,
+      createdAt: d.createdAt,
+      updatedAt: d.updatedAt,
+      user: d.user
+    }));
+
+    return {
+      deposits,
+      summary: {
+        totalCount: total,
+        completedCount: countsByStatus.COMPLETED ?? 0,
+        pendingCount: countsByStatus.PENDING ?? 0,
+        failedCount: countsByStatus.FAILED ?? 0,
+        completedVolumeMinorUnits: (completedAgg._sum?.amountMinorUnits ?? 0n).toString()
+      },
+      total,
+      page,
+      totalPages: Math.max(1, Math.ceil(total / limit))
+    };
+  }
+
+  /**
+   * Lists immutable double-entry `LedgerTransaction`s with optional withdrawal exclusion
+   * (default `excludeWithdrawals=true` to inspect deposits, match stakes, releases, payouts,
+   * and admin adjustments).
+   */
+  static async listLedgerTransactions({
+    page = 1,
+    limit = 20,
+    type,
+    excludeWithdrawals = true,
+    userId,
+    matchId,
+    search,
+    dbp = prisma
+  } = {}) {
+    const VALID_TYPES = new Set([
+      'DEPOSIT_CREDIT',
+      'STAKE_LOCK',
+      'STAKE_RELEASE',
+      'SETTLEMENT_PAYOUT',
+      'WITHDRAWAL_RESERVE',
+      'WITHDRAWAL_COMPLETE',
+      'WITHDRAWAL_RELEASE',
+      'ADJUSTMENT'
+    ]);
+    const WITHDRAWAL_TYPES = ['WITHDRAWAL_RESERVE', 'WITHDRAWAL_COMPLETE', 'WITHDRAWAL_RELEASE'];
+
+    const where = {};
+    if (typeof type === 'string' && VALID_TYPES.has(type.trim().toUpperCase())) {
+      where.type = type.trim().toUpperCase();
+    } else if (excludeWithdrawals) {
+      where.type = { notIn: WITHDRAWAL_TYPES };
+    }
+
+    if (typeof matchId === 'string' && matchId.trim()) {
+      where.relatedMatchId = matchId.trim();
+    }
+    if (typeof userId === 'string' && userId.trim()) {
+      where.entries = { some: { account: { userId: userId.trim() } } };
+    }
+    if (typeof search === 'string' && search.trim()) {
+      const term = search.trim();
+      where.OR = [
+        { id: { contains: term, mode: 'insensitive' } },
+        { description: { contains: term, mode: 'insensitive' } },
+        { idempotencyKey: { contains: term, mode: 'insensitive' } },
+        { relatedMatchId: { contains: term, mode: 'insensitive' } },
+        { entries: { some: { account: { user: { email: { contains: term, mode: 'insensitive' } } } } } },
+        { entries: { some: { account: { user: { username: { contains: term, mode: 'insensitive' } } } } } }
+      ];
+    }
+
+    const skip = (page - 1) * limit;
+    const [rows, total] = await Promise.all([
+      dbp.ledgerTransaction.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limit,
+        include: {
+          entries: {
+            include: {
+              account: {
+                select: {
+                  id: true,
+                  type: true,
+                  currency: true,
+                  userId: true,
+                  user: {
+                    select: { id: true, email: true, username: true, tier: true }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }),
+      dbp.ledgerTransaction.count({ where })
+    ]);
+
+    const transactions = rows.map((tx) => {
+      let net = 0n;
+      let positiveVolume = 0n;
+      const seenUsers = new Map();
+
+      const entries = (tx.entries || []).map((e) => {
+        const amt = BigInt(e.amountMinorUnits);
+        net += amt;
+        if (amt > 0n) positiveVolume += amt;
+        if (e.account?.user) {
+          seenUsers.set(e.account.user.id, e.account.user);
+        }
+        return {
+          id: e.id,
+          accountId: e.accountId,
+          accountType: e.account?.type ?? 'UNKNOWN',
+          currency: e.account?.currency ?? 'NGN',
+          userId: e.account?.userId ?? null,
+          user: e.account?.user ?? null,
+          amountMinorUnits: amt.toString(),
+          createdAt: e.createdAt
+        };
+      });
+
+      return {
+        id: tx.id,
+        type: tx.type,
+        description: tx.description,
+        idempotencyKey: tx.idempotencyKey,
+        relatedMatchId: tx.relatedMatchId,
+        metadata: tx.metadata,
+        createdAt: tx.createdAt,
+        totalVolumeMinorUnits: positiveVolume.toString(),
+        netMinorUnits: net.toString(),
+        balanced: net === 0n && entries.length >= 2,
+        users: [...seenUsers.values()],
+        entries
+      };
+    });
+
+    return {
+      transactions,
+      total,
+      page,
+      totalPages: Math.max(1, Math.ceil(total / limit))
+    };
   }
 }

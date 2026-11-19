@@ -18,14 +18,14 @@ export default function ErrorBoundary({
 
   return (
     <div className="flex flex-col items-center justify-center min-h-[50vh] text-center p-4">
-      <Card className="max-w-md w-full p-6 space-y-4 bg-[#15181D] border-[#2E333B]">
+      <Card className="max-w-md w-full p-6 space-y-4 bg-[#0C1B2A] border-[#274056]">
         <div className="inline-flex w-12 h-12 rounded-full bg-rose-500/10 border border-rose-500/30 items-center justify-center text-rose-400 mx-auto">
           <AlertCircle className="w-6 h-6" />
         </div>
 
         <div className="space-y-1">
-          <h2 className="text-base font-bold text-[#F4F2ED]">Operational Error</h2>
-          <p className="text-xs text-[#9CA3AF]">
+          <h2 className="text-base font-bold text-[#F5F7FA]">Operational Error</h2>
+          <p className="text-xs text-[#8FA3B7]">
             {error.message || 'An unexpected operational error occurred while rendering this module.'}
           </p>
         </div>

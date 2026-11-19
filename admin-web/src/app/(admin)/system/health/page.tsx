@@ -51,17 +51,17 @@ export default function HealthPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-2 border-b border-[#2E333B]">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-2 border-b border-[#274056]">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-[#F4F2ED]">
+          <h1 className="text-2xl font-bold tracking-tight text-[#F5F7FA]">
             System Health & Service Probes
           </h1>
-          <p className="text-xs text-[#9CA3AF] mt-0.5">
+          <p className="text-xs text-[#8FA3B7] mt-0.5">
             Real-time readiness probes, latency benchmarks, Redis worker queues, outbox drainer, and payment provider routes.
           </p>
         </div>
         <div className="flex items-center gap-3">
-          <span className="text-[11px] text-[#9CA3AF] font-mono">
+          <span className="text-[11px] text-[#8FA3B7] font-mono">
             Last check: {formatDate(lastRefreshed.toISOString())}
           </span>
           <Button
@@ -90,7 +90,7 @@ export default function HealthPage() {
       )}
 
       {/* Global Status Banner */}
-      <div className="p-4 bg-[#15181D] border border-[#2E333B] rounded-xl flex items-center justify-between">
+      <div className="p-4 bg-[#0C1B2A] border border-[#274056] rounded-xl flex items-center justify-between">
         <div className="flex items-center gap-3">
           <div
             className={`w-3 h-3 rounded-full ${
@@ -98,13 +98,13 @@ export default function HealthPage() {
             }`}
           />
           <div>
-            <div className="text-sm font-bold text-[#F4F2ED]">
+            <div className="text-sm font-bold text-[#F5F7FA]">
               Cluster Operational Status:{' '}
               <span className={healthData?.status === 'HEALTHY' ? 'text-emerald-400' : 'text-amber-400'}>
                 {healthData?.status || 'PROBING...'}
               </span>
             </div>
-            <div className="text-xs text-[#9CA3AF]">
+            <div className="text-xs text-[#8FA3B7]">
               All core services reporting live telemetry to the admin supervision cluster.
             </div>
           </div>
@@ -112,12 +112,12 @@ export default function HealthPage() {
         {healthData && (
           <div className="flex items-center gap-4 text-xs font-mono">
             <div>
-              <span className="text-[#9CA3AF]">Active Matches: </span>
-              <strong className="text-[#E7B24A]">{healthData.metrics.activeMatches}</strong>
+              <span className="text-[#8FA3B7]">Active Matches: </span>
+              <strong className="text-[#18C986]">{healthData.metrics.activeMatches}</strong>
             </div>
             <div>
-              <span className="text-[#9CA3AF]">Audit Events (1h): </span>
-              <strong className="text-[#F4F2ED]">{healthData.metrics.auditActionsLastHour}</strong>
+              <span className="text-[#8FA3B7]">Audit Events (1h): </span>
+              <strong className="text-[#F5F7FA]">{healthData.metrics.auditActionsLastHour}</strong>
             </div>
           </div>
         )}
@@ -129,7 +129,7 @@ export default function HealthPage() {
         <Card className="space-y-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <Database className="w-4 h-4 text-[#E7B24A]" />
+              <Database className="w-4 h-4 text-[#18C986]" />
               <CardTitle className="text-sm">PostgreSQL (Neon)</CardTitle>
             </div>
             <Badge variant={healthData?.services.database.status === 'HEALTHY' ? 'success' : 'warning'}>
@@ -139,7 +139,7 @@ export default function HealthPage() {
           <CardDescription>
             Authoritative transactional schema storage for players, wallets, ledger, and match records.
           </CardDescription>
-          <div className="pt-2 border-t border-[#2E333B] flex items-center justify-between text-[11px] font-mono text-[#9CA3AF]">
+          <div className="pt-2 border-t border-[#274056] flex items-center justify-between text-[11px] font-mono text-[#8FA3B7]">
             <span>Latency</span>
             <strong className="text-emerald-400">
               {healthData ? `${healthData.services.database.latencyMs}ms` : '—'}
@@ -151,7 +151,7 @@ export default function HealthPage() {
         <Card className="space-y-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <Server className="w-4 h-4 text-[#E7B24A]" />
+              <Server className="w-4 h-4 text-[#18C986]" />
               <CardTitle className="text-sm">Redis 7 Cluster</CardTitle>
             </div>
             <Badge variant={healthData?.services.cacheAndQueues.status === 'HEALTHY' ? 'success' : 'warning'}>
@@ -161,7 +161,7 @@ export default function HealthPage() {
           <CardDescription>
             In-memory turn clocks, CAS move arbitration, session token revocation sets, and rate limiters.
           </CardDescription>
-          <div className="pt-2 border-t border-[#2E333B] flex items-center justify-between text-[11px] font-mono text-[#9CA3AF]">
+          <div className="pt-2 border-t border-[#274056] flex items-center justify-between text-[11px] font-mono text-[#8FA3B7]">
             <span>Latency</span>
             <strong className="text-emerald-400">
               {healthData ? `${healthData.services.cacheAndQueues.latencyMs}ms` : '—'}
@@ -173,7 +173,7 @@ export default function HealthPage() {
         <Card className="space-y-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <Layers className="w-4 h-4 text-[#E7B24A]" />
+              <Layers className="w-4 h-4 text-[#18C986]" />
               <CardTitle className="text-sm">Outbox Event Drainer</CardTitle>
             </div>
             <Badge variant={healthData?.services.outboxDrainer.status === 'DRAINING' ? 'success' : 'warning'}>
@@ -183,9 +183,9 @@ export default function HealthPage() {
           <CardDescription>
             Transactional outbox pattern worker delivering asynchronous domain events with restart-safe leases.
           </CardDescription>
-          <div className="pt-2 border-t border-[#2E333B] flex items-center justify-between text-[11px] font-mono text-[#9CA3AF]">
+          <div className="pt-2 border-t border-[#274056] flex items-center justify-between text-[11px] font-mono text-[#8FA3B7]">
             <span>Pending Events</span>
-            <strong className="text-[#F4F2ED]">
+            <strong className="text-[#F5F7FA]">
               {healthData ? healthData.services.outboxDrainer.pendingCount : 0}
             </strong>
           </div>
@@ -205,7 +205,7 @@ export default function HealthPage() {
           <CardDescription>
             Full-duplex WebSocket gateway handling live match turns, clock pulses, and connection telemetry.
           </CardDescription>
-          <div className="pt-2 border-t border-[#2E333B] flex items-center justify-between text-[11px] font-mono text-[#9CA3AF]">
+          <div className="pt-2 border-t border-[#274056] flex items-center justify-between text-[11px] font-mono text-[#8FA3B7]">
             <span>Active Game Sockets</span>
             <strong className="text-sky-400">
               {healthData ? healthData.services.gameSocketLayer.activeMatchesCount : 0}
@@ -227,9 +227,9 @@ export default function HealthPage() {
           <CardDescription>
             Card / bank transfer payment collection, webhook signature verification (HMAC-SHA512), and payout execution.
           </CardDescription>
-          <div className="pt-2 border-t border-[#2E333B] flex items-center justify-between text-[11px] font-mono text-[#9CA3AF]">
+          <div className="pt-2 border-t border-[#274056] flex items-center justify-between text-[11px] font-mono text-[#8FA3B7]">
             <span>Operating Mode</span>
-            <strong className="text-[#E7B24A] uppercase">
+            <strong className="text-[#18C986] uppercase">
               {healthData?.services.paymentGateways.paystack.mode || 'LIVE'}
             </strong>
           </div>
@@ -249,9 +249,9 @@ export default function HealthPage() {
           <CardDescription>
             Secondary payout route and multi-channel funding gateway with verif-hash payload validation.
           </CardDescription>
-          <div className="pt-2 border-t border-[#2E333B] flex items-center justify-between text-[11px] font-mono text-[#9CA3AF]">
+          <div className="pt-2 border-t border-[#274056] flex items-center justify-between text-[11px] font-mono text-[#8FA3B7]">
             <span>Operating Mode</span>
-            <strong className="text-[#E7B24A] uppercase">
+            <strong className="text-[#18C986] uppercase">
               {healthData?.services.paymentGateways.flutterwave.mode || 'LIVE'}
             </strong>
           </div>

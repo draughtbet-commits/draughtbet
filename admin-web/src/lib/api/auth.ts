@@ -11,8 +11,11 @@ export const authApi = {
   },
 
   async logout(): Promise<void> {
+    const refreshToken = apiClient.getRefreshToken();
     try {
-      await apiClient.post('/auth/logout');
+      if (refreshToken) {
+        await apiClient.post('/auth/logout', { refreshToken });
+      }
     } catch {
       // Best-effort logout on backend
     } finally {
@@ -24,4 +27,3 @@ export const authApi = {
     return apiClient.get<AdminProfileResponse>('/admin/me');
   }
 };
-

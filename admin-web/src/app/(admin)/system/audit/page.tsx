@@ -94,12 +94,12 @@ export default function AuditPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-2 border-b border-[#2E333B]">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-2 border-b border-[#274056]">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-[#F4F2ED]">
+          <h1 className="text-2xl font-bold tracking-tight text-[#F5F7FA]">
             Admin Audit Trail
           </h1>
-          <p className="text-xs text-[#9CA3AF] mt-0.5">
+          <p className="text-xs text-[#8FA3B7] mt-0.5">
             Immutable log of all privileged mutations, authorization checks, and security events.
           </p>
         </div>
@@ -157,7 +157,7 @@ export default function AuditPage() {
               setOutcomeFilter(e.target.value);
               setPage(1);
             }}
-            className="h-9 px-3 bg-[#15181D] border border-[#2E333B] rounded-lg text-xs text-[#F4F2ED] focus:outline-none focus:border-[#E7B24A]"
+            className="h-9 px-3 bg-[#0C1B2A] border border-[#274056] rounded-lg text-xs text-[#F5F7FA] focus:outline-none focus:border-[#18C986]"
           >
             <option value="">All Outcomes</option>
             <option value="SUCCESS">SUCCESS only</option>
@@ -178,7 +178,7 @@ export default function AuditPage() {
       <Card className="overflow-hidden p-0">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
-            <thead className="bg-[#1E2229] text-[#9CA3AF] border-b border-[#2E333B] uppercase text-[10px] tracking-wider">
+            <thead className="bg-[#132638] text-[#8FA3B7] border-b border-[#274056] uppercase text-[10px] tracking-wider">
               <tr>
                 <th className="py-3 px-4">Timestamp</th>
                 <th className="py-3 px-4">Action</th>
@@ -189,20 +189,20 @@ export default function AuditPage() {
                 <th className="py-3 px-4 text-right">Details</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-[#2E333B]">
+            <tbody className="divide-y divide-[#274056]">
               {logs.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="py-12 text-center text-[#6B7280]">
+                  <td colSpan={7} className="py-12 text-center text-[#53677A]">
                     {isLoading ? 'Loading audit records...' : 'No audit records match query.'}
                   </td>
                 </tr>
               ) : (
                 logs.map((log) => (
-                  <tr key={log.id} className="hover:bg-[#1E2229]/40 transition-colors">
-                    <td className="py-3 px-4 font-mono text-[11px] text-[#9CA3AF] whitespace-nowrap">
+                  <tr key={log.id} className="hover:bg-[#132638]/40 transition-colors">
+                    <td className="py-3 px-4 font-mono text-[11px] text-[#8FA3B7] whitespace-nowrap">
                       {formatDate(log.createdAt)}
                     </td>
-                    <td className="py-3 px-4 font-semibold text-[#F4F2ED]">
+                    <td className="py-3 px-4 font-semibold text-[#F5F7FA]">
                       {log.action}
                     </td>
                     <td className="py-3 px-4">
@@ -218,13 +218,13 @@ export default function AuditPage() {
                         {log.outcome}
                       </Badge>
                     </td>
-                    <td className="py-3 px-4 font-mono text-[11px] text-[#9CA3AF]">
+                    <td className="py-3 px-4 font-mono text-[11px] text-[#8FA3B7]">
                       {log.targetType ? `${log.targetType}:${log.targetId ? log.targetId.slice(0, 8) + '...' : ''}` : '—'}
                     </td>
-                    <td className="py-3 px-4 font-mono text-[11px] text-[#F4F2ED]">
+                    <td className="py-3 px-4 font-mono text-[11px] text-[#F5F7FA]">
                       {log.admin?.email || (log.adminId ? `${log.adminId.slice(0, 8)}...` : 'system')}
                     </td>
-                    <td className="py-3 px-4 text-[11px] font-mono text-[#6B7280]">
+                    <td className="py-3 px-4 text-[11px] font-mono text-[#53677A]">
                       {log.ip || '—'}
                     </td>
                     <td className="py-3 px-4 text-right">
@@ -246,9 +246,9 @@ export default function AuditPage() {
         </div>
 
         {/* Pagination Footer */}
-        <div className="p-3 bg-[#15181D] border-t border-[#2E333B] flex items-center justify-between text-xs text-[#9CA3AF]">
+        <div className="p-3 bg-[#0C1B2A] border-t border-[#274056] flex items-center justify-between text-xs text-[#8FA3B7]">
           <span>
-            Total Records: <strong className="font-mono text-[#F4F2ED]">{total}</strong> • Page {page} of {totalPages}
+            Total Records: <strong className="font-mono text-[#F5F7FA]">{total}</strong> • Page {page} of {totalPages}
           </span>
           <div className="flex gap-1.5">
             <Button
@@ -274,33 +274,33 @@ export default function AuditPage() {
       {/* ===================== AUDIT LOG DETAIL MODAL ===================== */}
       {selectedLogId && (
         <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
-          <div className="bg-[#15181D] border border-[#2E333B] rounded-xl max-w-3xl w-full max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
-            <div className="p-4 bg-[#1E2229] border-b border-[#2E333B] flex items-center justify-between">
+          <div className="bg-[#0C1B2A] border border-[#274056] rounded-xl max-w-3xl w-full max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
+            <div className="p-4 bg-[#132638] border-b border-[#274056] flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <ShieldCheck className="w-5 h-5 text-[#E7B24A]" />
-                <h3 className="text-sm font-bold text-[#F4F2ED]">Audit Log Inspection</h3>
+                <ShieldCheck className="w-5 h-5 text-[#18C986]" />
+                <h3 className="text-sm font-bold text-[#F5F7FA]">Audit Log Inspection</h3>
               </div>
               <button
                 onClick={closeLogDetail}
-                className="text-[#9CA3AF] hover:text-[#F4F2ED]"
+                className="text-[#8FA3B7] hover:text-[#F5F7FA]"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <div className="p-6 overflow-y-auto space-y-4 text-xs text-[#F4F2ED]">
+            <div className="p-6 overflow-y-auto space-y-4 text-xs text-[#F5F7FA]">
               {isDetailLoading || !activeLog ? (
-                <div className="py-12 text-center text-[#9CA3AF]">Loading audit record...</div>
+                <div className="py-12 text-center text-[#8FA3B7]">Loading audit record...</div>
               ) : (
                 <>
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                    <div className="p-3 bg-[#0B0D10] border border-[#2E333B] rounded space-y-0.5">
-                      <span className="text-[10px] uppercase text-[#9CA3AF] font-semibold">Action</span>
-                      <p className="font-bold text-[#F4F2ED]">{activeLog.action}</p>
+                    <div className="p-3 bg-[#000000] border border-[#274056] rounded space-y-0.5">
+                      <span className="text-[10px] uppercase text-[#8FA3B7] font-semibold">Action</span>
+                      <p className="font-bold text-[#F5F7FA]">{activeLog.action}</p>
                     </div>
 
-                    <div className="p-3 bg-[#0B0D10] border border-[#2E333B] rounded space-y-0.5">
-                      <span className="text-[10px] uppercase text-[#9CA3AF] font-semibold">Outcome</span>
+                    <div className="p-3 bg-[#000000] border border-[#274056] rounded space-y-0.5">
+                      <span className="text-[10px] uppercase text-[#8FA3B7] font-semibold">Outcome</span>
                       <div>
                         <Badge
                           variant={
@@ -316,32 +316,32 @@ export default function AuditPage() {
                       </div>
                     </div>
 
-                    <div className="p-3 bg-[#0B0D10] border border-[#2E333B] rounded space-y-0.5">
-                      <span className="text-[10px] uppercase text-[#9CA3AF] font-semibold">Actor</span>
-                      <p className="font-mono text-[#F4F2ED]">{activeLog.admin?.email || activeLog.adminId || 'SYSTEM'}</p>
+                    <div className="p-3 bg-[#000000] border border-[#274056] rounded space-y-0.5">
+                      <span className="text-[10px] uppercase text-[#8FA3B7] font-semibold">Actor</span>
+                      <p className="font-mono text-[#F5F7FA]">{activeLog.admin?.email || activeLog.adminId || 'SYSTEM'}</p>
                     </div>
 
-                    <div className="p-3 bg-[#0B0D10] border border-[#2E333B] rounded space-y-0.5">
-                      <span className="text-[10px] uppercase text-[#9CA3AF] font-semibold">Recorded At</span>
-                      <p className="font-mono text-[#9CA3AF]">{formatDate(activeLog.createdAt)}</p>
+                    <div className="p-3 bg-[#000000] border border-[#274056] rounded space-y-0.5">
+                      <span className="text-[10px] uppercase text-[#8FA3B7] font-semibold">Recorded At</span>
+                      <p className="font-mono text-[#8FA3B7]">{formatDate(activeLog.createdAt)}</p>
                     </div>
                   </div>
 
-                  <div className="p-3 bg-[#0B0D10] border border-[#2E333B] rounded space-y-1">
-                    <span className="text-[10px] uppercase text-[#9CA3AF] font-semibold">Network & Request Telemetry</span>
-                    <div className="grid grid-cols-2 gap-2 text-[11px] font-mono text-[#9CA3AF]">
-                      <div>IP Address: <span className="text-[#F4F2ED]">{activeLog.ip || '—'}</span></div>
-                      <div>Request ID: <span className="text-[#F4F2ED]">{activeLog.requestId || '—'}</span></div>
-                      <div className="col-span-2 truncate">User Agent: <span className="text-[#F4F2ED]">{activeLog.userAgent || '—'}</span></div>
+                  <div className="p-3 bg-[#000000] border border-[#274056] rounded space-y-1">
+                    <span className="text-[10px] uppercase text-[#8FA3B7] font-semibold">Network & Request Telemetry</span>
+                    <div className="grid grid-cols-2 gap-2 text-[11px] font-mono text-[#8FA3B7]">
+                      <div>IP Address: <span className="text-[#F5F7FA]">{activeLog.ip || '—'}</span></div>
+                      <div>Request ID: <span className="text-[#F5F7FA]">{activeLog.requestId || '—'}</span></div>
+                      <div className="col-span-2 truncate">User Agent: <span className="text-[#F5F7FA]">{activeLog.userAgent || '—'}</span></div>
                     </div>
                   </div>
 
                   <div className="space-y-1.5">
-                    <span className="text-[10px] uppercase font-bold text-[#9CA3AF] flex items-center gap-1">
-                      <FileCode className="w-3.5 h-3.5 text-[#E7B24A]" />
+                    <span className="text-[10px] uppercase font-bold text-[#8FA3B7] flex items-center gap-1">
+                      <FileCode className="w-3.5 h-3.5 text-[#18C986]" />
                       <span>Full Metadata & State Mutation Payload</span>
                     </span>
-                    <pre className="p-3 bg-[#0B0D10] border border-[#2E333B] rounded text-[11px] font-mono text-[#9CA3AF] overflow-x-auto max-h-64">
+                    <pre className="p-3 bg-[#000000] border border-[#274056] rounded text-[11px] font-mono text-[#8FA3B7] overflow-x-auto max-h-64">
                       {activeLog.metadata ? JSON.stringify(activeLog.metadata, null, 2) : 'No metadata recorded.'}
                     </pre>
                   </div>

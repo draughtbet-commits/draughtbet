@@ -33,38 +33,38 @@ export default function GameConfigurationPage() {
           <div className="space-y-6">
             {/* 3-Layer Architectural Distinction Banner */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="bg-[#15181D] border border-[#2E333B] rounded-xl p-4 space-y-1.5">
+              <div className="bg-[#0C1B2A] border border-[#274056] rounded-xl p-4 space-y-1.5">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold uppercase tracking-wider text-[#E7B24A]">
+                  <span className="text-xs font-bold uppercase tracking-wider text-[#18C986]">
                     1. Ruleset Configuration
                   </span>
                   <Badge variant="gold">v{draftPayload.game.rulesetVersion}</Badge>
                 </div>
-                <p className="text-xs text-[#9CA3AF]">
+                <p className="text-xs text-[#8FA3B7]">
                   Server-authoritative International Draughts (10×10 board, standard 1–50 notation, mandatory maximum capture, flying kings). Never delegated to client UI.
                 </p>
               </div>
 
-              <div className="bg-[#15181D] border border-[#2E333B] rounded-xl p-4 space-y-1.5">
+              <div className="bg-[#0C1B2A] border border-[#274056] rounded-xl p-4 space-y-1.5">
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-bold uppercase tracking-wider text-sky-400">
                     2. Platform-Wide Game Defaults
                   </span>
                   <Badge variant="info">Future Matches</Badge>
                 </div>
-                <p className="text-xs text-[#9CA3AF]">
+                <p className="text-xs text-[#8FA3B7]">
                   Default turn clocks, readiness timers, disconnect grace windows, and draw thresholds applied when new matches are funded.
                 </p>
               </div>
 
-              <div className="bg-[#15181D] border border-emerald-500/30 rounded-xl p-4 space-y-1.5">
+              <div className="bg-[#0C1B2A] border border-emerald-500/30 rounded-xl p-4 space-y-1.5">
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-bold uppercase tracking-wider text-emerald-400">
                     3. Frozen Match Snapshots
                   </span>
                   <Badge variant="success">Immutable</Badge>
                 </div>
-                <p className="text-xs text-[#9CA3AF]">
+                <p className="text-xs text-[#8FA3B7]">
                   At stake funding (<code className="font-mono">createMatchWithStakes</code>), each <code className="font-mono">Match</code> row freezes <code className="font-mono">timeControlSeconds</code>, <code className="font-mono">rulesetVersion</code>, and <code className="font-mono">configurationVersion</code>.
                 </p>
               </div>
@@ -75,7 +75,7 @@ export default function GameConfigurationPage() {
               <Card className="space-y-5">
                 <CardHeader>
                   <div className="flex items-center gap-2.5">
-                    <Clock className="w-5 h-5 text-[#E7B24A]" />
+                    <Clock className="w-5 h-5 text-[#18C986]" />
                     <div>
                       <CardTitle>Clocks, Readiness &amp; Reconnect Grace</CardTitle>
                       <CardDescription>
@@ -132,7 +132,7 @@ export default function GameConfigurationPage() {
               <Card className="space-y-5">
                 <CardHeader>
                   <div className="flex items-center gap-2.5">
-                    <Scale className="w-5 h-5 text-[#E7B24A]" />
+                    <Scale className="w-5 h-5 text-[#18C986]" />
                     <div>
                       <CardTitle>Ruleset Version &amp; Draw Adjudication Rules</CardTitle>
                       <CardDescription>
@@ -205,22 +205,22 @@ export default function GameConfigurationPage() {
               </CardHeader>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
-                <div className="bg-[#0B0D10] border border-[#2E333B] rounded-lg p-4 space-y-1.5">
-                  <div className="flex items-center gap-2 font-bold text-[#F4F2ED]">
-                    <Gamepad2 className="w-4 h-4 text-[#E7B24A]" />
+                <div className="bg-[#000000] border border-[#274056] rounded-lg p-4 space-y-1.5">
+                  <div className="flex items-center gap-2 font-bold text-[#F5F7FA]">
+                    <Gamepad2 className="w-4 h-4 text-[#18C986]" />
                     <span>Pure Server-Side Engine Validation (`src/modules/engine/`)</span>
                   </div>
-                  <p className="text-[#9CA3AF]">
+                  <p className="text-[#8FA3B7]">
                     Every <code className="font-mono">move.submit</code> / <code className="font-mono">move_attempt</code> socket payload is validated on the backend against the Redis CAS board state and durable <code className="font-mono">MatchMove</code> log. Client-side legal-move highlighting is strictly advisory.
                   </p>
                 </div>
 
-                <div className="bg-[#0B0D10] border border-[#2E333B] rounded-lg p-4 space-y-1.5">
-                  <div className="flex items-center gap-2 font-bold text-[#F4F2ED]">
+                <div className="bg-[#000000] border border-[#274056] rounded-lg p-4 space-y-1.5">
+                  <div className="flex items-center gap-2 font-bold text-[#F5F7FA]">
                     <Lock className="w-4 h-4 text-emerald-400" />
                     <span>Frozen Funding-Time Snapshot (`src/services/matchService.js`)</span>
                   </div>
-                  <p className="text-[#9CA3AF]">
+                  <p className="text-[#8FA3B7]">
                     When stakes are locked into <code className="font-mono">PLAYER_LOCKED</code>, the match permanently records <code className="font-mono">settlementCommissionPercent</code>, <code className="font-mono">timeControlSeconds</code>, <code className="font-mono">configurationVersion</code>, and <code className="font-mono">rulesetVersion</code>.
                   </p>
                 </div>

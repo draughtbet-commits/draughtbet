@@ -1,5 +1,6 @@
+import crypto from 'crypto';
 import logger from '../../utils/logger.js';
-import { PaymentGateway, PaymentGatewayError, toMajorUnits } from './PaymentGateway.js';
+import { PaymentGateway, PaymentGatewayError, toMajorUnits, isSimulationMockPaymentEnabled } from './PaymentGateway.js';
 
 export class FlutterwaveGateway extends PaymentGateway {
   constructor() {
@@ -16,19 +17,19 @@ export class FlutterwaveGateway extends PaymentGateway {
     while (attempt <= retries) {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 5000);
-      
+
       try {
         const response = await fetch(url, {
           ...options,
           signal: controller.signal
         });
         clearTimeout(timeoutId);
-        
+
         if (!response.ok) {
           const body = await response.text();
           throw new Error(`HTTP error! status: ${response.status} body: ${body}`);
         }
-        
+
         return await response.json();
       } catch (error) {
         clearTimeout(timeoutId);
@@ -44,6 +45,10 @@ export class FlutterwaveGateway extends PaymentGateway {
   }
 
   async initiatePayment(amountMinorUnits, userId, email, reference) {
+    if (isSimulationMockPaymentEnabled()) {
+      const txRef = reference || `sim-flw-${crypto.randomUUID()}`;
+      return { authorizationUrl: `http://localhost:3000/mock-checkout/flutterwave?ref=${encodeURIComponent(txRef)}`, reference: txRef };
+    }
     try {
       // Flutterwave expects amounts in major units (NGN) not kobo.
       const amountMajorUnits = toMajorUnits(amountMinorUnits);
@@ -102,6 +107,9 @@ export class FlutterwaveGateway extends PaymentGateway {
    * account-resolution endpoint.
    */
   async resolveBankAccount({ bankCode, accountNumber }) {
+    if (isSimulationMockPaymentEnabled()) {
+      return { accountName: `SIMULATED FLW ACCOUNT ${String(accountNumber).slice(-4)}`, verified: true };
+    }
     try {
       const data = await this.fetchWithRetry('https://api.flutterwave.com/v3/accounts/resolve', {
         method: 'POST',
@@ -125,6 +133,9 @@ export class FlutterwaveGateway extends PaymentGateway {
    * Creates a reusable beneficiary so payouts can reference it by id.
    */
   async createRecipient({ bankCode, accountNumber, accountName }) {
+    if (isSimulationMockPaymentEnabled()) {
+      return { recipientRef: `BEN_SIM_${bankCode}_${String(accountNumber).slice(-4)}` };
+    }
     try {
       const data = await this.fetchWithRetry('https://api.flutterwave.com/v3/beneficiaries', {
         method: 'POST',
@@ -153,6 +164,9 @@ export class FlutterwaveGateway extends PaymentGateway {
    * converted with exact integer math.
    */
   async initiatePayout({ amountMinorUnits, currency, recipientRef, reference }) {
+    if (isSimulationMockPaymentEnabled()) {
+      return { providerRef: `FLW_TRF_SIM_${crypto.randomUUID()}`, status: 'NEW' };
+    }
     try {
       const data = await this.fetchWithRetry('https://api.flutterwave.com/v3/transfers', {
         method: 'POST',
@@ -187,6 +201,9 @@ export class FlutterwaveGateway extends PaymentGateway {
    * initiation); a payout with no providerRef yet cannot be verified this way.
    */
   async verifyPayoutStatus({ reference, providerRef }) {
+    if (isSimulationMockPaymentEnabled()) {
+      return { status: 'success' };
+    }
     if (!providerRef) {
       throw new PaymentGatewayError('Cannot verify a Flutterwave payout without its transfer id');
     }

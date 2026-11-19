@@ -448,7 +448,7 @@ export const extendSelfExclusion = async (
 // Admin lifts (the player-visible side is extend-only; ending is admin-only)
 // ---------------------------------------------------------------------------
 
-export const clearTimeoutByAdmin = async (userId, { actorId = null, dbp = prisma } = {}) => {
+export const clearTimeoutByAdmin = async (userId, { actorId = null, now = new Date(), dbp = prisma } = {}) => {
   const profile = await dbp.saferPlayProfile.findUnique({ where: { userId } });
   const existing = profile?.timeoutUntil ? new Date(profile.timeoutUntil) : null;
   if (!existing) return null;
@@ -466,10 +466,11 @@ export const clearTimeoutByAdmin = async (userId, { actorId = null, dbp = prisma
       newValue: null
     }
   });
-  return updated;
+  const coolingHours = await readCoolingHours(dbp);
+  return profilePayload(updated, now, coolingHours);
 };
 
-export const endSelfExclusionByAdmin = async (userId, { actorId = null, dbp = prisma } = {}) => {
+export const endSelfExclusionByAdmin = async (userId, { actorId = null, now = new Date(), dbp = prisma } = {}) => {
   const profile = await dbp.saferPlayProfile.findUnique({ where: { userId } });
   const existing = profile?.selfExcludedUntil ? new Date(profile.selfExcludedUntil) : null;
   if (!existing) return null;
@@ -487,7 +488,8 @@ export const endSelfExclusionByAdmin = async (userId, { actorId = null, dbp = pr
       newValue: null
     }
   });
-  return updated;
+  const coolingHours = await readCoolingHours(dbp);
+  return profilePayload(updated, now, coolingHours);
 };
 
 /**

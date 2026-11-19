@@ -46,7 +46,7 @@ export function ConfigSubNav() {
   const pathname = usePathname();
 
   return (
-    <div className="bg-[#15181D] border border-[#2E333B] rounded-xl p-2 overflow-x-auto scrollbar-thin scrollbar-thumb-[#2E333B]">
+    <div className="bg-[#0C1B2A] border border-[#274056] rounded-xl p-2 overflow-x-auto scrollbar-thin scrollbar-thumb-[#274056]">
       <nav aria-label="Configuration sections" className="flex items-center gap-1 min-w-max">
         {CONFIG_NAV_TABS.map((tab) => {
           const isActive = tab.exact
@@ -61,11 +61,11 @@ export function ConfigSubNav() {
               className={cn(
                 'inline-flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium transition-colors duration-150 whitespace-nowrap',
                 isActive
-                  ? 'bg-[#3A2E17] text-[#E7B24A] border border-[#E7B24A]/40 font-semibold'
-                  : 'text-[#9CA3AF] hover:text-[#F4F2ED] hover:bg-[#1E2229] border border-transparent'
+                  ? 'bg-[#0E2E2B] text-[#18C986] border border-[#18C986]/40 font-semibold'
+                  : 'text-[#8FA3B7] hover:text-[#F5F7FA] hover:bg-[#132638] border border-transparent'
               )}
             >
-              <Icon className={cn('w-3.5 h-3.5 shrink-0', isActive ? 'text-[#E7B24A]' : 'text-[#6B7280]')} />
+              <Icon className={cn('w-3.5 h-3.5 shrink-0', isActive ? 'text-[#18C986]' : 'text-[#53677A]')} />
               <span>{tab.label}</span>
               {tab.restricted && (
                 <span

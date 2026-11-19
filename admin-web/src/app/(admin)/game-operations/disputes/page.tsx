@@ -11,18 +11,13 @@ import { formatDate, formatNaira } from '@/lib/utils';
 import {
   Scale,
   RefreshCw,
-  Search,
   Eye,
   CheckCircle2,
   XCircle,
-  Clock,
-  Swords,
-  AlertCircle,
   FilePlus2,
   X,
   ChevronLeft,
-  ChevronRight,
-  ShieldCheck
+  ChevronRight
 } from 'lucide-react';
 
 export default function DisputesPage() {
@@ -45,36 +40,37 @@ export default function DisputesPage() {
 
   // Add Evidence Dialog
   const [isAddingEvidence, setIsAddingEvidence] = useState(false);
-  const [evidenceType, setEvidenceType] = useState('SCREENSHOT');
+  const [evidenceType] = useState('SCREENSHOT');
   const [evidenceUrl, setEvidenceUrl] = useState('');
   const [evidenceDesc, setEvidenceDesc] = useState('');
   const [isSubmittingEvidence, setIsSubmittingEvidence] = useState(false);
 
   const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
-  const fetchDisputes = useCallback((targetPage = page, status = statusFilter) => {
-    setIsLoading(true);
-    adminApi.getDisputes({
-      page: targetPage,
-      limit: 10,
-      status: status === 'ALL' ? undefined : status
-    })
-      .then((data) => {
-        setDisputes(data.disputes || []);
-        setTotalPages(data.totalPages || 1);
-        setTotal(data.total || 0);
-      })
-      .catch((err: unknown) => {
-        setNotification({
-          type: 'error',
-          message: err instanceof Error ? err.message : 'Failed to fetch disputes'
-        });
-      })
-      .finally(() => setIsLoading(false));
+  const fetchDisputes = useCallback(async (targetPage = page, status = statusFilter) => {
+    try {
+      const data = await adminApi.getDisputes({
+        page: targetPage,
+        limit: 10,
+        status: status === 'ALL' ? undefined : status
+      });
+      setDisputes(data.disputes || []);
+      setTotalPages(data.totalPages || 1);
+      setTotal(data.total || 0);
+    } catch (err: unknown) {
+      setNotification({
+        type: 'error',
+        message: err instanceof Error ? err.message : 'Failed to fetch disputes'
+      });
+    } finally {
+      setIsLoading(false);
+    }
   }, [page, statusFilter]);
 
   useEffect(() => {
-    fetchDisputes();
+    void (async () => {
+      await fetchDisputes();
+    })();
   }, [fetchDisputes]);
 
   const openDisputeDetail = async (id: string) => {
@@ -176,12 +172,12 @@ export default function DisputesPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-2 border-b border-[#2E333B]">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-2 border-b border-[#274056]">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-[#F4F2ED]">
+          <h1 className="text-2xl font-bold tracking-tight text-[#F5F7FA]">
             Match Dispute Queue & Adjudication
           </h1>
-          <p className="text-xs text-[#9CA3AF] mt-0.5">
+          <p className="text-xs text-[#8FA3B7] mt-0.5">
             Contested matches, player claims, game state evidence, and server-authoritative resolutions.
           </p>
         </div>
@@ -198,12 +194,12 @@ export default function DisputesPage() {
       </div>
 
       {/* Advisory Banner */}
-      <div className="p-3 bg-[#15181D] border border-[#E7B24A]/30 rounded-lg flex items-start gap-2.5 text-xs text-[#9CA3AF]">
-        <Scale className="w-4 h-4 text-[#E7B24A] shrink-0 mt-0.5" />
+      <div className="p-3 bg-[#0C1B2A] border border-[#18C986]/30 rounded-lg flex items-start gap-2.5 text-xs text-[#8FA3B7]">
+        <Scale className="w-4 h-4 text-[#18C986] shrink-0 mt-0.5" />
         <div>
-          <strong className="text-[#F4F2ED]">Authoritative Invariant:</strong> Match outcomes are server-authoritative.
+          <strong className="text-[#F5F7FA]">Authoritative Invariant:</strong> Match outcomes are server-authoritative.
           Adjudicating a dispute does not directly mutate historical match records or arbitrarily overwrite winner IDs.
-          Financial remedies must be executed via balanced, double-entry ledger adjustments under <strong className="text-[#E7B24A]">Ledger & Transactions</strong>.
+          Financial remedies must be executed via balanced, double-entry ledger adjustments under <strong className="text-[#18C986]">Ledger & Transactions</strong>.
         </div>
       </div>
 
@@ -218,8 +214,8 @@ export default function DisputesPage() {
             }}
             className={`px-3 py-1.5 rounded-lg font-medium whitespace-nowrap transition-colors ${
               statusFilter === st
-                ? 'bg-[#E7B24A] text-[#0B0D10] font-bold'
-                : 'bg-[#15181D] text-[#9CA3AF] hover:text-[#F4F2ED] border border-[#2E333B]'
+                ? 'bg-[#18C986] text-[#000000] font-bold'
+                : 'bg-[#0C1B2A] text-[#8FA3B7] hover:text-[#F5F7FA] border border-[#274056]'
             }`}
           >
             {st === 'ALL' ? 'All Disputes' : st.replace(/_/g, ' ')}
@@ -246,7 +242,7 @@ export default function DisputesPage() {
       <Card className="overflow-hidden p-0">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
-            <thead className="bg-[#1E2229] text-[#9CA3AF] border-b border-[#2E333B] uppercase text-[10px] tracking-wider">
+            <thead className="bg-[#132638] text-[#8FA3B7] border-b border-[#274056] uppercase text-[10px] tracking-wider">
               <tr>
                 <th className="py-3 px-4">Created</th>
                 <th className="py-3 px-4">Dispute ID</th>
@@ -257,46 +253,46 @@ export default function DisputesPage() {
                 <th className="py-3 px-4 text-right">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-[#2E333B]">
+            <tbody className="divide-y divide-[#274056]">
               {disputes.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="py-12 text-center text-[#6B7280]">
+                  <td colSpan={7} className="py-12 text-center text-[#53677A]">
                     {isLoading ? 'Loading disputes...' : 'No disputes recorded.'}
                   </td>
                 </tr>
               ) : (
                 disputes.map((d) => (
-                  <tr key={d.id} className="hover:bg-[#1E2229]/40 transition-colors">
-                    <td className="py-3 px-4 font-mono text-[11px] text-[#9CA3AF]">
+                  <tr key={d.id} className="hover:bg-[#132638]/40 transition-colors">
+                    <td className="py-3 px-4 font-mono text-[11px] text-[#8FA3B7]">
                       {formatDate(d.createdAt)}
                     </td>
-                    <td className="py-3 px-4 font-mono text-[11px] text-[#F4F2ED]">
+                    <td className="py-3 px-4 font-mono text-[11px] text-[#F5F7FA]">
                       {d.id.slice(0, 8)}...
                     </td>
                     <td className="py-3 px-4">
                       {d.match ? (
                         <div className="space-y-0.5">
-                          <span className="font-mono text-[11px] text-[#E7B24A]">
+                          <span className="font-mono text-[11px] text-[#18C986]">
                             Stake: {formatNaira(d.match.stakeMinorUnits)}
                           </span>
-                          <span className="block text-[10px] text-[#9CA3AF] uppercase">
+                          <span className="block text-[10px] text-[#8FA3B7] uppercase">
                             Tier: {d.match.tier} • {d.match.status}
                           </span>
                         </div>
                       ) : (
-                        <span className="font-mono text-[#9CA3AF]">Match: {d.matchId.slice(0, 8)}...</span>
+                        <span className="font-mono text-[#8FA3B7]">Match: {d.matchId.slice(0, 8)}...</span>
                       )}
                     </td>
                     <td className="py-3 px-4">
-                      <div className="font-semibold text-[#F4F2ED]">
+                      <div className="font-semibold text-[#F5F7FA]">
                         {d.user?.fullName || d.user?.username || d.raisedByUser?.username || (d.userId || d.raisedBy || '').slice(0, 8)}
                       </div>
-                      <div className="text-[11px] text-[#9CA3AF] font-mono">
+                      <div className="text-[11px] text-[#8FA3B7] font-mono">
                         {d.user?.email || d.raisedByUser?.email || d.raisedByEmail || d.userId || d.raisedBy}
                       </div>
                     </td>
                     <td className="py-3 px-4">{getDisputeBadge(d.status)}</td>
-                    <td className="py-3 px-4 text-[#F4F2ED] truncate max-w-xs">
+                    <td className="py-3 px-4 text-[#F5F7FA] truncate max-w-xs">
                       {d.reason}
                     </td>
                     <td className="py-3 px-4 text-right">
@@ -318,9 +314,9 @@ export default function DisputesPage() {
         </div>
 
         {/* Pagination Bar */}
-        <div className="p-3 bg-[#15181D] border-t border-[#2E333B] flex items-center justify-between text-xs text-[#9CA3AF]">
+        <div className="p-3 bg-[#0C1B2A] border-t border-[#274056] flex items-center justify-between text-xs text-[#8FA3B7]">
           <span>
-            Total Disputes: <strong className="text-[#F4F2ED] font-mono">{total}</strong>
+            Total Disputes: <strong className="text-[#F5F7FA] font-mono">{total}</strong>
           </span>
           <div className="flex items-center gap-2">
             <span>Page {page} of {totalPages}</span>
@@ -349,62 +345,62 @@ export default function DisputesPage() {
       {/* ===================== DISPUTE DETAIL & ADJUDICATION MODAL ===================== */}
       {selectedDisputeId && (
         <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
-          <div className="bg-[#15181D] border border-[#2E333B] rounded-xl max-w-4xl w-full max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
-            <div className="p-4 bg-[#1E2229] border-b border-[#2E333B] flex items-center justify-between">
+          <div className="bg-[#0C1B2A] border border-[#274056] rounded-xl max-w-4xl w-full max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
+            <div className="p-4 bg-[#132638] border-b border-[#274056] flex items-center justify-between">
               <div className="flex items-center gap-2.5">
-                <Scale className="w-5 h-5 text-[#E7B24A]" />
+                <Scale className="w-5 h-5 text-[#18C986]" />
                 <div>
-                  <h2 className="text-sm font-bold text-[#F4F2ED]">
+                  <h2 className="text-sm font-bold text-[#F5F7FA]">
                     Match Dispute Adjudication
                   </h2>
-                  <p className="text-[11px] font-mono text-[#9CA3AF]">
+                  <p className="text-[11px] font-mono text-[#8FA3B7]">
                     Dispute ID: {selectedDisputeId}
                   </p>
                 </div>
               </div>
               <button
                 onClick={closeDisputeDetail}
-                className="text-[#9CA3AF] hover:text-[#F4F2ED] p-1 rounded-md transition-colors"
+                className="text-[#8FA3B7] hover:text-[#F5F7FA] p-1 rounded-md transition-colors"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="p-6 overflow-y-auto space-y-6 text-xs text-[#F4F2ED]">
+            <div className="p-6 overflow-y-auto space-y-6 text-xs text-[#F5F7FA]">
               {isDetailLoading || !activeDispute ? (
-                <div className="py-16 text-center text-[#9CA3AF]">Loading dispute details...</div>
+                <div className="py-16 text-center text-[#8FA3B7]">Loading dispute details...</div>
               ) : (
                 <>
                   {/* Context Cards */}
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div className="p-3 bg-[#0B0D10] border border-[#2E333B] rounded-lg space-y-1">
-                      <span className="text-[10px] uppercase text-[#9CA3AF] font-semibold">Disputant Player</span>
+                    <div className="p-3 bg-[#000000] border border-[#274056] rounded-lg space-y-1">
+                      <span className="text-[10px] uppercase text-[#8FA3B7] font-semibold">Disputant Player</span>
                       <p className="font-semibold text-sm">{activeDispute.user?.fullName || activeDispute.user?.username || activeDispute.raisedByUser?.username || 'Player'}</p>
-                      <p className="font-mono text-[#9CA3AF]">{activeDispute.user?.email || activeDispute.raisedByUser?.email || activeDispute.raisedByEmail || '—'}</p>
-                      <p className="font-mono text-[10px] text-[#6B7280]">User ID: {activeDispute.userId || activeDispute.raisedBy}</p>
+                      <p className="font-mono text-[#8FA3B7]">{activeDispute.user?.email || activeDispute.raisedByUser?.email || activeDispute.raisedByEmail || '—'}</p>
+                      <p className="font-mono text-[10px] text-[#53677A]">User ID: {activeDispute.userId || activeDispute.raisedBy}</p>
                     </div>
 
-                    <div className="p-3 bg-[#0B0D10] border border-[#2E333B] rounded-lg space-y-1">
-                      <span className="text-[10px] uppercase text-[#9CA3AF] font-semibold">Match Information</span>
-                      <p className="font-mono text-[11px] text-[#E7B24A]">
+                    <div className="p-3 bg-[#000000] border border-[#274056] rounded-lg space-y-1">
+                      <span className="text-[10px] uppercase text-[#8FA3B7] font-semibold">Match Information</span>
+                      <p className="font-mono text-[11px] text-[#18C986]">
                         Match ID: {activeDispute.matchId.slice(0, 12)}...
                       </p>
                       {activeDispute.match && (
                         <>
-                          <p className="font-mono text-[11px] text-[#F4F2ED]">
+                          <p className="font-mono text-[11px] text-[#F5F7FA]">
                             Stake: {formatNaira(activeDispute.match.stakeMinorUnits)}
                           </p>
-                          <p className="text-[10px] text-[#9CA3AF]">
+                          <p className="text-[10px] text-[#8FA3B7]">
                             Tier: {activeDispute.match.tier} • Status: {activeDispute.match.status}
                           </p>
                         </>
                       )}
                     </div>
 
-                    <div className="p-3 bg-[#0B0D10] border border-[#2E333B] rounded-lg space-y-1">
-                      <span className="text-[10px] uppercase text-[#9CA3AF] font-semibold">Dispute State</span>
+                    <div className="p-3 bg-[#000000] border border-[#274056] rounded-lg space-y-1">
+                      <span className="text-[10px] uppercase text-[#8FA3B7] font-semibold">Dispute State</span>
                       <div className="pt-0.5">{getDisputeBadge(activeDispute.status)}</div>
-                      <p className="font-mono text-[11px] text-[#9CA3AF] pt-1">
+                      <p className="font-mono text-[11px] text-[#8FA3B7] pt-1">
                         Opened: {formatDate(activeDispute.createdAt)}
                       </p>
                       {activeDispute.resolvedAt && (
@@ -416,13 +412,13 @@ export default function DisputesPage() {
                   </div>
 
                   {/* Disputant Claim & Reason */}
-                  <div className="p-4 bg-[#0B0D10] border border-[#2E333B] rounded-lg space-y-2">
-                    <span className="text-xs font-bold uppercase tracking-wider text-[#9CA3AF]">
+                  <div className="p-4 bg-[#000000] border border-[#274056] rounded-lg space-y-2">
+                    <span className="text-xs font-bold uppercase tracking-wider text-[#8FA3B7]">
                       Dispute Claim & Reason
                     </span>
-                    <p className="font-semibold text-sm text-[#F4F2ED]">{activeDispute.reason}</p>
+                    <p className="font-semibold text-sm text-[#F5F7FA]">{activeDispute.reason}</p>
                     {activeDispute.description && (
-                      <p className="text-xs text-[#9CA3AF]">{activeDispute.description}</p>
+                      <p className="text-xs text-[#8FA3B7]">{activeDispute.description}</p>
                     )}
                   </div>
 
@@ -432,14 +428,14 @@ export default function DisputesPage() {
                       <span className="text-xs font-bold uppercase tracking-wider text-emerald-400">
                         Official Adjudication Resolution
                       </span>
-                      <p className="text-xs text-[#F4F2ED]">{activeDispute.resolution}</p>
+                      <p className="text-xs text-[#F5F7FA]">{activeDispute.resolution}</p>
                     </div>
                   )}
 
                   {/* Evidence Viewer */}
                   <div className="space-y-3">
                     <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold uppercase tracking-wider text-[#9CA3AF]">
+                      <span className="text-xs font-bold uppercase tracking-wider text-[#8FA3B7]">
                         Attached Evidence ({activeDispute.evidence?.length || 0})
                       </span>
                       <Button
@@ -448,13 +444,13 @@ export default function DisputesPage() {
                         onClick={() => setIsAddingEvidence(!isAddingEvidence)}
                         className="h-7 text-xs gap-1"
                       >
-                        <FilePlus2 className="w-3.5 h-3.5 text-[#E7B24A]" />
+                        <FilePlus2 className="w-3.5 h-3.5 text-[#18C986]" />
                         <span>Add Evidence</span>
                       </Button>
                     </div>
 
                     {isAddingEvidence && (
-                      <form onSubmit={handleAddEvidence} className="p-3 bg-[#0B0D10] border border-[#2E333B] rounded-lg space-y-2">
+                      <form onSubmit={handleAddEvidence} className="p-3 bg-[#000000] border border-[#274056] rounded-lg space-y-2">
                         <div className="grid grid-cols-2 gap-2">
                           <Input
                             placeholder="Evidence URL or reference..."
@@ -483,25 +479,25 @@ export default function DisputesPage() {
 
                     <div className="space-y-1.5">
                       {!activeDispute.evidence || activeDispute.evidence.length === 0 ? (
-                        <p className="text-center text-[#6B7280] py-4 border border-[#2E333B] rounded-lg">
+                        <p className="text-center text-[#53677A] py-4 border border-[#274056] rounded-lg">
                           No evidence attached to this dispute.
                         </p>
                       ) : (
                         activeDispute.evidence.map((ev, idx) => (
                           <div
                             key={idx}
-                            className="p-2.5 bg-[#0B0D10] border border-[#2E333B] rounded flex items-center justify-between text-xs"
+                            className="p-2.5 bg-[#000000] border border-[#274056] rounded flex items-center justify-between text-xs"
                           >
                             <div>
-                              <span className="font-semibold text-[#E7B24A] uppercase text-[10px] mr-2">
+                              <span className="font-semibold text-[#18C986] uppercase text-[10px] mr-2">
                                 {ev.type}
                               </span>
-                              <span className="font-mono text-[#F4F2ED]">{ev.url}</span>
+                              <span className="font-mono text-[#F5F7FA]">{ev.url}</span>
                               {ev.description && (
-                                <p className="text-[11px] text-[#9CA3AF] mt-0.5">{ev.description}</p>
+                                <p className="text-[11px] text-[#8FA3B7] mt-0.5">{ev.description}</p>
                               )}
                             </div>
-                            <span className="font-mono text-[10px] text-[#6B7280]">
+                            <span className="font-mono text-[10px] text-[#53677A]">
                               {formatDate(ev.createdAt)}
                             </span>
                           </div>
@@ -512,8 +508,8 @@ export default function DisputesPage() {
 
                   {/* Adjudication Action Controls */}
                   {activeDispute.status !== 'RESOLVED' && activeDispute.status !== 'DISMISSED' && (
-                    <div className="border-t border-[#2E333B] pt-4 space-y-3">
-                      <span className="text-xs font-bold uppercase tracking-wider text-[#9CA3AF]">
+                    <div className="border-t border-[#274056] pt-4 space-y-3">
+                      <span className="text-xs font-bold uppercase tracking-wider text-[#8FA3B7]">
                         Adjudicate Dispute Case
                       </span>
 
@@ -539,14 +535,14 @@ export default function DisputesPage() {
                           </Button>
                         </div>
                       ) : (
-                        <div className="p-3 bg-[#0B0D10] border border-[#2E333B] rounded-lg space-y-3">
+                        <div className="p-3 bg-[#000000] border border-[#274056] rounded-lg space-y-3">
                           <div className="flex items-center justify-between">
-                            <span className="font-bold text-[#F4F2ED]">
+                            <span className="font-bold text-[#F5F7FA]">
                               Decision: {decisionType === 'RESOLVED' ? 'Resolve in Favor of Disputant' : 'Dismiss Dispute'}
                             </span>
                             <button
                               onClick={() => setDecisionType(null)}
-                              className="text-xs text-[#9CA3AF] hover:text-[#F4F2ED]"
+                              className="text-xs text-[#8FA3B7] hover:text-[#F5F7FA]"
                             >
                               Cancel
                             </button>

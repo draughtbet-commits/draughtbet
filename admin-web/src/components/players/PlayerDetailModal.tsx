@@ -159,16 +159,16 @@ export function PlayerDetailModal({ userId, onClose, onUserUpdated }: PlayerDeta
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 bg-black/80 backdrop-blur-sm animate-in fade-in duration-150">
-      <div className="relative w-full max-w-5xl max-h-[92vh] flex flex-col rounded-2xl bg-[#15181D] border border-[#2E333B] shadow-2xl overflow-hidden text-[#F4F2ED]">
+      <div className="relative w-full max-w-5xl max-h-[92vh] flex flex-col rounded-2xl bg-[#0C1B2A] border border-[#274056] shadow-2xl overflow-hidden text-[#F5F7FA]">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-[#2E333B] bg-[#111317]">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-[#274056] bg-[#111317]">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-[#1E2229] border border-[#2E333B] flex items-center justify-center text-[#E7B24A] font-bold">
+            <div className="w-10 h-10 rounded-full bg-[#132638] border border-[#274056] flex items-center justify-center text-[#18C986] font-bold">
               {data?.username ? data.username[0].toUpperCase() : 'P'}
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h2 className="text-lg font-bold font-serif text-[#F4F2ED]">
+                <h2 className="text-lg font-bold font-serif text-[#F5F7FA]">
                   {data?.username || data?.email || 'Player Detail'}
                 </h2>
                 {data && (
@@ -190,7 +190,7 @@ export function PlayerDetailModal({ userId, onClose, onUserUpdated }: PlayerDeta
                   </Badge>
                 )}
               </div>
-              <span className="text-xs text-[#9CA3AF] font-mono">
+              <span className="text-xs text-[#8FA3B7] font-mono">
                 ID: {userId}
               </span>
             </div>
@@ -202,13 +202,13 @@ export function PlayerDetailModal({ userId, onClose, onUserUpdated }: PlayerDeta
               size="sm"
               onClick={fetchPlayerDetail}
               isLoading={isLoading}
-              className="text-[#9CA3AF] hover:text-[#F4F2ED]"
+              className="text-[#8FA3B7] hover:text-[#F5F7FA]"
             >
               <RefreshCw className="w-4 h-4" />
             </Button>
             <button
               onClick={onClose}
-              className="p-1.5 rounded-lg text-[#9CA3AF] hover:text-[#F4F2ED] hover:bg-[#1E2229] transition-colors"
+              className="p-1.5 rounded-lg text-[#8FA3B7] hover:text-[#F5F7FA] hover:bg-[#132638] transition-colors"
             >
               <X className="w-5 h-5" />
             </button>
@@ -216,7 +216,7 @@ export function PlayerDetailModal({ userId, onClose, onUserUpdated }: PlayerDeta
         </div>
 
         {/* Tab Navigation */}
-        <div className="flex border-b border-[#2E333B] bg-[#15181D] px-6 overflow-x-auto text-xs font-semibold">
+        <div className="flex border-b border-[#274056] bg-[#0C1B2A] px-6 overflow-x-auto text-xs font-semibold">
           {[
             { id: 'overview', label: 'Overview', icon: User },
             { id: 'kyc', label: 'KYC & Verification', icon: ShieldCheck },
@@ -235,8 +235,8 @@ export function PlayerDetailModal({ userId, onClose, onUserUpdated }: PlayerDeta
                 onClick={() => setActiveTab(tab.id as TabType)}
                 className={`flex items-center gap-2 py-3 px-3.5 border-b-2 whitespace-nowrap transition-colors ${
                   isActive
-                    ? 'border-[#E7B24A] text-[#E7B24A]'
-                    : 'border-transparent text-[#9CA3AF] hover:text-[#F4F2ED]'
+                    ? 'border-[#18C986] text-[#18C986]'
+                    : 'border-transparent text-[#8FA3B7] hover:text-[#F5F7FA]'
                 }`}
               >
                 <Icon className="w-3.5 h-3.5" />
@@ -263,8 +263,8 @@ export function PlayerDetailModal({ userId, onClose, onUserUpdated }: PlayerDeta
         {/* Content Body */}
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
           {isLoading ? (
-            <div className="py-20 text-center text-[#9CA3AF] text-sm">
-              <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-[#E7B24A]" />
+            <div className="py-20 text-center text-[#8FA3B7] text-sm">
+              <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-[#18C986]" />
               Loading player dossier...
             </div>
           ) : !data ? (
@@ -277,77 +277,77 @@ export function PlayerDetailModal({ userId, onClose, onUserUpdated }: PlayerDeta
               {activeTab === 'overview' && (
                 <div className="space-y-6">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <Card className="bg-[#1A1D24] border-[#2E333B]">
-                      <h3 className="text-xs font-bold uppercase tracking-wider text-[#9CA3AF] mb-4">
+                    <Card className="bg-[#1A1D24] border-[#274056]">
+                      <h3 className="text-xs font-bold uppercase tracking-wider text-[#8FA3B7] mb-4">
                         Identity & Account
                       </h3>
                       <dl className="space-y-2.5 text-xs">
-                        <div className="flex justify-between py-1 border-b border-[#2E333B]/40">
-                          <dt className="text-[#9CA3AF]">User ID</dt>
-                          <dd className="font-mono text-[#F4F2ED]">{data.id}</dd>
+                        <div className="flex justify-between py-1 border-b border-[#274056]/40">
+                          <dt className="text-[#8FA3B7]">User ID</dt>
+                          <dd className="font-mono text-[#F5F7FA]">{data.id}</dd>
                         </div>
-                        <div className="flex justify-between py-1 border-b border-[#2E333B]/40">
-                          <dt className="text-[#9CA3AF]">Email</dt>
-                          <dd className="font-mono text-[#F4F2ED]">{data.email}</dd>
+                        <div className="flex justify-between py-1 border-b border-[#274056]/40">
+                          <dt className="text-[#8FA3B7]">Email</dt>
+                          <dd className="font-mono text-[#F5F7FA]">{data.email}</dd>
                         </div>
-                        <div className="flex justify-between py-1 border-b border-[#2E333B]/40">
-                          <dt className="text-[#9CA3AF]">Username</dt>
-                          <dd className="text-[#F4F2ED]">{data.username || '—'}</dd>
+                        <div className="flex justify-between py-1 border-b border-[#274056]/40">
+                          <dt className="text-[#8FA3B7]">Username</dt>
+                          <dd className="text-[#F5F7FA]">{data.username || '—'}</dd>
                         </div>
-                        <div className="flex justify-between py-1 border-b border-[#2E333B]/40">
-                          <dt className="text-[#9CA3AF]">Full Name</dt>
-                          <dd className="text-[#F4F2ED]">{data.fullName || '—'}</dd>
+                        <div className="flex justify-between py-1 border-b border-[#274056]/40">
+                          <dt className="text-[#8FA3B7]">Full Name</dt>
+                          <dd className="text-[#F5F7FA]">{data.fullName || '—'}</dd>
                         </div>
-                        <div className="flex justify-between py-1 border-b border-[#2E333B]/40">
-                          <dt className="text-[#9CA3AF]">Phone</dt>
-                          <dd className="font-mono text-[#F4F2ED]">{data.phone || '—'}</dd>
+                        <div className="flex justify-between py-1 border-b border-[#274056]/40">
+                          <dt className="text-[#8FA3B7]">Phone</dt>
+                          <dd className="font-mono text-[#F5F7FA]">{data.phone || '—'}</dd>
                         </div>
-                        <div className="flex justify-between py-1 border-b border-[#2E333B]/40">
-                          <dt className="text-[#9CA3AF]">Country</dt>
-                          <dd className="text-[#F4F2ED]">{data.countryCode || 'NG'}</dd>
+                        <div className="flex justify-between py-1 border-b border-[#274056]/40">
+                          <dt className="text-[#8FA3B7]">Country</dt>
+                          <dd className="text-[#F5F7FA]">{data.countryCode || 'NG'}</dd>
                         </div>
                         <div className="flex justify-between py-1">
-                          <dt className="text-[#9CA3AF]">Joined At</dt>
-                          <dd className="font-mono text-[#F4F2ED]">{formatDate(data.createdAt)}</dd>
+                          <dt className="text-[#8FA3B7]">Joined At</dt>
+                          <dd className="font-mono text-[#F5F7FA]">{formatDate(data.createdAt)}</dd>
                         </div>
                       </dl>
                     </Card>
 
-                    <Card className="bg-[#1A1D24] border-[#2E333B]">
-                      <h3 className="text-xs font-bold uppercase tracking-wider text-[#9CA3AF] mb-4">
+                    <Card className="bg-[#1A1D24] border-[#274056]">
+                      <h3 className="text-xs font-bold uppercase tracking-wider text-[#8FA3B7] mb-4">
                         Gaming & Tier Details
                       </h3>
                       <dl className="space-y-2.5 text-xs">
-                        <div className="flex justify-between py-1 border-b border-[#2E333B]/40">
-                          <dt className="text-[#9CA3AF]">Competition Tier</dt>
+                        <div className="flex justify-between py-1 border-b border-[#274056]/40">
+                          <dt className="text-[#8FA3B7]">Competition Tier</dt>
                           <dd>
                             <Badge variant="gold">{data.tier}</Badge>
                           </dd>
                         </div>
-                        <div className="flex justify-between py-1 border-b border-[#2E333B]/40">
-                          <dt className="text-[#9CA3AF]">Age Verified</dt>
+                        <div className="flex justify-between py-1 border-b border-[#274056]/40">
+                          <dt className="text-[#8FA3B7]">Age Verified</dt>
                           <dd>
                             <Badge variant={data.ageVerified ? 'success' : 'default'}>
                               {data.ageVerified ? 'Verified 18+' : 'Unverified'}
                             </Badge>
                           </dd>
                         </div>
-                        <div className="flex justify-between py-1 border-b border-[#2E333B]/40">
-                          <dt className="text-[#9CA3AF]">Total Matches</dt>
-                          <dd className="font-mono text-[#F4F2ED]">{data.matches?.length ?? 0}</dd>
+                        <div className="flex justify-between py-1 border-b border-[#274056]/40">
+                          <dt className="text-[#8FA3B7]">Total Matches</dt>
+                          <dd className="font-mono text-[#F5F7FA]">{data.matches?.length ?? 0}</dd>
                         </div>
-                        <div className="flex justify-between py-1 border-b border-[#2E333B]/40">
-                          <dt className="text-[#9CA3AF]">Role Privileges</dt>
-                          <dd className="text-[#F4F2ED]">
+                        <div className="flex justify-between py-1 border-b border-[#274056]/40">
+                          <dt className="text-[#8FA3B7]">Role Privileges</dt>
+                          <dd className="text-[#F5F7FA]">
                             {data.isAdmin ? (
                               <Badge variant="gold">Platform Staff</Badge>
                             ) : (
-                              <span className="text-[#9CA3AF]">Player</span>
+                              <span className="text-[#8FA3B7]">Player</span>
                             )}
                           </dd>
                         </div>
                         <div className="flex justify-between py-1">
-                          <dt className="text-[#9CA3AF]">Status</dt>
+                          <dt className="text-[#8FA3B7]">Status</dt>
                           <dd>
                             <Badge variant={data.isBanned ? 'danger' : 'success'}>
                               {data.isBanned ? 'Suspended' : 'In Good Standing'}
@@ -360,12 +360,12 @@ export function PlayerDetailModal({ userId, onClose, onUserUpdated }: PlayerDeta
 
                   {/* Account Actions Bar */}
                   {canManageUsers && (
-                    <div className="p-4 rounded-xl bg-[#1E2229] border border-[#2E333B] flex items-center justify-between">
+                    <div className="p-4 rounded-xl bg-[#132638] border border-[#274056] flex items-center justify-between">
                       <div>
-                        <h4 className="text-xs font-bold text-[#F4F2ED]">
+                        <h4 className="text-xs font-bold text-[#F5F7FA]">
                           Administrative Status Mutation
                         </h4>
-                        <p className="text-[11px] text-[#9CA3AF] mt-0.5">
+                        <p className="text-[11px] text-[#8FA3B7] mt-0.5">
                           {data.isBanned
                             ? 'Reinstates the player account and permits login and gameplay.'
                             : 'Suspends the player account, revokes active sessions and socket connections.'}
@@ -397,10 +397,10 @@ export function PlayerDetailModal({ userId, onClose, onUserUpdated }: PlayerDeta
               {/* TAB 2: KYC */}
               {activeTab === 'kyc' && (
                 <div className="space-y-4">
-                  <div className="flex items-center justify-between p-4 rounded-xl bg-[#1E2229] border border-[#2E333B]">
+                  <div className="flex items-center justify-between p-4 rounded-xl bg-[#132638] border border-[#274056]">
                     <div>
-                      <span className="text-xs text-[#9CA3AF] block uppercase">Current KYC Status</span>
-                      <span className="text-base font-bold text-[#F4F2ED]">{data.kycStatus}</span>
+                      <span className="text-xs text-[#8FA3B7] block uppercase">Current KYC Status</span>
+                      <span className="text-base font-bold text-[#F5F7FA]">{data.kycStatus}</span>
                     </div>
                     <Badge
                       variant={
@@ -416,11 +416,11 @@ export function PlayerDetailModal({ userId, onClose, onUserUpdated }: PlayerDeta
                     </Badge>
                   </div>
 
-                  <h3 className="text-xs font-bold uppercase tracking-wider text-[#9CA3AF] pt-2">
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-[#8FA3B7] pt-2">
                     Verification History & Submissions
                   </h3>
                   {data.verificationCases?.length === 0 ? (
-                    <p className="text-xs text-[#6B7280] py-6 text-center">
+                    <p className="text-xs text-[#53677A] py-6 text-center">
                       No verification cases registered for this player.
                     </p>
                   ) : (
@@ -428,10 +428,10 @@ export function PlayerDetailModal({ userId, onClose, onUserUpdated }: PlayerDeta
                       {data.verificationCases.map((vc) => (
                         <div
                           key={vc.id}
-                          className="p-4 rounded-xl bg-[#1A1D24] border border-[#2E333B] text-xs space-y-2"
+                          className="p-4 rounded-xl bg-[#1A1D24] border border-[#274056] text-xs space-y-2"
                         >
                           <div className="flex items-center justify-between">
-                            <span className="font-mono text-[#9CA3AF]">Case ID: {vc.id}</span>
+                            <span className="font-mono text-[#8FA3B7]">Case ID: {vc.id}</span>
                             <Badge
                               variant={
                                 vc.status === 'VERIFIED'
@@ -444,18 +444,18 @@ export function PlayerDetailModal({ userId, onClose, onUserUpdated }: PlayerDeta
                               {vc.status}
                             </Badge>
                           </div>
-                          <div className="flex items-center gap-4 text-[#9CA3AF]">
+                          <div className="flex items-center gap-4 text-[#8FA3B7]">
                             <span>Provider: {vc.provider || 'simulated'}</span>
                             <span>Created: {formatDate(vc.createdAt)}</span>
                           </div>
                           {vc.checks && vc.checks.length > 0 && (
-                            <div className="mt-2 pt-2 border-t border-[#2E333B]/40 flex flex-wrap gap-2">
+                            <div className="mt-2 pt-2 border-t border-[#274056]/40 flex flex-wrap gap-2">
                               {vc.checks.map((chk) => (
                                 <span
                                   key={chk.id}
-                                  className="px-2 py-0.5 rounded bg-[#111317] border border-[#2E333B] font-mono text-[10px] text-[#9CA3AF]"
+                                  className="px-2 py-0.5 rounded bg-[#111317] border border-[#274056] font-mono text-[10px] text-[#8FA3B7]"
                                 >
-                                  {chk.type}: <b className="text-[#F4F2ED]">{chk.status}</b>
+                                  {chk.type}: <b className="text-[#F5F7FA]">{chk.status}</b>
                                 </span>
                               ))}
                             </div>
@@ -474,46 +474,46 @@ export function PlayerDetailModal({ userId, onClose, onUserUpdated }: PlayerDeta
                     <>
                       {/* Projections Bar */}
                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                        <Card className="bg-[#1A1D24] border-[#2E333B]">
-                          <span className="text-[10px] font-bold uppercase tracking-wider text-[#9CA3AF]">
+                        <Card className="bg-[#1A1D24] border-[#274056]">
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-[#8FA3B7]">
                             Available Balance
                           </span>
                           <div className="text-xl font-bold font-mono text-emerald-400 mt-1">
                             {formatNaira(data.financials.projections.available)}
                           </div>
-                          <span className="text-[11px] text-[#9CA3AF]">Withdrawable & Playable</span>
+                          <span className="text-[11px] text-[#8FA3B7]">Withdrawable & Playable</span>
                         </Card>
-                        <Card className="bg-[#1A1D24] border-[#2E333B]">
-                          <span className="text-[10px] font-bold uppercase tracking-wider text-[#9CA3AF]">
+                        <Card className="bg-[#1A1D24] border-[#274056]">
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-[#8FA3B7]">
                             Locked in Matches
                           </span>
                           <div className="text-xl font-bold font-mono text-amber-400 mt-1">
                             {formatNaira(data.financials.projections.locked)}
                           </div>
-                          <span className="text-[11px] text-[#9CA3AF]">Escrow Stake Hold</span>
+                          <span className="text-[11px] text-[#8FA3B7]">Escrow Stake Hold</span>
                         </Card>
-                        <Card className="bg-[#1A1D24] border-[#2E333B]">
-                          <span className="text-[10px] font-bold uppercase tracking-wider text-[#9CA3AF]">
+                        <Card className="bg-[#1A1D24] border-[#274056]">
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-[#8FA3B7]">
                             Pending Withdrawal
                           </span>
                           <div className="text-xl font-bold font-mono text-sky-400 mt-1">
                             {formatNaira(data.financials.projections.pending)}
                           </div>
-                          <span className="text-[11px] text-[#9CA3AF]">Awaiting Payout Gate</span>
+                          <span className="text-[11px] text-[#8FA3B7]">Awaiting Payout Gate</span>
                         </Card>
                       </div>
 
-                      <h3 className="text-xs font-bold uppercase tracking-wider text-[#9CA3AF] pt-2">
+                      <h3 className="text-xs font-bold uppercase tracking-wider text-[#8FA3B7] pt-2">
                         Recent Ledger Postings (Double-Entry Log)
                       </h3>
                       {data.financials.recentEntries.length === 0 ? (
-                        <p className="text-xs text-[#6B7280] py-6 text-center">
+                        <p className="text-xs text-[#53677A] py-6 text-center">
                           No ledger postings found for this user account.
                         </p>
                       ) : (
                         <div className="overflow-x-auto">
                           <table className="w-full text-left text-xs">
-                            <thead className="bg-[#1E2229] text-[#9CA3AF] border-y border-[#2E333B] uppercase text-[10px] tracking-wider">
+                            <thead className="bg-[#132638] text-[#8FA3B7] border-y border-[#274056] uppercase text-[10px] tracking-wider">
                               <tr>
                                 <th className="py-2.5 px-3">Date</th>
                                 <th className="py-2.5 px-3">Direction</th>
@@ -522,10 +522,10 @@ export function PlayerDetailModal({ userId, onClose, onUserUpdated }: PlayerDeta
                                 <th className="py-2.5 px-3">Description</th>
                               </tr>
                             </thead>
-                            <tbody className="divide-y divide-[#2E333B]">
+                            <tbody className="divide-y divide-[#274056]">
                               {data.financials.recentEntries.map((e) => (
-                                <tr key={e.id} className="hover:bg-[#1E2229]/50">
-                                  <td className="py-2 px-3 font-mono text-[11px] text-[#9CA3AF]">
+                                <tr key={e.id} className="hover:bg-[#132638]/50">
+                                  <td className="py-2 px-3 font-mono text-[11px] text-[#8FA3B7]">
                                     {formatDate(e.createdAt)}
                                   </td>
                                   <td className="py-2 px-3">
@@ -533,13 +533,13 @@ export function PlayerDetailModal({ userId, onClose, onUserUpdated }: PlayerDeta
                                       {e.direction}
                                     </Badge>
                                   </td>
-                                  <td className="py-2 px-3 font-mono font-bold text-[#F4F2ED]">
+                                  <td className="py-2 px-3 font-mono font-bold text-[#F5F7FA]">
                                     {formatNaira(e.amountMinorUnits)}
                                   </td>
-                                  <td className="py-2 px-3 font-mono text-[11px] text-[#9CA3AF]">
+                                  <td className="py-2 px-3 font-mono text-[11px] text-[#8FA3B7]">
                                     {e.reference}
                                   </td>
-                                  <td className="py-2 px-3 text-[#9CA3AF]">
+                                  <td className="py-2 px-3 text-[#8FA3B7]">
                                     {e.description || '—'}
                                   </td>
                                 </tr>
@@ -550,10 +550,10 @@ export function PlayerDetailModal({ userId, onClose, onUserUpdated }: PlayerDeta
                       )}
                     </>
                   ) : (
-                    <div className="py-12 text-center text-xs text-[#9CA3AF] space-y-2">
-                      <Lock className="w-8 h-8 text-[#E7B24A] mx-auto opacity-50" />
-                      <p className="font-semibold text-[#F4F2ED]">Financial Access Restricted</p>
-                      <p className="max-w-sm mx-auto text-[#6B7280]">
+                    <div className="py-12 text-center text-xs text-[#8FA3B7] space-y-2">
+                      <Lock className="w-8 h-8 text-[#18C986] mx-auto opacity-50" />
+                      <p className="font-semibold text-[#F5F7FA]">Financial Access Restricted</p>
+                      <p className="max-w-sm mx-auto text-[#53677A]">
                         Viewing player balances and ledger transactions requires the FINANCE or SUPER_ADMIN role.
                       </p>
                     </div>
@@ -564,17 +564,17 @@ export function PlayerDetailModal({ userId, onClose, onUserUpdated }: PlayerDeta
               {/* TAB 4: MATCHES */}
               {activeTab === 'matches' && (
                 <div className="space-y-4">
-                  <h3 className="text-xs font-bold uppercase tracking-wider text-[#9CA3AF]">
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-[#8FA3B7]">
                     Recent Match History
                   </h3>
                   {data.matches.length === 0 ? (
-                    <p className="text-xs text-[#6B7280] py-6 text-center">
+                    <p className="text-xs text-[#53677A] py-6 text-center">
                       No matches played yet.
                     </p>
                   ) : (
                     <div className="overflow-x-auto">
                       <table className="w-full text-left text-xs">
-                        <thead className="bg-[#1E2229] text-[#9CA3AF] border-y border-[#2E333B] uppercase text-[10px] tracking-wider">
+                        <thead className="bg-[#132638] text-[#8FA3B7] border-y border-[#274056] uppercase text-[10px] tracking-wider">
                           <tr>
                             <th className="py-2.5 px-3">Match ID</th>
                             <th className="py-2.5 px-3">Tier</th>
@@ -584,18 +584,18 @@ export function PlayerDetailModal({ userId, onClose, onUserUpdated }: PlayerDeta
                             <th className="py-2.5 px-3">Date</th>
                           </tr>
                         </thead>
-                        <tbody className="divide-y divide-[#2E333B]">
+                        <tbody className="divide-y divide-[#274056]">
                           {data.matches.map((m) => {
                             const isWinner = m.winnerId === data.id;
                             return (
-                              <tr key={m.id} className="hover:bg-[#1E2229]/50">
-                                <td className="py-2 px-3 font-mono text-[11px] text-[#9CA3AF]">
+                              <tr key={m.id} className="hover:bg-[#132638]/50">
+                                <td className="py-2 px-3 font-mono text-[11px] text-[#8FA3B7]">
                                   {m.id.slice(0, 8)}...
                                 </td>
                                 <td className="py-2 px-3">
                                   <Badge variant="gold">{m.tier}</Badge>
                                 </td>
-                                <td className="py-2 px-3 font-mono font-bold text-[#F4F2ED]">
+                                <td className="py-2 px-3 font-mono font-bold text-[#F5F7FA]">
                                   {formatNaira(m.stakeMinorUnits)}
                                 </td>
                                 <td className="py-2 px-3">
@@ -621,10 +621,10 @@ export function PlayerDetailModal({ userId, onClose, onUserUpdated }: PlayerDeta
                                       <span className="text-amber-400 font-bold">DRAW</span>
                                     )
                                   ) : (
-                                    <span className="text-[#9CA3AF]">—</span>
+                                    <span className="text-[#8FA3B7]">—</span>
                                   )}
                                 </td>
-                                <td className="py-2 px-3 font-mono text-[11px] text-[#9CA3AF]">
+                                <td className="py-2 px-3 font-mono text-[11px] text-[#8FA3B7]">
                                   {formatDate(m.createdAt)}
                                 </td>
                               </tr>
@@ -642,17 +642,17 @@ export function PlayerDetailModal({ userId, onClose, onUserUpdated }: PlayerDeta
                 <div className="space-y-4">
                   {data.financials ? (
                     <>
-                      <h3 className="text-xs font-bold uppercase tracking-wider text-[#9CA3AF]">
+                      <h3 className="text-xs font-bold uppercase tracking-wider text-[#8FA3B7]">
                         Player Withdrawal History
                       </h3>
                       {data.financials.withdrawals.length === 0 ? (
-                        <p className="text-xs text-[#6B7280] py-6 text-center">
+                        <p className="text-xs text-[#53677A] py-6 text-center">
                           No withdrawals recorded for this player.
                         </p>
                       ) : (
                         <div className="overflow-x-auto">
                           <table className="w-full text-left text-xs">
-                            <thead className="bg-[#1E2229] text-[#9CA3AF] border-y border-[#2E333B] uppercase text-[10px] tracking-wider">
+                            <thead className="bg-[#132638] text-[#8FA3B7] border-y border-[#274056] uppercase text-[10px] tracking-wider">
                               <tr>
                                 <th className="py-2.5 px-3">Reference</th>
                                 <th className="py-2.5 px-3">Amount</th>
@@ -661,13 +661,13 @@ export function PlayerDetailModal({ userId, onClose, onUserUpdated }: PlayerDeta
                                 <th className="py-2.5 px-3">Date</th>
                               </tr>
                             </thead>
-                            <tbody className="divide-y divide-[#2E333B]">
+                            <tbody className="divide-y divide-[#274056]">
                               {data.financials.withdrawals.map((w) => (
-                                <tr key={w.id} className="hover:bg-[#1E2229]/50">
-                                  <td className="py-2 px-3 font-mono text-[11px] text-[#9CA3AF]">
+                                <tr key={w.id} className="hover:bg-[#132638]/50">
+                                  <td className="py-2 px-3 font-mono text-[11px] text-[#8FA3B7]">
                                     {w.reference}
                                   </td>
-                                  <td className="py-2 px-3 font-mono font-bold text-[#F4F2ED]">
+                                  <td className="py-2 px-3 font-mono font-bold text-[#F5F7FA]">
                                     {formatNaira(w.amountMinorUnits)}
                                   </td>
                                   <td className="py-2 px-3">
@@ -685,12 +685,12 @@ export function PlayerDetailModal({ userId, onClose, onUserUpdated }: PlayerDeta
                                       {w.status}
                                     </Badge>
                                   </td>
-                                  <td className="py-2 px-3 text-[#9CA3AF]">
+                                  <td className="py-2 px-3 text-[#8FA3B7]">
                                     {w.bankAccount
                                       ? `${w.bankAccount.bankName} (${w.bankAccount.accountNumber})`
                                       : '—'}
                                   </td>
-                                  <td className="py-2 px-3 font-mono text-[11px] text-[#9CA3AF]">
+                                  <td className="py-2 px-3 font-mono text-[11px] text-[#8FA3B7]">
                                     {formatDate(w.createdAt)}
                                   </td>
                                 </tr>
@@ -701,10 +701,10 @@ export function PlayerDetailModal({ userId, onClose, onUserUpdated }: PlayerDeta
                       )}
                     </>
                   ) : (
-                    <div className="py-12 text-center text-xs text-[#9CA3AF] space-y-2">
-                      <Lock className="w-8 h-8 text-[#E7B24A] mx-auto opacity-50" />
-                      <p className="font-semibold text-[#F4F2ED]">Withdrawal Access Restricted</p>
-                      <p className="max-w-sm mx-auto text-[#6B7280]">
+                    <div className="py-12 text-center text-xs text-[#8FA3B7] space-y-2">
+                      <Lock className="w-8 h-8 text-[#18C986] mx-auto opacity-50" />
+                      <p className="font-semibold text-[#F5F7FA]">Withdrawal Access Restricted</p>
+                      <p className="max-w-sm mx-auto text-[#53677A]">
                         Viewing withdrawal records requires the FINANCE or SUPER_ADMIN role.
                       </p>
                     </div>
@@ -716,13 +716,13 @@ export function PlayerDetailModal({ userId, onClose, onUserUpdated }: PlayerDeta
               {activeTab === 'saferplay' && (
                 <div className="space-y-6">
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <Card className="bg-[#1A1D24] border-[#2E333B]">
-                      <h4 className="text-xs font-bold uppercase tracking-wider text-[#9CA3AF] mb-3">
+                    <Card className="bg-[#1A1D24] border-[#274056]">
+                      <h4 className="text-xs font-bold uppercase tracking-wider text-[#8FA3B7] mb-3">
                         Active Restrictions
                       </h4>
                       <dl className="space-y-2 text-xs">
-                        <div className="flex justify-between py-1 border-b border-[#2E333B]/40">
-                          <dt className="text-[#9CA3AF]">Timeout Status</dt>
+                        <div className="flex justify-between py-1 border-b border-[#274056]/40">
+                          <dt className="text-[#8FA3B7]">Timeout Status</dt>
                           <dd>
                             {data.saferPlayProfile?.timeoutUntil &&
                             new Date(data.saferPlayProfile.timeoutUntil) > new Date() ? (
@@ -730,12 +730,12 @@ export function PlayerDetailModal({ userId, onClose, onUserUpdated }: PlayerDeta
                                 Active until {formatDate(data.saferPlayProfile.timeoutUntil)}
                               </Badge>
                             ) : (
-                              <span className="text-[#9CA3AF]">None</span>
+                              <span className="text-[#8FA3B7]">None</span>
                             )}
                           </dd>
                         </div>
-                        <div className="flex justify-between py-1 border-b border-[#2E333B]/40">
-                          <dt className="text-[#9CA3AF]">Self-Exclusion</dt>
+                        <div className="flex justify-between py-1 border-b border-[#274056]/40">
+                          <dt className="text-[#8FA3B7]">Self-Exclusion</dt>
                           <dd>
                             {data.saferPlayProfile?.selfExclusionUntil &&
                             new Date(data.saferPlayProfile.selfExclusionUntil) > new Date() ? (
@@ -743,13 +743,13 @@ export function PlayerDetailModal({ userId, onClose, onUserUpdated }: PlayerDeta
                                 Active until {formatDate(data.saferPlayProfile.selfExclusionUntil)}
                               </Badge>
                             ) : (
-                              <span className="text-[#9CA3AF]">None</span>
+                              <span className="text-[#8FA3B7]">None</span>
                             )}
                           </dd>
                         </div>
                         <div className="flex justify-between py-1">
-                          <dt className="text-[#9CA3AF]">Deposit Limit (Daily)</dt>
-                          <dd className="font-mono text-[#F4F2ED]">
+                          <dt className="text-[#8FA3B7]">Deposit Limit (Daily)</dt>
+                          <dd className="font-mono text-[#F5F7FA]">
                             {data.saferPlayProfile?.dailyDepositLimitMinorUnits
                               ? formatNaira(data.saferPlayProfile.dailyDepositLimitMinorUnits)
                               : 'No limit set'}
@@ -759,12 +759,12 @@ export function PlayerDetailModal({ userId, onClose, onUserUpdated }: PlayerDeta
                     </Card>
 
                     {canLiftSaferPlay && (
-                      <Card className="bg-[#1A1D24] border-[#2E333B] flex flex-col justify-between">
+                      <Card className="bg-[#1A1D24] border-[#274056] flex flex-col justify-between">
                         <div>
-                          <h4 className="text-xs font-bold uppercase tracking-wider text-[#9CA3AF] mb-2">
+                          <h4 className="text-xs font-bold uppercase tracking-wider text-[#8FA3B7] mb-2">
                             Operator Safer-Play Interventions
                           </h4>
-                          <p className="text-[11px] text-[#9CA3AF]">
+                          <p className="text-[11px] text-[#8FA3B7]">
                             Sanctioned actions to lift cooldown timeouts or early end self-exclusion upon compliance review.
                           </p>
                         </div>
@@ -798,11 +798,11 @@ export function PlayerDetailModal({ userId, onClose, onUserUpdated }: PlayerDeta
                     )}
                   </div>
 
-                  <h3 className="text-xs font-bold uppercase tracking-wider text-[#9CA3AF] pt-2">
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-[#8FA3B7] pt-2">
                     Safer Play Audit History
                   </h3>
                   {data.saferPlayEvents?.length === 0 ? (
-                    <p className="text-xs text-[#6B7280] py-6 text-center">
+                    <p className="text-xs text-[#53677A] py-6 text-center">
                       No safer play limit changes or timeouts on record.
                     </p>
                   ) : (
@@ -810,13 +810,13 @@ export function PlayerDetailModal({ userId, onClose, onUserUpdated }: PlayerDeta
                       {data.saferPlayEvents.map((ev) => (
                         <div
                           key={ev.id}
-                          className="p-3 rounded-lg bg-[#1A1D24] border border-[#2E333B] text-xs flex items-center justify-between"
+                          className="p-3 rounded-lg bg-[#1A1D24] border border-[#274056] text-xs flex items-center justify-between"
                         >
                           <div>
-                            <span className="font-bold text-[#F4F2ED]">{ev.action}</span>
-                            <span className="text-[#9CA3AF] ml-2">Field: {ev.field}</span>
+                            <span className="font-bold text-[#F5F7FA]">{ev.action}</span>
+                            <span className="text-[#8FA3B7] ml-2">Field: {ev.field}</span>
                           </div>
-                          <span className="font-mono text-[11px] text-[#9CA3AF]">
+                          <span className="font-mono text-[11px] text-[#8FA3B7]">
                             {formatDate(ev.createdAt)}
                           </span>
                         </div>
@@ -830,17 +830,17 @@ export function PlayerDetailModal({ userId, onClose, onUserUpdated }: PlayerDeta
               {activeTab === 'sessions' && (
                 <div className="space-y-6">
                   <div>
-                    <h3 className="text-xs font-bold uppercase tracking-wider text-[#9CA3AF] mb-3">
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-[#8FA3B7] mb-3">
                       Recent Active Sessions
                     </h3>
                     {data.sessions?.length === 0 ? (
-                      <p className="text-xs text-[#6B7280] py-4 text-center">
+                      <p className="text-xs text-[#53677A] py-4 text-center">
                         No session tokens active.
                       </p>
                     ) : (
                       <div className="overflow-x-auto">
                         <table className="w-full text-left text-xs">
-                          <thead className="bg-[#1E2229] text-[#9CA3AF] border-y border-[#2E333B] uppercase text-[10px]">
+                          <thead className="bg-[#132638] text-[#8FA3B7] border-y border-[#274056] uppercase text-[10px]">
                             <tr>
                               <th className="py-2 px-3">Session ID</th>
                               <th className="py-2 px-3">IP Address</th>
@@ -849,13 +849,13 @@ export function PlayerDetailModal({ userId, onClose, onUserUpdated }: PlayerDeta
                               <th className="py-2 px-3">Expires</th>
                             </tr>
                           </thead>
-                          <tbody className="divide-y divide-[#2E333B]">
+                          <tbody className="divide-y divide-[#274056]">
                             {data.sessions.map((s) => (
-                              <tr key={s.id} className="hover:bg-[#1E2229]/50">
-                                <td className="py-2 px-3 font-mono text-[11px] text-[#9CA3AF]">
+                              <tr key={s.id} className="hover:bg-[#132638]/50">
+                                <td className="py-2 px-3 font-mono text-[11px] text-[#8FA3B7]">
                                   {s.id.slice(0, 8)}...
                                 </td>
-                                <td className="py-2 px-3 font-mono text-[#F4F2ED]">
+                                <td className="py-2 px-3 font-mono text-[#F5F7FA]">
                                   {s.ipAddress || '—'}
                                 </td>
                                 <td className="py-2 px-3">
@@ -863,10 +863,10 @@ export function PlayerDetailModal({ userId, onClose, onUserUpdated }: PlayerDeta
                                     {s.status}
                                   </Badge>
                                 </td>
-                                <td className="py-2 px-3 text-[#9CA3AF] truncate max-w-xs">
+                                <td className="py-2 px-3 text-[#8FA3B7] truncate max-w-xs">
                                   {s.userAgent || '—'}
                                 </td>
-                                <td className="py-2 px-3 font-mono text-[11px] text-[#9CA3AF]">
+                                <td className="py-2 px-3 font-mono text-[11px] text-[#8FA3B7]">
                                   {formatDate(s.expiresAt)}
                                 </td>
                               </tr>
@@ -878,11 +878,11 @@ export function PlayerDetailModal({ userId, onClose, onUserUpdated }: PlayerDeta
                   </div>
 
                   <div>
-                    <h3 className="text-xs font-bold uppercase tracking-wider text-[#9CA3AF] mb-3">
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-[#8FA3B7] mb-3">
                       Observed Device Fingerprints
                     </h3>
                     {data.devices?.length === 0 ? (
-                      <p className="text-xs text-[#6B7280] py-4 text-center">
+                      <p className="text-xs text-[#53677A] py-4 text-center">
                         No device fingerprints logged.
                       </p>
                     ) : (
@@ -890,12 +890,12 @@ export function PlayerDetailModal({ userId, onClose, onUserUpdated }: PlayerDeta
                         {data.devices.map((d) => (
                           <div
                             key={d.id}
-                            className="p-3 rounded-lg bg-[#1A1D24] border border-[#2E333B] text-xs flex items-center justify-between"
+                            className="p-3 rounded-lg bg-[#1A1D24] border border-[#274056] text-xs flex items-center justify-between"
                           >
-                            <span className="font-mono text-[#E7B24A]">
+                            <span className="font-mono text-[#18C986]">
                               Hash: {d.fingerprintHash}
                             </span>
-                            <span className="text-[#9CA3AF] font-mono text-[11px]">
+                            <span className="text-[#8FA3B7] font-mono text-[11px]">
                               Last seen: {formatDate(d.lastSeen)}
                             </span>
                           </div>
@@ -909,17 +909,17 @@ export function PlayerDetailModal({ userId, onClose, onUserUpdated }: PlayerDeta
               {/* TAB 8: ADMIN TRAIL */}
               {activeTab === 'adminHistory' && (
                 <div className="space-y-4">
-                  <h3 className="text-xs font-bold uppercase tracking-wider text-[#9CA3AF]">
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-[#8FA3B7]">
                     Privileged Action Trail Touching this Player
                   </h3>
                   {data.adminHistory?.length === 0 ? (
-                    <p className="text-xs text-[#6B7280] py-6 text-center">
+                    <p className="text-xs text-[#53677A] py-6 text-center">
                       No administrative actions logged on this user yet.
                     </p>
                   ) : (
                     <div className="overflow-x-auto">
                       <table className="w-full text-left text-xs">
-                        <thead className="bg-[#1E2229] text-[#9CA3AF] border-y border-[#2E333B] uppercase text-[10px]">
+                        <thead className="bg-[#132638] text-[#8FA3B7] border-y border-[#274056] uppercase text-[10px]">
                           <tr>
                             <th className="py-2 px-3">Date</th>
                             <th className="py-2 px-3">Action</th>
@@ -927,19 +927,19 @@ export function PlayerDetailModal({ userId, onClose, onUserUpdated }: PlayerDeta
                             <th className="py-2 px-3">Admin ID</th>
                           </tr>
                         </thead>
-                        <tbody className="divide-y divide-[#2E333B]">
+                        <tbody className="divide-y divide-[#274056]">
                           {data.adminHistory.map((h) => (
-                            <tr key={h.id} className="hover:bg-[#1E2229]/50">
-                              <td className="py-2 px-3 font-mono text-[11px] text-[#9CA3AF]">
+                            <tr key={h.id} className="hover:bg-[#132638]/50">
+                              <td className="py-2 px-3 font-mono text-[11px] text-[#8FA3B7]">
                                 {formatDate(h.createdAt)}
                               </td>
-                              <td className="py-2 px-3 font-bold text-[#F4F2ED]">{h.action}</td>
+                              <td className="py-2 px-3 font-bold text-[#F5F7FA]">{h.action}</td>
                               <td className="py-2 px-3">
                                 <Badge variant={h.outcome === 'SUCCESS' ? 'success' : 'danger'}>
                                   {h.outcome}
                                 </Badge>
                               </td>
-                              <td className="py-2 px-3 font-mono text-[11px] text-[#9CA3AF]">
+                              <td className="py-2 px-3 font-mono text-[11px] text-[#8FA3B7]">
                                 {h.adminId.slice(0, 8)}...
                               </td>
                             </tr>
@@ -957,14 +957,14 @@ export function PlayerDetailModal({ userId, onClose, onUserUpdated }: PlayerDeta
         {/* Confirmation Modal for Suspension */}
         {confirmBanModal && (
           <div className="absolute inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
-            <div className="w-full max-w-md p-6 rounded-xl bg-[#1E2229] border border-[#2E333B] shadow-2xl space-y-4">
-              <h3 className="text-sm font-bold text-[#F4F2ED] flex items-center gap-2">
+            <div className="w-full max-w-md p-6 rounded-xl bg-[#132638] border border-[#274056] shadow-2xl space-y-4">
+              <h3 className="text-sm font-bold text-[#F5F7FA] flex items-center gap-2">
                 <AlertTriangle className="w-4 h-4 text-amber-400" />
                 Confirm Account {data?.isBanned ? 'Reinstatement' : 'Suspension'}
               </h3>
-              <p className="text-xs text-[#9CA3AF]">
+              <p className="text-xs text-[#8FA3B7]">
                 Are you sure you want to {data?.isBanned ? 'reinstate' : 'suspend'}{' '}
-                <b className="text-[#F4F2ED]">{data?.username || data?.email}</b>?{' '}
+                <b className="text-[#F5F7FA]">{data?.username || data?.email}</b>?{' '}
                 This consequential action will be logged in the immutable audit trail.
               </p>
               <div className="flex justify-end gap-2 pt-2">

@@ -995,4 +995,208 @@ export interface MaintenanceHistoryResponse {
   totalPages: number;
 }
 
+// Notification History (Admin View)
+export interface AdminNotificationItem {
+  id: string;
+  userId: string;
+  matchId: string | null;
+  type: string;
+  title: string;
+  message: string;
+  link: string | null;
+  isRead: boolean;
+  createdAt: string;
+  user?: {
+    id: string;
+    email: string;
+    username: string | null;
+  } | null;
+}
+
+export interface AdminNotificationsResponse {
+  notifications: AdminNotificationItem[];
+  total: number;
+  page: number;
+  totalPages: number;
+}
+
+// Dev-Gated Simulation Lab
+export type SimulationLifecycleStatus =
+  | 'IDLE'
+  | 'RUNNING'
+  | 'PAUSED'
+  | 'STOPPING'
+  | 'STOPPED'
+  | 'COMPLETED'
+  | 'FAILED';
+
+export interface SimulationUserStatusItem {
+  runId?: string;
+  index: number;
+  label: string;
+  email: string;
+  username: string;
+  userId: string | null;
+  online: boolean;
+  socketConnected: boolean;
+  currentActivity: string;
+  currentMatchId: string | null;
+  completedWorkflows: number;
+  failedWorkflows: number;
+  lastLatencyMs: number | null;
+  lastError: string | null;
+}
+
+export interface SimulationActivityItem {
+  id: string;
+  timestamp: string;
+  runId?: string | null;
+  message: string;
+  event?: string;
+  userIndex?: number;
+  matchId?: string;
+}
+
+export interface SimulationStatusSnapshot {
+  status: SimulationLifecycleStatus;
+  runId: string | null;
+  config: {
+    userCount: number;
+    concurrency: number;
+    durationMs: number;
+    actionIntervalMs: number;
+    scenarios: string[];
+  };
+  startedAt: string | null;
+  endedAt: string | null;
+  lastError: string | null;
+  metrics: {
+    totalRequests: number;
+    successfulRequests: number;
+    failedRequests: number;
+    unexpectedStatuses: number;
+    matchesCompleted: number;
+    movesPlayed: number;
+    rbacBlocksVerified: number;
+    onlineUsers: number;
+    socketConnectedUsers: number;
+    avgLatencyMs: number;
+    p95LatencyMs: number;
+    lastReconciliation: {
+      id: string;
+      status: string;
+      discrepancyCount: number;
+      ranAt: string;
+    } | null;
+    lastAdminVisibilityCheck: {
+      checkedAt: string;
+      summaryOk: boolean;
+      listedUsersCount: number;
+      listedMatchesCount: number;
+      auditLogsCount: number;
+      adminNotificationsCount: number;
+    } | null;
+    ledgerAnomalyReport?: {
+      runId: string;
+      preExistingUnbalanced: Array<{ transactionId: string; netMinorUnits: string; entryCount: number }>;
+      newlyIntroducedUnbalanced: Array<{ transactionId: string; netMinorUnits: string; entryCount: number }>;
+      totalTransactionsAfter: number;
+      emptyTransactionsAfter: number;
+      autoRepairsAttempted: number;
+    } | null;
+  };
+  roster: SimulationUserStatusItem[];
+  activityFeed: SimulationActivityItem[];
+  gaps: Record<string, { count: number; detail?: string; status?: number }>;
+}
+
+// Balance Top-Ups (Deposit Intents) & Non-Withdrawal Money Ledger
+export type DepositIntentStatus = 'PENDING' | 'COMPLETED' | 'FAILED';
+
+export interface AdminDepositItem {
+  id: string;
+  userId: string;
+  walletId: string;
+  gateway: 'PAYSTACK' | 'FLUTTERWAVE';
+  reference: string;
+  amountMinorUnits: string;
+  currency: string;
+  status: DepositIntentStatus;
+  appliedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  user?: {
+    id: string;
+    email: string;
+    username: string | null;
+    fullName: string | null;
+    tier: PlayerTier;
+  } | null;
+}
+
+export interface AdminDepositsResponse {
+  deposits: AdminDepositItem[];
+  summary: {
+    totalCount: number;
+    completedCount: number;
+    pendingCount: number;
+    failedCount: number;
+    completedVolumeMinorUnits: string;
+  };
+  total: number;
+  page: number;
+  totalPages: number;
+}
+
+export interface AdminLedgerEntryItem {
+  id: string;
+  accountId: string;
+  accountType: string;
+  currency: string;
+  userId: string | null;
+  user?: {
+    id: string;
+    email: string;
+    username: string | null;
+    tier: PlayerTier;
+  } | null;
+  amountMinorUnits: string;
+  createdAt: string;
+}
+
+export interface AdminLedgerTransactionItem {
+  id: string;
+  type:
+    | 'DEPOSIT_CREDIT'
+    | 'STAKE_LOCK'
+    | 'STAKE_RELEASE'
+    | 'SETTLEMENT_PAYOUT'
+    | 'WITHDRAWAL_RESERVE'
+    | 'WITHDRAWAL_COMPLETE'
+    | 'WITHDRAWAL_RELEASE'
+    | 'ADJUSTMENT';
+  description: string | null;
+  idempotencyKey: string | null;
+  relatedMatchId: string | null;
+  metadata: Record<string, unknown> | null;
+  createdAt: string;
+  totalVolumeMinorUnits: string;
+  netMinorUnits: string;
+  balanced: boolean;
+  users: Array<{
+    id: string;
+    email: string;
+    username: string | null;
+    tier: PlayerTier;
+  }>;
+  entries: AdminLedgerEntryItem[];
+}
+
+export interface AdminLedgerTransactionsResponse {
+  transactions: AdminLedgerTransactionItem[];
+  total: number;
+  page: number;
+  totalPages: number;
+}
+
 

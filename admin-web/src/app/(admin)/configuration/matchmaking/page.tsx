@@ -43,7 +43,7 @@ export default function MatchmakingConfigurationPage() {
               <Card className="space-y-5">
                 <CardHeader>
                   <div className="flex items-center gap-2.5">
-                    <Clock className="w-5 h-5 text-[#E7B24A]" />
+                    <Clock className="w-5 h-5 text-[#18C986]" />
                     <div>
                       <CardTitle>Queue Timeout &amp; Worker Sweep Settings (`matchmaking`)</CardTitle>
                       <CardDescription>
@@ -95,7 +95,7 @@ export default function MatchmakingConfigurationPage() {
               <Card className="space-y-5">
                 <CardHeader>
                   <div className="flex items-center gap-2.5">
-                    <Cpu className="w-5 h-5 text-[#E7B24A]" />
+                    <Cpu className="w-5 h-5 text-[#18C986]" />
                     <div>
                       <CardTitle>Pairing Architecture &amp; Kill-Switch Linkage</CardTitle>
                       <CardDescription>
@@ -107,11 +107,11 @@ export default function MatchmakingConfigurationPage() {
                 </CardHeader>
 
                 <div className="space-y-3 text-xs">
-                  <div className="bg-[#0B0D10] border border-[#2E333B] rounded-lg p-3.5 space-y-1">
-                    <div className="font-bold text-[#F4F2ED]">
+                  <div className="bg-[#000000] border border-[#274056] rounded-lg p-3.5 space-y-1">
+                    <div className="font-bold text-[#F5F7FA]">
                       1. Exact Tier &amp; Stake Bucket Pairing (`queue:{'{tier}'}:{'{stakeMinorUnits}'}`)
                     </div>
-                    <p className="text-[#9CA3AF]">
+                    <p className="text-[#8FA3B7]">
                       Players join via <code className="font-mono">POST /api/v1/matchmaking/join</code> and are placed
                       into a Redis sorted set keyed by exact tier and stake bucket, scored by join timestamp (FIFO).
                       Cross-tier or variable-stake tolerance matching is deliberately disabled in Phase 1 so players
@@ -119,22 +119,22 @@ export default function MatchmakingConfigurationPage() {
                     </p>
                   </div>
 
-                  <div className="bg-[#0B0D10] border border-[#2E333B] rounded-lg p-3.5 space-y-1">
-                    <div className="flex items-center justify-between font-bold text-[#F4F2ED]">
+                  <div className="bg-[#000000] border border-[#274056] rounded-lg p-3.5 space-y-1">
+                    <div className="flex items-center justify-between font-bold text-[#F5F7FA]">
                       <span>2. Pre-Terminal Match Choke Point</span>
                       <Badge variant="success">Enforced</Badge>
                     </div>
-                    <p className="text-[#9CA3AF]">
+                    <p className="text-[#8FA3B7]">
                       Both queue join and <code className="font-mono">createMatchWithStakes</code> check{' '}
                       <code className="font-mono">hasPreterminalMatchForPlayers</code> under ordered wallet row locks (
                       <code className="font-mono">SELECT ... FOR UPDATE</code>) so a player can never be double-paired.
                     </p>
                   </div>
 
-                  <div className="bg-[#1E2229] border border-[#2E333B] rounded-lg p-3.5 flex flex-wrap items-center justify-between gap-2">
+                  <div className="bg-[#132638] border border-[#274056] rounded-lg p-3.5 flex flex-wrap items-center justify-between gap-2">
                     <div>
-                      <div className="font-bold text-[#F4F2ED]">Emergency Queue Pause</div>
-                      <p className="text-[11px] text-[#9CA3AF]">
+                      <div className="font-bold text-[#F5F7FA]">Emergency Queue Pause</div>
+                      <p className="text-[11px] text-[#8FA3B7]">
                         Use the <code className="font-mono">live_matchmaking_queue</code> kill-switch or{' '}
                         <code className="font-mono">MATCHMAKING_ONLY</code> maintenance scope to pause new pairings.
                       </p>
@@ -156,7 +156,7 @@ export default function MatchmakingConfigurationPage() {
             <Card className="space-y-4">
               <CardHeader>
                 <div className="flex items-center gap-2.5">
-                  <Layers className="w-5 h-5 text-[#E7B24A]" />
+                  <Layers className="w-5 h-5 text-[#18C986]" />
                   <div>
                     <CardTitle>Active Tier Stake Bounds &amp; Discrete Matchmaking Buckets</CardTitle>
                     <CardDescription>
@@ -179,11 +179,11 @@ export default function MatchmakingConfigurationPage() {
                   return (
                     <div
                       key={tier}
-                      className="bg-[#0B0D10] border border-[#2E333B] rounded-xl p-4 space-y-2.5 text-xs"
+                      className="bg-[#000000] border border-[#274056] rounded-xl p-4 space-y-2.5 text-xs"
                     >
                       <div className="flex items-center justify-between">
-                        <span className="font-bold text-[#F4F2ED] flex items-center gap-1.5">
-                          <UsersRound className="w-4 h-4 text-[#E7B24A]" />
+                        <span className="font-bold text-[#F5F7FA] flex items-center gap-1.5">
+                          <UsersRound className="w-4 h-4 text-[#18C986]" />
                           {tier} Tier
                         </span>
                         <Badge variant="default">
@@ -192,12 +192,12 @@ export default function MatchmakingConfigurationPage() {
                       </div>
 
                       <div className="space-y-1">
-                        <span className="text-[11px] text-[#9CA3AF]">Matchmaking Stake Buckets:</span>
+                        <span className="text-[11px] text-[#8FA3B7]">Matchmaking Stake Buckets:</span>
                         <div className="flex flex-wrap gap-1.5 pt-0.5">
                           {presets.map((kobo) => (
                             <span
                               key={kobo}
-                              className="px-2 py-1 rounded bg-[#15181D] border border-[#2E333B] font-mono text-[11px] text-[#E7B24A]"
+                              className="px-2 py-1 rounded bg-[#0C1B2A] border border-[#274056] font-mono text-[11px] text-[#18C986]"
                             >
                               {formatNaira(kobo)}
                             </span>
@@ -205,9 +205,9 @@ export default function MatchmakingConfigurationPage() {
                         </div>
                       </div>
 
-                      <div className="pt-2 border-t border-[#2E333B] flex justify-between text-[11px] text-[#9CA3AF]">
+                      <div className="pt-2 border-t border-[#274056] flex justify-between text-[11px] text-[#8FA3B7]">
                         <span>Direct Call-Out Ceiling:</span>
-                        <span className="font-mono text-[#F4F2ED]">
+                        <span className="font-mono text-[#F5F7FA]">
                           {tierCfg.maxCallout === '0'
                             ? 'Not Eligible (₦0.00)'
                             : formatNaira(tierCfg.maxCallout)}

@@ -9,7 +9,9 @@ process.env.JWT_SECRET = 'unittest-admin-secret';
 
 const mockPrisma = {
   $transaction: jest.fn(),
+  $queryRaw: jest.fn().mockResolvedValue([{ id: 'la-1' }]),
   user: {
+    create: jest.fn(),
     findUnique: jest.fn(),
     findMany: jest.fn(),
     update: jest.fn(),
@@ -43,7 +45,8 @@ const mockPrisma = {
     update: jest.fn()
   },
   ledgerAccount: {
-    findMany: jest.fn()
+    findMany: jest.fn(),
+    upsert: jest.fn()
   },
   ledgerEntry: {
     aggregate: jest.fn()
@@ -72,7 +75,19 @@ const mockPrisma = {
   withdrawal: {
     count: jest.fn(),
     aggregate: jest.fn(),
-    findMany: jest.fn()
+    findMany: jest.fn(),
+    findFirst: jest.fn()
+  },
+  supportCase: {
+    findMany: jest.fn(),
+    count: jest.fn(),
+    findFirst: jest.fn(),
+    findUnique: jest.fn(),
+    create: jest.fn(),
+    update: jest.fn()
+  },
+  supportCaseNote: {
+    create: jest.fn()
   }
 };
 
@@ -203,6 +218,10 @@ beforeEach(() => {
   mockPrisma.withdrawal.count.mockResolvedValue(0);
   mockPrisma.withdrawal.aggregate.mockResolvedValue({ _sum: { amountMinorUnits: 0n } });
   mockPrisma.withdrawal.findMany.mockResolvedValue([]);
+  mockPrisma.withdrawal.findFirst.mockResolvedValue(null);
+  mockPrisma.supportCase.findMany.mockResolvedValue([]);
+  mockPrisma.supportCase.count.mockResolvedValue(0);
+  mockPrisma.supportCase.findFirst.mockResolvedValue(null);
   mockPrisma.adminAuditLog.findMany.mockResolvedValue([]);
   verificationModule.approveVerificationCase.mockResolvedValue(null);
   verificationModule.rejectVerificationCase.mockResolvedValue(null);
@@ -637,6 +656,140 @@ describe('admin player management (Module B)', () => {
 
     expect(res.status).toBe(404);
   });
+
+  it('stores a newly registered player and retrieves them immediately in the admin directory without excluding KYC NONE accounts', async () => {
+    const store = [];
+    mockPrisma.$transaction.mockImplementation(async (cb) => cb(mockPrisma));
+    mockPrisma.$queryRaw.mockResolvedValue([{ id: 'la-1' }]);
+    mockPrisma.user.create.mockImplementation(async ({ data }) => {
+      const created = {
+        id: 'new-player-1',
+        email: data.email,
+        phone: data.phone,
+        username: data.username,
+        fullName: data.fullName,
+        tier: 'AMATEUR',
+        kycStatus: 'NONE',
+        ageVerified: data.ageVerified,
+        countryCode: data.countryCode,
+        isBanned: data.isBanned,
+        isAdmin: false,
+        createdAt: new Date(),
+        wallet: { id: 'wal-1', currency: 'NGN' }
+      };
+      store.unshift(created);
+      return created;
+    });
+
+    mockRedis.get.mockResolvedValueOnce('NG');
+    const registered = await AuthService.register({
+      email: 'NewPlayer@Example.com',
+      phone: '08012345678',
+      username: 'newbie_draught',
+      fullName: 'New Draught Player',
+      address: '12 Marina Road, Lagos',
+      password: 'Password123',
+      dateOfBirth: '1998-05-15',
+      fingerprintHash: 'fp-1',
+      countryCode: 'NG',
+      geoBinding: 'geo-bind-123456'
+    });
+
+    // 1. Newly registered player stored with normalized email and unverified KYC status (NONE)
+    expect(registered.id).toBe('new-player-1');
+    expect(registered.email).toBe('newplayer@example.com');
+    expect(registered.kycStatus).toBe('NONE');
+    expect(registered.isBanned).toBe(false);
+
+    // 2 & 3 & 4. Admin directory retrieves the unverified newly registered player on page 1 sorted newest-first
+    mockPrisma.user.findMany.mockImplementation(async ({ where, orderBy }) => {
+      expect(where).toEqual({});
+      expect(orderBy).toEqual({ createdAt: 'desc' });
+      return store;
+    });
+    mockPrisma.user.count.mockImplementation(async () => store.length);
+
+    const token = await asRole('SUPER_ADMIN');
+    const dirRes = await request(app)
+      .get('/api/v1/admin/users?page=1&limit=15')
+      .set('Authorization', `Bearer ${token}`);
+
+    expect(dirRes.status).toBe(200);
+    expect(dirRes.body.users).toHaveLength(1);
+    expect(dirRes.body.users[0].id).toBe('new-player-1');
+    expect(dirRes.body.users[0].email).toBe('newplayer@example.com');
+    expect(dirRes.body.users[0].kycStatus).toBe('NONE');
+    expect(dirRes.body.total).toBe(1);
+    expect(dirRes.body.totalPages).toBe(1);
+  });
+
+  it('locates newly registered players via search across email, username, fullName, phone, displayName, and id', async () => {
+    const newPlayer = {
+      id: 'new-player-2',
+      email: 'chukwu@draughtbet.com',
+      username: 'chukwu_king',
+      fullName: 'Chukwuemeka Obi',
+      phone: '+2348099887766',
+      tier: 'AMATEUR',
+      kycStatus: 'NONE',
+      ageVerified: true,
+      countryCode: 'NG',
+      isBanned: false,
+      isAdmin: false,
+      createdAt: new Date()
+    };
+    mockPrisma.user.findMany.mockResolvedValueOnce([newPlayer]);
+    mockPrisma.user.count.mockResolvedValueOnce(1);
+
+    const token = await asRole('GAME_OPERATIONS');
+    const res = await request(app)
+      .get('/api/v1/admin/users?page=1&limit=15&search=chukwu_king')
+      .set('Authorization', `Bearer ${token}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.users).toHaveLength(1);
+    expect(res.body.users[0].username).toBe('chukwu_king');
+    expect(mockPrisma.user.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          OR: [
+            { id: { contains: 'chukwu_king', mode: 'insensitive' } },
+            { email: { contains: 'chukwu_king', mode: 'insensitive' } },
+            { username: { contains: 'chukwu_king', mode: 'insensitive' } },
+            { fullName: { contains: 'chukwu_king', mode: 'insensitive' } },
+            { displayName: { contains: 'chukwu_king', mode: 'insensitive' } },
+            { phone: { contains: 'chukwu_king', mode: 'insensitive' } }
+          ]
+        }
+      })
+    );
+  });
+
+  it('enforces suspension, KYC, and unauthorized access boundaries on the player directory', async () => {
+    // 6. Unauthorized non-admin player is denied (403)
+    mockPrisma.adminRoleAssignment.findMany.mockResolvedValueOnce([]);
+    const { accessToken: playerToken } = await AuthService.issueTokens('regular-player-99');
+    const deniedRes = await request(app)
+      .get('/api/v1/admin/users')
+      .set('Authorization', `Bearer ${playerToken}`);
+    expect(deniedRes.status).toBe(403);
+
+    // 7. Existing suspension (isBanned) and KYC (kycStatus) filters pass accurate predicates
+    const adminToken = await asRole('RISK_COMPLIANCE');
+    mockPrisma.user.findMany.mockResolvedValueOnce([]);
+    mockPrisma.user.count.mockResolvedValueOnce(0);
+
+    const filteredRes = await request(app)
+      .get('/api/v1/admin/users?page=1&limit=15&isBanned=false&kycStatus=NONE')
+      .set('Authorization', `Bearer ${adminToken}`);
+
+    expect(filteredRes.status).toBe(200);
+    expect(mockPrisma.user.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { isBanned: false, kycStatus: 'NONE' }
+      })
+    );
+  });
 });
 
 describe('admin withdrawal details (Module C)', () => {
@@ -675,5 +828,115 @@ describe('admin withdrawal details (Module C)', () => {
 
     expect(res.status).toBe(403);
     expect(res.body.error).toBe('Insufficient admin permission');
+  });
+});
+
+describe('admin support cases (Module D)', () => {
+  it('returns a valid 200 empty response when there are no support cases', async () => {
+    mockPrisma.supportCase.findMany.mockResolvedValueOnce([]);
+    mockPrisma.supportCase.count.mockResolvedValueOnce(0);
+
+    const token = await asRole('SUPPORT');
+    const res = await request(app)
+      .get('/api/v1/admin/support/cases?page=1&limit=10')
+      .set('Authorization', `Bearer ${token}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.cases).toEqual([]);
+    expect(res.body.total).toBe(0);
+    expect(res.body.page).toBe(1);
+    expect(res.body.totalPages).toBe(1);
+  });
+
+  it('lists existing support cases and handles pagination, empty search, and null optional relations', async () => {
+    const token = await asRole('SUPPORT');
+
+    // 1. Existing cases including one with null optional user/notes relations
+    mockPrisma.supportCase.findMany.mockResolvedValueOnce([
+      {
+        id: 'sc-1',
+        reference: 'SUP-1001',
+        userId: 'u-1',
+        subject: 'Deposit delay',
+        description: 'Transfer pending',
+        category: 'DEPOSIT',
+        priority: 'HIGH',
+        status: 'OPEN',
+        user: null,
+        notes: null,
+        createdAt: new Date(),
+        updatedAt: new Date()
+      }
+    ]);
+    mockPrisma.supportCase.count.mockResolvedValueOnce(11);
+
+    const listRes = await request(app)
+      .get('/api/v1/admin/support/cases?page=1&limit=10')
+      .set('Authorization', `Bearer ${token}`);
+
+    expect(listRes.status).toBe(200);
+    expect(listRes.body.cases).toHaveLength(1);
+    expect(listRes.body.cases[0].user).toBeNull();
+    expect(listRes.body.cases[0].notes).toEqual([]);
+    expect(listRes.body.total).toBe(11);
+    expect(listRes.body.totalPages).toBe(2);
+
+    // 2. Last page and empty page beyond results
+    mockPrisma.supportCase.findMany.mockResolvedValueOnce([]);
+    mockPrisma.supportCase.count.mockResolvedValueOnce(11);
+
+    const emptyPageRes = await request(app)
+      .get('/api/v1/admin/support/cases?page=3&limit=10')
+      .set('Authorization', `Bearer ${token}`);
+
+    expect(emptyPageRes.status).toBe(200);
+    expect(emptyPageRes.body.cases).toEqual([]);
+    expect(emptyPageRes.body.page).toBe(3);
+    expect(emptyPageRes.body.totalPages).toBe(2);
+
+    // 3. Search returning no matches
+    mockPrisma.supportCase.findMany.mockResolvedValueOnce([]);
+    mockPrisma.supportCase.count.mockResolvedValueOnce(0);
+
+    const noMatchRes = await request(app)
+      .get('/api/v1/admin/support/cases?page=1&limit=10&search=nonexistent_ref')
+      .set('Authorization', `Bearer ${token}`);
+
+    expect(noMatchRes.status).toBe(200);
+    expect(noMatchRes.body.cases).toEqual([]);
+    expect(noMatchRes.body.total).toBe(0);
+    expect(noMatchRes.body.totalPages).toBe(1);
+  });
+
+  it('retrieves support case detail when optional relations are null', async () => {
+    const token = await asRole('SUPPORT');
+    mockPrisma.supportCase.findFirst.mockResolvedValueOnce({
+      id: 'sc-1',
+      reference: 'SUP-1001',
+      userId: 'u-1',
+      subject: 'Account inquiry',
+      description: 'Need help',
+      category: 'ACCOUNT',
+      priority: 'MEDIUM',
+      status: 'OPEN',
+      relatedMatchId: null,
+      relatedTransactionRef: null,
+      user: null,
+      notes: null,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    });
+    mockPrisma.adminAuditLog.findMany.mockResolvedValueOnce([]);
+
+    const detailRes = await request(app)
+      .get('/api/v1/admin/support/cases/sc-1')
+      .set('Authorization', `Bearer ${token}`);
+
+    expect(detailRes.status).toBe(200);
+    expect(detailRes.body.supportCase.id).toBe('sc-1');
+    expect(detailRes.body.supportCase.user).toBeNull();
+    expect(detailRes.body.supportCase.notes).toEqual([]);
+    expect(detailRes.body.supportCase.relatedMatch).toBeNull();
+    expect(detailRes.body.supportCase.relatedWithdrawal).toBeNull();
   });
 });

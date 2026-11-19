@@ -40,10 +40,10 @@ export function Breadcrumbs() {
   if (segments.length === 0) return null;
 
   return (
-    <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 text-xs text-[#9CA3AF]">
+    <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 text-xs text-[#8FA3B7]">
       <Link
         href="/dashboard"
-        className="flex items-center gap-1 hover:text-[#F4F2ED] transition-colors"
+        className="flex items-center gap-1 hover:text-[#F5F7FA] transition-colors"
       >
         <Home className="w-3.5 h-3.5" />
         <span>Home</span>
@@ -57,11 +57,11 @@ export function Breadcrumbs() {
 
         return (
           <React.Fragment key={href}>
-            <ChevronRight className="w-3.5 h-3.5 text-[#6B7280]" />
+            <ChevronRight className="w-3.5 h-3.5 text-[#53677A]" />
             {isLast ? (
-              <span className="text-[#F4F2ED] font-medium">{label}</span>
+              <span className="text-[#F5F7FA] font-medium">{label}</span>
             ) : (
-              <Link href={href} className="hover:text-[#F4F2ED] transition-colors">
+              <Link href={href} className="hover:text-[#F5F7FA] transition-colors">
                 {label}
               </Link>
             )}

@@ -36,7 +36,7 @@ export default function RootLayout({
       lang="en"
       className={`${manrope.variable} ${fraunces.variable} ${jetbrainsMono.variable} h-full antialiased dark`}
     >
-      <body className="min-h-full bg-[#0B0D10] text-[#F4F2ED] font-sans">
+      <body className="min-h-full bg-[#000000] text-[#F5F7FA] font-sans">
         <AuthProvider>{children}</AuthProvider>
       </body>
     </html>
