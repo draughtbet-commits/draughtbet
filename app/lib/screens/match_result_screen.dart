@@ -86,6 +86,8 @@ class _MatchResultScreenState extends ConsumerState<MatchResultScreen>
                   const SizedBox(height: 18),
                   if (!result.serverVerified)
                     const _AuthorityWarning()
+                  else if (result.freePlay)
+                    const _FreePlayNotice()
                   else
                     _FinancialSummary(result: result, visual: visual),
                   // The match event stream is authoritative here, so an empty
@@ -101,7 +103,7 @@ class _MatchResultScreenState extends ConsumerState<MatchResultScreen>
                   const SizedBox(height: 18),
                   _SettlementLine(result: result),
                   const SizedBox(height: 24),
-                  if (result.matchId != null) ...[
+                  if (result.matchId != null && !result.freePlay) ...[
                     SecondaryActionButton(
                       label: 'View receipt',
                       icon: LucideIcons.receiptText,
@@ -111,6 +113,13 @@ class _MatchResultScreenState extends ConsumerState<MatchResultScreen>
                       ),
                     ),
                     const SizedBox(height: 9),
+                    TextButton.icon(
+                      onPressed: () => showShareResultSheet(context, result),
+                      icon: const Icon(LucideIcons.share2, size: 17),
+                      label: const Text('Share result'),
+                    ),
+                    const SizedBox(height: 5),
+                  ] else if (result.matchId != null) ...[
                     TextButton.icon(
                       onPressed: () => showShareResultSheet(context, result),
                       icon: const Icon(LucideIcons.share2, size: 17),
@@ -177,7 +186,8 @@ class _CompactOutcomeScreen extends StatelessWidget {
                       _SettlementLine(result: result),
                       const SizedBox(height: 20),
                       if (result.matchId != null &&
-                          result.kind != ResultKind.cancelled) ...[
+                          result.kind != ResultKind.cancelled &&
+                          !result.freePlay) ...[
                         PrimaryActionButton(
                           label: 'View receipt',
                           icon: LucideIcons.receiptText,
@@ -350,6 +360,32 @@ class _SettlementLine extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (result.freePlay) {
+      return Semantics(
+        liveRegion: true,
+        label: 'Free play. No stakes or rating changed.',
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(
+              LucideIcons.gamepad2,
+              color: AppColors.textSecondary,
+              size: 17,
+            ),
+            const SizedBox(width: 8),
+            Flexible(
+              child: Text(
+                'Free play · no stakes, no rating change',
+                textAlign: TextAlign.center,
+                style: AppTypography.bodySmall.copyWith(
+                  color: AppColors.textSecondary,
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
     final (icon, text, color) = switch (result.settlement) {
       SettlementPhase.pending => (
         LucideIcons.loaderCircle,
@@ -418,6 +454,18 @@ class _AuthorityWarning extends StatelessWidget {
   Widget build(BuildContext context) => const _StatusNotice(
     message:
         'Verified result details are unavailable. No financial values are shown.',
+  );
+}
+
+/// The free-play counterpart to the financial card: there is nothing to settle,
+/// so the card explains the mode instead of listing empty money rows.
+class _FreePlayNotice extends StatelessWidget {
+  const _FreePlayNotice();
+
+  @override
+  Widget build(BuildContext context) => const _StatusNotice(
+    message: 'Practice game against the computer. No stake was wagered and '
+        'your rating is unchanged.',
   );
 }
 

@@ -317,6 +317,29 @@ class MatchFlowGateway {
         .toList(growable: false);
   }
 
+  /// Creates a solo game against the server bot. The player picks the side,
+  /// bot strength and clock; the server seats the bot and returns the match id.
+  /// No stake is charged, so this bypasses the money-bearing create flows.
+  Future<FreePlayCreation?> createFreePlayMatch({
+    required String side,
+    required int botLevel,
+    int? timeControlSeconds,
+  }) async {
+    if (!isV2) return null;
+    final operation = 'match-free-play';
+    final response = await _dio.post<dynamic>(
+      '/matches/free-play',
+      data: {
+        'side': side,
+        'botLevel': botLevel,
+        'timeControlSeconds': ?timeControlSeconds,
+      },
+      options: _idempotent(operation),
+    );
+    _complete(operation);
+    return FreePlayCreation.tryFromServer(response.data);
+  }
+
   Future<MatchLifecycleSnapshot?> markReady(
     String matchId,
     MatchTerms fallbackTerms,

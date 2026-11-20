@@ -18,10 +18,16 @@ abstract class GameState with _$GameState {
     @Default([]) List<LegalMove> legalMoves,
     @Default([]) List<AcceptedGameMove> moveHistory,
     String? winnerId,
+    @Default('RANKED') String mode,
+    int? botLevel,
   }) = _GameState;
 
   factory GameState.fromJson(Map<String, dynamic> json) =>
       _$GameStateFromJson(_normalizeGameState(json));
+}
+
+extension GameStateFreePlayX on GameState {
+  bool get isFreePlay => mode == 'FREE_PLAY';
 }
 
 @freezed
@@ -118,6 +124,8 @@ Map<String, dynamic> _normalizeGameState(Map<String, dynamic> json) {
   normalized['currentTurn'] ??= json['sideToMove'] ?? '';
   normalized['player1'] ??= '';
   normalized['player2'] ??= '';
+  normalized['mode'] ??= json['mode']?.toString() ?? 'RANKED';
+  normalized['botLevel'] = int.tryParse(json['botLevel']?.toString() ?? '');
   normalized['status'] = normalized['status']?.toString().toLowerCase();
   return normalized;
 }

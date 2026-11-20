@@ -252,6 +252,27 @@ class _HomeLobbyScreenState extends ConsumerState<HomeLobbyScreen> {
                 ),
               ),
             ),
+            const SizedBox(height: 10),
+            Semantics(
+              button: true,
+              label: 'Play against the computer',
+              child: SizedBox(
+                width: double.infinity,
+                height: 48,
+                child: OutlinedButton.icon(
+                  onPressed: () => context.go('/play/free-play'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppColors.textPrimary,
+                    side: const BorderSide(color: AppColors.primaryBright),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(11),
+                    ),
+                  ),
+                  icon: const Icon(LucideIcons.bot, size: 18),
+                  label: const Text('FREE PLAY VS COMPUTER'),
+                ),
+              ),
+            ),
             const SizedBox(height: 16),
             Text(
               'Quick Match',

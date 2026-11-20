@@ -29,6 +29,8 @@ _GameState _$GameStateFromJson(Map<String, dynamic> json) => _GameState(
           .toList() ??
       const [],
   winnerId: json['winnerId'] as String?,
+  mode: json['mode'] as String? ?? 'RANKED',
+  botLevel: (json['botLevel'] as num?)?.toInt(),
 );
 
 Map<String, dynamic> _$GameStateToJson(_GameState instance) =>
@@ -45,6 +47,8 @@ Map<String, dynamic> _$GameStateToJson(_GameState instance) =>
       'legalMoves': instance.legalMoves,
       'moveHistory': instance.moveHistory,
       'winnerId': instance.winnerId,
+      'mode': instance.mode,
+      'botLevel': instance.botLevel,
     };
 
 _LegalMove _$LegalMoveFromJson(Map<String, dynamic> json) => _LegalMove(

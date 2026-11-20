@@ -16,7 +16,7 @@ T _$identity<T>(T value) => value;
 /// @nodoc
 mixin _$GameState {
 
- List<int> get board; String get currentTurn; String get player1; String get player2; String get status; int get moveCount; int get consecutiveKingMoves; int get protocolVersion; int get stateVersion; List<LegalMove> get legalMoves; List<AcceptedGameMove> get moveHistory; String? get winnerId;
+ List<int> get board; String get currentTurn; String get player1; String get player2; String get status; int get moveCount; int get consecutiveKingMoves; int get protocolVersion; int get stateVersion; List<LegalMove> get legalMoves; List<AcceptedGameMove> get moveHistory; String? get winnerId; String get mode; int? get botLevel;
 /// Create a copy of GameState
 /// with the given fields replaced by the non-null parameter values.
 @JsonKey(includeFromJson: false, includeToJson: false)
@@ -29,16 +29,16 @@ $GameStateCopyWith<GameState> get copyWith => _$GameStateCopyWithImpl<GameState>
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is GameState&&const DeepCollectionEquality().equals(other.board, board)&&(identical(other.currentTurn, currentTurn) || other.currentTurn == currentTurn)&&(identical(other.player1, player1) || other.player1 == player1)&&(identical(other.player2, player2) || other.player2 == player2)&&(identical(other.status, status) || other.status == status)&&(identical(other.moveCount, moveCount) || other.moveCount == moveCount)&&(identical(other.consecutiveKingMoves, consecutiveKingMoves) || other.consecutiveKingMoves == consecutiveKingMoves)&&(identical(other.protocolVersion, protocolVersion) || other.protocolVersion == protocolVersion)&&(identical(other.stateVersion, stateVersion) || other.stateVersion == stateVersion)&&const DeepCollectionEquality().equals(other.legalMoves, legalMoves)&&const DeepCollectionEquality().equals(other.moveHistory, moveHistory)&&(identical(other.winnerId, winnerId) || other.winnerId == winnerId));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is GameState&&const DeepCollectionEquality().equals(other.board, board)&&(identical(other.currentTurn, currentTurn) || other.currentTurn == currentTurn)&&(identical(other.player1, player1) || other.player1 == player1)&&(identical(other.player2, player2) || other.player2 == player2)&&(identical(other.status, status) || other.status == status)&&(identical(other.moveCount, moveCount) || other.moveCount == moveCount)&&(identical(other.consecutiveKingMoves, consecutiveKingMoves) || other.consecutiveKingMoves == consecutiveKingMoves)&&(identical(other.protocolVersion, protocolVersion) || other.protocolVersion == protocolVersion)&&(identical(other.stateVersion, stateVersion) || other.stateVersion == stateVersion)&&const DeepCollectionEquality().equals(other.legalMoves, legalMoves)&&const DeepCollectionEquality().equals(other.moveHistory, moveHistory)&&(identical(other.winnerId, winnerId) || other.winnerId == winnerId)&&(identical(other.mode, mode) || other.mode == mode)&&(identical(other.botLevel, botLevel) || other.botLevel == botLevel));
 }
 
 @JsonKey(includeFromJson: false, includeToJson: false)
 @override
-int get hashCode => Object.hash(runtimeType,const DeepCollectionEquality().hash(board),currentTurn,player1,player2,status,moveCount,consecutiveKingMoves,protocolVersion,stateVersion,const DeepCollectionEquality().hash(legalMoves),const DeepCollectionEquality().hash(moveHistory),winnerId);
+int get hashCode => Object.hash(runtimeType,const DeepCollectionEquality().hash(board),currentTurn,player1,player2,status,moveCount,consecutiveKingMoves,protocolVersion,stateVersion,const DeepCollectionEquality().hash(legalMoves),const DeepCollectionEquality().hash(moveHistory),winnerId,mode,botLevel);
 
 @override
 String toString() {
-  return 'GameState(board: $board, currentTurn: $currentTurn, player1: $player1, player2: $player2, status: $status, moveCount: $moveCount, consecutiveKingMoves: $consecutiveKingMoves, protocolVersion: $protocolVersion, stateVersion: $stateVersion, legalMoves: $legalMoves, moveHistory: $moveHistory, winnerId: $winnerId)';
+  return 'GameState(board: $board, currentTurn: $currentTurn, player1: $player1, player2: $player2, status: $status, moveCount: $moveCount, consecutiveKingMoves: $consecutiveKingMoves, protocolVersion: $protocolVersion, stateVersion: $stateVersion, legalMoves: $legalMoves, moveHistory: $moveHistory, winnerId: $winnerId, mode: $mode, botLevel: $botLevel)';
 }
 
 
@@ -49,7 +49,7 @@ abstract mixin class $GameStateCopyWith<$Res>  {
   factory $GameStateCopyWith(GameState value, $Res Function(GameState) _then) = _$GameStateCopyWithImpl;
 @useResult
 $Res call({
- List<int> board, String currentTurn, String player1, String player2, String status, int moveCount, int consecutiveKingMoves, int protocolVersion, int stateVersion, List<LegalMove> legalMoves, List<AcceptedGameMove> moveHistory, String? winnerId
+ List<int> board, String currentTurn, String player1, String player2, String status, int moveCount, int consecutiveKingMoves, int protocolVersion, int stateVersion, List<LegalMove> legalMoves, List<AcceptedGameMove> moveHistory, String? winnerId, String mode, int? botLevel
 });
 
 
@@ -66,7 +66,7 @@ class _$GameStateCopyWithImpl<$Res>
 
 /// Create a copy of GameState
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') @override $Res call({Object? board = null,Object? currentTurn = null,Object? player1 = null,Object? player2 = null,Object? status = null,Object? moveCount = null,Object? consecutiveKingMoves = null,Object? protocolVersion = null,Object? stateVersion = null,Object? legalMoves = null,Object? moveHistory = null,Object? winnerId = freezed,}) {
+@pragma('vm:prefer-inline') @override $Res call({Object? board = null,Object? currentTurn = null,Object? player1 = null,Object? player2 = null,Object? status = null,Object? moveCount = null,Object? consecutiveKingMoves = null,Object? protocolVersion = null,Object? stateVersion = null,Object? legalMoves = null,Object? moveHistory = null,Object? winnerId = freezed,Object? mode = null,Object? botLevel = freezed,}) {
   return _then(GameState(
 board: null == board ? _self.board : board // ignore: cast_nullable_to_non_nullable
 as List<int>,currentTurn: null == currentTurn ? _self.currentTurn : currentTurn // ignore: cast_nullable_to_non_nullable
@@ -80,7 +80,9 @@ as int,stateVersion: null == stateVersion ? _self.stateVersion : stateVersion //
 as int,legalMoves: null == legalMoves ? _self.legalMoves : legalMoves // ignore: cast_nullable_to_non_nullable
 as List<LegalMove>,moveHistory: null == moveHistory ? _self.moveHistory : moveHistory // ignore: cast_nullable_to_non_nullable
 as List<AcceptedGameMove>,winnerId: freezed == winnerId ? _self.winnerId : winnerId // ignore: cast_nullable_to_non_nullable
-as String?,
+as String?,mode: null == mode ? _self.mode : mode // ignore: cast_nullable_to_non_nullable
+as String,botLevel: freezed == botLevel ? _self.botLevel : botLevel // ignore: cast_nullable_to_non_nullable
+as int?,
   ));
 }
 
@@ -165,10 +167,10 @@ return $default(_that);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function( List<int> board,  String currentTurn,  String player1,  String player2,  String status,  int moveCount,  int consecutiveKingMoves,  int protocolVersion,  int stateVersion,  List<LegalMove> legalMoves,  List<AcceptedGameMove> moveHistory,  String? winnerId)?  $default,{required TResult orElse(),}) {final _that = this;
+@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function( List<int> board,  String currentTurn,  String player1,  String player2,  String status,  int moveCount,  int consecutiveKingMoves,  int protocolVersion,  int stateVersion,  List<LegalMove> legalMoves,  List<AcceptedGameMove> moveHistory,  String? winnerId,  String mode,  int? botLevel)?  $default,{required TResult orElse(),}) {final _that = this;
 switch (_that) {
 case _GameState() when $default != null:
-return $default(_that.board,_that.currentTurn,_that.player1,_that.player2,_that.status,_that.moveCount,_that.consecutiveKingMoves,_that.protocolVersion,_that.stateVersion,_that.legalMoves,_that.moveHistory,_that.winnerId);case _:
+return $default(_that.board,_that.currentTurn,_that.player1,_that.player2,_that.status,_that.moveCount,_that.consecutiveKingMoves,_that.protocolVersion,_that.stateVersion,_that.legalMoves,_that.moveHistory,_that.winnerId,_that.mode,_that.botLevel);case _:
   return orElse();
 
 }
@@ -186,10 +188,10 @@ return $default(_that.board,_that.currentTurn,_that.player1,_that.player2,_that.
 /// }
 /// ```
 
-@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function( List<int> board,  String currentTurn,  String player1,  String player2,  String status,  int moveCount,  int consecutiveKingMoves,  int protocolVersion,  int stateVersion,  List<LegalMove> legalMoves,  List<AcceptedGameMove> moveHistory,  String? winnerId)  $default,) {final _that = this;
+@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function( List<int> board,  String currentTurn,  String player1,  String player2,  String status,  int moveCount,  int consecutiveKingMoves,  int protocolVersion,  int stateVersion,  List<LegalMove> legalMoves,  List<AcceptedGameMove> moveHistory,  String? winnerId,  String mode,  int? botLevel)  $default,) {final _that = this;
 switch (_that) {
 case _GameState():
-return $default(_that.board,_that.currentTurn,_that.player1,_that.player2,_that.status,_that.moveCount,_that.consecutiveKingMoves,_that.protocolVersion,_that.stateVersion,_that.legalMoves,_that.moveHistory,_that.winnerId);case _:
+return $default(_that.board,_that.currentTurn,_that.player1,_that.player2,_that.status,_that.moveCount,_that.consecutiveKingMoves,_that.protocolVersion,_that.stateVersion,_that.legalMoves,_that.moveHistory,_that.winnerId,_that.mode,_that.botLevel);case _:
   throw StateError('Unexpected subclass');
 
 }
@@ -206,10 +208,10 @@ return $default(_that.board,_that.currentTurn,_that.player1,_that.player2,_that.
 /// }
 /// ```
 
-@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function( List<int> board,  String currentTurn,  String player1,  String player2,  String status,  int moveCount,  int consecutiveKingMoves,  int protocolVersion,  int stateVersion,  List<LegalMove> legalMoves,  List<AcceptedGameMove> moveHistory,  String? winnerId)?  $default,) {final _that = this;
+@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function( List<int> board,  String currentTurn,  String player1,  String player2,  String status,  int moveCount,  int consecutiveKingMoves,  int protocolVersion,  int stateVersion,  List<LegalMove> legalMoves,  List<AcceptedGameMove> moveHistory,  String? winnerId,  String mode,  int? botLevel)?  $default,) {final _that = this;
 switch (_that) {
 case _GameState() when $default != null:
-return $default(_that.board,_that.currentTurn,_that.player1,_that.player2,_that.status,_that.moveCount,_that.consecutiveKingMoves,_that.protocolVersion,_that.stateVersion,_that.legalMoves,_that.moveHistory,_that.winnerId);case _:
+return $default(_that.board,_that.currentTurn,_that.player1,_that.player2,_that.status,_that.moveCount,_that.consecutiveKingMoves,_that.protocolVersion,_that.stateVersion,_that.legalMoves,_that.moveHistory,_that.winnerId,_that.mode,_that.botLevel);case _:
   return null;
 
 }
@@ -221,7 +223,7 @@ return $default(_that.board,_that.currentTurn,_that.player1,_that.player2,_that.
 @JsonSerializable()
 
 class _GameState implements GameState {
-  const _GameState({required  List<int> board, required this.currentTurn, required this.player1, required this.player2, required this.status, required this.moveCount, required this.consecutiveKingMoves, this.protocolVersion = 1, this.stateVersion = 0,  List<LegalMove> legalMoves = const [],  List<AcceptedGameMove> moveHistory = const [], this.winnerId}): _board = board,_legalMoves = legalMoves,_moveHistory = moveHistory;
+  const _GameState({required  List<int> board, required this.currentTurn, required this.player1, required this.player2, required this.status, required this.moveCount, required this.consecutiveKingMoves, this.protocolVersion = 1, this.stateVersion = 0,  List<LegalMove> legalMoves = const [],  List<AcceptedGameMove> moveHistory = const [], this.winnerId, this.mode = 'RANKED', this.botLevel}): _board = board,_legalMoves = legalMoves,_moveHistory = moveHistory;
   factory _GameState.fromJson(Map<String, dynamic> json) => _$GameStateFromJson(json);
 
  final  List<int> _board;
@@ -254,6 +256,8 @@ class _GameState implements GameState {
 }
 
 @override final  String? winnerId;
+@override@JsonKey() final  String mode;
+@override final  int? botLevel;
 
 /// Create a copy of GameState
 /// with the given fields replaced by the non-null parameter values.
@@ -268,16 +272,16 @@ Map<String, dynamic> toJson() {
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is _GameState&&const DeepCollectionEquality().equals(other._board, _board)&&(identical(other.currentTurn, currentTurn) || other.currentTurn == currentTurn)&&(identical(other.player1, player1) || other.player1 == player1)&&(identical(other.player2, player2) || other.player2 == player2)&&(identical(other.status, status) || other.status == status)&&(identical(other.moveCount, moveCount) || other.moveCount == moveCount)&&(identical(other.consecutiveKingMoves, consecutiveKingMoves) || other.consecutiveKingMoves == consecutiveKingMoves)&&(identical(other.protocolVersion, protocolVersion) || other.protocolVersion == protocolVersion)&&(identical(other.stateVersion, stateVersion) || other.stateVersion == stateVersion)&&const DeepCollectionEquality().equals(other._legalMoves, _legalMoves)&&const DeepCollectionEquality().equals(other._moveHistory, _moveHistory)&&(identical(other.winnerId, winnerId) || other.winnerId == winnerId));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is _GameState&&const DeepCollectionEquality().equals(other._board, _board)&&(identical(other.currentTurn, currentTurn) || other.currentTurn == currentTurn)&&(identical(other.player1, player1) || other.player1 == player1)&&(identical(other.player2, player2) || other.player2 == player2)&&(identical(other.status, status) || other.status == status)&&(identical(other.moveCount, moveCount) || other.moveCount == moveCount)&&(identical(other.consecutiveKingMoves, consecutiveKingMoves) || other.consecutiveKingMoves == consecutiveKingMoves)&&(identical(other.protocolVersion, protocolVersion) || other.protocolVersion == protocolVersion)&&(identical(other.stateVersion, stateVersion) || other.stateVersion == stateVersion)&&const DeepCollectionEquality().equals(other._legalMoves, _legalMoves)&&const DeepCollectionEquality().equals(other._moveHistory, _moveHistory)&&(identical(other.winnerId, winnerId) || other.winnerId == winnerId)&&(identical(other.mode, mode) || other.mode == mode)&&(identical(other.botLevel, botLevel) || other.botLevel == botLevel));
 }
 
 @JsonKey(includeFromJson: false, includeToJson: false)
 @override
-int get hashCode => Object.hash(runtimeType,const DeepCollectionEquality().hash(_board),currentTurn,player1,player2,status,moveCount,consecutiveKingMoves,protocolVersion,stateVersion,const DeepCollectionEquality().hash(_legalMoves),const DeepCollectionEquality().hash(_moveHistory),winnerId);
+int get hashCode => Object.hash(runtimeType,const DeepCollectionEquality().hash(_board),currentTurn,player1,player2,status,moveCount,consecutiveKingMoves,protocolVersion,stateVersion,const DeepCollectionEquality().hash(_legalMoves),const DeepCollectionEquality().hash(_moveHistory),winnerId,mode,botLevel);
 
 @override
 String toString() {
-  return 'GameState(board: $board, currentTurn: $currentTurn, player1: $player1, player2: $player2, status: $status, moveCount: $moveCount, consecutiveKingMoves: $consecutiveKingMoves, protocolVersion: $protocolVersion, stateVersion: $stateVersion, legalMoves: $legalMoves, moveHistory: $moveHistory, winnerId: $winnerId)';
+  return 'GameState(board: $board, currentTurn: $currentTurn, player1: $player1, player2: $player2, status: $status, moveCount: $moveCount, consecutiveKingMoves: $consecutiveKingMoves, protocolVersion: $protocolVersion, stateVersion: $stateVersion, legalMoves: $legalMoves, moveHistory: $moveHistory, winnerId: $winnerId, mode: $mode, botLevel: $botLevel)';
 }
 
 
@@ -288,7 +292,7 @@ abstract mixin class _$GameStateCopyWith<$Res> implements $GameStateCopyWith<$Re
   factory _$GameStateCopyWith(_GameState value, $Res Function(_GameState) _then) = __$GameStateCopyWithImpl;
 @override @useResult
 $Res call({
- List<int> board, String currentTurn, String player1, String player2, String status, int moveCount, int consecutiveKingMoves, int protocolVersion, int stateVersion, List<LegalMove> legalMoves, List<AcceptedGameMove> moveHistory, String? winnerId
+ List<int> board, String currentTurn, String player1, String player2, String status, int moveCount, int consecutiveKingMoves, int protocolVersion, int stateVersion, List<LegalMove> legalMoves, List<AcceptedGameMove> moveHistory, String? winnerId, String mode, int? botLevel
 });
 
 
@@ -305,7 +309,7 @@ class __$GameStateCopyWithImpl<$Res>
 
 /// Create a copy of GameState
 /// with the given fields replaced by the non-null parameter values.
-@override @pragma('vm:prefer-inline') $Res call({Object? board = null,Object? currentTurn = null,Object? player1 = null,Object? player2 = null,Object? status = null,Object? moveCount = null,Object? consecutiveKingMoves = null,Object? protocolVersion = null,Object? stateVersion = null,Object? legalMoves = null,Object? moveHistory = null,Object? winnerId = freezed,}) {
+@override @pragma('vm:prefer-inline') $Res call({Object? board = null,Object? currentTurn = null,Object? player1 = null,Object? player2 = null,Object? status = null,Object? moveCount = null,Object? consecutiveKingMoves = null,Object? protocolVersion = null,Object? stateVersion = null,Object? legalMoves = null,Object? moveHistory = null,Object? winnerId = freezed,Object? mode = null,Object? botLevel = freezed,}) {
   return _then(_GameState(
 board: null == board ? _self._board : board // ignore: cast_nullable_to_non_nullable
 as List<int>,currentTurn: null == currentTurn ? _self.currentTurn : currentTurn // ignore: cast_nullable_to_non_nullable
@@ -319,7 +323,9 @@ as int,stateVersion: null == stateVersion ? _self.stateVersion : stateVersion //
 as int,legalMoves: null == legalMoves ? _self._legalMoves : legalMoves // ignore: cast_nullable_to_non_nullable
 as List<LegalMove>,moveHistory: null == moveHistory ? _self._moveHistory : moveHistory // ignore: cast_nullable_to_non_nullable
 as List<AcceptedGameMove>,winnerId: freezed == winnerId ? _self.winnerId : winnerId // ignore: cast_nullable_to_non_nullable
-as String?,
+as String?,mode: null == mode ? _self.mode : mode // ignore: cast_nullable_to_non_nullable
+as String,botLevel: freezed == botLevel ? _self.botLevel : botLevel // ignore: cast_nullable_to_non_nullable
+as int?,
   ));
 }
 

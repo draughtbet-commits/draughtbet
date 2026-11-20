@@ -33,6 +33,7 @@ class MatchFlowState {
     this.message,
     this.activeMatches = const [],
     this.eligibilityDecision,
+    this.freePlay,
   });
 
   final LoadPhase arenaPhase;
@@ -46,6 +47,9 @@ class MatchFlowState {
   final String? message;
   final List<MatchLifecycleSnapshot> activeMatches;
   final EligibilityDecision? eligibilityDecision;
+
+  /// Set only when the current game is a solo free-play game against the bot.
+  final FreePlayCreation? freePlay;
 
   MatchFlowState copyWith({
     LoadPhase? arenaPhase,
@@ -64,6 +68,8 @@ class MatchFlowState {
     bool clearLifecycle = false,
     EligibilityDecision? eligibilityDecision,
     bool clearEligibilityDecision = false,
+    FreePlayCreation? freePlay,
+    bool clearFreePlay = false,
   }) {
     return MatchFlowState(
       arenaPhase: arenaPhase ?? this.arenaPhase,
@@ -81,6 +87,7 @@ class MatchFlowState {
       eligibilityDecision: clearEligibilityDecision
           ? null
           : eligibilityDecision ?? this.eligibilityDecision,
+      freePlay: clearFreePlay ? null : freePlay ?? this.freePlay,
     );
   }
 }
@@ -219,6 +226,57 @@ class MatchFlowNotifier extends StateNotifier<MatchFlowState> {
       state = state.copyWith(
         actionPhase: MatchActionPhase.failed,
         message: 'The reservation could not be confirmed. Try again.',
+      );
+      return null;
+    }
+  }
+
+  /// Creates a solo game against the server bot. No stake, opponent or rating
+  /// are involved, so this does not touch the arena/queue state — it only
+  /// parks the returned creation (side, level, clock) and the match id so the
+  /// board can open.
+  Future<FreePlayCreation?> createFreePlay({
+    required String side,
+    required int botLevel,
+    int? timeControlSeconds,
+  }) async {
+    if (state.actionPhase == MatchActionPhase.submitting) return null;
+    state = state.copyWith(
+      actionPhase: MatchActionPhase.submitting,
+      clearMessage: true,
+      clearEligibilityDecision: true,
+    );
+    try {
+      final created = await _gateway.createFreePlayMatch(
+        side: side,
+        botLevel: botLevel,
+        timeControlSeconds: timeControlSeconds,
+      );
+      if (created == null) {
+        state = state.copyWith(
+          actionPhase: MatchActionPhase.failed,
+          message: 'Free play is not available right now. Try again.',
+        );
+        return null;
+      }
+      state = state.copyWith(
+        actionPhase: MatchActionPhase.succeeded,
+        currentMatchId: created.matchId,
+        freePlay: created,
+      );
+      return created;
+    } on DioException catch (error) {
+      final message =
+          apiErrorMessage(error.response?.data) ?? _describeDioFailure(error);
+      state = state.copyWith(
+        actionPhase: MatchActionPhase.failed,
+        message: message,
+      );
+      return null;
+    } catch (_) {
+      state = state.copyWith(
+        actionPhase: MatchActionPhase.failed,
+        message: 'Free play could not be started. Try again.',
       );
       return null;
     }

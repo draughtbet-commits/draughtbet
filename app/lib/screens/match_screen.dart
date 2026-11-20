@@ -122,6 +122,11 @@ class _MatchScreenState extends ConsumerState<MatchScreen>
     return game.player2 == userId;
   }
 
+  /// A solo game against the server bot. There is no human opponent, so the
+  /// board hides chat, draw offers and disconnect chrome and labels the other
+  /// seat as the computer.
+  bool _isFreePlay(MatchState state) => state.gameState?.isFreePlay ?? false;
+
   void _onSquareTapped(int square) {
     final state = ref.read(matchProvider);
     final game = state.gameState;
@@ -147,14 +152,16 @@ class _MatchScreenState extends ConsumerState<MatchScreen>
   }
 
   Future<void> _confirmResign() async {
+    final freePlay = _isFreePlay(ref.read(matchProvider));
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => _GameDecisionDialog(
         icon: LucideIcons.flag,
         accent: AppColors.danger,
         title: 'RESIGN MATCH?',
-        message:
-            'If you resign, the match will end and your opponent will be declared the winner.',
+        message: freePlay
+            ? 'If you resign, this free-play game will end and the computer wins.'
+            : 'If you resign, the match will end and your opponent will be declared the winner.',
         confirmLabel: 'Confirm resignation',
         cancelLabel: 'Cancel',
         destructive: true,
@@ -222,6 +229,7 @@ class _MatchScreenState extends ConsumerState<MatchScreen>
   }
 
   void _showMatchMenu() {
+    final freePlay = _isFreePlay(ref.read(matchProvider));
     showModalBottomSheet<void>(
       context: context,
       backgroundColor: AppColors.surface,
@@ -274,14 +282,15 @@ class _MatchScreenState extends ConsumerState<MatchScreen>
                       : 'Match state needs attention',
                 ),
               ),
-              ListTile(
-                leading: const Icon(LucideIcons.handshake),
-                title: const Text('Offer Draw'),
-                onTap: () {
-                  Navigator.pop(context);
-                  _confirmDrawOffer();
-                },
-              ),
+              if (!freePlay)
+                ListTile(
+                  leading: const Icon(LucideIcons.handshake),
+                  title: const Text('Offer Draw'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    _confirmDrawOffer();
+                  },
+                ),
               ListTile(
                 leading: const Icon(LucideIcons.flag, color: AppColors.danger),
                 title: const Text('Resign Match'),
@@ -335,6 +344,7 @@ class _MatchScreenState extends ConsumerState<MatchScreen>
   Widget build(BuildContext context) {
     final state = ref.watch(matchProvider);
     final game = state.gameState;
+    final freePlay = _isFreePlay(state);
     ref.listen(matchProvider, (previous, next) {
       if (previous?.promotionVisible != true && next.promotionVisible) {
         _schedulePromotionDismiss();
@@ -478,7 +488,7 @@ class _MatchScreenState extends ConsumerState<MatchScreen>
                           children: [
                             _ConnectionBanner(state: state),
                             _PlayerStrip(
-                              title: 'KingMoves',
+                              title: freePlay ? 'Computer' : 'KingMoves',
                               subtitle: myTurn ? 'Waiting' : 'Thinking…',
                               clock: _serverClockLabel(
                                 myTurn ? null : displayRemainingMs,
@@ -555,7 +565,9 @@ class _MatchScreenState extends ConsumerState<MatchScreen>
                                                       ),
                                                     ),
                                                     child: Text(
-                                                      'Opponent is thinking…',
+                                                      freePlay
+                                                          ? 'Computer is thinking…'
+                                                          : 'Opponent is thinking…',
                                                       style: TextStyle(
                                                         fontFamily: 'Inter',
                                                         color: AppColors
@@ -568,7 +580,8 @@ class _MatchScreenState extends ConsumerState<MatchScreen>
                                               ),
                                             ),
                                           ),
-                                        if (!state.opponentConnected &&
+                                        if (!freePlay &&
+                                            !state.opponentConnected &&
                                             state.recoveryPhase ==
                                                 MatchRecoveryPhase.none)
                                           Positioned.fill(
@@ -606,6 +619,8 @@ class _MatchScreenState extends ConsumerState<MatchScreen>
                               title: 'You',
                               subtitle: myTurn
                                   ? 'Your turn'
+                                  : freePlay
+                                  ? 'Computer’s turn'
                                   : 'Opponent’s turn',
                               clock: _serverClockLabel(
                                 myTurn ? displayRemainingMs : null,
@@ -628,16 +643,18 @@ class _MatchScreenState extends ConsumerState<MatchScreen>
                                     color: AppColors.danger,
                                     onTap: _confirmResign,
                                   ),
-                                  _GameAction(
-                                    icon: LucideIcons.handshake,
-                                    label: 'Offer Draw',
-                                    onTap: _confirmDrawOffer,
-                                  ),
-                                  _GameAction(
-                                    icon: LucideIcons.messageCircle,
-                                    label: 'Chat',
-                                    onTap: _toggleChat,
-                                  ),
+                                  if (!freePlay)
+                                    _GameAction(
+                                      icon: LucideIcons.handshake,
+                                      label: 'Offer Draw',
+                                      onTap: _confirmDrawOffer,
+                                    ),
+                                  if (!freePlay)
+                                    _GameAction(
+                                      icon: LucideIcons.messageCircle,
+                                      label: 'Chat',
+                                      onTap: _toggleChat,
+                                    ),
                                   _GameAction(
                                     icon: LucideIcons.menu,
                                     label: 'Menu',
@@ -703,17 +720,18 @@ class _MatchScreenState extends ConsumerState<MatchScreen>
                       MoveRejection.fromServer({'code': state.rejectionReason}),
                   onDismiss: ref.read(matchProvider.notifier).clearRejection,
                 ),
-              _MatchChatPanel(
-                open: _chatOpen,
-                messages: state.chatMessages,
-                currentUserId: _userId ?? state.currentUserId,
-                controller: _chatController,
-                scrollController: _chatScrollController,
-                focusNode: _chatFocusNode,
-                enabled: game?.status == 'in_progress' && stable,
-                onClose: () => setState(() => _chatOpen = false),
-                onSend: _sendChat,
-              ),
+              if (!freePlay)
+                _MatchChatPanel(
+                  open: _chatOpen,
+                  messages: state.chatMessages,
+                  currentUserId: _userId ?? state.currentUserId,
+                  controller: _chatController,
+                  scrollController: _chatScrollController,
+                  focusNode: _chatFocusNode,
+                  enabled: game?.status == 'in_progress' && stable,
+                  onClose: () => setState(() => _chatOpen = false),
+                  onSend: _sendChat,
+                ),
             ],
           ),
         ),

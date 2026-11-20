@@ -12,6 +12,7 @@ import '../screens/home_lobby_screen.dart';
 import '../screens/match_screen.dart';
 import '../screens/arena_screen.dart';
 import '../screens/create_match_screen.dart';
+import '../screens/free_play_setup_screen.dart';
 import '../screens/match_confirmation_screen.dart';
 import '../screens/matchmaking_screen.dart';
 import '../screens/match_room_screen.dart';
@@ -340,6 +341,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/play/quick',
         builder: (context, state) => const CreateMatchScreen(),
+      ),
+      GoRoute(
+        path: '/play/free-play',
+        builder: (context, state) => const FreePlaySetupScreen(),
       ),
       GoRoute(
         path: '/play/open-details',

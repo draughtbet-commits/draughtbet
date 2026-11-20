@@ -1,5 +1,7 @@
 import 'package:intl/intl.dart';
 
+import '../config/backend_contract.dart';
+
 /// Suggested stake amounts, in minor units, per tier. The backend now accepts
 /// any value inside a tier's [stakeMin, stakeMax] range, so these are only
 /// convenient defaults used where a range has not loaded yet — never a hard
@@ -272,6 +274,48 @@ class OpenMatch {
   bool get isStale => expiresAt != null && expiresAt!.isBefore(DateTime.now());
 }
 
+/// A freshly created solo game against the server bot. No money, no rating and
+/// no opponent are involved, so this carries only what the setup screen and the
+/// board need to open the game.
+class FreePlayCreation {
+  const FreePlayCreation({
+    required this.matchId,
+    required this.side,
+    required this.botLevel,
+    required this.timeControlSeconds,
+    this.botId,
+    this.mode = 'FREE_PLAY',
+  });
+
+  final String matchId;
+  final String side;
+  final int botLevel;
+  final int timeControlSeconds;
+  final String? botId;
+  final String mode;
+
+  bool get isFreePlay => mode == 'FREE_PLAY';
+
+  static FreePlayCreation? tryFromServer(dynamic value) {
+    final raw = unwrapData(value);
+    if (raw == null) return null;
+    final matchId = raw['matchId']?.toString().trim() ?? '';
+    if (matchId.isEmpty) return null;
+    final side = (raw['side']?.toString() ?? '').toUpperCase();
+    final botLevel = int.tryParse(raw['botLevel']?.toString() ?? '') ?? 1;
+    final seconds =
+        int.tryParse(raw['timeControlSeconds']?.toString() ?? '') ?? 300;
+    return FreePlayCreation(
+      matchId: matchId,
+      side: side == 'BLACK' || side == 'WHITE' ? side : 'WHITE',
+      botLevel: botLevel.clamp(1, 4),
+      timeControlSeconds: seconds,
+      botId: raw['botId']?.toString(),
+      mode: raw['mode']?.toString() ?? 'FREE_PLAY',
+    );
+  }
+}
+
 enum MatchEntryKind { quick, openMatch, created, challenge }
 
 class MatchFlowIntent {
@@ -302,6 +346,7 @@ class MatchResultViewData {
     this.receiptReference,
     this.endedAt,
     this.serverVerified = false,
+    this.freePlay = false,
   });
 
   final ResultKind kind;
@@ -320,6 +365,10 @@ class MatchResultViewData {
   /// or read response. Tests may opt in explicitly for deterministic fixtures.
   final bool serverVerified;
 
+  /// True for a solo game against the server bot. There is no stake, payout or
+  /// receipt, so the result screen hides the financial card entirely.
+  final bool freePlay;
+
   MatchResultViewData copyWith({
     SettlementPhase? settlement,
     MatchTerms? terms,
@@ -329,6 +378,7 @@ class MatchResultViewData {
     String? receiptReference,
     DateTime? endedAt,
     bool? serverVerified,
+    bool? freePlay,
   }) {
     return MatchResultViewData(
       kind: kind,
@@ -343,6 +393,7 @@ class MatchResultViewData {
       receiptReference: receiptReference ?? this.receiptReference,
       endedAt: endedAt ?? this.endedAt,
       serverVerified: serverVerified ?? this.serverVerified,
+      freePlay: freePlay ?? this.freePlay,
     );
   }
 
@@ -459,6 +510,7 @@ class MatchResultViewData {
               ?.toString(),
       endedAt: DateTime.tryParse(resultBody['endedAt']?.toString() ?? ''),
       serverVerified: true,
+      freePlay: (body['mode'] ?? resultBody['mode'])?.toString() == 'FREE_PLAY',
     );
   }
 
@@ -511,6 +563,7 @@ class MatchResultViewData {
       payoutMinorUnits: playerWon ? payout : null,
       refundMinorUnits: isDraw ? payout : null,
       serverVerified: true,
+      freePlay: body['mode']?.toString() == 'FREE_PLAY',
     );
   }
 
