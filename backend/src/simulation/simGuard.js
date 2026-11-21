@@ -90,6 +90,11 @@ export function assertSafeSimulationEnvironment() {
 }
 
 export function createPaystackMockSignature(rawBodyString) {
-  const secret = process.env.PAYSTACK_SECRET_KEY || '';
+  const secret = typeof process.env.PAYSTACK_SECRET_KEY === 'string'
+    ? process.env.PAYSTACK_SECRET_KEY.trim()
+    : '';
+  if (!secret) {
+    throw new Error('Simulation refused: PAYSTACK_SECRET_KEY is required to sign mock webhooks.');
+  }
   return crypto.createHmac('sha512', secret).update(rawBodyString).digest('hex');
 }

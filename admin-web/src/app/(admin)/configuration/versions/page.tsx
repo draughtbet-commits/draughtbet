@@ -183,7 +183,10 @@ export default function ConfigurationVersionsPage() {
     setIsActivatingId(v.id);
     setBanner(null);
     try {
-      const res = await adminApi.activateConfigVersion(v.id);
+      const res = await adminApi.activateConfigVersion(v.id, {
+        expectedVersion: v.version,
+        expectedChecksum: v.checksum
+      });
       await loadVersions();
       window.dispatchEvent(new CustomEvent('draughtbet:config-updated'));
       setBanner({
@@ -308,11 +311,10 @@ export default function ConfigurationVersionsPage() {
       {banner && (
         <div
           role="status"
-          className={`rounded-xl p-4 border flex items-center justify-between text-xs ${
-            banner.type === 'success'
+          className={`rounded-xl p-4 border flex items-center justify-between text-xs ${banner.type === 'success'
               ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
               : 'bg-rose-500/10 border-rose-500/30 text-rose-300'
-          }`}
+            }`}
         >
           <div className="flex items-center gap-2">
             {banner.type === 'success' ? (

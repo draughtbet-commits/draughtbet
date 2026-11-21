@@ -60,7 +60,41 @@ export class MakerCheckerViolationError extends Error {
   }
 }
 
+// Transaction-scoped PostgreSQL advisory lock key used to serialize all
+// configuration activations so two concurrent activations can never interleave.
+const CONFIG_ACTIVATION_LOCK_KEY = 4815162342n;
+
+const isConcurrencyConflictPrismaError = (err) => {
+  const code = err?.code;
+  const msg = String(err?.message || '');
+  return (
+    code === 'P2002' ||
+    code === 'P2025' ||
+    code === 'P2034' ||
+    msg.includes('platform_config_single_active_idx') ||
+    msg.includes('could not serialize access')
+  );
+};
+
 export class ConfigService {
+  static async acquireConfigActivationLock(tx) {
+    if (typeof tx.$queryRaw === 'function') {
+      await tx.$queryRaw`SELECT 1 AS locked FROM (SELECT pg_advisory_xact_lock(${CONFIG_ACTIVATION_LOCK_KEY})) AS _cfg_lock`;
+    }
+  }
+
+  static async lockConfigVersionRow(tx, versionId) {
+    if (typeof tx.$queryRaw === 'function') {
+      await tx.$queryRaw`SELECT id FROM "PlatformConfigVersion" WHERE id = ${versionId} FOR UPDATE`;
+    }
+  }
+
+  static async runInTransaction(dbp, fn) {
+    if (typeof dbp.$transaction === 'function') {
+      return dbp.$transaction(fn);
+    }
+    return fn(dbp);
+  }
   /**
    * Concurrency-safe atomic version number allocation using PostgreSQL sequence.
    * Eliminates race conditions under simultaneous draft creation requests.
@@ -596,8 +630,9 @@ export class ConfigService {
   }
 
   /**
-   * Updates an existing configuration draft.
-   * Enforces immutability: fails if status !== 'DRAFT'.
+   * Updates an existing configuration draft atomically inside a transaction.
+   * Locks the row and enforces immutability inside the transaction so concurrent
+   * submitDraft calls cannot race with payload edits.
    */
   static async updateDraft({
     draftId,
@@ -608,186 +643,220 @@ export class ConfigService {
     auditTelemetry = {},
     dbp = prisma
   }) {
-    const draft = await dbp.platformConfigVersion.findUnique({
-      where: { id: draftId }
-    });
+    try {
+      return await this.runInTransaction(dbp, async (tx) => {
+        await this.lockConfigVersionRow(tx, draftId);
+        const draft = await tx.platformConfigVersion.findUnique({
+          where: { id: draftId }
+        });
 
-    if (!draft) {
-      throw new DraftNotFoundError(`Draft with ID ${draftId} does not exist`);
-    }
-
-    if (draft.status !== 'DRAFT') {
-      throw new ImmutableVersionError(
-        `Version ${draft.version} is in status ${draft.status} and cannot be modified. Only DRAFT versions can be edited.`
-      );
-    }
-
-    let updatedPayload = draft.payload;
-    if (payload) {
-      const merged = { ...draft.payload, ...payload };
-      const parseResult = PlatformConfigPayloadSchema.safeParse(merged);
-      if (!parseResult.success) {
-        throw new ConfigValidationError('Updated configuration payload validation failed', parseResult.error.issues);
-      }
-      updatedPayload = parseResult.data;
-    }
-
-    const checksum = generateChecksum(updatedPayload);
-    const activeRow = await dbp.platformConfigVersion.findFirst({
-      where: { status: 'ACTIVE' },
-      orderBy: { version: 'desc' }
-    });
-    const modifiedDomains = detectModifiedDomains(updatedPayload, activeRow?.payload ?? DEFAULT_CONFIG_PAYLOAD);
-    const restricted = isRestrictedDomains(modifiedDomains);
-
-    const updateData = {
-      payload: updatedPayload,
-      checksum,
-      isRestricted: restricted,
-      modifiedDomains
-    };
-
-    if (changeReason && typeof changeReason === 'string' && changeReason.trim().length >= 5) {
-      updateData.changeReason = changeReason.trim();
-    }
-
-    if (effectiveFrom !== undefined) {
-      if (effectiveFrom === null) {
-        updateData.effectiveFrom = null;
-      } else {
-        const d = new Date(effectiveFrom);
-        if (!Number.isNaN(d.getTime())) {
-          updateData.effectiveFrom = d;
+        if (!draft) {
+          throw new DraftNotFoundError(`Draft with ID ${draftId} does not exist`);
         }
+
+        if (draft.status !== 'DRAFT') {
+          throw new ImmutableVersionError(
+            `Version ${draft.version} is in status ${draft.status} and cannot be modified. Only DRAFT versions can be edited.`
+          );
+        }
+
+        let updatedPayload = draft.payload;
+        if (payload) {
+          const merged = { ...draft.payload, ...payload };
+          const parseResult = PlatformConfigPayloadSchema.safeParse(merged);
+          if (!parseResult.success) {
+            throw new ConfigValidationError('Updated configuration payload validation failed', parseResult.error.issues);
+          }
+          updatedPayload = parseResult.data;
+        }
+
+        const checksum = generateChecksum(updatedPayload);
+        const activeRow = await tx.platformConfigVersion.findFirst({
+          where: { status: 'ACTIVE' },
+          orderBy: { version: 'desc' }
+        });
+        const modifiedDomains = detectModifiedDomains(updatedPayload, activeRow?.payload ?? DEFAULT_CONFIG_PAYLOAD);
+        const restricted = isRestrictedDomains(modifiedDomains);
+
+        const updateData = {
+          payload: updatedPayload,
+          checksum,
+          isRestricted: restricted,
+          modifiedDomains
+        };
+
+        if (changeReason && typeof changeReason === 'string' && changeReason.trim().length >= 5) {
+          updateData.changeReason = changeReason.trim();
+        }
+
+        if (effectiveFrom !== undefined) {
+          if (effectiveFrom === null) {
+            updateData.effectiveFrom = null;
+          } else {
+            const d = new Date(effectiveFrom);
+            if (!Number.isNaN(d.getTime())) {
+              updateData.effectiveFrom = d;
+            }
+          }
+        }
+
+        const updated = await tx.platformConfigVersion.update({
+          where: { id: draftId, status: 'DRAFT' },
+          data: updateData,
+          include: {
+            author: { select: { id: true, email: true, username: true } }
+          }
+        });
+
+        await recordAdminAction({
+          adminId: authorId,
+          action: 'config.draft.updated',
+          outcome: 'SUCCESS',
+          targetType: 'PlatformConfigVersion',
+          targetId: updated.id,
+          metadata: {
+            version: updated.version,
+            isRestricted: updated.isRestricted,
+            modifiedDomains: updated.modifiedDomains,
+            checksum: updated.checksum
+          },
+          ...auditTelemetry,
+          dbp: tx
+        });
+
+        return updated;
+      });
+    } catch (err) {
+      if (isConcurrencyConflictPrismaError(err)) {
+        throw new ImmutableVersionError('Draft status changed concurrently and can no longer be edited.');
       }
+      throw err;
     }
-
-    const updated = await dbp.platformConfigVersion.update({
-      where: { id: draftId },
-      data: updateData,
-      include: {
-        author: { select: { id: true, email: true, username: true } }
-      }
-    });
-
-    await recordAdminAction({
-      adminId: authorId,
-      action: 'config.draft.updated',
-      outcome: 'SUCCESS',
-      targetType: 'PlatformConfigVersion',
-      targetId: updated.id,
-      metadata: {
-        version: updated.version,
-        isRestricted: updated.isRestricted,
-        modifiedDomains: updated.modifiedDomains,
-        checksum: updated.checksum
-      },
-      ...auditTelemetry,
-      dbp
-    });
-
-    return updated;
   }
 
   /**
-   * Discards an unsubmitted configuration draft.
+   * Discards an unsubmitted configuration draft atomically inside a transaction.
    */
   static async deleteDraft({ draftId, actorId, auditTelemetry = {}, dbp = prisma }) {
-    const draft = await dbp.platformConfigVersion.findUnique({
-      where: { id: draftId }
-    });
+    try {
+      return await this.runInTransaction(dbp, async (tx) => {
+        await this.lockConfigVersionRow(tx, draftId);
+        const draft = await tx.platformConfigVersion.findUnique({
+          where: { id: draftId }
+        });
 
-    if (!draft) {
-      throw new DraftNotFoundError(`Draft with ID ${draftId} does not exist`);
+        if (!draft) {
+          throw new DraftNotFoundError(`Draft with ID ${draftId} does not exist`);
+        }
+
+        if (draft.status !== 'DRAFT') {
+          throw new ImmutableVersionError(
+            `Version ${draft.version} has status ${draft.status}. Only DRAFT versions can be discarded.`
+          );
+        }
+
+        await tx.platformConfigVersion.delete({
+          where: { id: draftId, status: 'DRAFT' }
+        });
+
+        await recordAdminAction({
+          adminId: actorId,
+          action: 'config.draft.deleted',
+          outcome: 'SUCCESS',
+          targetType: 'PlatformConfigVersion',
+          targetId: draftId,
+          metadata: { version: draft.version },
+          ...auditTelemetry,
+          dbp: tx
+        });
+
+        return { deleted: true, draftId, version: draft.version };
+      });
+    } catch (err) {
+      if (isConcurrencyConflictPrismaError(err)) {
+        throw new ImmutableVersionError('Draft status changed concurrently and cannot be discarded.');
+      }
+      throw err;
     }
-
-    if (draft.status !== 'DRAFT') {
-      throw new ImmutableVersionError(
-        `Version ${draft.version} has status ${draft.status}. Only DRAFT versions can be discarded.`
-      );
-    }
-
-    await dbp.platformConfigVersion.delete({
-      where: { id: draftId }
-    });
-
-    await recordAdminAction({
-      adminId: actorId,
-      action: 'config.draft.deleted',
-      outcome: 'SUCCESS',
-      targetType: 'PlatformConfigVersion',
-      targetId: draftId,
-      metadata: { version: draft.version },
-      ...auditTelemetry,
-      dbp
-    });
-
-    return { deleted: true, draftId, version: draft.version };
   }
 
   /**
-   * Submits an un-submitted configuration draft for formal maker-checker review.
+   * Submits an un-submitted configuration draft for formal maker-checker review
+   * atomically inside a transaction with row locking and checksum verification.
    * Transitions status from DRAFT -> PENDING_APPROVAL. Immutability takes effect immediately.
    */
   static async submitDraft({ draftId, authorId, auditTelemetry = {}, dbp = prisma }) {
-    const draft = await dbp.platformConfigVersion.findUnique({
-      where: { id: draftId }
-    });
+    try {
+      const submitted = await this.runInTransaction(dbp, async (tx) => {
+        await this.lockConfigVersionRow(tx, draftId);
+        const draft = await tx.platformConfigVersion.findUnique({
+          where: { id: draftId }
+        });
 
-    if (!draft) {
-      throw new DraftNotFoundError(`Draft with ID ${draftId} does not exist`);
-    }
+        if (!draft) {
+          throw new DraftNotFoundError(`Draft with ID ${draftId} does not exist`);
+        }
 
-    if (draft.status !== 'DRAFT') {
-      throw new ConfigConflictError(
-        `Version ${draft.version} is in status ${draft.status}. Only DRAFT configurations can be submitted for approval.`
-      );
-    }
+        if (draft.status !== 'DRAFT') {
+          throw new ConfigConflictError(
+            `Version ${draft.version} is in status ${draft.status}. Only DRAFT configurations can be submitted for approval.`
+          );
+        }
 
-    // Re-validate payload integrity
-    const parseResult = PlatformConfigPayloadSchema.safeParse(draft.payload);
-    if (!parseResult.success) {
-      throw new ConfigValidationError('Draft payload validation failed', parseResult.error.issues);
-    }
+        // Re-validate payload integrity inside the locked transaction
+        const parseResult = PlatformConfigPayloadSchema.safeParse(draft.payload);
+        if (!parseResult.success) {
+          throw new ConfigValidationError('Draft payload validation failed', parseResult.error.issues);
+        }
 
-    const calculatedChecksum = generateChecksum(parseResult.data);
-    if (calculatedChecksum !== draft.checksum) {
-      throw new ChecksumIntegrityError('Stored draft checksum does not match canonical payload checksum');
-    }
+        const calculatedChecksum = generateChecksum(parseResult.data);
+        if (calculatedChecksum !== draft.checksum) {
+          throw new ChecksumIntegrityError('Stored draft checksum does not match canonical payload checksum');
+        }
 
-    const submitted = await dbp.platformConfigVersion.update({
-      where: { id: draftId },
-      data: {
-        status: 'PENDING_APPROVAL'
-      },
-      include: {
-        author: { select: { id: true, email: true, username: true } }
+        const updated = await tx.platformConfigVersion.update({
+          where: { id: draftId, status: 'DRAFT', checksum: draft.checksum },
+          data: {
+            status: 'PENDING_APPROVAL'
+          },
+          include: {
+            author: { select: { id: true, email: true, username: true } }
+          }
+        });
+
+        await recordAdminAction({
+          adminId: authorId,
+          action: 'config.draft.submitted',
+          outcome: 'SUCCESS',
+          targetType: 'PlatformConfigVersion',
+          targetId: updated.id,
+          metadata: {
+            version: updated.version,
+            checksum: updated.checksum,
+            isRestricted: updated.isRestricted,
+            modifiedDomains: updated.modifiedDomains
+          },
+          ...auditTelemetry,
+          dbp: tx
+        });
+
+        return updated;
+      });
+
+      logger.info({ draftId: submitted.id, version: submitted.version, authorId }, 'Configuration draft submitted for approval');
+      return submitted;
+    } catch (err) {
+      if (isConcurrencyConflictPrismaError(err)) {
+        throw new ConfigConflictError('Configuration draft changed concurrently during submission.');
       }
-    });
-
-    await recordAdminAction({
-      adminId: authorId,
-      action: 'config.draft.submitted',
-      outcome: 'SUCCESS',
-      targetType: 'PlatformConfigVersion',
-      targetId: submitted.id,
-      metadata: {
-        version: submitted.version,
-        checksum: submitted.checksum,
-        isRestricted: submitted.isRestricted,
-        modifiedDomains: submitted.modifiedDomains
-      },
-      ...auditTelemetry,
-      dbp
-    });
-
-    logger.info({ draftId: submitted.id, version: submitted.version, authorId }, 'Configuration draft submitted for approval');
-    return submitted;
+      throw err;
+    }
   }
 
   /**
-   * Approves a submitted configuration proposal.
-   * Strictly enforces Author/Reviewer separation and SHA-256 payload checksum binding.
+   * Approves a submitted configuration proposal atomically inside a locked transaction.
+   * Strictly enforces Author/Reviewer separation and SHA-256 payload checksum binding
+   * inside the transaction to eliminate TOCTOU races with concurrent reject/edit/approve.
    */
   static async approveVersion({
     versionId,
@@ -801,96 +870,107 @@ export class ConfigService {
       throw new ConfigValidationError('Reviewer ID is required to approve a configuration version');
     }
 
-    const version = await dbp.platformConfigVersion.findUnique({
-      where: { id: versionId }
-    });
+    let result;
+    try {
+      result = await this.runInTransaction(dbp, async (tx) => {
+        await this.lockConfigVersionRow(tx, versionId);
+        const version = await tx.platformConfigVersion.findUnique({
+          where: { id: versionId }
+        });
 
-    if (!version) {
-      throw new DraftNotFoundError(`Configuration version ${versionId} does not exist`);
-    }
-
-    if (version.status !== 'PENDING_APPROVAL') {
-      throw new ConfigConflictError(
-        `Configuration version ${version.version} is in status ${version.status}. Only PENDING_APPROVAL versions can be approved.`
-      );
-    }
-
-    // Strict Maker-Checker Rule: Author cannot review or approve their own proposal
-    if (version.authorId === reviewerId) {
-      throw new MakerCheckerViolationError(
-        'Author cannot approve their own configuration proposal. Independent reviewer is required.'
-      );
-    }
-
-    // Verify SHA-256 canonical payload checksum
-    if (!verifyChecksum(version.payload, version.checksum)) {
-      throw new ChecksumIntegrityError(
-        `Configuration version ${version.version} payload failed checksum integrity verification`
-      );
-    }
-
-    // If client supplied a checksum, verify exact match
-    if (clientChecksum && clientChecksum !== version.checksum) {
-      throw new ChecksumIntegrityError(
-        `Reviewer provided checksum ${clientChecksum} does not match server canonical checksum ${version.checksum}`
-      );
-    }
-
-    const result = await dbp.$transaction(async (tx) => {
-      const approval = await tx.configApproval.create({
-        data: {
-          versionId: version.id,
-          reviewerId,
-          status: 'APPROVED',
-          checksum: version.checksum,
-          reviewNote: reviewNote ? reviewNote.trim() : null
-        },
-        include: {
-          reviewer: { select: { id: true, email: true, username: true } }
+        if (!version) {
+          throw new DraftNotFoundError(`Configuration version ${versionId} does not exist`);
         }
-      });
 
-      const updatedVersion = await tx.platformConfigVersion.update({
-        where: { id: version.id },
-        data: {
-          status: 'APPROVED'
-        },
-        include: {
-          author: { select: { id: true, email: true, username: true } },
-          approvals: {
-            include: {
-              reviewer: { select: { id: true, email: true, username: true } }
+        if (version.status !== 'PENDING_APPROVAL') {
+          throw new ConfigConflictError(
+            `Configuration version ${version.version} is in status ${version.status}. Only PENDING_APPROVAL versions can be approved.`
+          );
+        }
+
+        // Strict Maker-Checker Rule: Author cannot review or approve their own proposal
+        if (version.authorId === reviewerId) {
+          throw new MakerCheckerViolationError(
+            'Author cannot approve their own configuration proposal. Independent reviewer is required.'
+          );
+        }
+
+        // Verify SHA-256 canonical payload checksum inside the locked transaction
+        if (!verifyChecksum(version.payload, version.checksum)) {
+          throw new ChecksumIntegrityError(
+            `Configuration version ${version.version} payload failed checksum integrity verification`
+          );
+        }
+
+        // If client supplied a checksum, verify exact match
+        if (clientChecksum && clientChecksum !== version.checksum) {
+          throw new ChecksumIntegrityError(
+            `Reviewer provided checksum ${clientChecksum} does not match server canonical checksum ${version.checksum}`
+          );
+        }
+
+        const now = new Date();
+        const approval = await tx.configApproval.create({
+          data: {
+            versionId: version.id,
+            reviewerId,
+            status: 'APPROVED',
+            checksum: version.checksum,
+            reviewNote: reviewNote ? reviewNote.trim() : null,
+            reviewedAt: now
+          },
+          include: {
+            reviewer: { select: { id: true, email: true, username: true } }
+          }
+        });
+
+        const updatedVersion = await tx.platformConfigVersion.update({
+          where: { id: version.id, status: 'PENDING_APPROVAL', checksum: version.checksum },
+          data: {
+            status: 'APPROVED'
+          },
+          include: {
+            author: { select: { id: true, email: true, username: true } },
+            approvals: {
+              include: {
+                reviewer: { select: { id: true, email: true, username: true } }
+              }
             }
           }
-        }
-      });
+        });
 
-      await recordAdminAction({
-        adminId: reviewerId,
-        action: 'config.version.approved',
-        outcome: 'SUCCESS',
-        targetType: 'PlatformConfigVersion',
-        targetId: updatedVersion.id,
-        metadata: {
-          version: updatedVersion.version,
-          checksum: updatedVersion.checksum,
-          approvalId: approval.id,
-          reviewNote: approval.reviewNote
-        },
-        ...auditTelemetry,
-        dbp: tx
-      });
+        await recordAdminAction({
+          adminId: reviewerId,
+          action: 'config.version.approved',
+          outcome: 'SUCCESS',
+          targetType: 'PlatformConfigVersion',
+          targetId: updatedVersion.id,
+          metadata: {
+            version: updatedVersion.version,
+            checksum: updatedVersion.checksum,
+            approvalId: approval.id,
+            reviewNote: approval.reviewNote
+          },
+          ...auditTelemetry,
+          dbp: tx
+        });
 
-      return { version: updatedVersion, approval };
-    });
+        return { version: updatedVersion, approval };
+      });
+    } catch (err) {
+      if (isConcurrencyConflictPrismaError(err)) {
+        throw new ConfigConflictError('Configuration version was already reviewed or modified concurrently.');
+      }
+      throw err;
+    }
 
     logger.info({ versionId: result.version.id, version: result.version.version, reviewerId }, 'Configuration version approved');
     return result;
   }
 
   /**
-   * Rejects a submitted configuration proposal with a mandatory reason.
-   * Strictly enforces Author/Reviewer separation.
+   * Rejects a submitted configuration proposal atomically inside a locked transaction.
+   * Strictly enforces Author/Reviewer separation inside the transaction.
    */
   static async rejectVersion({
     versionId,
@@ -907,85 +987,101 @@ export class ConfigService {
       throw new ConfigValidationError('A detailed rejection reason (minimum 5 characters) is required');
     }
 
-    const version = await dbp.platformConfigVersion.findUnique({
-      where: { id: versionId }
-    });
+    let result;
+    try {
+      result = await this.runInTransaction(dbp, async (tx) => {
+        await this.lockConfigVersionRow(tx, versionId);
+        const version = await tx.platformConfigVersion.findUnique({
+          where: { id: versionId }
+        });
 
-    if (!version) {
-      throw new DraftNotFoundError(`Configuration version ${versionId} does not exist`);
-    }
-
-    if (version.status !== 'PENDING_APPROVAL') {
-      throw new ConfigConflictError(
-        `Configuration version ${version.version} is in status ${version.status}. Only PENDING_APPROVAL versions can be rejected.`
-      );
-    }
-
-    if (version.authorId === reviewerId) {
-      throw new MakerCheckerViolationError(
-        'Author cannot review their own configuration proposal. Independent reviewer is required.'
-      );
-    }
-
-    const result = await dbp.$transaction(async (tx) => {
-      const approval = await tx.configApproval.create({
-        data: {
-          versionId: version.id,
-          reviewerId,
-          status: 'REJECTED',
-          checksum: version.checksum,
-          reviewNote: reason.trim()
-        },
-        include: {
-          reviewer: { select: { id: true, email: true, username: true } }
+        if (!version) {
+          throw new DraftNotFoundError(`Configuration version ${versionId} does not exist`);
         }
-      });
 
-      const updatedVersion = await tx.platformConfigVersion.update({
-        where: { id: version.id },
-        data: {
-          status: 'REJECTED'
-        },
-        include: {
-          author: { select: { id: true, email: true, username: true } },
-          approvals: {
-            include: {
-              reviewer: { select: { id: true, email: true, username: true } }
+        if (version.status !== 'PENDING_APPROVAL') {
+          throw new ConfigConflictError(
+            `Configuration version ${version.version} is in status ${version.status}. Only PENDING_APPROVAL versions can be rejected.`
+          );
+        }
+
+        if (version.authorId === reviewerId) {
+          throw new MakerCheckerViolationError(
+            'Author cannot review their own configuration proposal. Independent reviewer is required.'
+          );
+        }
+
+        const now = new Date();
+        const approval = await tx.configApproval.create({
+          data: {
+            versionId: version.id,
+            reviewerId,
+            status: 'REJECTED',
+            checksum: version.checksum,
+            reviewNote: reason.trim(),
+            reviewedAt: now
+          },
+          include: {
+            reviewer: { select: { id: true, email: true, username: true } }
+          }
+        });
+
+        const updatedVersion = await tx.platformConfigVersion.update({
+          where: { id: version.id, status: 'PENDING_APPROVAL', checksum: version.checksum },
+          data: {
+            status: 'REJECTED'
+          },
+          include: {
+            author: { select: { id: true, email: true, username: true } },
+            approvals: {
+              include: {
+                reviewer: { select: { id: true, email: true, username: true } }
+              }
             }
           }
-        }
-      });
+        });
 
-      await recordAdminAction({
-        adminId: reviewerId,
-        action: 'config.version.rejected',
-        outcome: 'SUCCESS',
-        targetType: 'PlatformConfigVersion',
-        targetId: updatedVersion.id,
-        metadata: {
-          version: updatedVersion.version,
-          checksum: updatedVersion.checksum,
-          reason: reason.trim()
-        },
-        ...auditTelemetry,
-        dbp: tx
-      });
+        await recordAdminAction({
+          adminId: reviewerId,
+          action: 'config.version.rejected',
+          outcome: 'SUCCESS',
+          targetType: 'PlatformConfigVersion',
+          targetId: updatedVersion.id,
+          metadata: {
+            version: updatedVersion.version,
+            checksum: updatedVersion.checksum,
+            reason: reason.trim()
+          },
+          ...auditTelemetry,
+          dbp: tx
+        });
 
-      return { version: updatedVersion, approval };
-    });
+        return { version: updatedVersion, approval };
+      });
+    } catch (err) {
+      if (isConcurrencyConflictPrismaError(err)) {
+        throw new ConfigConflictError('Configuration version was already reviewed or modified concurrently.');
+      }
+      throw err;
+    }
 
     logger.info({ versionId: result.version.id, version: result.version.version, reviewerId }, 'Configuration version rejected');
     return result;
   }
 
   /**
-   * Atomically activates an APPROVED configuration version inside an ACID PostgreSQL transaction.
-   * Supersedes existing active configuration, synchronizes legacy PlatformSettings singleton,
-   * inserts transactional OutboxEvent, records audit event, and purges Redis cache.
+   * Atomically activates an APPROVED configuration version inside a serialized
+   * ACID PostgreSQL transaction. Acquires a transaction-scoped advisory lock +
+   * row lock BEFORE reading target state, re-verifying exact version/checksum/
+   * schema/maker-checker approvals inside the transaction so no TOCTOU race or
+   * conflicting concurrent activation can occur. Guarantees strictly one ACTIVE
+   * configuration version at any point in time.
    */
   static async activateVersion({
     versionId,
     activatorId,
+    expectedVersion = null,
+    expectedChecksum = null,
     auditTelemetry = {},
     dbp = prisma
   }) {
@@ -993,139 +1089,200 @@ export class ConfigService {
       throw new ConfigValidationError('Activator ID is required to activate a configuration version');
     }
 
-    const target = await dbp.platformConfigVersion.findUnique({
-      where: { id: versionId },
-      include: {
-        approvals: true
-      }
-    });
-
-    if (!target) {
-      throw new DraftNotFoundError(`Configuration version ${versionId} does not exist`);
-    }
-
-    if (target.status !== 'APPROVED') {
-      throw new ConfigConflictError(
-        `Cannot activate configuration version ${target.version} in status ${target.status}. Only APPROVED configurations can be activated.`
-      );
-    }
-
-    // Verify SHA-256 payload integrity
-    if (!verifyChecksum(target.payload, target.checksum)) {
-      throw new ChecksumIntegrityError(
-        `Configuration version ${target.version} payload checksum mismatch`
-      );
-    }
-
-    // Verify approval integrity: must have at least one approval with status APPROVED bound to current checksum
-    const validApproval = target.approvals.find(
-      (a) => a.status === 'APPROVED' && a.checksum === target.checksum
-    );
-    if (!validApproval) {
-      throw new ChecksumIntegrityError(
-        `Configuration version ${target.version} lacks a valid approval matching payload checksum ${target.checksum}`
-      );
-    }
-
     const now = new Date();
-    const activatedVersion = await dbp.$transaction(async (tx) => {
-      // 1. Supersede any currently active configuration version
-      await tx.platformConfigVersion.updateMany({
-        where: { status: 'ACTIVE' },
-        data: {
-          status: 'SUPERSEDED',
-          supersededAt: now
-        }
-      });
+    let activatedVersion;
+    try {
+      activatedVersion = await this.runInTransaction(dbp, async (tx) => {
+        // 0. Acquire global config-activation advisory lock + target row lock
+        //    BEFORE reading any mutable state to eliminate all TOCTOU windows.
+        await this.acquireConfigActivationLock(tx);
+        await this.lockConfigVersionRow(tx, versionId);
 
-      // 2. Activate target version
-      const activated = await tx.platformConfigVersion.update({
-        where: { id: target.id },
-        data: {
-          status: 'ACTIVE',
-          activatedById: activatorId,
-          activatedAt: now
-        },
-        include: {
-          author: { select: { id: true, email: true, username: true } },
-          activatedBy: { select: { id: true, email: true, username: true } }
-        }
-      });
-
-      // 3. Synchronize legacy PlatformSettings singleton row
-      try {
-        const p = activated.payload;
-        await tx.platformSettings.upsert({
-          where: { id: 'singleton' },
-          create: {
-            id: 'singleton',
-            commissionPercent: p.financial.commissionPercent,
-            limitRaiseCoolingHours: p.saferPlay.limitRaiseCoolingHours,
-            timeControlSeconds: p.game.timeControlSeconds,
-            amateurStakeMinP: BigInt(p.tiers.AMATEUR.minStake),
-            amateurStakeMaxP: BigInt(p.tiers.AMATEUR.maxStake),
-            masterStakeMinP: BigInt(p.tiers.MASTER.minStake),
-            masterStakeMaxP: BigInt(p.tiers.MASTER.maxStake),
-            proStakeMinP: BigInt(p.tiers.PRO.minStake),
-            proStakeMaxP: BigInt(p.tiers.PRO.maxStake),
-            amateurCalloutMaxP: BigInt(p.tiers.AMATEUR.maxCallout),
-            masterCalloutMaxP: BigInt(p.tiers.MASTER.maxCallout),
-            proCalloutMaxP: BigInt(p.tiers.PRO.maxCallout)
-          },
-          update: {
-            commissionPercent: p.financial.commissionPercent,
-            limitRaiseCoolingHours: p.saferPlay.limitRaiseCoolingHours,
-            timeControlSeconds: p.game.timeControlSeconds,
-            amateurStakeMinP: BigInt(p.tiers.AMATEUR.minStake),
-            amateurStakeMaxP: BigInt(p.tiers.AMATEUR.maxStake),
-            masterStakeMinP: BigInt(p.tiers.MASTER.minStake),
-            masterStakeMaxP: BigInt(p.tiers.MASTER.maxStake),
-            proStakeMinP: BigInt(p.tiers.PRO.minStake),
-            proStakeMaxP: BigInt(p.tiers.PRO.maxStake),
-            amateurCalloutMaxP: BigInt(p.tiers.AMATEUR.maxCallout),
-            masterCalloutMaxP: BigInt(p.tiers.MASTER.maxCallout),
-            proCalloutMaxP: BigInt(p.tiers.PRO.maxCallout)
+        const target = await tx.platformConfigVersion.findUnique({
+          where: { id: versionId },
+          include: {
+            approvals: true
           }
         });
-      } catch (err) {
-        logger.warn({ err }, 'Could not sync legacy PlatformSettings during activation');
-      }
 
-      // 4. Transactional Outbox Event inside the exact same ACID transaction
-      await tx.outboxEvent.create({
-        data: {
-          aggregateType: 'PlatformConfigVersion',
-          aggregateId: activated.id,
-          eventType: 'platform.config.activated',
-          payload: {
+        if (!target) {
+          throw new DraftNotFoundError(`Configuration version ${versionId} does not exist`);
+        }
+
+        if (expectedVersion !== null && expectedVersion !== undefined) {
+          const parsedExpectedVersion = Number.parseInt(String(expectedVersion), 10);
+          if (Number.isNaN(parsedExpectedVersion) || parsedExpectedVersion !== target.version) {
+            throw new ConfigConflictError(
+              `Expected configuration version ${expectedVersion} does not match target version ${target.version}`
+            );
+          }
+        }
+
+        if (expectedChecksum && expectedChecksum !== target.checksum) {
+          throw new ChecksumIntegrityError(
+            `Provided activation checksum ${expectedChecksum} does not match target checksum ${target.checksum}`
+          );
+        }
+
+        if (target.status !== 'APPROVED') {
+          throw new ConfigConflictError(
+            `Cannot activate configuration version ${target.version} in status ${target.status}. Only APPROVED configurations can be activated.`
+          );
+        }
+
+        // Re-validate payload schema & SHA-256 checksum inside the locked transaction
+        const schemaResult = PlatformConfigPayloadSchema.safeParse(target.payload);
+        if (!schemaResult.success) {
+          throw new ConfigValidationError(
+            `Configuration version ${target.version} payload failed schema validation at activation time`,
+            schemaResult.error.issues
+          );
+        }
+        if (!verifyChecksum(target.payload, target.checksum)) {
+          throw new ChecksumIntegrityError(
+            `Configuration version ${target.version} payload checksum mismatch`
+          );
+        }
+
+        // Re-validate approval requirements inside the locked transaction:
+        // - no REJECTED approval may exist on this version
+        // - must have at least one APPROVED approval bound to exact target checksum
+        // - reviewer must be independent of the author (Maker-Checker invariant)
+        const approvals = Array.isArray(target.approvals) ? target.approvals : [];
+        if (approvals.some((a) => a.status === 'REJECTED')) {
+          throw new ConfigConflictError(
+            `Configuration version ${target.version} has a REJECTED review record and cannot be activated.`
+          );
+        }
+
+        const checksumMatchedApprovals = approvals.filter(
+          (a) => a.status === 'APPROVED' && a.checksum === target.checksum
+        );
+        if (checksumMatchedApprovals.length === 0) {
+          throw new ChecksumIntegrityError(
+            `Configuration version ${target.version} lacks a valid approval matching payload checksum ${target.checksum}`
+          );
+        }
+
+        const independentApproval = checksumMatchedApprovals.find(
+          (a) => !target.authorId || a.reviewerId !== target.authorId
+        );
+        if (!independentApproval) {
+          throw new MakerCheckerViolationError(
+            `Configuration version ${target.version} lacks an independent reviewer approval distinct from the author.`
+          );
+        }
+
+        // 1. Supersede any currently active configuration version
+        await tx.platformConfigVersion.updateMany({
+          where: { status: 'ACTIVE' },
+          data: {
+            status: 'SUPERSEDED',
+            supersededAt: now
+          }
+        });
+
+        // 2. Atomically promote target version (guarded by status + checksum CAS)
+        const activated = await tx.platformConfigVersion.update({
+          where: {
+            id: target.id,
+            status: 'APPROVED',
+            checksum: target.checksum
+          },
+          data: {
+            status: 'ACTIVE',
+            activatedById: activatorId,
+            activatedAt: now
+          },
+          include: {
+            author: { select: { id: true, email: true, username: true } },
+            activatedBy: { select: { id: true, email: true, username: true } }
+          }
+        });
+
+        // 3. Synchronize legacy PlatformSettings singleton row
+        try {
+          const p = activated.payload;
+          await tx.platformSettings.upsert({
+            where: { id: 'singleton' },
+            create: {
+              id: 'singleton',
+              commissionPercent: p.financial.commissionPercent,
+              limitRaiseCoolingHours: p.saferPlay.limitRaiseCoolingHours,
+              timeControlSeconds: p.game.timeControlSeconds,
+              amateurStakeMinP: BigInt(p.tiers.AMATEUR.minStake),
+              amateurStakeMaxP: BigInt(p.tiers.AMATEUR.maxStake),
+              masterStakeMinP: BigInt(p.tiers.MASTER.minStake),
+              masterStakeMaxP: BigInt(p.tiers.MASTER.maxStake),
+              proStakeMinP: BigInt(p.tiers.PRO.minStake),
+              proStakeMaxP: BigInt(p.tiers.PRO.maxStake),
+              amateurCalloutMaxP: BigInt(p.tiers.AMATEUR.maxCallout),
+              masterCalloutMaxP: BigInt(p.tiers.MASTER.maxCallout),
+              proCalloutMaxP: BigInt(p.tiers.PRO.maxCallout)
+            },
+            update: {
+              commissionPercent: p.financial.commissionPercent,
+              limitRaiseCoolingHours: p.saferPlay.limitRaiseCoolingHours,
+              timeControlSeconds: p.game.timeControlSeconds,
+              amateurStakeMinP: BigInt(p.tiers.AMATEUR.minStake),
+              amateurStakeMaxP: BigInt(p.tiers.AMATEUR.maxStake),
+              masterStakeMinP: BigInt(p.tiers.MASTER.minStake),
+              masterStakeMaxP: BigInt(p.tiers.MASTER.maxStake),
+              proStakeMinP: BigInt(p.tiers.PRO.minStake),
+              proStakeMaxP: BigInt(p.tiers.PRO.maxStake),
+              amateurCalloutMaxP: BigInt(p.tiers.AMATEUR.maxCallout),
+              masterCalloutMaxP: BigInt(p.tiers.MASTER.maxCallout),
+              proCalloutMaxP: BigInt(p.tiers.PRO.maxCallout)
+            }
+          });
+        } catch (err) {
+          logger.warn({ err }, 'Could not sync legacy PlatformSettings during activation');
+        }
+
+        // 4. Transactional Outbox Event inside the exact same ACID transaction
+        await tx.outboxEvent.create({
+          data: {
+            aggregateType: 'PlatformConfigVersion',
+            aggregateId: activated.id,
+            eventType: 'platform.config.activated',
+            payload: {
+              version: activated.version,
+              checksum: activated.checksum,
+              payload: activated.payload,
+              activatedAt: activated.activatedAt
+            },
+            dedupeKey: `config:activated:${activated.version}`
+          }
+        });
+
+        // 5. Audit log
+        await recordAdminAction({
+          adminId: activatorId,
+          action: 'config.version.activated',
+          outcome: 'SUCCESS',
+          targetType: 'PlatformConfigVersion',
+          targetId: activated.id,
+          metadata: {
             version: activated.version,
             checksum: activated.checksum,
-            payload: activated.payload,
-            activatedAt: activated.activatedAt
+            isRestricted: activated.isRestricted,
+            modifiedDomains: activated.modifiedDomains,
+            approvalId: independentApproval.id
           },
-          dedupeKey: `config:activated:${activated.version}`
-        }
-      });
+          ...auditTelemetry,
+          dbp: tx
+        });
 
-      // 5. Audit log
-      await recordAdminAction({
-        adminId: activatorId,
-        action: 'config.version.activated',
-        outcome: 'SUCCESS',
-        targetType: 'PlatformConfigVersion',
-        targetId: activated.id,
-        metadata: {
-          version: activated.version,
-          checksum: activated.checksum,
-          isRestricted: activated.isRestricted,
-          modifiedDomains: activated.modifiedDomains
-        },
-        ...auditTelemetry,
-        dbp: tx
+        return activated;
       });
-
-      return activated;
-    });
+    } catch (err) {
+      if (isConcurrencyConflictPrismaError(err)) {
+        throw new ConfigConflictError(
+          'Conflicting concurrent configuration activation detected. Refresh version state and retry.'
+        );
+      }
+      throw err;
+    }
 
     // Optimistic cache eviction/update (the outbox drainer guarantees persistent delivery asynchronously)
     if (isRedisReady()) {
@@ -1147,8 +1304,9 @@ export class ConfigService {
 
   /**
    * Non-destructive configuration rollback.
-   * Creates a new sequential version (N+1) with a historical payload and sets rolledBackFrom pointer.
-   * Historical versions remain immutable permanent records.
+   * Atomically creates a brand-new sequential DRAFT version (N+1) with the
+   * verified historical payload and rolledBackFrom pointer. Never mutates any
+   * historical configuration version row.
    */
   static async rollbackVersion({
     targetVersionNumber,
@@ -1166,63 +1324,67 @@ export class ConfigService {
       throw new ConfigValidationError('Target rollback version must be a positive integer');
     }
 
-    const historical = await dbp.platformConfigVersion.findUnique({
-      where: { version: num }
-    });
+    const rollbackDraft = await this.runInTransaction(dbp, async (tx) => {
+      const historical = await tx.platformConfigVersion.findUnique({
+        where: { version: num }
+      });
 
-    if (!historical) {
-      throw new DraftNotFoundError(`Historical configuration version ${num} not found`);
-    }
-
-    if (!verifyChecksum(historical.payload, historical.checksum)) {
-      throw new ChecksumIntegrityError(
-        `Historical version ${num} payload checksum failed integrity check`
-      );
-    }
-
-    const nextVersion = await this.allocateNextVersion(dbp);
-    const changeReason = reason && typeof reason === 'string' && reason.trim().length >= 5
-      ? reason.trim()
-      : `Rollback to configuration version ${num}`;
-
-    const active = await dbp.platformConfigVersion.findFirst({
-      where: { status: 'ACTIVE' },
-      orderBy: { version: 'desc' }
-    });
-    const modifiedDomains = detectModifiedDomains(historical.payload, active?.payload ?? DEFAULT_CONFIG_PAYLOAD);
-    const restricted = isRestrictedDomains(modifiedDomains);
-
-    const rollbackDraft = await dbp.platformConfigVersion.create({
-      data: {
-        version: nextVersion,
-        status: 'DRAFT',
-        checksum: historical.checksum,
-        payload: historical.payload,
-        changeReason,
-        rolledBackFrom: num,
-        isRestricted: restricted,
-        modifiedDomains,
-        authorId: actorId
-      },
-      include: {
-        author: { select: { id: true, email: true, username: true } }
+      if (!historical) {
+        throw new DraftNotFoundError(`Historical configuration version ${num} not found`);
       }
-    });
 
-    await recordAdminAction({
-      adminId: actorId,
-      action: 'config.version.rolled_back',
-      outcome: 'SUCCESS',
-      targetType: 'PlatformConfigVersion',
-      targetId: rollbackDraft.id,
-      metadata: {
-        newVersion: rollbackDraft.version,
-        targetHistoricalVersion: num,
-        checksum: rollbackDraft.checksum,
-        changeReason
-      },
-      ...auditTelemetry,
-      dbp
+      if (!verifyChecksum(historical.payload, historical.checksum)) {
+        throw new ChecksumIntegrityError(
+          `Historical version ${num} payload checksum failed integrity check`
+        );
+      }
+
+      const nextVersion = await this.allocateNextVersion(tx);
+      const changeReason = reason && typeof reason === 'string' && reason.trim().length >= 5
+        ? reason.trim()
+        : `Rollback to configuration version ${num}`;
+
+      const active = await tx.platformConfigVersion.findFirst({
+        where: { status: 'ACTIVE' },
+        orderBy: { version: 'desc' }
+      });
+      const modifiedDomains = detectModifiedDomains(historical.payload, active?.payload ?? DEFAULT_CONFIG_PAYLOAD);
+      const restricted = isRestrictedDomains(modifiedDomains);
+
+      const created = await tx.platformConfigVersion.create({
+        data: {
+          version: nextVersion,
+          status: 'DRAFT',
+          checksum: historical.checksum,
+          payload: structuredClone(historical.payload),
+          changeReason,
+          rolledBackFrom: num,
+          isRestricted: restricted,
+          modifiedDomains,
+          authorId: actorId
+        },
+        include: {
+          author: { select: { id: true, email: true, username: true } }
+        }
+      });
+
+      await recordAdminAction({
+        adminId: actorId,
+        action: 'config.version.rolled_back',
+        outcome: 'SUCCESS',
+        targetType: 'PlatformConfigVersion',
+        targetId: created.id,
+        metadata: {
+          newVersion: created.version,
+          targetHistoricalVersion: num,
+          checksum: created.checksum,
+          changeReason
+        },
+        ...auditTelemetry,
+        dbp: tx
+      });
+
+      return created;
     });
 
     logger.info(

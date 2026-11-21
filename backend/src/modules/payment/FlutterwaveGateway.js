@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import logger from '../../utils/logger.js';
+import { maskAccountNumber } from '../../utils/bankMask.js';
 import { PaymentGateway, PaymentGatewayError, toMajorUnits, isSimulationMockPaymentEnabled } from './PaymentGateway.js';
 
 export class FlutterwaveGateway extends PaymentGateway {
@@ -98,8 +99,16 @@ export class FlutterwaveGateway extends PaymentGateway {
       logger.error('Cannot verify Flutterwave webhook without FLUTTERWAVE_SECRET_HASH');
       return false;
     }
-    // Flutterwave requires checking if the 'verif-hash' matches the secret hash from dashboard
-    return signatureHeader === this.secretHash;
+    if (typeof signatureHeader !== 'string' || !signatureHeader) {
+      return false;
+    }
+    // Constant-time comparison of Flutterwave 'verif-hash' against configured secret hash
+    const expectedBuf = Buffer.from(this.secretHash, 'utf8');
+    const receivedBuf = Buffer.from(signatureHeader, 'utf8');
+    if (expectedBuf.length !== receivedBuf.length) {
+      return false;
+    }
+    return crypto.timingSafeEqual(expectedBuf, receivedBuf);
   }
 
   /**
@@ -124,7 +133,10 @@ export class FlutterwaveGateway extends PaymentGateway {
       }
       return { accountName: data.data.account_name, verified: true };
     } catch (error) {
-      logger.warn({ error: error.message, bankCode, accountNumber }, 'Flutterwave account resolution failed');
+      logger.warn(
+        { error: error.message, bankCode, maskedAccountNumber: maskAccountNumber(accountNumber) },
+        'Flutterwave account resolution failed'
+      );
       throw new PaymentGatewayError('Unable to verify this bank account', error);
     }
   }
@@ -154,7 +166,10 @@ export class FlutterwaveGateway extends PaymentGateway {
       }
       return { recipientRef: String(data.data.id) };
     } catch (error) {
-      logger.warn({ error: error.message, bankCode, accountNumber }, 'Flutterwave beneficiary creation failed');
+      logger.warn(
+        { error: error.message, bankCode, maskedAccountNumber: maskAccountNumber(accountNumber) },
+        'Flutterwave beneficiary creation failed'
+      );
       throw new PaymentGatewayError('Unable to create payout recipient', error);
     }
   }

@@ -1,22 +1,48 @@
 import type { AdminRole } from '../permissions/roles';
 import type { Permission } from '../permissions/matrix';
+import type { AdminMfaState } from '../permissions/guards';
 
 export interface ApiErrorResponse {
   error?: string;
+  code?: string;
   errors?: Array<{ path?: string[]; message: string }>;
   message?: string;
   statusCode?: number;
 }
 
-export interface AuthTokens {
-  accessToken: string;
-  refreshToken: string;
-  user?: {
-    id: string;
-    email: string;
-    tier: string;
-    isBanned: boolean;
-  };
+export interface CookieAuthSessionResponse {
+  authenticated: boolean;
+  userId?: string;
+  expiresIn?: number;
+  expiresAt?: string;
+  csrfToken?: string;
+  mfa?: AdminMfaState;
+}
+
+export interface MfaStatusResponse extends AdminMfaState {
+  userId: string;
+}
+
+export interface MfaSetupResponse {
+  base32: string;
+  otpauthUrl: string;
+  recoveryCodes: string[];
+}
+
+export interface MfaVerifyResponse {
+  enabled?: boolean;
+  verified?: boolean;
+  authenticated?: boolean;
+  mfaVerified: boolean;
+  recoveryCodesRemaining?: number;
+  expiresIn?: number;
+  expiresAt?: string;
+  csrfToken?: string;
+}
+
+export interface MfaRegenerateRecoveryResponse {
+  recoveryCodes: string[];
+  recoveryCodesRemaining: number;
 }
 
 export interface AdminProfileResponse {
@@ -26,6 +52,7 @@ export interface AdminProfileResponse {
   fullName: string | null;
   roles: AdminRole[];
   permissions: Permission[];
+  mfa?: AdminMfaState;
 }
 
 export interface AuditLogItem {

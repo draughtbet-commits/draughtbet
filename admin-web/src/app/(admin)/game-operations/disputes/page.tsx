@@ -2,6 +2,8 @@
 
 import React, { useEffect, useState, useCallback } from 'react';
 import { adminApi } from '@/lib/api/admin';
+import { RouteGuard } from '@/components/auth/RouteGuard';
+import { PERMISSIONS } from '@/lib/permissions/matrix';
 import { DisputeItem } from '@/lib/api/types';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -20,7 +22,7 @@ import {
   ChevronRight
 } from 'lucide-react';
 
-export default function DisputesPage() {
+function DisputesPageContent() {
   const [disputes, setDisputes] = useState<DisputeItem[]>([]);
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [page, setPage] = useState(1);
@@ -212,11 +214,10 @@ export default function DisputesPage() {
               setStatusFilter(st);
               setPage(1);
             }}
-            className={`px-3 py-1.5 rounded-lg font-medium whitespace-nowrap transition-colors ${
-              statusFilter === st
+            className={`px-3 py-1.5 rounded-lg font-medium whitespace-nowrap transition-colors ${statusFilter === st
                 ? 'bg-[#18C986] text-[#000000] font-bold'
                 : 'bg-[#0C1B2A] text-[#8FA3B7] hover:text-[#F5F7FA] border border-[#274056]'
-            }`}
+              }`}
           >
             {st === 'ALL' ? 'All Disputes' : st.replace(/_/g, ' ')}
           </button>
@@ -225,11 +226,10 @@ export default function DisputesPage() {
 
       {notification && (
         <div
-          className={`p-3.5 rounded-lg text-xs flex items-center justify-between ${
-            notification.type === 'error'
+          className={`p-3.5 rounded-lg text-xs flex items-center justify-between ${notification.type === 'error'
               ? 'bg-rose-500/10 border border-rose-500/30 text-rose-400'
               : 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-400'
-          }`}
+            }`}
         >
           <span>{notification.message}</span>
           <button onClick={() => setNotification(null)}>
@@ -582,5 +582,14 @@ export default function DisputesPage() {
         </div>
       )}
     </div>
+  );
+}
+
+
+export default function DisputesPage() {
+  return (
+    <RouteGuard permission={PERMISSIONS.DISPUTES_MANAGE} section="Disputes Queue">
+      <DisputesPageContent />
+    </RouteGuard>
   );
 }

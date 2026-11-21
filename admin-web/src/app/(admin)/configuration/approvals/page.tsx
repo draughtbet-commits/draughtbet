@@ -203,7 +203,10 @@ export default function ConfigurationApprovalsPage() {
     setIsActivating(true);
     setBanner(null);
     try {
-      const res = await adminApi.activateConfigVersion(v.id);
+      const res = await adminApi.activateConfigVersion(v.id, {
+        expectedVersion: v.version,
+        expectedChecksum: v.checksum
+      });
       await loadApprovalsQueue();
       window.dispatchEvent(new CustomEvent('draughtbet:config-updated'));
       setBanner({
@@ -280,13 +283,12 @@ export default function ConfigurationApprovalsPage() {
       {banner && (
         <div
           role="status"
-          className={`rounded-xl p-4 border flex items-center justify-between text-xs ${
-            banner.type === 'success'
+          className={`rounded-xl p-4 border flex items-center justify-between text-xs ${banner.type === 'success'
               ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
               : banner.type === 'error'
                 ? 'bg-rose-500/10 border-rose-500/30 text-rose-300'
                 : 'bg-sky-500/10 border-sky-500/30 text-sky-300'
-          }`}
+            }`}
         >
           <div className="flex items-center gap-2">
             {banner.type === 'success' ? (
@@ -328,11 +330,10 @@ export default function ConfigurationApprovalsPage() {
                       key={item.id}
                       type="button"
                       onClick={() => handleSelectVersionForReview(item)}
-                      className={`w-full text-left rounded-xl p-3.5 border transition-colors space-y-1.5 ${
-                        isSelected
+                      className={`w-full text-left rounded-xl p-3.5 border transition-colors space-y-1.5 ${isSelected
                           ? 'bg-[#0E2E2B]/35 border-[#18C986]'
                           : 'bg-[#000000] border-[#274056] hover:bg-[#132638]'
-                      }`}
+                        }`}
                     >
                       <div className="flex items-center justify-between">
                         <span className="font-mono font-bold text-sm text-[#F5F7FA]">
@@ -385,11 +386,10 @@ export default function ConfigurationApprovalsPage() {
                     <div
                       key={item.id}
                       onClick={() => handleSelectVersionForReview(item)}
-                      className={`cursor-pointer rounded-xl p-3.5 border transition-colors space-y-2 ${
-                        isSelected
+                      className={`cursor-pointer rounded-xl p-3.5 border transition-colors space-y-2 ${isSelected
                           ? 'bg-[#0E2E2B]/35 border-[#18C986]'
                           : 'bg-[#000000] border-[#274056] hover:bg-[#132638]'
-                      }`}
+                        }`}
                     >
                       <div className="flex items-center justify-between">
                         <span className="font-mono font-bold text-sm text-[#F5F7FA]">

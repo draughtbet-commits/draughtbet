@@ -14,6 +14,7 @@ import { EligibilityService } from '../eligibility/service.js';
 import prisma from '../../utils/db.js';
 import logger from '../../utils/logger.js';
 import { parsePagination } from '../../utils/pagination.js';
+import { serializeBankAccountForPlayer } from '../../utils/bankMask.js';
 
 export const walletRouter = express.Router();
 
@@ -249,17 +250,7 @@ walletRouter.post('/bank-accounts', requireAuth, async (req, res, next) => {
     });
 
     res.status(201).json({
-      bankAccount: {
-        id: account.id,
-        gateway: account.gateway,
-        bankCode: account.bankCode,
-        bankName: account.bankName,
-        accountNumber: account.accountNumber,
-        accountName: account.accountName,
-        isDefault: account.isDefault,
-        verifiedAt: account.verifiedAt,
-        createdAt: account.createdAt
-      }
+      bankAccount: serializeBankAccountForPlayer(account)
     });
   } catch (error) {
     if (error.name === 'InvalidBankAccountError') {
@@ -276,7 +267,7 @@ walletRouter.patch('/bank-accounts/:id/default', requireAuth, async (req, res, n
   try {
     const { id: userId } = req.user;
     const account = await withdrawalService.setDefaultBankAccount(userId, req.params.id);
-    res.json({ bankAccount: account });
+    res.json({ bankAccount: serializeBankAccountForPlayer(account) });
   } catch (error) {
     if (error instanceof BankAccountNotFoundError) {
       return res.status(404).json({ error: error.message });

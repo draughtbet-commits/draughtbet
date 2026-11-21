@@ -2,6 +2,8 @@
 
 import React, { useEffect, useState, useCallback } from 'react';
 import { adminApi } from '@/lib/api/admin';
+import { RouteGuard } from '@/components/auth/RouteGuard';
+import { PERMISSIONS } from '@/lib/permissions/matrix';
 import { AuditLogItem } from '@/lib/api/types';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -21,7 +23,7 @@ import {
   Calendar
 } from 'lucide-react';
 
-export default function AuditPage() {
+function AuditPageContent() {
   const [logs, setLogs] = useState<AuditLogItem[]>([]);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
@@ -70,7 +72,10 @@ export default function AuditPage() {
   }, [page, outcomeFilter, actionFilter, search, targetTypeFilter]);
 
   useEffect(() => {
-    fetchLogs();
+    const id = window.setTimeout(() => {
+      fetchLogs();
+    }, 0);
+    return () => window.clearTimeout(id);
   }, [fetchLogs]);
 
   const openLogDetail = async (id: string) => {
@@ -352,5 +357,14 @@ export default function AuditPage() {
         </div>
       )}
     </div>
+  );
+}
+
+
+export default function AuditPage() {
+  return (
+    <RouteGuard permission={PERMISSIONS.AUDIT_READ} section="Audit Trail">
+      <AuditPageContent />
+    </RouteGuard>
   );
 }

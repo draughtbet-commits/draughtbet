@@ -22,7 +22,20 @@ export const SENSITIVE_KEYS = new Set([
   'api_key',
   'x-api-key',
   'fcmtoken',
-  'fingerprinthash'
+  'fingerprinthash',
+  'accountnumber',
+  'account_number',
+  'recipientref',
+  'recipient_ref',
+  'x-admin-mfa-code',
+  'mfacode',
+  'recoverycode',
+  'recoverycodes',
+  'base32',
+  'otpauthurl',
+  'secretenc',
+  'x-csrf-token',
+  'csrftoken'
 ]);
 
 export const CENSOR = '[REDACTED]';
@@ -76,7 +89,23 @@ export const REDACT_PATHS = [
   'set-cookie',
   'accessToken',
   'refreshToken',
-  'fingerprintHash'
+  'fingerprintHash',
+  'accountNumber',
+  'account_number',
+  'recipientRef',
+  'recipient_ref',
+  '*.accountNumber',
+  '*.account_number',
+  '*.recipientRef',
+  '*.recipient_ref',
+  'base32',
+  'otpauthUrl',
+  'secretEnc',
+  'recoveryCodes',
+  '*.base32',
+  '*.otpauthUrl',
+  '*.secretEnc',
+  '*.recoveryCodes'
 ];
 
 export const LOGGER_OPTIONS = {

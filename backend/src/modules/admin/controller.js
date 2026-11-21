@@ -22,11 +22,26 @@ import {
 import {
   requirePermission,
   requireAnyAdminRole,
+  requireAdminMfa,
   assignRole,
   revokeRole,
   getUserRoles
 } from '../rbac/service.js';
 import { recordAdminAction } from '../audit/service.js';
+import {
+  AdminMfaService,
+  AdminMfaCodeError,
+  AdminMfaStateError,
+  AdminMfaNotFoundError,
+  AdminMfaLockedError
+} from '../mfa/service.js';
+import { adminMfaRateLimiter } from '../../middleware/rateLimit.js';
+import {
+  ACCESS_COOKIE_MAX_AGE_MS,
+  setAuthCookies,
+  clearAuthCookies,
+  isCookieAuthRequest
+} from '../../utils/authCookies.js';
 import { auditRouter } from '../audit/controller.js';
 import { configRouter } from '../config/controller.js';
 import { featureFlagRouter } from '../featureFlags/controller.js';
@@ -78,6 +93,8 @@ const audit = (req, action, { targetType = null, targetId = null, metadata = nul
 
 // ---------------------------------------------------------------------------
 // Admin Identity & Context — loaded by the admin shell upon login.
+// Registered BEFORE requireAdminMfa so an admin can inspect their MFA posture
+// and complete enrollment/challenge before accessing protected admin routes.
 // ---------------------------------------------------------------------------
 adminRouter.get('/me', async (req, res, next) => {
   try {
@@ -93,18 +110,299 @@ adminRouter.get('/me', async (req, res, next) => {
         )
       )
     );
+    const mfaStatus = await AdminMfaService.getDetailedStatus(req.user.id).catch(() => ({
+      enforced: AdminMfaService.isEnforced(),
+      provisioned: false,
+      enabled: false,
+      enabledAt: null,
+      recoveryCodesRemaining: 0
+    }));
+    const enabledAtMs = mfaStatus.enabledAt ? mfaStatus.enabledAt.getTime() : 0;
+    const sessionMfaVerified =
+      req.auth?.mfaVerified === true &&
+      typeof req.auth?.mfaVerifiedAt === 'number' &&
+      req.auth.mfaVerifiedAt >= enabledAtMs;
+
     res.json({
       id: req.user.id,
       email: req.user.email,
       username: req.user.username ?? null,
       fullName: req.user.fullName ?? null,
       roles,
-      permissions
+      permissions,
+      mfa: {
+        enforced: mfaStatus.enforced,
+        provisioned: mfaStatus.provisioned,
+        enabled: mfaStatus.enabled,
+        verified: mfaStatus.enabled ? sessionMfaVerified : false,
+        recoveryCodesRemaining: mfaStatus.recoveryCodesRemaining ?? 0
+      }
     });
   } catch (error) {
     next(error);
   }
 });
+
+// ---------------------------------------------------------------------------
+// Admin MFA Bootstrap, Session Challenge & Recovery — registered BEFORE the
+// MFA gate so every admin role can enroll, verify, or recover their TOTP.
+// ---------------------------------------------------------------------------
+const mfaBootstrap = express.Router();
+
+const respondWithUpgradedMfaSession = (req, res, upgraded, extra = {}) => {
+  const useCookies = req.authTransport === 'cookie' || isCookieAuthRequest(req);
+  if (useCookies) {
+    const csrfToken = setAuthCookies(res, {
+      accessToken: upgraded.accessToken,
+      refreshToken: upgraded.refreshToken,
+      userId: req.user.id
+    });
+    return res.json({
+      ...extra,
+      authenticated: true,
+      mfaVerified: true,
+      expiresIn: Math.floor(ACCESS_COOKIE_MAX_AGE_MS / 1000),
+      expiresAt: new Date(Date.now() + ACCESS_COOKIE_MAX_AGE_MS).toISOString(),
+      csrfToken
+    });
+  }
+  return res.json({
+    ...extra,
+    mfaVerified: true,
+    accessToken: upgraded.accessToken,
+    refreshToken: upgraded.refreshToken
+  });
+};
+
+mfaBootstrap.get('/status', adminMfaRateLimiter, requireAnyAdminRole, async (req, res, next) => {
+  try {
+    const status = await AdminMfaService.getDetailedStatus(req.user.id);
+    const enabledAtMs = status.enabledAt ? status.enabledAt.getTime() : 0;
+    const verified =
+      status.enabled &&
+      req.auth?.mfaVerified === true &&
+      typeof req.auth?.mfaVerifiedAt === 'number' &&
+      req.auth.mfaVerifiedAt >= enabledAtMs;
+    res.json({
+      userId: req.user.id,
+      provisioned: status.provisioned,
+      enabled: status.enabled,
+      enforced: status.enforced,
+      verified,
+      recoveryCodesRemaining: status.recoveryCodesRemaining
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+mfaBootstrap.post('/setup', adminMfaRateLimiter, requireAnyAdminRole, async (req, res, next) => {
+  try {
+    const { currentCode } = req.body ?? {};
+    const statusBefore = await AdminMfaService.getStatus(req.user.id);
+    const result = await AdminMfaService.provision(req.user.id, {
+      currentCode: typeof currentCode === 'string' ? currentCode : null
+    });
+    if (statusBefore.enabled) {
+      // Re-enrollment invalidates prior MFA-verified refresh tokens immediately.
+      await AuthService.revokeAllRefreshTokens(req.user.id);
+    }
+    await audit(req, 'admin.mfa.setup', {
+      targetType: 'user',
+      targetId: req.user.id,
+      metadata: { reenrolled: statusBefore.enabled }
+    });
+    // Secret + otpauth + recoveryCodes returned ONCE. Never logged.
+    res.status(201).json(result);
+  } catch (error) {
+    if (error instanceof AdminMfaLockedError || error?.name === 'AdminMfaLockedError') {
+      return res.status(403).json({ error: error.message, code: 'MFA_LOCKED' });
+    }
+    if (error instanceof AdminMfaCodeError || error?.name === 'AdminMfaCodeError') {
+      return res.status(403).json({ error: error.message, code: 'MFA_INVALID_CODE' });
+    }
+    if (error instanceof AdminMfaNotFoundError || error?.name === 'AdminMfaNotFoundError') {
+      return res.status(404).json({ error: error.message });
+    }
+    next(error);
+  }
+});
+
+mfaBootstrap.post('/verify', adminMfaRateLimiter, requireAnyAdminRole, async (req, res, next) => {
+  try {
+    const { code } = req.body ?? {};
+    await AdminMfaService.enable(req.user.id, code);
+    const upgraded = await AuthService.upgradeSessionMfa(req.user.id, {
+      sessionFamily: req.auth?.sessionFamily ?? null,
+      ip: req.ip,
+      userAgent: req.get('user-agent')
+    });
+    await audit(req, 'admin.mfa.enable', {
+      targetType: 'user',
+      targetId: req.user.id
+    });
+    return respondWithUpgradedMfaSession(req, res, upgraded, { enabled: true });
+  } catch (error) {
+    if (error instanceof AdminMfaLockedError || error?.name === 'AdminMfaLockedError') {
+      return res.status(403).json({ error: error.message, code: 'MFA_LOCKED' });
+    }
+    if (error instanceof AdminMfaCodeError || error?.name === 'AdminMfaCodeError') {
+      return res.status(403).json({ error: error.message, code: 'MFA_INVALID_CODE' });
+    }
+    if (error instanceof AdminMfaStateError || error?.name === 'AdminMfaStateError') {
+      return res.status(409).json({ error: error.message });
+    }
+    if (error instanceof AdminMfaNotFoundError || error?.name === 'AdminMfaNotFoundError') {
+      return res.status(404).json({ error: error.message });
+    }
+    next(error);
+  }
+});
+
+mfaBootstrap.post('/verify-session', adminMfaRateLimiter, requireAnyAdminRole, async (req, res, next) => {
+  try {
+    const { code } = req.body ?? {};
+    if (await AdminMfaService.isLocked(req.user.id)) {
+      await audit(req, 'admin.mfa.verify', {
+        targetType: 'user',
+        targetId: req.user.id,
+        outcome: 'DENIED',
+        metadata: { reason: 'locked' }
+      });
+      return res.status(403).json({
+        error: 'Too many failed admin MFA attempts. Try again later.',
+        code: 'MFA_LOCKED'
+      });
+    }
+    const ok = await AdminMfaService.verify(req.user.id, code);
+    if (!ok) {
+      await AdminMfaService.recordFailure(req.user.id);
+      await audit(req, 'admin.mfa.verify', {
+        targetType: 'user',
+        targetId: req.user.id,
+        outcome: 'DENIED',
+        metadata: { reason: 'bad_code' }
+      });
+      return res.status(403).json({ error: 'Invalid admin MFA code.', code: 'MFA_INVALID_CODE' });
+    }
+    const upgraded = await AuthService.upgradeSessionMfa(req.user.id, {
+      sessionFamily: req.auth?.sessionFamily ?? null,
+      ip: req.ip,
+      userAgent: req.get('user-agent')
+    });
+    await audit(req, 'admin.mfa.verify', {
+      targetType: 'user',
+      targetId: req.user.id,
+      metadata: { method: 'totp' }
+    });
+    return respondWithUpgradedMfaSession(req, res, upgraded, { verified: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+mfaBootstrap.post('/recover', adminMfaRateLimiter, requireAnyAdminRole, async (req, res, next) => {
+  try {
+    const { recoveryCode } = req.body ?? {};
+    const result = await AdminMfaService.verifyRecoveryCode(req.user.id, recoveryCode);
+    const upgraded = await AuthService.upgradeSessionMfa(req.user.id, {
+      sessionFamily: req.auth?.sessionFamily ?? null,
+      ip: req.ip,
+      userAgent: req.get('user-agent')
+    });
+    await audit(req, 'admin.mfa.recover', {
+      targetType: 'user',
+      targetId: req.user.id,
+      metadata: { recoveryCodesRemaining: result.recoveryCodesRemaining }
+    });
+    return respondWithUpgradedMfaSession(req, res, upgraded, {
+      verified: true,
+      recoveryCodesRemaining: result.recoveryCodesRemaining
+    });
+  } catch (error) {
+    if (error instanceof AdminMfaLockedError || error?.name === 'AdminMfaLockedError') {
+      await audit(req, 'admin.mfa.recover', {
+        targetType: 'user',
+        targetId: req.user.id,
+        outcome: 'DENIED',
+        metadata: { reason: 'locked' }
+      });
+      return res.status(403).json({ error: error.message, code: 'MFA_LOCKED' });
+    }
+    if (error instanceof AdminMfaCodeError || error?.name === 'AdminMfaCodeError') {
+      await audit(req, 'admin.mfa.recover', {
+        targetType: 'user',
+        targetId: req.user.id,
+        outcome: 'DENIED',
+        metadata: { reason: 'bad_recovery_code' }
+      });
+      return res.status(403).json({ error: error.message, code: 'MFA_INVALID_RECOVERY_CODE' });
+    }
+    if (error instanceof AdminMfaNotFoundError || error?.name === 'AdminMfaNotFoundError') {
+      return res.status(404).json({ error: error.message });
+    }
+    next(error);
+  }
+});
+
+mfaBootstrap.post('/recovery-codes/regenerate', adminMfaRateLimiter, requireAnyAdminRole, async (req, res, next) => {
+  try {
+    const { code } = req.body ?? {};
+    const result = await AdminMfaService.regenerateRecoveryCodes(req.user.id, code);
+    await audit(req, 'admin.mfa.recovery_regenerated', {
+      targetType: 'user',
+      targetId: req.user.id,
+      metadata: { count: result.recoveryCodesRemaining }
+    });
+    res.json(result);
+  } catch (error) {
+    if (error instanceof AdminMfaLockedError || error?.name === 'AdminMfaLockedError') {
+      return res.status(403).json({ error: error.message, code: 'MFA_LOCKED' });
+    }
+    if (error instanceof AdminMfaCodeError || error?.name === 'AdminMfaCodeError') {
+      return res.status(403).json({ error: error.message, code: 'MFA_INVALID_CODE' });
+    }
+    if (error instanceof AdminMfaNotFoundError || error?.name === 'AdminMfaNotFoundError') {
+      return res.status(404).json({ error: error.message });
+    }
+    next(error);
+  }
+});
+
+mfaBootstrap.post('/disable', adminMfaRateLimiter, requireAnyAdminRole, async (req, res, next) => {
+  try {
+    const { code } = req.body ?? {};
+    await AdminMfaService.disable(req.user.id, code);
+    // Revoke all active refresh sessions so disabling MFA can never leave a
+    // stale MFA-verified session behind.
+    await AuthService.revokeAllRefreshTokens(req.user.id);
+    if (req.authTransport === 'cookie' || isCookieAuthRequest(req)) {
+      clearAuthCookies(res);
+    }
+    await audit(req, 'admin.mfa.disable', {
+      targetType: 'user',
+      targetId: req.user.id
+    });
+    res.json({ disabled: true });
+  } catch (error) {
+    if (error instanceof AdminMfaLockedError || error?.name === 'AdminMfaLockedError') {
+      return res.status(403).json({ error: error.message, code: 'MFA_LOCKED' });
+    }
+    if (error instanceof AdminMfaCodeError || error?.name === 'AdminMfaCodeError') {
+      return res.status(403).json({ error: error.message, code: 'MFA_INVALID_CODE' });
+    }
+    if (error instanceof AdminMfaNotFoundError || error?.name === 'AdminMfaNotFoundError') {
+      return res.status(404).json({ error: error.message });
+    }
+    next(error);
+  }
+});
+
+adminRouter.use('/mfa', mfaBootstrap);
+
+// Enforce Admin MFA gate across ALL protected operational, financial,
+// compliance, governance, audit, and RBAC sub-routers and endpoints below.
+adminRouter.use(requireAdminMfa);
 
 adminRouter.use('/audit', auditRouter);
 adminRouter.use('/config', configRouter);
@@ -550,6 +848,15 @@ adminRouter.post(
       });
       res.json({ verificationCase });
     } catch (error) {
+      if (error.name === 'VerificationSelfReviewError' || error.name === 'VerificationAuthorizationError') {
+        await audit(req, 'verification.request_info', {
+          targetType: 'verification-case',
+          targetId: req.params.id,
+          outcome: 'DENIED',
+          metadata: { reason: error.name }
+        }).catch(() => {});
+        return res.status(403).json({ error: error.message });
+      }
       if (error.name === 'VerificationCaseNotFoundError') return res.status(404).json({ error: error.message });
       if (error.name === 'VerificationCaseNotReviewableError') return res.status(409).json({ error: error.message });
       next(error);
@@ -573,6 +880,15 @@ adminRouter.post(
       });
       res.json({ verificationCase, replayed });
     } catch (error) {
+      if (error.name === 'VerificationSelfReviewError' || error.name === 'VerificationAuthorizationError') {
+        await audit(req, 'verification.approve', {
+          targetType: 'verification-case',
+          targetId: req.params.id,
+          outcome: 'DENIED',
+          metadata: { reason: error.name }
+        }).catch(() => {});
+        return res.status(403).json({ error: error.message });
+      }
       if (error.name === 'VerificationCaseNotFoundError') return res.status(404).json({ error: error.message });
       if (error.name === 'VerificationCaseNotReviewableError') return res.status(409).json({ error: error.message });
       next(error);
@@ -597,6 +913,15 @@ adminRouter.post(
       });
       res.json({ verificationCase, replayed });
     } catch (error) {
+      if (error.name === 'VerificationSelfReviewError' || error.name === 'VerificationAuthorizationError') {
+        await audit(req, 'verification.reject', {
+          targetType: 'verification-case',
+          targetId: req.params.id,
+          outcome: 'DENIED',
+          metadata: { reason: error.name }
+        }).catch(() => {});
+        return res.status(403).json({ error: error.message });
+      }
       if (error.name === 'VerificationCaseNotFoundError') return res.status(404).json({ error: error.message });
       if (error.name === 'VerificationCaseNotReviewableError') return res.status(409).json({ error: error.message });
       next(error);

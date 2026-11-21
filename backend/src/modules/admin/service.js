@@ -6,6 +6,7 @@ import {
 } from '../../services/ledgerService.js';
 import { enqueueWalletUpdated } from '../../services/outboxService.js';
 import { PERMISSIONS, roleHasPermission } from '../rbac/permissions.js';
+import { serializeBankAccountForAdmin } from '../../utils/bankMask.js';
 
 export class UserNotFoundError extends Error {
   constructor(message = 'User not found') {
@@ -414,7 +415,7 @@ export class AdminService {
           reviewedBy: w.reviewedBy,
           reviewedAt: w.reviewedAt,
           failureReason: w.failureReason,
-          bankAccount: w.bankAccount,
+          bankAccount: serializeBankAccountForAdmin(w.bankAccount),
           createdAt: w.createdAt
         })),
         recentEntries: recentLedgerEntries.map((e) => ({

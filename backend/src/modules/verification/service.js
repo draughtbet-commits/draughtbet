@@ -2,7 +2,29 @@ import crypto from 'crypto';
 import prisma from '../../utils/db.js';
 import logger from '../../utils/logger.js';
 import { KycRequiredError } from '../../services/eligibilityService.js';
-import { createKycProvider, KycProviderError } from './providerAdapter.js';
+import { getKycDocumentSigningSecret } from '../../utils/secrets.js';
+import {
+  createKycProvider,
+  KycProviderError,
+  resolveDefaultKycProviderName,
+  isSimulatedKycAllowed
+} from './providerAdapter.js';
+
+export class VerificationSelfReviewError extends Error {
+  constructor(message = 'Administrators cannot review, approve, or modify their own KYC case') {
+    super(message);
+    this.name = 'VerificationSelfReviewError';
+    this.statusCode = 403;
+  }
+}
+
+export class VerificationAuthorizationError extends Error {
+  constructor(message = 'Authorized reviewer identity is required to transition KYC status') {
+    super(message);
+    this.name = 'VerificationAuthorizationError';
+    this.statusCode = 403;
+  }
+}
 
 export class KycAlreadyVerifiedError extends Error {
   constructor(message = 'KYC verification is already complete') {
@@ -163,10 +185,11 @@ export const getKycStatus = async (userId, { dbp = prisma } = {}) => {
  */
 export const startVerification = async (
   userId,
-  { providerName = 'simulated', type = 'ID_DOCUMENT' } = {},
+  { providerName = null, type = 'ID_DOCUMENT' } = {},
   { dbp = prisma, provider } = {}
 ) => {
-  provider = provider ?? createKycProvider(providerName);
+  const resolvedProviderName = providerName || resolveDefaultKycProviderName();
+  provider = provider ?? createKycProvider(resolvedProviderName);
 
   if (!VERIFICATION_CHECK_TYPES.includes(type)) {
     throw new InvalidVerificationTypeError();
@@ -188,15 +211,16 @@ export const startVerification = async (
   if (inFlight) throw new KycInProgressError();
 
   const caseRow = await dbp.verificationCase.create({
-    data: { userId, status: 'STARTED', provider: providerName }
+    data: { userId, status: 'STARTED', provider: resolvedProviderName }
   });
   const check = await dbp.verificationCheck.create({
     data: { caseId: caseRow.id, type }
   });
 
+  let started;
   let result;
   try {
-    const started = await provider.start(userId, { type });
+    started = await provider.start(userId, { type });
     result = await provider.getResult(started.providerReference);
   } catch (err) {
     if (err instanceof KycProviderError || err?.name === 'KycProviderError') {
@@ -211,6 +235,49 @@ export const startVerification = async (
       throw new KycRejectedError('The verification provider could not complete the check.');
     }
     throw err;
+  }
+
+  // Defense in depth: never permit simulated auto-verification in production
+  // even if a simulated provider instance was somehow supplied.
+  const usedSimulated =
+    started?.provider === 'simulated' ||
+    result?.provider === 'simulated' ||
+    provider?.constructor?.name === 'SimulatedKycProvider';
+  if (usedSimulated && !isSimulatedKycAllowed()) {
+    await dbp.verificationCheck.update({
+      where: { id: check.id },
+      data: { status: 'PENDING', providerResponse: { status: 'UNDER_REVIEW', verdict: 'MANUAL_REVIEW_REQUIRED' } }
+    });
+    await dbp.verificationCase.update({
+      where: { id: caseRow.id },
+      data: { status: 'UNDER_REVIEW' }
+    });
+    await dbp.user.update({
+      where: { id: userId },
+      data: { kycStatus: 'PENDING' }
+    });
+    logger.warn({ userId, caseId: caseRow.id }, 'Blocked simulated KYC auto-pass; queued for manual compliance review');
+    return { status: 'UNDER_REVIEW', caseId: caseRow.id, checkId: check.id };
+  }
+
+  if (result?.status === 'UNDER_REVIEW' || result?.status === 'PENDING') {
+    await dbp.verificationCheck.update({
+      where: { id: check.id },
+      data: {
+        status: 'PENDING',
+        providerResponse: sanitizeProviderResponse(result)
+      }
+    });
+    await dbp.verificationCase.update({
+      where: { id: caseRow.id },
+      data: { status: 'UNDER_REVIEW' }
+    });
+    await dbp.user.update({
+      where: { id: userId },
+      data: { kycStatus: 'PENDING' }
+    });
+    logger.info({ userId, caseId: caseRow.id, checkId: check.id }, 'KYC submission queued for compliance review');
+    return { status: 'UNDER_REVIEW', caseId: caseRow.id, checkId: check.id };
   }
 
   if (result?.status === 'PASSED') {
@@ -459,7 +526,7 @@ export const generateVerificationDocumentAccess = async (
   const now = new Date();
   const expiresInSeconds = 120;
   const expiresAt = new Date(now.getTime() + expiresInSeconds * 1000).toISOString();
-  const signingSecret = process.env.JWT_SECRET || 'kyc-ephemeral-signing-key';
+  const signingSecret = getKycDocumentSigningSecret();
   const payloadString = `${caseId}:${targetCheck?.id ?? 'case'}:${adminId ?? 'admin'}:${expiresAt}`;
   const signature = crypto
     .createHmac('sha256', signingSecret)
@@ -472,31 +539,45 @@ export const generateVerificationDocumentAccess = async (
       checkId: targetCheck?.id ?? null,
       checkType: targetCheck?.type ?? 'ID_DOCUMENT',
       checkStatus: targetCheck?.status ?? row.status,
-      provider: row.provider || 'simulated',
+      provider: row.provider || 'manual',
       signedToken: `kyc_sig_${signature.slice(0, 32)}`,
       expiresAt,
       expiresInSeconds,
       watermark: `CONFIDENTIAL · VIEWED BY ${adminId ?? 'ADMIN'} · ${now.toISOString()}`,
       sanitizedVerdict: sanitizeProviderResponse(targetCheck?.providerResponse) ?? {
         status: targetCheck?.status ?? row.status,
-        provider: row.provider || 'simulated',
+        provider: row.provider || 'manual',
         verdict: targetCheck?.status === 'PASSED' ? 'MATCH_CONFIRMED' : 'MANUAL_REVIEW_REQUIRED'
       }
     }
   };
 };
 
+const lockVerificationCaseRow = async (tx, caseId) => {
+  if (typeof tx.$queryRaw === 'function') {
+    await tx.$queryRaw`SELECT id FROM "VerificationCase" WHERE id = ${caseId} FOR UPDATE`;
+  }
+};
+
 /**
  * Admin request additional information. Transitions a reviewable case to
  * REQUIRED and records the operator's request in case metadata and user status.
+ * Blocks self-review (adminId === vc.userId).
  */
 export const requestAdditionalKycInfo = async (
   caseId,
   { adminId = null, reason = null, dbp = prisma } = {}
 ) => {
   return dbp.$transaction(async (tx) => {
+    await lockVerificationCaseRow(tx, caseId);
     const vc = await tx.verificationCase.findUnique({ where: { id: caseId } });
     if (!vc) throw new VerificationCaseNotFoundError();
+    if (!adminId) {
+      throw new VerificationAuthorizationError();
+    }
+    if (vc.userId === adminId) {
+      throw new VerificationSelfReviewError();
+    }
     if (!REVIEWABLE_CASE_STATUSES.includes(vc.status)) {
       throw new VerificationCaseNotReviewableError(
         'Cannot request additional information on a verified or closed case'
@@ -539,15 +620,20 @@ export const requestAdditionalKycInfo = async (
 /**
  * Admin approve (overrides a provider rejection / manual review). Flips case +
  * open checks to VERIFIED and projects the pass onto the user, attributed to
- * the reviewing admin in case metadata.
+ * the reviewing admin in case metadata. Strictly forbids self-approval
+ * (adminId === vc.userId) and requires an attributed reviewer adminId.
  */
 export const approveVerificationCase = async (
   caseId,
   { adminId = null, note = null, dbp = prisma } = {}
 ) => {
   return dbp.$transaction(async (tx) => {
+    await lockVerificationCaseRow(tx, caseId);
     const vc = await tx.verificationCase.findUnique({ where: { id: caseId } });
     if (!vc) throw new VerificationCaseNotFoundError();
+    if (adminId && vc.userId === adminId) {
+      throw new VerificationSelfReviewError();
+    }
     if (vc.status === 'VERIFIED') {
       logger.info({ caseId, adminId }, 'KYC approve replayed on already-verified case');
       return { case: vc, replayed: true };
@@ -555,8 +641,21 @@ export const approveVerificationCase = async (
     if (!REVIEWABLE_CASE_STATUSES.includes(vc.status)) {
       throw new VerificationCaseNotReviewableError();
     }
+    if (!adminId) {
+      throw new VerificationAuthorizationError();
+    }
 
     const now = new Date();
+    const prevHistory = Array.isArray(vc.metadata?.decisionHistory)
+      ? vc.metadata.decisionHistory
+      : [];
+    const entry = {
+      action: 'APPROVE',
+      reviewedBy: adminId,
+      reviewedAt: now.toISOString(),
+      note: note || null
+    };
+
     await tx.verificationCheck.updateMany({
       where: { caseId, status: { in: ['PENDING', 'FAILED'] } },
       data: { status: 'PASSED', verifiedAt: now }
@@ -565,7 +664,13 @@ export const approveVerificationCase = async (
       where: { id: caseId },
       data: {
         status: 'VERIFIED',
-        metadata: { ...(vc.metadata ?? {}), reviewedBy: adminId, reviewedAt: now.toISOString(), note }
+        metadata: {
+          ...(vc.metadata ?? {}),
+          reviewedBy: adminId,
+          reviewedAt: now.toISOString(),
+          note,
+          decisionHistory: [...prevHistory, entry]
+        }
       }
     });
     await tx.user.update({
@@ -579,16 +684,20 @@ export const approveVerificationCase = async (
 
 /**
  * Admin reject. Only still-open checks are failed (provider pass provenance is
- * never rewritten); the case carries the reviewer + reason. A later case still
- * decides the user's KYC status.
+ * never rewritten); the case carries the reviewer + reason. Strictly forbids
+ * self-review (adminId === vc.userId) and requires an attributed reviewer adminId.
  */
 export const rejectVerificationCase = async (
   caseId,
   { adminId = null, reason = null, dbp = prisma } = {}
 ) => {
   return dbp.$transaction(async (tx) => {
+    await lockVerificationCaseRow(tx, caseId);
     const vc = await tx.verificationCase.findUnique({ where: { id: caseId } });
     if (!vc) throw new VerificationCaseNotFoundError();
+    if (adminId && vc.userId === adminId) {
+      throw new VerificationSelfReviewError();
+    }
     if (vc.status === 'REJECTED') {
       return { case: vc, replayed: true };
     }
@@ -598,8 +707,21 @@ export const rejectVerificationCase = async (
     if (vc.status === 'VERIFIED' && !(process.env.ADMIN_KYC_OVERRIDE_VERIFIED === 'true')) {
       throw new VerificationCaseNotReviewableError('A verified case cannot be rejected');
     }
+    if (!adminId) {
+      throw new VerificationAuthorizationError();
+    }
 
     const now = new Date();
+    const prevHistory = Array.isArray(vc.metadata?.decisionHistory)
+      ? vc.metadata.decisionHistory
+      : [];
+    const entry = {
+      action: 'REJECT',
+      reviewedBy: adminId,
+      reviewedAt: now.toISOString(),
+      reason: reason || null
+    };
+
     await tx.verificationCheck.updateMany({
       where: { caseId, status: { in: ['PENDING'] } },
       data: { status: 'FAILED' }
@@ -608,7 +730,13 @@ export const rejectVerificationCase = async (
       where: { id: caseId },
       data: {
         status: 'REJECTED',
-        metadata: { ...(vc.metadata ?? {}), reviewedBy: adminId, reviewedAt: now.toISOString(), reason }
+        metadata: {
+          ...(vc.metadata ?? {}),
+          reviewedBy: adminId,
+          reviewedAt: now.toISOString(),
+          reason,
+          decisionHistory: [...prevHistory, entry]
+        }
       }
     });
     await tx.user.update({

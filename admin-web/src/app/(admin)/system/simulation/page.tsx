@@ -2,6 +2,8 @@
 
 import React, { useCallback, useEffect, useState } from 'react';
 import { adminApi } from '@/lib/api/admin';
+import { RouteGuard } from '@/components/auth/RouteGuard';
+import { PERMISSIONS } from '@/lib/permissions/matrix';
 import type { SimulationStatusSnapshot } from '@/lib/api/types';
 import { Card, CardTitle, CardDescription } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
@@ -29,7 +31,7 @@ const STATUS_BADGE: Record<string, 'default' | 'success' | 'warning' | 'danger' 
   FAILED: 'danger'
 };
 
-export default function SimulationLabPage() {
+function SimulationLabPageContent() {
   const [sim, setSim] = useState<SimulationStatusSnapshot | null>(null);
   const [userCount, setUserCount] = useState(20);
   const [concurrency, setConcurrency] = useState(5);
@@ -466,5 +468,14 @@ export default function SimulationLabPage() {
         </>
       )}
     </div>
+  );
+}
+
+
+export default function SimulationLabPage() {
+  return (
+    <RouteGuard permission={PERMISSIONS.ROLES_ADMIN} section="Simulation Lab">
+      <SimulationLabPageContent />
+    </RouteGuard>
   );
 }

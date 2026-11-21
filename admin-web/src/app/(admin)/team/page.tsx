@@ -2,25 +2,27 @@
 
 import React, { useEffect, useState } from 'react';
 import { adminApi } from '@/lib/api/admin';
+import { RouteGuard } from '@/components/auth/RouteGuard';
+import { PERMISSIONS } from '@/lib/permissions/matrix';
 import { Card } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { RoleBadge } from '@/components/shell/RoleBadge';
 import { AdminRole } from '@/lib/permissions/roles';
 
-export default function TeamPage() {
+function TeamPageContent() {
   const [roles, setRoles] = useState<Array<{ name: string; description: string; permissions: string[]; assignedCount: number }>>([]);
 
   useEffect(() => {
     adminApi.getRoles()
       .then((res) => setRoles(res.roles))
-      .catch(() => {});
+      .catch(() => { });
   }, []);
 
   return (
     <div className="space-y-6">
       <div className="pb-2 border-b border-[#274056]">
         <h1 className="text-2xl font-bold tracking-tight text-[#F5F7FA]">
-          Staff & RBAC Administration
+          Staff &amp; RBAC Administration
         </h1>
         <p className="text-xs text-[#8FA3B7] mt-0.5">
           Database-backed roles, permission matrices, and operator assignments.
@@ -59,5 +61,13 @@ export default function TeamPage() {
         ))}
       </div>
     </div>
+  );
+}
+
+export default function TeamPage() {
+  return (
+    <RouteGuard permission={PERMISSIONS.ROLES_ADMIN} section="Staff & RBAC Administration">
+      <TeamPageContent />
+    </RouteGuard>
   );
 }

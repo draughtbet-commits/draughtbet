@@ -1,6 +1,14 @@
 import type { AdminRole } from './roles';
 import { type Permission, PERMISSIONS, rolesHavePermission } from './matrix';
 
+export interface AdminMfaState {
+  enforced: boolean;
+  provisioned: boolean;
+  enabled: boolean;
+  verified: boolean;
+  recoveryCodesRemaining: number;
+}
+
 export interface AdminUser {
   id: string;
   email: string;
@@ -8,6 +16,7 @@ export interface AdminUser {
   fullName: string | null;
   roles: AdminRole[];
   permissions: Permission[];
+  mfa?: AdminMfaState;
 }
 
 export type ConfigDomain =
@@ -27,9 +36,22 @@ export function canAccessPermission(user: AdminUser | null, permission: Permissi
   return rolesHavePermission(user.roles, permission);
 }
 
+export function hasAnyPermission(
+  user: AdminUser | null,
+  permissions: readonly Permission[]
+): boolean {
+  if (!user || permissions.length === 0) return false;
+  return permissions.some((p) => canAccessPermission(user, p));
+}
+
 export function hasAnyRole(user: AdminUser | null, allowedRoles: readonly AdminRole[]): boolean {
   if (!user || !user.roles || user.roles.length === 0) return false;
   return user.roles.some((r) => allowedRoles.includes(r));
+}
+
+export function requiresMfaVerification(user: AdminUser | null): boolean {
+  if (!user || !user.mfa) return false;
+  return Boolean(user.mfa.enforced && !user.mfa.verified);
 }
 
 /**

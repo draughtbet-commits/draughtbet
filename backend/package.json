@@ -5,7 +5,10 @@
   "main": "index.js",
   "scripts": {
     "dev": "node --watch src/server.js",
-    "test": "REDIS_URL= DATABASE_URL= node --experimental-vm-modules node_modules/jest/bin/jest.js"
+    "test": "REDIS_URL= DATABASE_URL= node --experimental-vm-modules node_modules/jest/bin/jest.js",
+    "migrate:status": "node node_modules/prisma/build/index.js migrate status",
+    "migrate:preflight": "node scripts/safeMigrate.js --check",
+    "migrate:deploy": "node scripts/safeMigrate.js --apply"
   },
   "keywords": [],
   "author": "",

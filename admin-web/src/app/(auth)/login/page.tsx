@@ -3,6 +3,8 @@
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth/AuthContext';
+import { requiresMfaVerification } from '@/lib/permissions/guards';
+import { MfaChallengeScreen } from '@/components/auth/MfaChallengeScreen';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Card } from '@/components/ui/Card';
@@ -13,8 +15,12 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const { login } = useAuth();
+  const { user, login } = useAuth();
   const router = useRouter();
+
+  if (user && requiresMfaVerification(user)) {
+    return <MfaChallengeScreen />;
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -22,8 +28,10 @@ export default function LoginPage() {
     setIsSubmitting(true);
 
     try {
-      await login(identifier, password);
-      router.push('/dashboard');
+      const profile = await login(identifier, password);
+      if (!requiresMfaVerification(profile)) {
+        router.push('/dashboard');
+      }
     } catch (err: unknown) {
       if (err instanceof Error) {
         setError(err.message);
@@ -98,4 +106,3 @@ export default function LoginPage() {
     </div>
   );
 }
-

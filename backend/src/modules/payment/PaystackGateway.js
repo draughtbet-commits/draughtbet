@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import logger from '../../utils/logger.js';
+import { maskAccountNumber } from '../../utils/bankMask.js';
 import { PaymentGateway, PaymentGatewayError, isSimulationMockPaymentEnabled } from './PaymentGateway.js';
 
 export class PaystackGateway extends PaymentGateway {
@@ -94,8 +95,16 @@ export class PaystackGateway extends PaymentGateway {
       logger.error('Cannot verify Paystack webhook without PAYSTACK_SECRET_KEY');
       return false;
     }
+    if (typeof signatureHeader !== 'string' || !signatureHeader) {
+      return false;
+    }
     const hash = crypto.createHmac('sha512', this.secretKey).update(rawBody).digest('hex');
-    return hash === signatureHeader;
+    const expectedBuf = Buffer.from(hash, 'utf8');
+    const receivedBuf = Buffer.from(signatureHeader.trim().toLowerCase(), 'utf8');
+    if (expectedBuf.length !== receivedBuf.length) {
+      return false;
+    }
+    return crypto.timingSafeEqual(expectedBuf, receivedBuf);
   }
 
   /**
@@ -121,7 +130,10 @@ export class PaystackGateway extends PaymentGateway {
       }
       return { accountName: data.data.account_name, verified: true };
     } catch (error) {
-      logger.warn({ error: error.message, bankCode, accountNumber }, 'Paystack account resolution failed');
+      logger.warn(
+        { error: error.message, bankCode, maskedAccountNumber: maskAccountNumber(accountNumber) },
+        'Paystack account resolution failed'
+      );
       throw new PaymentGatewayError('Unable to verify this bank account', error);
     }
   }
@@ -153,7 +165,10 @@ export class PaystackGateway extends PaymentGateway {
       }
       return { recipientRef: data.data.recipient_code };
     } catch (error) {
-      logger.warn({ error: error.message, bankCode, accountNumber }, 'Paystack recipient creation failed');
+      logger.warn(
+        { error: error.message, bankCode, maskedAccountNumber: maskAccountNumber(accountNumber) },
+        'Paystack recipient creation failed'
+      );
       throw new PaymentGatewayError('Unable to create payout recipient', error);
     }
   }

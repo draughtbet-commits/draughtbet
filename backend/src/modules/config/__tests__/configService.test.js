@@ -358,7 +358,7 @@ describe('ConfigService (Unit)', () => {
 
       expect(result.deleted).toBe(true);
       expect(mockDb.platformConfigVersion.delete).toHaveBeenCalledWith({
-        where: { id: 'draft-to-delete' }
+        where: { id: 'draft-to-delete', status: 'DRAFT' }
       });
       expect(mockDb.adminAuditLog.create).toHaveBeenCalledWith({
         data: expect.objectContaining({
@@ -444,7 +444,7 @@ describe('ConfigService (Unit)', () => {
 
       expect(submitted.status).toBe('PENDING_APPROVAL');
       expect(mockDb.platformConfigVersion.update).toHaveBeenCalledWith({
-        where: { id: 'draft-1' },
+        where: { id: 'draft-1', status: 'DRAFT', checksum: draft.checksum },
         data: { status: 'PENDING_APPROVAL' },
         include: expect.any(Object)
       });

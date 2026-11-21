@@ -1,4 +1,5 @@
 import express from 'express';
+import jwt from 'jsonwebtoken';
 import { z } from 'zod';
 import { AuthService } from './service.js';
 import { GeoService } from '../../services/geoService.js';
@@ -6,6 +7,15 @@ import { requireAuth } from '../../middleware/auth.js';
 import { authRateLimiter, checkRateLimiter } from '../../middleware/rateLimit.js';
 import { requireAppVersion } from '../../middleware/appVersion.js';
 import { getIO } from '../../sockets/index.js';
+import { AdminMfaService } from '../mfa/service.js';
+import {
+  ACCESS_COOKIE_MAX_AGE_MS,
+  setAuthCookies,
+  setCsrfCookie,
+  clearAuthCookies,
+  extractRefreshFromCookie,
+  isCookieAuthRequest
+} from '../../utils/authCookies.js';
 
 export const authRouter = express.Router();
 
@@ -68,6 +78,12 @@ const availabilitySchema = z.object({
   value: z.string().min(1)
 });
 
+// Issues a fresh signed double-submit CSRF cookie for browser clients.
+authRouter.get('/csrf', (_req, res) => {
+  const csrfToken = setCsrfCookie(res);
+  res.json({ csrfToken });
+});
+
 authRouter.post('/register', authRateLimiter, requireAppVersion, async (req, res, next) => {
   try {
     const data = registerSchema.parse(req.body);
@@ -118,6 +134,46 @@ authRouter.post('/login', authRateLimiter, requireAppVersion, async (req, res, n
       userAgent: req.get('user-agent'),
       deviceInfo: data.deviceInfo
     });
+
+    if (isCookieAuthRequest(req)) {
+      const decoded = jwt.decode(tokens.accessToken) || {};
+      const userId = decoded.userId;
+      const csrfToken = setAuthCookies(res, {
+        accessToken: tokens.accessToken,
+        refreshToken: tokens.refreshToken,
+        userId
+      });
+      const mfaStatus = userId
+        ? await AdminMfaService.getDetailedStatus(userId).catch(() => ({
+            enforced: AdminMfaService.isEnforced(),
+            provisioned: false,
+            enabled: false,
+            recoveryCodesRemaining: 0
+          }))
+        : { enforced: AdminMfaService.isEnforced(), provisioned: false, enabled: false, recoveryCodesRemaining: 0 };
+
+      const expiresAt =
+        typeof decoded.exp === 'number'
+          ? new Date(decoded.exp * 1000).toISOString()
+          : new Date(Date.now() + ACCESS_COOKIE_MAX_AGE_MS).toISOString();
+
+      // Never return raw accessToken or refreshToken to cookie-based browser clients.
+      return res.json({
+        authenticated: true,
+        userId,
+        expiresIn: Math.floor(ACCESS_COOKIE_MAX_AGE_MS / 1000),
+        expiresAt,
+        csrfToken,
+        mfa: {
+          enforced: mfaStatus.enforced,
+          provisioned: mfaStatus.provisioned,
+          enabled: mfaStatus.enabled,
+          verified: decoded.mfaVerified === true,
+          recoveryCodesRemaining: mfaStatus.recoveryCodesRemaining ?? 0
+        }
+      });
+    }
+
     res.json(tokens);
   } catch (err) {
     if (err && err.name === 'ZodError') {
@@ -165,20 +221,47 @@ authRouter.post('/check-availability', checkRateLimiter, async (req, res, next) 
 });
 
 authRouter.post('/refresh', authRateLimiter, requireAppVersion, async (req, res, next) => {
+  const cookieCreds = extractRefreshFromCookie(req);
+  const useCookies = Boolean(cookieCreds) || isCookieAuthRequest(req);
   try {
-    // Both userId and refreshToken should ideally come from the request
-    const { userId, refreshToken } = req.body;
+    const userId = cookieCreds?.userId || req.body?.userId;
+    const refreshToken = cookieCreds?.refreshToken || req.body?.refreshToken;
     if (!userId || !refreshToken) {
+      if (useCookies) clearAuthCookies(res);
       return res.status(400).json({ error: 'userId and refreshToken required' });
     }
     const tokens = await AuthService.refresh(userId, refreshToken, {
       ip: req.ip,
       userAgent: req.get('user-agent'),
-      deviceInfo: req.body.deviceInfo
+      deviceInfo: req.body?.deviceInfo
     });
+
+    if (useCookies) {
+      const decoded = jwt.decode(tokens.accessToken) || {};
+      const csrfToken = setAuthCookies(res, {
+        accessToken: tokens.accessToken,
+        refreshToken: tokens.refreshToken,
+        userId
+      });
+      const expiresAt =
+        typeof decoded.exp === 'number'
+          ? new Date(decoded.exp * 1000).toISOString()
+          : new Date(Date.now() + ACCESS_COOKIE_MAX_AGE_MS).toISOString();
+
+      return res.json({
+        authenticated: true,
+        userId,
+        expiresIn: Math.floor(ACCESS_COOKIE_MAX_AGE_MS / 1000),
+        expiresAt,
+        csrfToken,
+        mfaVerified: decoded.mfaVerified === true
+      });
+    }
+
     res.json(tokens);
   } catch (err) {
     if (err.message === 'Invalid or expired refresh token' || err.message === 'Account suspended') {
+      if (useCookies) clearAuthCookies(res);
       return res.status(401).json({ error: err.message });
     }
     next(err);
@@ -187,17 +270,24 @@ authRouter.post('/refresh', authRateLimiter, requireAppVersion, async (req, res,
 
 authRouter.post('/logout', requireAuth, async (req, res, next) => {
   try {
-    const { refreshToken } = req.body;
-    if (!refreshToken) {
+    const cookieCreds = extractRefreshFromCookie(req);
+    const useCookies = req.authTransport === 'cookie' || Boolean(cookieCreds) || isCookieAuthRequest(req);
+    const refreshToken = req.body?.refreshToken || cookieCreds?.refreshToken;
+
+    if (!refreshToken && !useCookies) {
       return res.status(400).json({ error: 'refreshToken required' });
     }
-    // req.user.id is populated by requireAuth middleware
-    await AuthService.logout(req.user.id, refreshToken);
+
+    if (refreshToken) {
+      await AuthService.logout(req.user.id, refreshToken);
+    }
+
+    if (useCookies) {
+      clearAuthCookies(res);
+    }
 
     // End the user's live realtime connections so logout takes effect
     // immediately, not only when the access token naturally expires.
-    // Access-token policy after logout: stateless access tokens remain valid
-    // until natural expiry for HTTP; the socket session is revoked now.
     try {
       getIO().in(`user:${req.user.id}`).disconnectSockets(true);
     } catch (_) {

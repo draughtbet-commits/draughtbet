@@ -2,6 +2,8 @@
 
 import React, { useEffect, useState, useCallback } from 'react';
 import { adminApi } from '@/lib/api/admin';
+import { RouteGuard } from '@/components/auth/RouteGuard';
+import { PERMISSIONS } from '@/lib/permissions/matrix';
 import {
   RiskCaseItem,
   RiskEventItem,
@@ -31,7 +33,7 @@ import {
   CheckCircle2
 } from 'lucide-react';
 
-export default function RiskPage() {
+function RiskPageContent() {
   const [activeTab, setActiveTab] = useState<'CASES' | 'SAFER_PLAY'>('CASES');
 
   // --- TAB 1: RISK CASES & EVENTS STATE ---
@@ -117,11 +119,14 @@ export default function RiskPage() {
   }, [saferPage, saferSearch, saferTypeFilter]);
 
   useEffect(() => {
-    if (activeTab === 'CASES') {
-      fetchRiskCases();
-    } else {
-      fetchSaferPlay();
-    }
+    const id = window.setTimeout(() => {
+      if (activeTab === 'CASES') {
+        fetchRiskCases();
+      } else {
+        fetchSaferPlay();
+      }
+    }, 0);
+    return () => window.clearTimeout(id);
   }, [activeTab, fetchRiskCases, fetchSaferPlay]);
 
   // Inspect Risk Case
@@ -945,5 +950,14 @@ export default function RiskPage() {
         </div>
       )}
     </div>
+  );
+}
+
+
+export default function RiskPage() {
+  return (
+    <RouteGuard permission={PERMISSIONS.RISK_REVIEW} section="Risk & Safer Play">
+      <RiskPageContent />
+    </RouteGuard>
   );
 }

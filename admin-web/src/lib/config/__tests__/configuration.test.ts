@@ -288,7 +288,10 @@ describe('Phase 4 Milestone 4 — Configuration Management UI & Integration Suit
 
     beforeEach(() => {
       calls = [];
-      apiClient.setTokens('test-jwt-token', 'test-refresh-token');
+      apiClient.setSessionMetadata({
+        csrfToken: 'test-nonce.test-sig',
+        expiresIn: 900
+      });
     });
 
     const mockFetchOnce = (status: number, responseBody: unknown) => {
@@ -571,7 +574,17 @@ describe('Phase 4 Milestone 4 — Configuration Management UI & Integration Suit
         '/configuration/approvals'
       ]);
 
-      const navHtml = renderToStaticMarkup(React.createElement(ConfigSubNav));
+      const superAdminUser = {
+        id: 'sa-1',
+        email: 'sa@draughtbet.com',
+        username: 'sa',
+        fullName: 'Super Admin',
+        roles: ['SUPER_ADMIN' as const],
+        permissions: Object.values(PERMISSIONS)
+      };
+      const navHtml = renderToStaticMarkup(
+        React.createElement(ConfigSubNav, { user: superAdminUser })
+      );
       assert.match(navHtml, /Platform Settings/);
       assert.match(navHtml, /Financial Configuration/);
       assert.match(navHtml, /Feature Flags/);
@@ -579,6 +592,13 @@ describe('Phase 4 Milestone 4 — Configuration Management UI & Integration Suit
       assert.match(navHtml, /Maintenance/);
       assert.match(navHtml, /Version History/);
       assert.match(navHtml, /Approvals/);
+
+      // Unauthenticated user renders zero restricted configuration tabs
+      const anonHtml = renderToStaticMarkup(
+        React.createElement(ConfigSubNav, { user: null })
+      );
+      assert.doesNotMatch(anonHtml, /Financial Configuration/);
+      assert.doesNotMatch(anonHtml, /Approvals/);
     });
   });
 });

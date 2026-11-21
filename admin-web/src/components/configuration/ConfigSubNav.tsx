@@ -3,6 +3,9 @@
 import React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { useOptionalAuth } from '@/lib/auth/AuthContext';
+import type { AdminUser } from '@/lib/permissions/guards';
+import { canAccessAdminRoute } from '@/lib/permissions/routes';
 import { cn } from '@/lib/utils';
 import {
   LayoutGrid,
@@ -42,13 +45,21 @@ export const CONFIG_NAV_TABS: ConfigNavTab[] = [
   { label: 'Approvals', href: '/configuration/approvals', icon: CheckSquare }
 ];
 
-export function ConfigSubNav() {
+export interface ConfigSubNavProps {
+  user?: AdminUser | null;
+}
+
+export function ConfigSubNav({ user: userOverride }: ConfigSubNavProps) {
   const pathname = usePathname();
+  const auth = useOptionalAuth();
+  const effectiveUser = userOverride !== undefined ? userOverride : (auth?.user ?? null);
+
+  const visibleTabs = CONFIG_NAV_TABS.filter((tab) => canAccessAdminRoute(effectiveUser, tab.href));
 
   return (
     <div className="bg-[#0C1B2A] border border-[#274056] rounded-xl p-2 overflow-x-auto scrollbar-thin scrollbar-thumb-[#274056]">
       <nav aria-label="Configuration sections" className="flex items-center gap-1 min-w-max">
-        {CONFIG_NAV_TABS.map((tab) => {
+        {visibleTabs.map((tab) => {
           const isActive = tab.exact
             ? pathname === tab.href
             : pathname === tab.href || pathname.startsWith(`${tab.href}/`);

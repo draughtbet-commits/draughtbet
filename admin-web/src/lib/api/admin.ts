@@ -476,9 +476,13 @@ export const adminApi = {
     );
   },
 
-  async activateConfigVersion(versionId: string): Promise<{ version: PlatformConfigVersionItem }> {
+  async activateConfigVersion(
+    versionId: string,
+    expected?: { expectedVersion?: number; expectedChecksum?: string }
+  ): Promise<{ version: PlatformConfigVersionItem }> {
     return apiClient.post<{ version: PlatformConfigVersionItem }>(
-      `/admin/config/versions/${versionId}/activate`
+      `/admin/config/versions/${versionId}/activate`,
+      expected
     );
   },
 

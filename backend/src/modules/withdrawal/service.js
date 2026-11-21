@@ -11,6 +11,10 @@ import {
 import { parseMinorUnits, parseIdempotencyKey } from '../wallet/service.js';
 import { enqueueWalletUpdated, enqueueNotificationDelivery } from '../../services/outboxService.js';
 import { PaymentGatewayError } from '../payment/PaymentGateway.js';
+import {
+  serializeBankAccountForPlayer,
+  serializeBankAccountForAdmin
+} from '../../utils/bankMask.js';
 
 export class BankAccountRequiredError extends Error {
   constructor(message = 'A verified bank account is required for withdrawals') {
@@ -265,7 +269,7 @@ export class WithdrawalService {
     const existing = await prisma.bankAccount.findFirst({
       where: { userId, accountNumber: number }
     });
-    if (existing) return existing;
+    if (existing) return serializeBankAccountForPlayer(existing);
 
     const provider = this.providers[gateway];
     if (!provider) throw new PaymentGatewayError('Payout provider not configured');
@@ -279,7 +283,7 @@ export class WithdrawalService {
       accountName: resolved.accountName
     });
 
-    return await prisma.$transaction(async (tx) => {
+    const created = await prisma.$transaction(async (tx) => {
       const [firstWillBeDefault] = await Promise.all([
         tx.bankAccount.count({ where: { userId } })
       ]);
@@ -308,6 +312,7 @@ export class WithdrawalService {
       }
       throw error;
     });
+    return serializeBankAccountForPlayer(created);
   }
 
   async listBankAccounts(userId) {
@@ -315,21 +320,11 @@ export class WithdrawalService {
       where: { userId },
       orderBy: [{ isDefault: 'desc' }, { createdAt: 'asc' }]
     });
-    return rows.map((b) => ({
-      id: b.id,
-      gateway: b.gateway,
-      bankCode: b.bankCode,
-      bankName: b.bankName,
-      accountNumber: b.accountNumber,
-      accountName: b.accountName,
-      isDefault: b.isDefault,
-      verifiedAt: b.verifiedAt,
-      createdAt: b.createdAt
-    }));
+    return rows.map(serializeBankAccountForPlayer);
   }
 
   async setDefaultBankAccount(userId, bankAccountId) {
-    return await prisma.$transaction(async (tx) => {
+    const updated = await prisma.$transaction(async (tx) => {
       const account = await tx.bankAccount.findFirst({
         where: { id: bankAccountId, userId }
       });
@@ -343,6 +338,7 @@ export class WithdrawalService {
         data: { isDefault: true }
       });
     });
+    return serializeBankAccountForPlayer(updated);
   }
 
   async deleteBankAccount(userId, bankAccountId) {
@@ -389,7 +385,7 @@ export class WithdrawalService {
       withdrawals: rows.map((w) => ({
         ...toPayload(w),
         user: w.user,
-        bankAccount: w.bankAccount
+        bankAccount: serializeBankAccountForAdmin(w.bankAccount)
       })),
       total,
       page,
@@ -419,7 +415,7 @@ export class WithdrawalService {
     return {
       ...toPayload(row),
       user: row.user,
-      bankAccount: row.bankAccount
+      bankAccount: serializeBankAccountForAdmin(row.bankAccount)
     };
   }
 

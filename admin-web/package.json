@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "node --test src/lib/config/__tests__/configuration.test.ts"
+    "test": "node --test src/lib/config/__tests__/configuration.test.ts src/lib/permissions/__tests__/securityGuards.test.ts"
   },
   "dependencies": {
     "clsx": "^2.1.1",

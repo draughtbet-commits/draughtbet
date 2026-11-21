@@ -410,9 +410,12 @@ configRouter.post(
   requirePermission(PERMISSIONS.CONFIG_ACTIVATE),
   async (req, res, next) => {
     try {
+      const { expectedVersion, version, expectedChecksum, checksum } = req.body || {};
       const activated = await ConfigService.activateVersion({
         versionId: req.params.id,
         activatorId: req.user.id,
+        expectedVersion: expectedVersion ?? version ?? null,
+        expectedChecksum: expectedChecksum ?? checksum ?? null,
         auditTelemetry: getAuditTelemetry(req)
       });
 

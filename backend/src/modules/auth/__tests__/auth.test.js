@@ -325,12 +325,29 @@ describe('Auth System', () => {
   });
 
   describe('POST /auth/login', () => {
-    it('should reject login if isBanned is true', async () => {
+    it('should reject login if isBanned is true without leaking suspension on wrong password', async () => {
+      const hash = await bcrypt.hash('StrongPassword1', 1);
       mockPrisma.user.findUnique.mockResolvedValueOnce({
         id: 'user-id',
         email: 'banned@example.com',
         isBanned: true,
-        passwordHash: 'hash'
+        passwordHash: hash
+      });
+
+      const wrongPassRes = await request(app)
+        .post('/api/v1/auth/login')
+        .send({
+          email: 'banned@example.com',
+          password: 'WrongPassword9'
+        });
+      expect(wrongPassRes.status).toBe(401);
+      expect(wrongPassRes.body.error).toBe('Invalid credentials');
+
+      mockPrisma.user.findUnique.mockResolvedValueOnce({
+        id: 'user-id',
+        email: 'banned@example.com',
+        isBanned: true,
+        passwordHash: hash
       });
 
       const res = await request(app)

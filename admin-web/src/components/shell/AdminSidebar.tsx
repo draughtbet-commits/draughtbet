@@ -6,6 +6,7 @@ import { usePathname } from 'next/navigation';
 import { useAuth } from '@/lib/auth/AuthContext';
 import { PERMISSIONS, Permission } from '@/lib/permissions/matrix';
 import { canAccessPermission } from '@/lib/permissions/guards';
+import { canAccessAdminRoute } from '@/lib/permissions/routes';
 import { cn } from '@/lib/utils';
 import {
   LayoutDashboard,
@@ -147,6 +148,7 @@ export function AdminSidebar({ className }: { className?: string }) {
       <div className="flex-1 overflow-y-auto px-3 py-4 space-y-6 scrollbar-thin scrollbar-thumb-[#274056]">
         {NAV_SECTIONS.map((section) => {
           const visibleItems = section.items.filter((item) => {
+            if (!canAccessAdminRoute(user, item.href)) return false;
             if (!item.permission) return true;
             return canAccessPermission(user, item.permission);
           });

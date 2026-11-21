@@ -7,6 +7,7 @@ import redis, { isRedisReady } from './utils/redis.js';
 import {
   globalRateLimiter,
   adminRateLimiter,
+  webhookRateLimiter,
   withdrawalRateLimiter,
   depositRateLimiter,
   verificationRateLimiter,
@@ -18,6 +19,8 @@ import {
   notificationRateLimiter
 } from './middleware/rateLimit.js';
 import { requestIdMiddleware, finalErrorHandler } from './middleware/requestId.js';
+import { requireCsrfProtection } from './middleware/csrf.js';
+import { assertStartupSecrets } from './utils/secrets.js';
 import { authRouter } from './modules/auth/controller.js';
 import { meRouter } from './modules/me/controller.js';
 import { adminRouter } from './modules/admin/controller.js';
@@ -30,6 +33,10 @@ import { notificationRouter } from './modules/notification/controller.js';
 import { verificationRouter } from './modules/verification/controller.js';
 import { saferPlayRouter } from './modules/saferPlay/controller.js';
 import { MaintenanceService } from './modules/maintenance/service.js';
+
+// Fail closed at boot outside NODE_ENV=test if required signing/encryption
+// secrets or CORS restrictions are missing or set to weak/sample values.
+assertStartupSecrets();
 
 const app = express();
 // Prisma initialized in utils/db.js
@@ -53,17 +60,33 @@ if (!corsOrigin && process.env.NODE_ENV === 'production') {
 const allowedOrigins = corsOrigin
   ? corsOrigin.split(',').map((o) => o.trim()).filter(Boolean)
   : ['http://localhost:3000', 'http://localhost:3001'];
+const sharedCorsSettings = {
+  credentials: true,
+  allowedHeaders: [
+    'Content-Type',
+    'Authorization',
+    'X-CSRF-Token',
+    'X-App-Version',
+    'X-Admin-Mfa-Code',
+    'X-Auth-Mode',
+    'X-Request-Id'
+  ],
+  exposedHeaders: ['X-Request-Id']
+};
 const corsOptions = corsOrigin
   ? {
-      origin: (origin, done) => {
-        if (!origin || allowedOrigins.includes(origin)) return done(null, origin || allowedOrigins[0]);
-        if (process.env.NODE_ENV === 'development' && /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) {
-          return done(null, origin);
-        }
-        return done(null, false);
+    ...sharedCorsSettings,
+    origin: (origin, done) => {
+      if (!origin || allowedOrigins.includes(origin)) return done(null, origin || allowedOrigins[0]);
+      if (process.env.NODE_ENV === 'development' && /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) {
+        return done(null, origin);
       }
+      return done(null, false);
     }
-  : (process.env.NODE_ENV === 'test' ? { origin: true } : { origin: allowedOrigins });
+  }
+  : (process.env.NODE_ENV === 'test'
+    ? { ...sharedCorsSettings, origin: true }
+    : { ...sharedCorsSettings, origin: allowedOrigins });
 app.use(cors(corsOptions));
 
 // TLS enforcement for production fronting (APP_ENFORCE_TLS=true). HTTP GET/HEAD
@@ -79,13 +102,18 @@ if (process.env.APP_ENFORCE_TLS === 'true') {
   });
 }
 
-// Mount webhooks BEFORE express.json() so they get raw Buffer bodies for HMAC verification
+// Mount webhooks BEFORE express.json() so they get raw Buffer bodies for HMAC verification.
+// Protected by dedicated webhookRateLimiter (high retry-friendly ceiling + abuse tracking)
+// so player traffic cannot starve providers while unauthenticated floods are capped.
 app.use(requestIdMiddleware);
-app.use('/webhooks', webhookRouter);
+app.use('/webhooks', webhookRateLimiter, webhookRouter);
 
 app.use(express.json());
 app.use(httpLogger);
 app.use(globalRateLimiter);
+
+// Enforce CSRF protection on cookie-authenticated state-changing API requests.
+app.use('/api/v1', requireCsrfProtection);
 
 // Versioned API routes. Sensitive surfaces carry their own stricter bucket on
 // top of the global one (webhooks stay exempt — mounted before all limiters).

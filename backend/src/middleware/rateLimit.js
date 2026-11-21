@@ -144,7 +144,7 @@ export const createResilientStore = (prefix) => {
   return store;
 };
 
-export const limiterFor = ({ windowMs, max, message, prefix }) => rateLimit({
+export const limiterFor = ({ windowMs, max, message, prefix, handler }) => rateLimit({
   store: createResilientStore(prefix),
   windowMs,
   max:
@@ -152,6 +152,7 @@ export const limiterFor = ({ windowMs, max, message, prefix }) => rateLimit({
     // ceiling. Test-only: production silently ignores the flag.
     process.env.NODE_ENV === 'test' && process.env.RATE_LIMIT_DISABLED === 'true' ? 1_000_000 : max,
   message,
+  ...(handler ? { handler } : {}),
   ...LIMITER_DEFAULTS,
 });
 
@@ -183,13 +184,140 @@ export const checkRateLimiter = limiterFor({
 
 // Route-specific buckets. These sit on top of the global limiter so an
 // attack on a sensitive endpoint exhausts its own budget instead of starving
-// the rest of the app. Webhooks remain exempt (mounted before all limiters).
+// the rest of the app. Webhooks are mounted BEFORE globalRateLimiter so player
+// traffic cannot starve provider callbacks, and carry their own dedicated
+// webhookRateLimiter + invalid-signature abuse limiter.
 export const adminRateLimiter = limiterFor({
   prefix: 'http:admin:',
   windowMs: 60 * 1000,
   max: process.env.NODE_ENV === 'test' ? 1000 : 120,
   message: 'Too many admin requests from this IP, please try again after a minute',
 });
+
+// TOTP provisioning / verification / recovery is the one path an attacker can
+// hammer to guess codes, so it gets its own strict IP budget on top of the
+// per-admin Redis lock inside AdminMfaService.
+export const adminMfaRateLimiter = limiterFor({
+  prefix: 'http:admin:mfa:',
+  windowMs: 60 * 1000,
+  max: process.env.NODE_ENV === 'test' ? 1000 : 6,
+  message: 'Too many admin MFA attempts, please try again later',
+});
+
+const parsePositiveInt = (raw, fallback) => {
+  const n = Number.parseInt(String(raw ?? ''), 10);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+};
+
+// Dedicated webhook rate limiter mounted on /webhooks before globalRateLimiter.
+// Allows high burst capacity (120/min default, configurable via WEBHOOK_RATE_LIMIT_MAX)
+// so legitimate Paystack/Flutterwave retries and concurrent payment spikes are
+// never broken, while capping unauthenticated flood traffic and emitting
+// structured logs + Retry-After headers.
+export const webhookRateLimiter = limiterFor({
+  prefix: 'http:webhook:',
+  windowMs: 60 * 1000,
+  max: (req) => {
+    const configured = parsePositiveInt(process.env.WEBHOOK_RATE_LIMIT_MAX, null);
+    if (configured !== null) return configured;
+    return process.env.NODE_ENV === 'test' ? 1000 : 120;
+  },
+  message: 'Too many webhook requests, please retry shortly',
+  handler: (req, res, _next, options) => {
+    logger.warn(
+      {
+        event: 'webhook_rate_limited',
+        requestId: req.id,
+        ip: req.ip,
+        path: req.originalUrl || req.path
+      },
+      'Webhook request rate limited'
+    );
+    res.set('Retry-After', String(Math.ceil((options.windowMs || 60_000) / 1000)));
+    return res.status(options.statusCode || 429).json({
+      error: typeof options.message === 'string' ? options.message : 'Too many webhook requests'
+    });
+  }
+});
+
+// Separate invalid-signature abuse tracker for webhooks: incremented ONLY when
+// HMAC/secret verification fails. Legitimate signed provider retries NEVER
+// touch this bucket, whereas an unauthenticated attacker spraying forged
+// webhooks gets throttled rapidly with 429.
+const WEBHOOK_INVALID_SIG_WINDOW_MS = 60 * 1000;
+const webhookBadAuthStore = createResilientStore('http:webhook:bad_auth:');
+webhookBadAuthStore.init({ windowMs: WEBHOOK_INVALID_SIG_WINDOW_MS });
+const webhookBadAuthCounts = new Map(); // tracks local memory mirror for read-without-increment
+
+const getWebhookInvalidSigLimit = () => {
+  const configured = parsePositiveInt(process.env.WEBHOOK_INVALID_SIG_MAX, null);
+  if (configured !== null) return configured;
+  return process.env.NODE_ENV === 'test' ? 1000 : 20;
+};
+
+const webhookAbuseKey = (req, provider) => {
+  const baseIp = ipKeyGenerator(req.ip || '127.0.0.1');
+  return `${provider}:${baseIp}`;
+};
+
+export const isWebhookAuthAbuseBlocked = async (req, provider) => {
+  const limit = getWebhookInvalidSigLimit();
+  const key = webhookAbuseKey(req, provider);
+  if (isRedisReady(redis)) {
+    try {
+      const val = await redis.get(`${REDIS_KEY_PREFIX}http:webhook:bad_auth:${key}`);
+      if (Number(val || 0) >= limit) return true;
+    } catch {
+      // fall through to memory check
+    }
+  }
+  const entry = webhookBadAuthCounts.get(key);
+  if (!entry || entry.expiresAt <= Date.now()) {
+    webhookBadAuthCounts.delete(key);
+    return false;
+  }
+  return entry.hits >= limit;
+};
+
+export const recordWebhookInvalidSignature = async (req, provider) => {
+  const limit = getWebhookInvalidSigLimit();
+  const key = webhookAbuseKey(req, provider);
+  const now = Date.now();
+  let totalHits = 1;
+  try {
+    const res = await webhookBadAuthStore.increment(key);
+    totalHits = Number(res?.totalHits ?? 1);
+  } catch {
+    totalHits = 1;
+  }
+  const existing = webhookBadAuthCounts.get(key);
+  if (!existing || existing.expiresAt <= now) {
+    webhookBadAuthCounts.set(key, { hits: totalHits, expiresAt: now + WEBHOOK_INVALID_SIG_WINDOW_MS });
+  } else {
+    existing.hits = Math.max(existing.hits + 1, totalHits);
+    totalHits = existing.hits;
+  }
+  const blocked = totalHits >= limit;
+  if (blocked) {
+    logger.warn(
+      {
+        event: 'webhook_invalid_signature_throttled',
+        provider,
+        requestId: req.id,
+        ip: req.ip,
+        hits: totalHits,
+        limit
+      },
+      'Webhook source throttled after repeated invalid signatures'
+    );
+  }
+  return { totalHits, limit, blocked };
+};
+
+export const resetWebhookAuthAbuse = async () => {
+  webhookBadAuthCounts.clear();
+  await webhookBadAuthStore.resetAll();
+};
 
 export const withdrawalRateLimiter = limiterFor({
   prefix: 'http:withdrawal:',

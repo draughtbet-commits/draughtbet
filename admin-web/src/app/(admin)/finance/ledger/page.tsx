@@ -2,6 +2,8 @@
 
 import React, { useCallback, useEffect, useState } from 'react';
 import { adminApi } from '@/lib/api/admin';
+import { RouteGuard } from '@/components/auth/RouteGuard';
+import { PERMISSIONS } from '@/lib/permissions/matrix';
 import type {
   AdminDepositItem,
   AdminDepositsResponse,
@@ -36,7 +38,7 @@ const NON_WITHDRAWAL_TYPES = [
   'ADJUSTMENT'
 ] as const;
 
-export default function TopUpsAndLedgerPage() {
+function TopUpsAndLedgerPageContent() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('deposits');
 
   // Deposits / Balance Top-Ups state
@@ -681,5 +683,14 @@ export default function TopUpsAndLedgerPage() {
         </div>
       )}
     </div>
+  );
+}
+
+
+export default function TopUpsAndLedgerPage() {
+  return (
+    <RouteGuard permission={PERMISSIONS.WITHDRAWALS_READ} section="Top-Ups & Ledger">
+      <TopUpsAndLedgerPageContent />
+    </RouteGuard>
   );
 }

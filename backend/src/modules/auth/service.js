@@ -11,6 +11,12 @@ let prisma = _prisma;
 let redis = _redis;
 import logger from '../../utils/logger.js';
 import { getJwtSecret } from '../../utils/jwtEnv.js';
+import { AdminMfaService } from '../mfa/service.js';
+
+// Precomputed valid bcrypt cost-12 hash used for constant-time dummy
+// verification when a login identifier does not match any account.
+const DUMMY_PASSWORD_HASH =
+  '$2b$12$C6UzMDM.H6dfI/f/IKxGhu6pZ8P9R9wR1J6h.T4s9W7eG6W8Q5iHe';
 
 // Prisma initialized in utils/db.js
 
@@ -172,16 +178,20 @@ const user = await prisma.$transaction(async (tx) => {
       : { phone: normalizePhone(trimmed) };
     const user = await prisma.user.findUnique({ where });
     if (!user) {
+      // Constant-cost comparison prevents timing-based account enumeration.
+      await bcrypt.compare(password, DUMMY_PASSWORD_HASH).catch(() => false);
+      throw new Error('Invalid credentials');
+    }
+
+    // Verify password BEFORE inspecting suspension status so unauthenticated
+    // callers cannot enumerate banned accounts without knowing credentials.
+    const valid = await bcrypt.compare(password, user.passwordHash);
+    if (!valid) {
       throw new Error('Invalid credentials');
     }
 
     if (user.isBanned) {
       throw new Error('Account suspended');
-    }
-
-    const valid = await bcrypt.compare(password, user.passwordHash);
-    if (!valid) {
-      throw new Error('Invalid credentials');
     }
 
     if (fingerprintHash) {
@@ -274,8 +284,26 @@ const user = await prisma.$transaction(async (tx) => {
     return null;
   }
 
-  static async issueTokens(userId, { family = null, ip = null, userAgent = null, deviceInfo = null } = {}) {
-    const accessToken = jwt.sign({ userId }, jwtSecret, { expiresIn: ACCESS_TOKEN_EXPIRY });
+  static async issueTokens(
+    userId,
+    {
+      family = null,
+      ip = null,
+      userAgent = null,
+      deviceInfo = null,
+      mfaVerified = false,
+      mfaVerifiedAt = null
+    } = {}
+  ) {
+    const sessionFamily = family ?? uuidv4();
+    const verifiedAt = mfaVerified ? (mfaVerifiedAt ?? Date.now()) : null;
+    const jwtPayload = {
+      userId,
+      sessionFamily,
+      mfaVerified: Boolean(mfaVerified),
+      ...(verifiedAt ? { mfaVerifiedAt: verifiedAt } : {})
+    };
+    const accessToken = jwt.sign(jwtPayload, jwtSecret, { expiresIn: ACCESS_TOKEN_EXPIRY });
     const refreshTokenId = uuidv4();
 
     // Key: refresh:{userId}:{tokenId} -> value doesn't matter much, TTL is the focus
@@ -287,6 +315,14 @@ const user = await prisma.$transaction(async (tx) => {
       throw new Error('Authentication session store unavailable');
     }
 
+    // Persist MFA verification state inside session metadata so refresh rotation
+    // can never elevate an unverified pre-MFA session.
+    const cleanDeviceInfo =
+      deviceInfo && typeof deviceInfo === 'object' ? { ...deviceInfo } : undefined;
+    const storedDeviceInfo = mfaVerified
+      ? { ...(cleanDeviceInfo || {}), _security: { mfaVerified: true, mfaVerifiedAt: verifiedAt } }
+      : cleanDeviceInfo;
+
     // Durable session row (reuse-detection spine): only the token hash is
     // stored. Each rotation moves the family forward and revokes the old row.
     if (prisma) {
@@ -294,9 +330,9 @@ const user = await prisma.$transaction(async (tx) => {
         data: {
           userId,
           refreshTokenHash: hashRefreshToken(refreshTokenId),
-          family: family ?? uuidv4(),
+          family: sessionFamily,
           lastRotatedAt: new Date(),
-          deviceInfo: deviceInfo ?? undefined,
+          deviceInfo: storedDeviceInfo,
           ipAddress: ip ?? undefined,
           userAgent: userAgent ?? undefined,
           status: 'ACTIVE',
@@ -309,6 +345,34 @@ const user = await prisma.$transaction(async (tx) => {
       accessToken,
       refreshToken: refreshTokenId
     };
+  }
+
+  /**
+   * Elevates an authenticated admin session to MFA-verified after a valid TOTP
+   * or single-use recovery code check. Revokes any prior unverified ACTIVE
+   * sessions in the same family and issues a fresh rotated MFA-verified pair.
+   */
+  static async upgradeSessionMfa(
+    userId,
+    { sessionFamily = null, ip = null, userAgent = null, deviceInfo = null } = {}
+  ) {
+    const family = sessionFamily ?? uuidv4();
+    if (prisma && sessionFamily) {
+      await prisma.userSession.updateMany({
+        where: { userId, family: sessionFamily, status: 'ACTIVE' },
+        data: { status: 'REVOKED' }
+      }).catch(() => {});
+    }
+    const mfaVerifiedAt = Date.now();
+    const tokens = await this.issueTokens(userId, {
+      family,
+      ip,
+      userAgent,
+      deviceInfo,
+      mfaVerified: true,
+      mfaVerifiedAt
+    });
+    return { ...tokens, sessionFamily: family, mfaVerified: true, mfaVerifiedAt };
   }
 
   static async recordSecurityEvent(userId, type, metadata = {}, ip = null, userAgent = null) {
@@ -417,12 +481,36 @@ const user = await prisma.$transaction(async (tx) => {
       }
     }
 
+    // Preserve MFA verification state across refresh rotation — NEVER elevate
+    // an unverified session, and downgrade if MFA was disabled, re-enrolled, or
+    // locked since the session was verified.
+    let mfaVerified = session?.deviceInfo?._security?.mfaVerified === true;
+    let mfaVerifiedAt =
+      typeof session?.deviceInfo?._security?.mfaVerifiedAt === 'number'
+        ? session.deviceInfo._security.mfaVerifiedAt
+        : null;
+
+    if (mfaVerified && AdminMfaService.isEnforced()) {
+      const mfaRow = prisma?.adminMfa?.findUnique
+        ? await prisma.adminMfa.findUnique({ where: { userId } })
+        : null;
+      const enabledAtMs =
+        mfaRow?.enabledAt && mfaRow.enabledAt.getTime() > 0 ? mfaRow.enabledAt.getTime() : 0;
+      const locked = await AdminMfaService.isLocked(userId);
+      if (!mfaRow || enabledAtMs <= 0 || !mfaVerifiedAt || mfaVerifiedAt < enabledAtMs || locked) {
+        mfaVerified = false;
+        mfaVerifiedAt = null;
+      }
+    }
+
     // Issue new tokens
     return this.issueTokens(userId, {
       family: session?.family ?? null,
       ip,
       userAgent,
-      deviceInfo
+      deviceInfo,
+      mfaVerified,
+      mfaVerifiedAt
     });
   }
 

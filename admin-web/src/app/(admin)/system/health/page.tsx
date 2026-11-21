@@ -43,9 +43,14 @@ export default function HealthPage() {
   };
 
   useEffect(() => {
-    fetchHealth();
+    const initId = window.setTimeout(() => {
+      fetchHealth();
+    }, 0);
     const interval = setInterval(fetchHealth, 30000); // Probe every 30s
-    return () => clearInterval(interval);
+    return () => {
+      window.clearTimeout(initId);
+      clearInterval(interval);
+    };
   }, []);
 
   return (

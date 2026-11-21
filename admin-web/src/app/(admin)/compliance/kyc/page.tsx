@@ -2,6 +2,8 @@
 
 import React, { useEffect, useState, useCallback } from 'react';
 import { adminApi } from '@/lib/api/admin';
+import { RouteGuard } from '@/components/auth/RouteGuard';
+import { PERMISSIONS } from '@/lib/permissions/matrix';
 import { VerificationCaseItem, VerificationDocumentAccessResponse } from '@/lib/api/types';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -24,7 +26,7 @@ import {
   X
 } from 'lucide-react';
 
-export default function KycPage() {
+function KycPageContent() {
   const [cases, setCases] = useState<VerificationCaseItem[]>([]);
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [search, setSearch] = useState('');
@@ -74,7 +76,10 @@ export default function KycPage() {
   }, [page, statusFilter, search]);
 
   useEffect(() => {
-    fetchCases();
+    const id = window.setTimeout(() => {
+      fetchCases();
+    }, 0);
+    return () => window.clearTimeout(id);
   }, [fetchCases]);
 
   const openDetail = async (caseId: string) => {
@@ -657,5 +662,14 @@ export default function KycPage() {
         </div>
       )}
     </div>
+  );
+}
+
+
+export default function KycPage() {
+  return (
+    <RouteGuard permission={PERMISSIONS.VERIFICATION_REVIEW} section="KYC Reviews">
+      <KycPageContent />
+    </RouteGuard>
   );
 }

@@ -3,12 +3,12 @@
 import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { authApi } from '../api/auth';
-import { apiClient, ApiError } from '../api/client';
-import { AdminUser } from '../permissions/guards';
+import { apiClient, ApiError, purgeLegacyTokenStorage } from '../api/client';
+import { type AdminUser } from '../permissions/guards';
 
-const LAST_ACTIVITY_KEY = 'draughtbet_admin_last_activity';
 // Stay signed in continuously during active operator work; sign out cleanly
-// only after 30 minutes of leaving the tab idle.
+// only after 30 minutes of leaving the tab idle. Kept in memory (ref) — zero
+// auth tokens or sensitive state are persisted in localStorage/sessionStorage.
 const IDLE_TIMEOUT_MS = 30 * 60 * 1000;
 const HEARTBEAT_INTERVAL_MS = 30 * 1000;
 const PROACTIVE_REFRESH_WINDOW_MS = 4 * 60 * 1000;
@@ -20,35 +20,22 @@ interface AuthContextValue {
   login: (identifier: string, password: string) => Promise<AdminUser>;
   logout: () => Promise<void>;
   refreshProfile: () => Promise<AdminUser | null>;
+  verifyMfaSession: (code: string) => Promise<AdminUser | null>;
+  recoverMfaSession: (recoveryCode: string) => Promise<AdminUser | null>;
+  completeMfaEnrollment: (code: string) => Promise<AdminUser | null>;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
-function readLastActivity(): number {
-  if (typeof window === 'undefined') return Date.now();
-  const raw = localStorage.getItem(LAST_ACTIVITY_KEY);
-  const parsed = raw ? Number(raw) : NaN;
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : Date.now();
-}
-
-function writeLastActivity(ts = Date.now()) {
-  if (typeof window === 'undefined') return;
-  localStorage.setItem(LAST_ACTIVITY_KEY, String(ts));
-}
-
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AdminUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const lastWriteRef = useRef(0);
+  const lastActivityRef = useRef<number>(0);
   const router = useRouter();
   const pathname = usePathname();
 
   const touchActivity = useCallback(() => {
-    const now = Date.now();
-    if (now - lastWriteRef.current >= 5000) {
-      lastWriteRef.current = now;
-      writeLastActivity(now);
-    }
+    lastActivityRef.current = Date.now();
   }, []);
 
   const refreshProfile = useCallback(async (): Promise<AdminUser | null> => {
@@ -60,7 +47,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         username: data.username,
         fullName: data.fullName,
         roles: data.roles,
-        permissions: data.permissions
+        permissions: data.permissions,
+        mfa: data.mfa
       };
       setUser(adminUser);
       return adminUser;
@@ -74,7 +62,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
+    purgeLegacyTokenStorage();
     const handleAuthExpired = () => {
+      apiClient.clearAuth();
       setUser(null);
       router.push('/login?expired=true');
     };
@@ -83,21 +73,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => window.removeEventListener('draughtbet:auth-expired', handleAuthExpired);
   }, [router]);
 
+  // Bootstrap session directly from server-verified HttpOnly cookies (no localStorage)
   useEffect(() => {
     let active = true;
     const init = async () => {
-      const token = apiClient.getAccessToken();
-      if (token) {
-        const lastActive = readLastActivity();
-        if (Date.now() - lastActive >= IDLE_TIMEOUT_MS) {
-          await authApi.logout();
-          if (active) setUser(null);
-        } else {
-          writeLastActivity(Date.now());
-          await refreshProfile();
+      try {
+        const profile = await refreshProfile();
+        if (active && profile) {
+          lastActivityRef.current = Date.now();
         }
+      } finally {
+        if (active) setIsLoading(false);
       }
-      if (active) setIsLoading(false);
     };
 
     void init();
@@ -106,14 +93,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, [refreshProfile]);
 
-  // Activity listener + idle expiration & proactive token refresh loop
+  // Activity listener + idle expiration & proactive HttpOnly cookie refresh loop
   useEffect(() => {
     if (!user) return undefined;
+    if (lastActivityRef.current === 0) {
+      lastActivityRef.current = Date.now();
+    }
 
     const handleUserActivity = () => {
       const now = Date.now();
-      const idleElapsed = now - readLastActivity();
-      if (idleElapsed >= IDLE_TIMEOUT_MS) {
+      if (now - lastActivityRef.current >= IDLE_TIMEOUT_MS) {
         void authApi.logout().finally(() => {
           setUser(null);
           router.push('/login?expired=true');
@@ -125,8 +114,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const handleVisibility = () => {
       if (document.visibilityState === 'visible') {
-        const idleElapsed = Date.now() - readLastActivity();
-        if (idleElapsed >= IDLE_TIMEOUT_MS) {
+        if (Date.now() - lastActivityRef.current >= IDLE_TIMEOUT_MS) {
           void authApi.logout().finally(() => {
             setUser(null);
             router.push('/login?expired=true');
@@ -145,8 +133,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     document.addEventListener('visibilitychange', handleVisibility);
 
     const interval = setInterval(() => {
-      const idleElapsed = Date.now() - readLastActivity();
-      if (idleElapsed >= IDLE_TIMEOUT_MS) {
+      if (Date.now() - lastActivityRef.current >= IDLE_TIMEOUT_MS) {
         void authApi.logout().finally(() => {
           setUser(null);
           router.push('/login?expired=true');
@@ -171,9 +158,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setIsLoading(true);
     try {
       await authApi.login(identifier, password);
-      writeLastActivity(Date.now());
+      lastActivityRef.current = Date.now();
       const adminProfile = await refreshProfile();
       if (!adminProfile) {
+        await authApi.logout();
         throw new Error('Access denied: account does not have admin privileges.');
       }
       return adminProfile;
@@ -182,13 +170,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const verifyMfaSession = async (code: string): Promise<AdminUser | null> => {
+    await authApi.verifyMfaSession(code);
+    lastActivityRef.current = Date.now();
+    return refreshProfile();
+  };
+
+  const recoverMfaSession = async (recoveryCode: string): Promise<AdminUser | null> => {
+    await authApi.recoverMfaSession(recoveryCode);
+    lastActivityRef.current = Date.now();
+    return refreshProfile();
+  };
+
+  const completeMfaEnrollment = async (code: string): Promise<AdminUser | null> => {
+    await authApi.enableMfa(code);
+    lastActivityRef.current = Date.now();
+    return refreshProfile();
+  };
+
   const logout = async () => {
     setIsLoading(true);
     try {
       await authApi.logout();
-      if (typeof window !== 'undefined') {
-        localStorage.removeItem(LAST_ACTIVITY_KEY);
-      }
       setUser(null);
       router.push('/login');
     } finally {
@@ -203,7 +206,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (!user && !isAuthRoute) {
         router.push('/login');
       } else if (user && isAuthRoute) {
-        router.push('/dashboard');
+        const needsMfa = Boolean(user.mfa?.enforced && !user.mfa?.verified);
+        if (!needsMfa) {
+          router.push('/dashboard');
+        }
       }
     }
   }, [user, isLoading, pathname, router]);
@@ -216,7 +222,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         isAuthenticated: !!user,
         login,
         logout,
-        refreshProfile
+        refreshProfile,
+        verifyMfaSession,
+        recoverMfaSession,
+        completeMfaEnrollment
       }}
     >
       {children}
@@ -230,4 +239,8 @@ export function useAuth() {
     throw new Error('useAuth must be used within an AuthProvider');
   }
   return ctx;
+}
+
+export function useOptionalAuth(): AuthContextValue | null {
+  return useContext(AuthContext) ?? null;
 }
